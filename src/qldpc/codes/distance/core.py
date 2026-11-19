@@ -193,8 +193,9 @@ def get_distance_from_generators(
         ``NO_DISTANCE`` (see :class:`NoDistance`), whatever ``cutoff`` and ``max_weight`` are.
 
     Raises:
-        TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``generators`` or
-            ``excluded`` is not array-like, as when a code is given instead of a matrix.
+        TypeError: If ``cutoff`` or ``max_weight`` is not an integer, or is a bool, or if
+            ``generators`` or ``excluded`` is not array-like, as when a code is given instead of a
+            matrix.
         ValueError: If the method is unknown or is ``"connected_cluster"``, if ``max_weight`` is
             negative, if the matrices are not binary matrices with the same number of columns, if
             neither has a width (``generators`` is an empty list, and ``excluded`` is one too or is
@@ -285,8 +286,9 @@ def get_distance_from_checks(
         :func:`get_distance_from_generators`.
 
     Raises:
-        TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` or
-            ``excluded`` is not array-like, as when a code is given instead of a matrix.
+        TypeError: If ``cutoff`` or ``max_weight`` is not an integer, or is a bool, or if
+            ``checks`` or ``excluded`` is not array-like, as when a code is given instead of a
+            matrix.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the matrices are not
             binary matrices with the same number of columns, if neither has a width (``checks`` is
             an empty list, and ``excluded`` is one too or is not given), if ``symplectic`` is True
@@ -375,8 +377,9 @@ def get_distance_css(
         ``NO_DISTANCE`` for a code that encodes no qubits.
 
     Raises:
-        TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks_x`` or
-            ``checks_z`` is not array-like, as when a code is given instead of its checks.
+        TypeError: If ``cutoff`` or ``max_weight`` is not an integer, or is a bool, or if
+            ``checks_x`` or ``checks_z`` is not array-like, as when a code is given instead of its
+            checks.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not
             binary matrices with the same number of columns, if both are empty lists, which have no
             width, if ``pauli`` is not X, Z, or None, if ``automorphisms`` are not permutations of
@@ -444,8 +447,8 @@ def get_distance_pauli(
         code that encodes no qubits.
 
     Raises:
-        TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` is not
-            array-like, as when a code is given instead of its checks.
+        TypeError: If ``cutoff`` or ``max_weight`` is not an integer, or is a bool, or if
+            ``checks`` is not array-like, as when a code is given instead of its checks.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not a
             binary matrix with an even number of columns, if they are an empty list, which has no
             width, if ``automorphisms`` are not permutations of the qubits, or if a search finds
@@ -962,6 +965,7 @@ def _as_permutations(automorphisms: npt.ArrayLike, num_variables: int) -> npt.ND
 
 def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[int, int | None]:
     """The cutoff, capped by a weight limit, and the upper bound ``max_weight + 1`` (or None)."""
+    cutoff = as_integer(cutoff, "cutoff")
     if max_weight is None:
         return cutoff, None
     max_weight = as_integer(max_weight, "max_weight")

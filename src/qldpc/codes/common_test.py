@@ -13,7 +13,7 @@ import random
 import unittest.mock
 import warnings
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any
+from typing import Any, cast
 
 import galois
 import networkx as nx
@@ -2270,6 +2270,19 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
         pytest.raises(ValueError, match="not recognized by GAP/QDistRnd"),
     ):
         non_css.get_code_params(bound=True, decoder=decoder)
+
+
+def test_deprecated_cutoff_of_exact_distances() -> None:
+    """A float cutoff of an exact-distance method warns at the caller, and works in a search."""
+    surface_code = codes.SurfaceCode(2)
+    for code in (
+        codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]]),
+        codes.QuditCode(surface_code.matrix),
+        surface_code.forget_distance(),
+    ):
+        with pytest.warns(DeprecationWarning, match="which is not an integer") as record:
+            code.get_distance_exact(cutoff=cast(Any, 2.5))
+        assert record[0].filename == __file__
 
 
 def test_deprecated_abstract_code_graph() -> None:

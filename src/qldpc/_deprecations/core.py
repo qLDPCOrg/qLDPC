@@ -22,8 +22,8 @@ Registry targets are lazy "module:attribute" strings, and this module imports no
 at import time, so that every module can import it without an import cycle.  Deprecated methods are
 defined at the bottom of this module, and attached to their classes by install_deprecated_methods,
 which qldpc/__init__.py calls once the subpackages that define those classes are imported.
-Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
-raising defunct(...).
+Deprecated arguments and modes are handled where they are accepted, by calling a helper here, such
+as warn_deprecated or as_integer_cutoff, or by raising defunct(...).
 
 A future change, which makes the same call silently behave differently (rather than fail with an
 error, as deprecated usage eventually does), is likewise handled where its keyword is accepted: a
@@ -343,6 +343,35 @@ def warn_future_change(message: str, *, stacklevel: int) -> None:
     warnings.warn(message, FutureWarning, stacklevel=stacklevel + 1)
 
 
+def as_integer_cutoff(cutoff: int) -> int:
+    """The cutoff of a distance search, warning about a float or a bool and making it an integer.
+
+    Released versions took a float cutoff, and compared it only with integer weights.  So a float
+    acts as its floor, clamped to [-1, ``_tuning.MAX_VALUE``], and a bool as its integer.  A cutoff
+    of -1 never stops a search early, and every upper bound meets ``MAX_VALUE``.  NaN acts as -1.
+    Any other cutoff passes unchanged, for the distance functions to accept or reject.
+    """
+    import numpy as np
+
+    from qldpc.codes.distance import _tuning
+
+    # Only floats and bools get a deprecation period.  Other types that released versions took,
+    # such as Fraction and Decimal, are not plausible cutoffs, so the functions of
+    # qldpc.codes.distance reject them at once.
+    if not isinstance(cutoff, (float, np.floating, bool, np.bool_)):
+        return cutoff
+    # Floor and clip in a long double, which holds every NumPy float and MAX_VALUE exactly.  A
+    # narrower type, such as float16, would overflow at MAX_VALUE.
+    value = np.longdouble(cutoff)
+    integer = -1 if np.isnan(value) else int(np.clip(np.floor(value), -1, _tuning.MAX_VALUE))
+    warn_deprecated(
+        f"A cutoff of {cutoff!r}, which is not an integer, is deprecated, and will raise an error in"
+        " a future release; pass an integer instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    return integer
+
+
 def defunct(message: str) -> ValueError:
     """Return the error that a defunct method or argument raises when it is used."""
     return ValueError(message)
@@ -406,7 +435,9 @@ def get_distance_classical(
         stacklevel=get_external_caller_stacklevel(),
     )
     with _use_block_size(block_size):
-        distance = get_distance_from_generators(generators, cutoff=cutoff, method=method)
+        distance = get_distance_from_generators(
+            generators, cutoff=as_integer_cutoff(cutoff), method=method
+        )
     if distance is NO_DISTANCE:
         return as_binary_matrix(generators, "generators").shape[1]
     return distance
@@ -441,6 +472,7 @@ def get_distance_css_brouwer_zimmermann(
         as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
         for logical_ops, stabilizers in sectors
     ]
+    cutoff = as_integer_cutoff(cutoff)
     best = upper_bound
     with _use_block_size(block_size):
         for logical_matrix, stabilizer_matrix in matrices:
@@ -499,7 +531,7 @@ def get_distance_quantum(
             logical_matrix,
             stabilizer_matrix,
             symplectic=not homogeneous,
-            cutoff=cutoff,
+            cutoff=as_integer_cutoff(cutoff),
             method=method,
         )
     if distance is NO_DISTANCE:
