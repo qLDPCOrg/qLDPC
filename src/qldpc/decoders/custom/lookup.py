@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import collections
-import types
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from typing import TypeAlias, cast, overload
 
@@ -31,6 +30,7 @@ _LOOKUP_CHUNK_SIZE = 4096
 _ErrorVector: TypeAlias = npt.NDArray[np.int_] | Sequence[int]
 _ErrorLogProbability: TypeAlias = Callable[[_ErrorVector], float]
 _ErrorChannel: TypeAlias = npt.NDArray[np.floating] | Sequence[float] | _ErrorLogProbability | None
+_Candidates: TypeAlias = tuple[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]], ...]
 
 
 ####################################################################################################
@@ -802,7 +802,7 @@ class _CandidateLookupDecoder(WeightedLookupDecoder):
         # that error is selected: an observable-flip prediction if requested (else the error
         # itself), with a trivial erasure bit appended.  The output is precomputed here so that
         # decode() only has to select the minimum-penalty candidate error.
-        syndrome_to_candidates: dict[
+        self._syndrome_to_candidates: dict[
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
         get_observable_flip = None
@@ -819,33 +819,13 @@ class _CandidateLookupDecoder(WeightedLookupDecoder):
                 if get_observable_flip is None
                 else get_observable_flip(error).astype(pcm.dtype)
             )
-            syndrome_to_candidates[tuple(syndrome.tolist())].append(
+            self._syndrome_to_candidates[tuple(syndrome.tolist())].append(
                 (error, self._maybe_add_erasure_bit(output))
             )
-
-        # freeze the table, which the syndrome_to_candidates property exposes
-        self._syndrome_to_candidates = {
-            syndrome: tuple(candidates) for syndrome, candidates in syndrome_to_candidates.items()
-        }
-        self._make_candidates_read_only()
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
         return len(self._syndrome_to_candidates)
-
-    def __setstate__(self, state: dict[str, object]) -> None:
-        """Restore a pickled decoder, and make its candidate arrays read-only again.
-
-        Pickling does not keep the read-only flags of arrays.
-        """
-        self.__dict__.update(state)
-        self._make_candidates_read_only()
-
-    def _make_candidates_read_only(self) -> None:
-        """Make the candidate arrays read-only, since syndrome_to_candidates exposes them."""
-        for candidates in self._syndrome_to_candidates.values():
-            for error, output in candidates:
-                error.flags.writeable = output.flags.writeable = False
 
     def _decode_weighted(
         self,
@@ -939,7 +919,7 @@ class WeightedErrorLookupDecoder(_CandidateLookupDecoder, ErrorDecoder):
         ErrorLookupDecoder.syndrome_to_prediction describes; see its docstring.  The map and its
         arrays are read-only.
         """
-        return types.MappingProxyType(self._syndrome_to_candidates)
+        return _SyndromeToCandidatesView(self)
 
 
 class WeightedObservableLookupDecoder(_CandidateLookupDecoder):
@@ -1026,7 +1006,39 @@ class WeightedObservableLookupDecoder(_CandidateLookupDecoder):
         if this decoder has one.  ``.decode_observables`` returns that output if it selects that
         error.
         """
-        return types.MappingProxyType(self._syndrome_to_candidates)
+        return _SyndromeToCandidatesView(self)
+
+
+class _SyndromeToCandidatesView(Mapping[tuple[int, ...], _Candidates]):
+    """Read-only view of the candidates of a weighted lookup decoder.
+
+    Values are tuples of read-only views of the stored arrays, which themselves stay writeable.
+    """
+
+    def __init__(self, decoder: _CandidateLookupDecoder) -> None:
+        self._decoder = decoder
+
+    def __getitem__(self, syndrome: tuple[int, ...]) -> _Candidates:
+        # unlike indexing, get() does not add an absent syndrome to the stored defaultdict
+        candidates = self._decoder._syndrome_to_candidates.get(syndrome)
+        if candidates is None:
+            raise KeyError(syndrome)
+        return tuple(
+            (_read_only_view(error), _read_only_view(output)) for error, output in candidates
+        )
+
+    def __iter__(self) -> Iterator[tuple[int, ...]]:
+        return iter(self._decoder._syndrome_to_candidates)
+
+    def __len__(self) -> int:
+        return len(self._decoder._syndrome_to_candidates)
+
+
+def _read_only_view(array: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+    """A read-only view of an array, which shares its data."""
+    view = array.view()
+    view.flags.writeable = False
+    return view
 
 
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:

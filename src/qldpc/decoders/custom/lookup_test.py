@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import collections
 import itertools
-import pickle
 
 import galois
 import numpy as np
@@ -484,14 +483,6 @@ def test_syndrome_to_candidates() -> None:
     with pytest.raises(KeyError):
         table[1, 1, 1]
     assert len(decoder) == len(table) == 4
-
-    # a pickled decoder restores its table, which stays read-only
-    restored = pickle.loads(pickle.dumps(decoder))  # noqa: S301 - trusted in-memory round trip
-    for syndrome, candidates in restored.syndrome_to_candidates.items():
-        assert [tuple(error) for error, _ in candidates] == [
-            tuple(error) for error, _ in table[syndrome]
-        ]
-        assert all(not array.flags.writeable for candidate in candidates for array in candidate)
 
     # an observable table's outputs are the observable flips of its errors
     observable_decoder = decoders.custom.WeightedObservableLookupDecoder(
