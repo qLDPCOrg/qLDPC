@@ -90,8 +90,11 @@ def get_state_prep_diagnostic_circuit(
     Raises:
         ValueError: If the code is not a qubit code; if ``qubit_ids`` does not match the code; if
             ``skip_validation`` is False and the circuit does not deterministically prepare a pure
-            logical state of the code; or if an observable is the identity, has a symplectic row
-            that is not binary, or is not a Pauli operator on ``len(code)`` qubits.
+            logical state of the code, including if the sign of a stabilizer on the data qubits
+            depends on detectors whose combined outcome is random, as ``get_state_stabilizers``
+            describes; if ``observables`` is None and the sign of a logical stabilizer depends on
+            such detectors; or if an observable is the identity, has a symplectic row that is not
+            binary, or is not a Pauli operator on ``len(code)`` qubits.
     """
     qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
     if not skip_validation:
@@ -258,10 +261,13 @@ def get_state_prep_diagnostic_tasks(
             observable indices.
         ValueError: If the code is not a qubit code; if ``qubit_ids`` does not match the code; if
             ``skip_validation`` is False and the circuit does not deterministically prepare a pure
-            logical state of the code; if an observable is the identity, has a symplectic row that
-            is not binary, or is not a Pauli operator on ``len(code)`` qubits; if ``post_select``
-            has an index outside the selectable detectors; or if ``post_select_observables`` has an
-            index outside the observables.
+            logical state of the code, including if the sign of a stabilizer on the data qubits
+            depends on detectors whose combined outcome is random, as ``get_state_stabilizers``
+            describes; if ``observables`` is None and the sign of a logical stabilizer depends on
+            such detectors; if an observable is the identity, has a symplectic row that is not
+            binary, or is not a Pauli operator on ``len(code)`` qubits; if ``post_select`` has an
+            index outside the selectable detectors; or if ``post_select_observables`` has an index
+            outside the observables.
     """
     diagnostic_circuit, detector_record = get_state_prep_diagnostic_circuit(
         code,

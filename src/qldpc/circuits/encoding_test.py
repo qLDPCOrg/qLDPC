@@ -194,6 +194,33 @@ def test_state_stabilizer_failure_regressions() -> None:
     assert len(circuits.get_logical_state_stabilizers(code, prep, qids)) == code.dimension
 
 
+def test_state_stabilizer_signs_must_be_determined() -> None:
+    """Raise when a stabilizer on the requested qubits needs post-selection on random detectors."""
+    # Z1 is a stabilizer only after post-selecting on the random outcome of M 0.  With a third
+    # qubit, Z1 Z2 is a stabilizer with a fixed sign, but Z1 and Z2 need that post-selection.
+    measured_bell = stim.Circuit("H 0\nCX 0 1\nM 0\nDETECTOR rec[-1]")
+    measured_ghz = stim.Circuit("H 0\nCX 0 1\nCX 0 2\nM 0\nDETECTOR rec[-1]")
+    with pytest.raises(ValueError, match=r"stabilizer Z1 .*detectors \[0\]"):
+        circuits.get_state_stabilizers(measured_bell, [1])
+    with pytest.raises(ValueError, match=r"stabilizer Z[12] .*detectors \[0\]"):
+        circuits.get_state_stabilizers(measured_ghz, [1, 2])
+
+    # the error names a logical stabilizer by its logical qubit, here on physical qubit 2
+    qubit_ids = circuits.QubitIDs(data=(2,))
+    with pytest.raises(ValueError, match=r"logical stabilizer Z0 .*detectors \[0\]"):
+        circuits.get_logical_state_stabilizers(
+            codes.TrivialCode(1), stim.Circuit("H 0\nCX 0 2\nM 0\nDETECTOR rec[-1]"), qubit_ids
+        )
+
+    # a random detector away from the requested qubits, and deterministic detectors, do not raise
+    assert circuits.get_state_stabilizers(measured_bell, [2]) == [stim.PauliString("+Z")]
+    circuit = stim.Circuit("X 0\nCX 0 1\nM 1\nDETECTOR rec[-1]\nH 2\nM 2\nDETECTOR rec[-1]")
+    stabilizers = circuits.get_state_stabilizers(circuit, [0, 1])
+    assert sorted(map(str, stabilizers)) == ["-Z_", "-_Z"]
+    circuit = stim.Circuit("H 0\nCX 0 1\nCX 0 2\nM 0 1\nDETECTOR rec[-2] rec[-1]")
+    assert circuits.get_state_stabilizers(circuit, [2]) == []
+
+
 def test_deprecated_logical_state_stabilizers_argument_order() -> None:
     """The released argument order (state_prep_circuit, code, qubit_ids) warns and still works."""
     code = codes.SteaneCode()

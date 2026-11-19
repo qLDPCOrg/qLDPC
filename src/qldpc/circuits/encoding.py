@@ -198,14 +198,27 @@ def get_state_stabilizers(
     on the specified qubits, we collect all output generators into a binary matrix and row-reduce
     this matrix.
 
+    The circuit's detectors count as post-selected.  Their combined outcomes should be
+    deterministic in a noiseless run, as Stim assumes.  A stabilizer on the specified qubits that
+    holds only because of post-selection on detectors with a random combined outcome has no fixed
+    sign, since these detectors have no noiseless outcome to post-select on, and this function
+    raises an error for it.  Every other stabilizer has the same sign in every noiseless run, and
+    a simulation of one run finds this sign.  To find the stabilizers, the parity of the
+    measurements of each detector joins the output generators above.
+
     Args:
-        state_prep_circuit: A circuit that prepares a logical state of the provided code.
+        state_prep_circuit: The circuit that prepares the state.
         qubits: The qubits on which we are looking for stabilizers.  If provided an integer, target
             the qubits indexed by range(qubits).
 
     Returns:
         A list of Pauli strings supported on the specified qubits.  The strings are compacted into
         the requested-qubit frame: position ``i`` refers to ``qubits[i]`` in the input circuit.
+
+    Raises:
+        ValueError: If the sign of a stabilizer on the requested qubits depends on detectors whose
+            combined outcome is random, as for Z on qubit 1 after
+            ``H 0; CX 0 1; M 0; DETECTOR rec[-1]``.
     """
     state_qubits = (
         np.arange(qubits, dtype=int) if isinstance(qubits, int) else np.asarray(qubits, dtype=int)
@@ -220,7 +233,8 @@ def get_state_stabilizers(
     num_measurements = state_prep_circuit.num_measurements
     num_observables = state_prep_circuit.num_observables
     num_columns = 2 * num_qubits + num_measurements + num_observables
-    num_rows = len(flow_generators) + state_prep_circuit.num_detectors
+    num_detectors = state_prep_circuit.num_detectors
+    num_rows = len(flow_generators) + num_detectors
 
     # build a matrix of stabilizers for the entire circuit output, determined by the flows
     matrix = np.zeros((num_rows, num_columns), dtype=np.uint8)
@@ -250,32 +264,58 @@ def get_state_stabilizers(
     # Row reduction must eliminate unwanted support before selecting a basis supported on the
     # requested qubits.  Natural column order would instead preserve state-qubit pivots and lose
     # stabilizers that are sums of the original flow rows.  Columns q and num_qubits + q hold the X
-    # and Z parts on qubit q.
+    # and Z parts on qubit q.  Columns between the unwanted and state columns record which detector
+    # rows each row is a sum of.
     other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
     unwanted_columns = np.concatenate(
         [other_qubits, other_qubits + num_qubits, np.arange(2 * num_qubits, num_columns, dtype=int)]
     )
     state_columns = np.concatenate([state_qubits, state_qubits + num_qubits])
-    reordered_matrix = matrix[:, np.concatenate([unwanted_columns, state_columns])]
+    detector_columns = np.zeros((num_rows, num_detectors), dtype=np.uint8)
+    detector_columns[len(flow_generators) :] = np.eye(num_detectors, dtype=np.uint8)
+    reordered_matrix = np.hstack(
+        [matrix[:, unwanted_columns], detector_columns, matrix[:, state_columns]]
+    )
 
-    # Identify stabilizers supported only on the requested qubits.  The unwanted columns come
-    # first, so the rows of the reduced row echelon form with pivots on requested qubits vanish on
-    # the unwanted columns.  These rows span every such stabilizer, since a sum of rows is nonzero
-    # at the pivot of each row in the sum.
+    # Identify stabilizers supported only on the requested qubits.  The unwanted and detector
+    # columns come first, so the rows of the reduced row echelon form with pivots on requested
+    # qubits vanish on these columns.  These rows span every stabilizer that the flows give without
+    # detectors, since a sum of rows is nonzero at the pivot of each row in the sum.
     rows = get_independent_rows(reordered_matrix)
     num_unwanted_columns = len(unwanted_columns)
-    on_state = np.any(rows[:, num_unwanted_columns:], axis=1)
+    num_leading_columns = num_unwanted_columns + num_detectors  # columns before the state columns
+    on_state = np.any(rows[:, num_leading_columns:], axis=1)
+    on_detectors = np.any(rows[:, num_unwanted_columns:num_leading_columns], axis=1)
     on_others = np.any(rows[:, :num_unwanted_columns], axis=1)
-    stabilizers = [
-        stim.PauliString.from_numpy(
-            xs=row[num_unwanted_columns : num_unwanted_columns + len(state_qubits)] != 0,
-            zs=row[num_unwanted_columns + len(state_qubits) :] != 0,
+    state_parts = rows[:, num_leading_columns:] != 0
+    num_state_qubits = len(state_qubits)
+
+    # Raise if a stabilizer on the requested qubits needs detectors, since its sign is then
+    # undetermined.  A row that vanishes on the unwanted columns but not on the detector columns
+    # gives a stabilizer only with the help of its detectors.  Its part on requested qubits
+    # vanishes at the pivots of the stabilizers that the flows give without detectors, so it is not
+    # a product of them.  If its detectors had a deterministic combined outcome, a flow would give
+    # that parity, and adding it would remove the detectors.  So that outcome, which fixes the
+    # sign, is random.
+    undetermined = np.flatnonzero(on_state & on_detectors & ~on_others)
+    if len(undetermined):
+        part = state_parts[undetermined[0]]
+        stabilizer = stim.PauliString.from_numpy(
+            xs=part[:num_state_qubits], zs=part[num_state_qubits:]
         )
-        for row in rows[on_state & ~on_others]
+        detector_part = rows[undetermined[0], num_unwanted_columns:num_leading_columns]
+        raise _UndeterminedSignError(
+            stabilizer, state_qubits.tolist(), np.flatnonzero(detector_part).tolist()
+        )
+
+    # collect the stabilizers that the flows give without detectors
+    stabilizers = [
+        stim.PauliString.from_numpy(xs=part[:num_state_qubits], zs=part[num_state_qubits:])
+        for part in state_parts[on_state & ~on_detectors & ~on_others]
     ]
 
-    # Fix signs.  Build each physical Pauli string from arrays, since assigning Paulis to a
-    # stim.PauliString one qubit at a time is slow.
+    # Fix signs, which are the same in every run of the circuit.  Build each physical Pauli string
+    # from arrays, since assigning Paulis to a stim.PauliString one qubit at a time is slow.
     simulator = stim.TableauSimulator()
     simulator.do(state_prep_circuit.without_noise())
     for ss, stabilizer in enumerate(stabilizers):
@@ -313,6 +353,10 @@ def get_logical_state_stabilizers(
     Returns:
         A list of Pauli strings on len(code) qubits, whose j-th qubit is the data qubit
         qubit_ids.data[j] of the provided code.
+
+    Raises:
+        ValueError: If the sign of a logical stabilizer depends on detectors whose combined outcome
+            is random, as ``get_state_stabilizers`` describes.
     """
     # DEPRECATED: see qldpc._deprecations
     if isinstance(code, stim.Circuit) and isinstance(state_prep_circuit, codes.QuditCode):
@@ -328,9 +372,44 @@ def get_logical_state_stabilizers(
     qubit_ids = QubitIDs.validated(qubit_ids or QubitIDs.from_code(code), code)
     encoder = get_encoding_circuit(code)
     circuit = state_prep_circuit + with_remapped_qubits(encoder.inverse(), qubit_ids.data)
-    decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data[: code.dimension])
+
+    # Decoding puts logical qubit j on qubit_ids.data[j], so name the Paulis of an undetermined
+    # stabilizer by their logical qubits.
+    try:
+        decoded_stabilizers = get_state_stabilizers(circuit, qubit_ids.data[: code.dimension])
+    except _UndeterminedSignError as error:
+        raise _UndeterminedSignError(
+            error.stabilizer, list(range(code.dimension)), error.detectors, logical=True
+        ) from error
     identity = stim.PauliString(num_qubits=len(code))
     return [(string * identity).after(encoder) for string in decoded_stabilizers]
+
+
+class _UndeterminedSignError(ValueError):
+    """The sign of a stabilizer depends on detectors whose combined outcome is random.
+
+    The stabilizer is compacted into the frame of the given qubit labels, and has no sign.
+    """
+
+    def __init__(
+        self,
+        stabilizer: stim.PauliString,
+        labels: list[int],
+        detectors: list[int],
+        *,
+        logical: bool = False,
+    ) -> None:
+        self.stabilizer = stabilizer
+        self.detectors = detectors
+        support = stabilizer.pauli_indices()
+        string = " ".join(f"{'_XYZ'[stabilizer[ii]]}{labels[ii]}" for ii in support)
+        kind, frame = ("logical stabilizer", "logical") if logical else ("stabilizer", "circuit")
+        super().__init__(
+            f"The sign of the {kind} {string} (indexed by {frame} qubit) of the prepared state"
+            f" depends on detectors {detectors}, whose combined outcome is random, so"
+            " post-selecting on them leaves the sign undetermined; the circuit's detectors should"
+            " have deterministic outcomes in a noiseless run"
+        )
 
 
 def _get_logical_tableau_from_code_data(
