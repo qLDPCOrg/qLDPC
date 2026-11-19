@@ -912,10 +912,10 @@ def _list_class_codewords(
             and table_entry < len(closing_keys)
             and closing_keys[table_entry] == key
         ):
-            closing_classes = closing_sets[table_entry]
             table_entry += 1
-            if closing_classes[0] <= chosen_class:
+            if closing_sets[table_entry - 1, 0] <= chosen_class:
                 continue
+            closing_classes = closing_sets[table_entry - 1]
             closes = True
             for word in range(1, num_words):
                 remainder = chosen_row_sums[num_chosen, word]

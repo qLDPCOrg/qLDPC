@@ -550,6 +550,41 @@ def test_closing_maps_do_not_change_the_checked_faults(monkeypatch: pytest.Monke
         assert checked[0] == checked[1], memory_limit
 
 
+def test_one_lookup_can_list_many_class_codewords(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lookup in a closing map of three classes can find more class codewords than classes.
+
+    The faults are then listed as with closing pairs.
+    """
+    # One class for each nonzero flag of five bits.  After the classes with flags 1 and 2, one
+    # lookup finds the 112 triples of later classes that close class codewords of fault weight five,
+    # more than the 31 classes.  Distinct syndromes, and representatives of weight three, check
+    # every listed fault.
+    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
+    get_closing_map = _fault_search._get_closing_map
+    sizes_built: set[int] = set()
+
+    def record_closing_map(
+        hashes: npt.NDArray[np.uint64], size: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
+        sizes_built.add(size)
+        return get_closing_map(hashes, size)
+
+    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
+    flags = list(range(1, 32))
+    syndromes = [1 << jj for jj in range(len(flags))]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    checked = []
+    for max_closing_size in (2, 3):
+        monkeypatch.setattr(_fault_search, "_MAX_CLOSING_SIZE", max_closing_size)
+        lister = _fault_search.FaultLister(
+            flags, syndromes, representatives, 3 * len(flags), False, len(flags), 2**24
+        )
+        checked.append(_check_faults(lister, 5, ())[0])
+    assert checked[0] == checked[1]
+    assert 3 in sizes_built
+
+
 def test_larger_closing_maps_wait_for_listings_with_many_lookups(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -573,6 +608,18 @@ def test_larger_closing_maps_wait_for_listings_with_many_lookups(
         lister._num_lookups = num_lookups
         _check_faults(lister, 5, ())
         assert sizes_built == expected, num_lookups
+
+    # With sixteen classes, the map of three has 560 sets.  The listings with pairs look up at most
+    # 120 choices of two classes at fault weight four, and at most 560 choices of three at fault
+    # weight five, fewer here, since some triples are dependent, but well over 560 choices of four
+    # at fault weight six.  So fault weight seven is the first to build the map of three.
+    sizes_built.clear()
+    lister = _listing_lister(16, 5, 2**20)
+    for weight in range(2, 7):
+        _check_faults(lister, weight, ())
+    assert 3 not in sizes_built
+    _check_faults(lister, 7, ())
+    assert 3 in sizes_built
 
 
 def test_closing_maps_and_the_table_of_syndromes_stay_within_the_memory_limit(
