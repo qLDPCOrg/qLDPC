@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import contextlib
 import importlib
-import math
 import operator
 import re
 import sys
@@ -347,22 +346,23 @@ def warn_future_change(message: str, *, stacklevel: int) -> None:
 def as_integer_cutoff(cutoff: int) -> int:
     """The cutoff of a distance search, warning about a float or a bool and making it an integer.
 
-    Released versions took a float cutoff, and compared it only with integer weights.  So a float or
-    a bool acts as its floor, clamped to at least -1, which never stops early, and at most
-    ``MAX_VALUE``, which every upper bound meets.  NaN acts as -1.  Any other cutoff passes
-    unchanged, for the distance functions to accept or reject.
+    Released versions took a float cutoff, and compared it only with integer weights.  So a float
+    acts as its floor, and a bool as its integer, clamped to [-1, ``_tuning.MAX_VALUE``].  A cutoff
+    of -1 never stops a search early, and every upper bound meets ``MAX_VALUE``.  NaN acts as -1.
+    Any other cutoff passes unchanged, for the distance functions to accept or reject.
     """
     import numpy as np
 
     from qldpc.codes.distance import _tuning
 
     # Only floats and bools get a deprecation period.  Other types that released versions took,
-    # such as Fraction and Decimal, are not plausible cutoffs, so the distance functions that search
-    # reject them at once.
+    # such as Fraction and Decimal, are not plausible cutoffs, so the functions of
+    # qldpc.codes.distance reject them at once.
     if not isinstance(cutoff, (float, np.floating, bool, np.bool_)):
         return cutoff
-    # np.floor floors a NumPy float exactly, even one wider than a Python float.
-    integer = -1 if math.isnan(cutoff) else int(np.clip(np.floor(cutoff), -1, _tuning.MAX_VALUE))
+    # A long double holds every NumPy float exactly, and MAX_VALUE, so its floor and clip are exact.
+    value = np.longdouble(cutoff)
+    integer = -1 if np.isnan(value) else int(np.clip(np.floor(value), -1, _tuning.MAX_VALUE))
     warn_deprecated(
         f"A cutoff of {cutoff!r}, which is not an integer, is deprecated, and will raise an error in"
         " a future release; pass an integer instead",
