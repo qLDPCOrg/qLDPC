@@ -127,14 +127,15 @@ class Certificate:
             # show that the program over orbits falls short.
             return self.step_lower_bound(weight, num_completed) >= upper_bound
         # No requirement exceeds its block, since a set that has completed the last layer makes the
-        # coverage bound certify any upper bound.  Let the share of a block be
-        # max(requirement, 0) / len(block).  The feasible point sets each pivot column to the
-        # largest share of its blocks, which is the share of the first block that holds the column
-        # when the blocks are sorted by decreasing share.  So its value is the sum of each share
-        # times the number of columns that its block holds first.
+        # coverage bound certify any upper bound, so only a nonempty block has a positive
+        # requirement.  Let the share of a block be requirement / len(block) if the requirement is
+        # positive, and zero if not.  The feasible point sets each pivot column to the largest share
+        # of its blocks, which is the share of the first block that holds the column when the
+        # blocks are sorted by decreasing share.  So its value is the sum of each share times the
+        # number of columns that its block holds first.
         requirements = self._get_requirements(weight, num_completed)
         shares = [
-            Fraction(max(requirement, 0), len(block))
+            Fraction(requirement, len(block)) if requirement > 0 else Fraction(0)
             for block, requirement in zip(self.pivot_blocks, requirements)
         ]
         order = sorted(range(len(shares)), key=shares.__getitem__, reverse=True)

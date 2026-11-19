@@ -42,24 +42,6 @@ from .core import DistanceMethod
 from .coset_leaders import CosetLeaderSearch, _get_coset_search_method
 from .min_weight_bounds import MinWeightBound
 
-
-def _class_weights(
-    matrix: npt.NDArray[np.uint8], syndrome: int, css_weight: bool
-) -> npt.NDArray[np.int_]:
-    """Weights of every error with the syndrome, for stabilizers whose X parts form the identity.
-
-    Z on the set syndrome bits has the syndrome, and its products with the stabilizers are the
-    other errors with it, so this enumeration is independent of the code under test.
-    """
-    n = len(matrix)
-    assert np.array_equal(matrix[:, :n], np.eye(n))
-    base = np.concatenate([np.zeros(n, dtype=int), (syndrome >> np.arange(n)) & 1])
-    subsets = (np.arange(1 << n)[:, None] >> np.arange(n)) & 1
-    errors = (base + subsets @ matrix.astype(int)) % 2
-    x, z = errors[:, :n], errors[:, n:]
-    return (x | z).sum(axis=1) if not css_weight else np.maximum(x.sum(axis=1), z.sum(axis=1))
-
-
 # Four-qubit blocks: a GHZ state, which is CSS, and the same state after S on its first qubit, which
 # is not.  By CSS weight, a search splits into X and Z parts only on the GHZ block, and by physical
 # weight it searches Pauli errors on both, so one block covers that case.
@@ -74,80 +56,6 @@ _BLOCK_CASES = pytest.mark.parametrize(
 # A state whose class of syndrome 3 has minimum weight two, which connected-cluster queries at
 # maximum weight two find by visiting states.  Some of its classes have minimum weight above two.
 _THREADED_STATE = ROUTED_PHYSICAL_STATES[1]
-
-
-def _ghz_blocks(num_blocks: int) -> tuple[npt.NDArray[np.uint8], int]:
-    """Stabilizers of independent GHZ blocks, and the syndrome of Z on each block's last qubit.
-
-    Every error with that syndrome needs a Z part on each block, so ``num_blocks`` is its exact
-    minimum weight by either measure.
-    """
-    generators = _block_generators(("ZZZ", "X_X", "_XX"), num_blocks)
-    witness = stim.PauliString("__Z" * num_blocks)
-    syndrome = sum((not witness.commutes(gg)) << jj for jj, gg in enumerate(generators))
-    return get_stabilizer_matrix(generators), syndrome
-
-
-def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
-    """Generators of independent copies of a block state, given the generators of one block."""
-    size = len(block[0])
-    return [
-        stim.PauliString("_" * (size * index) + local + "_" * (size * (num_blocks - index - 1)))
-        for index in range(num_blocks)
-        for local in block
-    ]
-
-
-def _block_minimum(
-    block: Sequence[str], local_syndromes: Sequence[Sequence[int]], css_weight: bool
-) -> int:
-    """Minimum weight of an error on independent blocks with the given per-block syndromes.
-
-    Every Pauli on one block is listed, and the blocks are combined by dynamic programming.
-    """
-    size = len(block[0])
-    stabilizers = [stim.PauliString(local) for local in block]
-    options: dict[tuple[int, ...], list[tuple[int, int, int]]] = {}
-    for paulis in itertools.product("_XYZ", repeat=size):
-        error = stim.PauliString("".join(paulis))
-        syndrome = tuple(int(not error.commutes(ss)) for ss in stabilizers)
-        x_weight = sum(pp in "XY" for pp in paulis)
-        z_weight = sum(pp in "YZ" for pp in paulis)
-        options.setdefault(syndrome, []).append((x_weight, z_weight, size - paulis.count("_")))
-    if not css_weight:
-        return sum(
-            min(support for _, _, support in options[tuple(local)]) for local in local_syndromes
-        )
-    totals = {(0, 0)}
-    for local in local_syndromes:
-        totals = {(a + x, b + z) for a, b in totals for x, z, _ in options[tuple(local)]}
-    return min(max(a, b) for a, b in totals)
-
-
-def _find_each_not_within_max_weight(
-    search: CosetLeaderSearch,
-    matrix: npt.NDArray[np.uint8],
-    syndromes: npt.NDArray[np.uint64],
-    max_weight: int,
-) -> list[int]:
-    """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
-
-    Each bound must be valid, and, for maximum weights of two or more, equal to that of
-    ``get_min_weight_bound``, an independent computation when there is one coset search.
-    """
-    found: list[int] = []
-    while True:
-        start = found[-1] + 1 if found else 0
-        index, bound = search.find_first_not_within_max_weight(syndromes[start:], max_weight)
-        if bound is None:
-            assert start + index == len(syndromes)
-            return found
-        found.append(start + index)
-        syndrome = int.from_bytes(syndromes[found[-1]].astype("<u8").tobytes(), "little")
-        assert not bound.within_max_weight and bound.lower_bound > max_weight
-        assert get_syndrome(matrix, bound.representative) == syndrome
-        if max_weight >= 2:
-            assert bound == search.get_min_weight_bound(syndrome, max_weight)
 
 
 @pytest.mark.parametrize(
@@ -691,6 +599,7 @@ def test_connected_cluster_searches_take_the_fields_of_their_tuning(
     build = coset_leaders.ConnectedClusterCosetSearch
 
     def record(matrix: npt.NDArray[np.uint8], **kwargs: Any) -> Any:
+        """Record the options of a connected-cluster search, and build it."""
         options.append(kwargs)
         return build(matrix, **kwargs)
 
@@ -875,23 +784,6 @@ def test_batches_on_threads_answer_as_on_one_thread(
         assert np.array_equal(weights, np.minimum(minima[syndromes], max_weight + 1))
 
 
-def _record_thread_options(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
-    """Record the name, threads, and split work of each batch query of a BZ coset search."""
-    calls: list[tuple[str, int, int]] = []
-    for name in ("find_first_not_within_max_weight", "get_min_weights"):
-        query = getattr(BrouwerZimmermannCosetSearch, name)
-
-        def record(
-            self: Any, *args: Any, name: str = name, query: Any = query, **options: Any
-        ) -> Any:
-            """Record the name and thread options of a batch query, and run it."""
-            calls.append((name, options["num_threads"], options["split_work"]))
-            return query(self, *args, **options)
-
-        monkeypatch.setattr(BrouwerZimmermannCosetSearch, name, record)
-    return calls
-
-
 def test_searches_take_their_number_of_threads_when_they_are_built(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1071,6 +963,7 @@ def test_connected_cluster_batches_run_on_the_threads_of_their_search(
     run_work_items = _threads.run_work_items
 
     def record(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
+        """Record the number of threads of a run of work items, and run it."""
         calls.append(num_threads)
         run_work_items(num_items, num_threads, *args, **kwargs)
 
@@ -1113,6 +1006,7 @@ def test_connected_cluster_batches_by_css_weight_count_the_work_of_z_parts(
     run_work_items = _threads.run_work_items
 
     def record(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
+        """Record the number of threads of a run of work items, and run it."""
         calls.append(num_threads)
         run_work_items(num_items, num_threads, *args, **kwargs)
 
@@ -1136,3 +1030,111 @@ def test_connected_cluster_batches_by_css_weight_count_the_work_of_z_parts(
     num_calls = len(calls)
     assert np.any(search.get_min_weights(batch, 2) == 3)
     assert num_calls < len(calls) and set(calls) == {2}
+
+
+def _class_weights(
+    matrix: npt.NDArray[np.uint8], syndrome: int, css_weight: bool
+) -> npt.NDArray[np.int_]:
+    """Weights of every error with the syndrome, for stabilizers whose X parts form the identity.
+
+    Z on the set syndrome bits has the syndrome, and its products with the stabilizers are the
+    other errors with it, so this enumeration is independent of the code under test.
+    """
+    n = len(matrix)
+    assert np.array_equal(matrix[:, :n], np.eye(n))
+    base = np.concatenate([np.zeros(n, dtype=int), (syndrome >> np.arange(n)) & 1])
+    subsets = (np.arange(1 << n)[:, None] >> np.arange(n)) & 1
+    errors = (base + subsets @ matrix.astype(int)) % 2
+    x, z = errors[:, :n], errors[:, n:]
+    return (x | z).sum(axis=1) if not css_weight else np.maximum(x.sum(axis=1), z.sum(axis=1))
+
+
+def _ghz_blocks(num_blocks: int) -> tuple[npt.NDArray[np.uint8], int]:
+    """Stabilizers of independent GHZ blocks, and the syndrome of Z on each block's last qubit.
+
+    Every error with that syndrome needs a Z part on each block, so ``num_blocks`` is its exact
+    minimum weight by either measure.
+    """
+    generators = _block_generators(("ZZZ", "X_X", "_XX"), num_blocks)
+    witness = stim.PauliString("__Z" * num_blocks)
+    syndrome = sum((not witness.commutes(gg)) << jj for jj, gg in enumerate(generators))
+    return get_stabilizer_matrix(generators), syndrome
+
+
+def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
+    """Generators of independent copies of a block state, given the generators of one block."""
+    size = len(block[0])
+    return [
+        stim.PauliString("_" * (size * index) + local + "_" * (size * (num_blocks - index - 1)))
+        for index in range(num_blocks)
+        for local in block
+    ]
+
+
+def _block_minimum(
+    block: Sequence[str], local_syndromes: Sequence[Sequence[int]], css_weight: bool
+) -> int:
+    """Minimum weight of an error on independent blocks with the given per-block syndromes.
+
+    Every Pauli on one block is listed, and the blocks are combined by dynamic programming.
+    """
+    size = len(block[0])
+    stabilizers = [stim.PauliString(local) for local in block]
+    options: dict[tuple[int, ...], list[tuple[int, int, int]]] = {}
+    for paulis in itertools.product("_XYZ", repeat=size):
+        error = stim.PauliString("".join(paulis))
+        syndrome = tuple(int(not error.commutes(ss)) for ss in stabilizers)
+        x_weight = sum(pp in "XY" for pp in paulis)
+        z_weight = sum(pp in "YZ" for pp in paulis)
+        options.setdefault(syndrome, []).append((x_weight, z_weight, size - paulis.count("_")))
+    if not css_weight:
+        return sum(
+            min(support for _, _, support in options[tuple(local)]) for local in local_syndromes
+        )
+    totals = {(0, 0)}
+    for local in local_syndromes:
+        totals = {(a + x, b + z) for a, b in totals for x, z, _ in options[tuple(local)]}
+    return min(max(a, b) for a, b in totals)
+
+
+def _find_each_not_within_max_weight(
+    search: CosetLeaderSearch,
+    matrix: npt.NDArray[np.uint8],
+    syndromes: npt.NDArray[np.uint64],
+    max_weight: int,
+) -> list[int]:
+    """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
+
+    Each bound must be valid, and, for maximum weights of two or more, equal to that of
+    ``get_min_weight_bound``, an independent computation when there is one coset search.
+    """
+    found: list[int] = []
+    while True:
+        start = found[-1] + 1 if found else 0
+        index, bound = search.find_first_not_within_max_weight(syndromes[start:], max_weight)
+        if bound is None:
+            assert start + index == len(syndromes)
+            return found
+        found.append(start + index)
+        syndrome = int.from_bytes(syndromes[found[-1]].astype("<u8").tobytes(), "little")
+        assert not bound.within_max_weight and bound.lower_bound > max_weight
+        assert get_syndrome(matrix, bound.representative) == syndrome
+        if max_weight >= 2:
+            assert bound == search.get_min_weight_bound(syndrome, max_weight)
+
+
+def _record_thread_options(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
+    """Record the name, threads, and split work of each batch query of a BZ coset search."""
+    calls: list[tuple[str, int, int]] = []
+    for name in ("find_first_not_within_max_weight", "get_min_weights"):
+        query = getattr(BrouwerZimmermannCosetSearch, name)
+
+        def record(
+            self: Any, *args: Any, name: str = name, query: Any = query, **options: Any
+        ) -> Any:
+            """Record the name and thread options of a batch query, and run it."""
+            calls.append((name, options["num_threads"], options["split_work"]))
+            return query(self, *args, **options)
+
+        monkeypatch.setattr(BrouwerZimmermannCosetSearch, name, record)
+    return calls

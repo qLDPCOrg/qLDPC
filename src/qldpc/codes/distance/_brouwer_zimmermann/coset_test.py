@@ -344,69 +344,6 @@ _HEAVY_COSETS_CODE = get_binary_matrix(
 )
 
 
-def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]) -> None:
-    """Check single queries and batches of a code's classical coset search against brute force.
-
-    A coset without a word within the maximum weight must get a bound of at least the least weight
-    above the maximum weight that a word of the coset can have.  Below maximum weight two, a single
-    query must give a coset without a word of weight at most one exactly the least weight above one
-    that a word of the coset can have, and from two on, single queries and batches must agree.
-    """
-    num_columns = generators.shape[1]
-    checks = get_kernel(generators)
-    tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
-    search = coset._get_classical_search(
-        generators, checks, tuning._replace(disjoint_random_column_orders=0)
-    )
-    minima = get_binary_minima(checks)
-    even = not np.any(generators.sum(axis=1) % 2)
-
-    def get_least_bound(syndrome: int, max_weight: int) -> int:
-        """The least weight above the maximum weight that a word of the coset can have."""
-        return max_weight + 1 + int(even and (max_weight + 1 - minima[syndrome]) % 2)
-
-    syndromes = list(range(1 << len(checks)))
-    packed_syndromes = split_syndromes_into_words(syndromes, len(checks))
-    for max_weight in range(-1, num_columns + 2):
-        bounds = {}
-        for syndrome in syndromes:
-            bound = search.get_min_weight_bound(syndrome, max_weight)
-            representative = (bound.representative >> np.arange(num_columns)) & 1
-            weight = int(representative.sum())
-            assert bound.within_max_weight == (minima[syndrome] <= max_weight)
-            assert get_binary_syndrome(checks, representative) == syndrome
-            assert bound.lower_bound <= minima[syndrome] <= weight
-            if bound.within_max_weight:
-                assert weight <= max_weight
-            else:
-                assert bound.lower_bound >= get_least_bound(syndrome, max_weight)
-            if max_weight < 2 and minima[syndrome] >= 2:
-                assert bound.lower_bound == get_least_bound(syndrome, 1)
-            bounds[syndrome] = bound
-
-        # With batches that each start after the last syndrome found, find each syndrome whose
-        # minimum exceeds the maximum weight.
-        found, start = [], 0
-        while True:
-            index, batch_bound = search.find_first_not_within_max_weight(
-                packed_syndromes[start:], max_weight
-            )
-            if batch_bound is None:
-                assert start + index == len(syndromes)
-                break
-            syndrome = syndromes[start + index]
-            representative = (batch_bound.representative >> np.arange(num_columns)) & 1
-            assert get_binary_syndrome(checks, representative) == syndrome
-            assert not batch_bound.within_max_weight
-            assert get_least_bound(syndrome, max_weight) <= batch_bound.lower_bound
-            assert batch_bound.lower_bound <= minima[syndrome]
-            if max_weight >= 2:
-                assert bounds[syndrome] == batch_bound
-            found.append(syndrome)
-            start += index + 1
-        assert found == [syndrome for syndrome in syndromes if minima[syndrome] > max_weight]
-
-
 def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
     """The coset searches of a rank-deficient code match the minima of all words."""
     _assert_classical_cosets_match_brute_force(RANK_DEFICIENT_CODE)
@@ -530,214 +467,6 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                     table[:-1], max_weight, 0, num_rows, instance.ranks, binomials, True
                 )
                 assert plan == (stop_layer, stop_num_completed, weighed)
-
-
-def _assert_searches_by_tails_match_searches_of_words(
-    generators: npt.NDArray[np.uint8],
-    inverse: npt.NDArray[np.uint8],
-    scale: int,
-    block_sizes: Sequence[int],
-    max_weights: Sequence[int],
-    syndromes: Sequence[int],
-    minima: npt.NDArray[np.int_] | None = None,
-    *,
-    block_bits: int | None = None,
-) -> int:
-    """Check searches by tails against searches of whole words, without or with completion tables.
-
-    The family reduces the embedded generators on consecutive blocks, whose sizes cycle through
-    ``block_sizes``, and adds a set of rank zero.  Without ``block_bits``, both searches give the
-    same bounds, words, and counts.  With tables on blocks of ``block_bits`` columns, they differ
-    only as Section 3.9 of ``brouwer_zimmermann.md`` ("Coset searches") allows.  If ``minima`` is
-    given, the searches also decide as these least weights of the cosets.
-
-    Returns:
-        The number of supports that the searches by tails skipped.
-    """
-    num_rows, num_columns = generators.shape
-    sets, pivots, start = [], [], 0
-    for size in itertools.cycle(block_sizes):
-        if start >= num_columns:
-            break
-        block = np.arange(start, min(start + size, num_columns))
-        reduced, _, block_pivots = row_reduce_binary(generators, columns=block)
-        sets.append(reduced)
-        pivots.append(np.pad(block_pivots, (0, num_rows - len(block_pivots)), constant_values=-1))
-        start += size
-    sets.append(generators)
-    pivots.append(np.full(num_rows, -1))
-    instance = affine_instance.AffineInstance(
-        generators=np.stack([pack_bits(rows) for rows in sets]),
-        labels=np.zeros((len(sets), num_rows, 0), dtype=np.uint64),
-        widths=np.ones(len(sets), dtype=np.int64),
-        pivots=np.array(pivots, dtype=np.int64),
-        certificate=certificates.Certificate(
-            num_rows, tuple(int(np.sum(row >= 0)) for row in pivots)
-        ),
-        weight_factor=2 if scale == 2 else 1,
-    )
-    tables = coset_tables.get_search_tables(instance, inverse, num_columns)
-    tails = coset_tables.get_coset_tails(
-        instance,
-        list(range(len(sets))) if block_bits else [],
-        None,
-        inverse=inverse,
-        block_bits=block_bits or 8,
-        max_table_bytes=MAX_VALUE,
-    )
-    even = scale == 1 and not np.any(generators.sum(axis=1) % 2)
-    packed_syndromes = split_syndromes_into_words(syndromes, len(inverse))
-    total_skipped = 0
-    for max_weight in max_weights:
-        answers = {}
-        for syndrome, packed_syndrome in zip(syndromes, packed_syndromes, strict=True):
-            words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
-            best_weight, parity = coset._get_syndrome_word(
-                packed_syndrome, words[0], tables.inverse, tables.x_mask, scale
-            )
-            if best_weight <= max_weight:
-                continue
-            words[1] = words[0]
-            word = unpack_bits(words[:1], num_columns)[0]
-            coset_parity = int(word.sum()) % 2
-            stop_layer, stop_num_completed, stop_bound = coset_tables.get_stopping_step(
-                coset_tables.get_planning_table(tables.planning, parity), max_weight
-            )
-            *answer, _ = coset._search_from_syndrome_word(
-                packed_syndrome,
-                max_weight,
-                stop_layer,
-                stop_num_completed,
-                stop_bound,
-                words[0],
-                best_weight,
-                tables.generators,
-                tables.pivots,
-                tables.x_mask,
-                None,
-                scale,
-                coset._get_rounding_parity(tables.planning, scale, parity),
-            )
-            *answer_by_tails, skipped = coset._search_from_syndrome_word(
-                packed_syndrome,
-                max_weight,
-                stop_layer,
-                stop_num_completed,
-                stop_bound,
-                words[1],
-                best_weight,
-                tables.generators,
-                tables.pivots,
-                tables.x_mask,
-                tails,
-                scale,
-                coset._get_rounding_parity(tables.planning, scale, parity),
-            )
-            if minima is not None:
-                assert (answer[0] <= max_weight) == (minima[syndrome] <= max_weight)
-                assert answer[0] <= minima[syndrome]
-            answers[syndrome] = answer_by_tails[0], words[1]
-            total_skipped += skipped
-            if not block_bits:
-                assert answer_by_tails == list(answer) and not skipped
-                np.testing.assert_array_equal(words[0], words[1])
-            elif answer[0] <= max_weight:
-                assert answer_by_tails[0] == 0
-                np.testing.assert_array_equal(words[0], words[1])
-            else:
-                least_beyond = max_weight + 1
-                if even and (least_beyond + coset_parity) % 2:
-                    least_beyond += 1
-                assert answer_by_tails[0] == (least_beyond if skipped else answer[0])
-                assert int(np.bitwise_count(words[1]).sum()) >= scale * answer_by_tails[0]
-                # The skip bound ``h(ω)`` of Section 3.9 of ``brouwer_zimmermann.md``: one more than
-                # the greatest Hamming weight at most ``scale * max_weight`` that a word of the
-                # coset can have.
-                skip_bound = scale * max_weight + 1
-                if even and (skip_bound - coset_parity) % 2 == 0:
-                    skip_bound -= 1
-                assert answer_by_tails[1] + skipped == answer[1]
-                assert skipped == sum(
-                    _count_skipped_supports(rows, set_pivots, word, skip_bound, block_bits, last)
-                    for index, (rows, set_pivots) in enumerate(zip(sets, pivots, strict=True))
-                    if (last := stop_layer - (index >= stop_num_completed))
-                    >= num_rows - np.sum(set_pivots >= 0)
-                )
-
-        # With both batch loops, find in turn each syndrome without a light enough word.
-        start = 0
-        while True:
-            words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
-            found = coset._find_first_not_within_max_weight(
-                packed_syndromes[start:],
-                max_weight,
-                _threads.NO_WORK_LIMIT,
-                words[0],
-                *tables,
-                None,
-                scale,
-            )
-            found_by_tails = coset._find_first_not_within_max_weight(
-                packed_syndromes[start:],
-                max_weight,
-                _threads.NO_WORK_LIMIT,
-                words[1],
-                *tables,
-                tails,
-                scale,
-            )
-            assert found_by_tails[0] == found[0]
-            assert found_by_tails[2] == found[2] == (start + found[0] < len(packed_syndromes))
-            if start + found[0] == len(packed_syndromes):
-                break
-            if block_bits:
-                bound, word = answers[syndromes[start + found[0]]]
-                assert found_by_tails[1] == bound
-                np.testing.assert_array_equal(words[1], word)
-            else:
-                assert found_by_tails == found
-                np.testing.assert_array_equal(words[0], words[1])
-            start += found[0] + 1
-    return total_skipped
-
-
-def _count_skipped_supports(
-    rows: npt.NDArray[np.uint8],
-    pivots: npt.NDArray[np.int_],
-    word: npt.NDArray[np.uint8],
-    skip_bound: int,
-    block_bits: int,
-    last_layer: int,
-) -> int:
-    """Count the supports that tables skip in the layers from two to ``last_layer`` of a set.
-
-    ``word`` is the word of a syndrome.  The bound of a support follows Section 3.9 of
-    ``brouwer_zimmermann.md`` ("Coset searches"), on blocks that cover the tails up to their last
-    column with a one.
-    """
-    rank = int(np.sum(pivots >= 0))
-    offset = (word + rows[[row for row in range(rank) if word[pivots[row]]]].sum(axis=0)) % 2
-    columns = np.delete(np.arange(rows.shape[1]), pivots[:rank])
-    tails, offset_tail = rows[:, columns], offset[columns]
-    num_bits = int(np.flatnonzero(tails.any(axis=0)).max(initial=-1)) + 1
-    tails, offset_tail = tails[:, :num_bits], offset_tail[:num_bits]
-    skipped = 0
-    for layer in range(2, last_layer + 1):
-        for support in itertools.combinations(range(len(rows)), layer):
-            prefix = (offset_tail + tails[list(support[:-2])].sum(axis=0)) % 2
-            pairs = list(itertools.combinations(range(support[-2], len(rows)), 2))
-            bound = sum(row < rank for row in support[:-2])
-            bound += min(sum(row < rank for row in pair) for pair in pairs)
-            bound += sum(
-                min(
-                    int(((prefix + tails[i] + tails[j]) % 2)[start : start + block_bits].sum())
-                    for i, j in pairs
-                )
-                for start in range(0, num_bits, block_bits)
-            )
-            if num_bits and bound >= skip_bound:
-                skipped += 1
-    return skipped
 
 
 @pytest.mark.parametrize("block_bits", [None, 4])
@@ -888,45 +617,6 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
     assert bound is not None and bound.lower_bound == 4
 
 
-def _coset_minima(
-    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], syndromes: Sequence[int]
-) -> npt.NDArray[np.int_]:
-    """The least weight of the words of the coset of each syndrome, from every word of the coset."""
-    code = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators % 2
-    bits = (np.array(syndromes)[:, None] >> np.arange(len(checks))) & 1
-    words = bits @ _cosets.get_unit_syndrome_words(checks) % 2
-    assert np.array_equal(get_binary_syndrome(checks, words), syndromes)
-    return np.array([((word + code) % 2).sum(axis=1).min() for word in words])
-
-
-def _assert_min_weights_match_brute_force(
-    search: coset.BrouwerZimmermannCosetSearch,
-    syndromes: Sequence[int],
-    minima: npt.NDArray[np.int_],
-    num_syndrome_bits: int,
-    rng: np.random.Generator,
-) -> None:
-    """Check the minimum weights that a search finds for cosets against their least weights.
-
-    One batch holds the syndromes, in random order.  At each maximum weight, the floors of the batch
-    are zero, then random, then the maximum weight.  A coset whose least weight is at most its floor
-    may get any weight from its least weight to its floor.  Any other coset gets its least weight,
-    or one more than the maximum weight if that is smaller.
-    """
-    order = rng.permutation(len(syndromes))
-    packed_syndromes = split_syndromes_into_words(
-        [syndromes[index] for index in order], num_syndrome_bits
-    )
-    least = minima[order]
-    for max_weight in range(int(least.max()) + 2):
-        random_floors = rng.integers(0, max_weight + 1, len(least))
-        for floors in (np.zeros_like(least), random_floors, np.full_like(least, max_weight)):
-            weights = search.get_min_weights(packed_syndromes, max_weight, floors.astype(np.int64))
-            exact = least > floors
-            assert np.array_equal(weights[exact], np.minimum(least, max_weight + 1)[exact])
-            assert np.all(exact | ((least <= weights) & (weights <= floors)))
-
-
 @pytest.mark.parametrize(
     "tuning",
     [
@@ -1061,63 +751,6 @@ def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
     assert coset._tabulate_css_singles(x_singles, z_singles, 1) is None
 
 
-def _get_searches_with_minima(
-    tuning: coset._CosetTuning,
-) -> list[tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.int_]]]:
-    """Searches of each kind, by physical and CSS weight and of X or Z parts, with their minima.
-
-    The minima are the least weights of the words with each packed syndrome of a search.
-    """
-    states = [(ROUTED_PHYSICAL_STATES[0], False), (ROUTED_CSS_WEIGHT_STATE, True)]
-    searches = [
-        (
-            coset._get_pauli_search(coset._MatrixKey(matrix), css_weight, tuning),
-            get_exhaustive_minima(matrix, css_weight),
-        )
-        for matrix, css_weight in states
-    ]
-    even_code = np.hstack([_SKIPPING_CODE, _SKIPPING_CODE.sum(axis=1, keepdims=True) % 2])
-    for code in (RANK_DEFICIENT_CODE, even_code.astype(np.uint8)):
-        checks = get_kernel(code)
-        searches.append(
-            (coset._get_classical_search(code, checks, tuning), get_binary_minima(checks))
-        )
-    return searches
-
-
-def _get_batches(
-    minima: npt.NDArray[np.int_], max_weight: int, rng: np.random.Generator
-) -> list[npt.NDArray[np.int_]]:
-    """Batches of syndromes whose first coset without a word within ``max_weight`` varies.
-
-    The batches hold such a coset nowhere, first, last, or at several places, and one batch is
-    short.
-    """
-    within = np.flatnonzero(minima <= max_weight)
-    beyond = np.flatnonzero(minima > max_weight)
-    base = rng.choice(within, 100)
-    batches = [base, base[:3]]
-    if len(beyond):
-        for places in ([0], [-1], [33, 50, -1]):
-            batch = base.copy()
-            batch[places] = rng.choice(beyond, len(places))
-            batches.append(batch)
-    return batches
-
-
-def _get_rank_deficient_search() -> tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.int_]]:
-    """The classical search of ``RANK_DEFICIENT_CODE``, and the minima of its syndromes."""
-    tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
-    checks = get_kernel(RANK_DEFICIENT_CODE)
-    search = coset._get_classical_search(RANK_DEFICIENT_CODE, checks, tuning_fields)
-    return search, get_binary_minima(checks)
-
-
-def _get_row(syndromes: npt.NDArray[np.uint64], batch: npt.NDArray[np.uint64]) -> int:
-    """The index in ``batch`` of the first row of ``syndromes``, a view of rows of ``batch``."""
-    return (syndromes.ctypes.data - batch.ctypes.data) // batch.strides[0]
-
-
 @pytest.mark.parametrize("num_threads", [2, 3, 8])
 @pytest.mark.parametrize("split_work", [0, 50])
 @pytest.mark.parametrize("tuning", [{}, {"coset_route_minimum_work": 0}], ids=["words", "tails"])
@@ -1214,18 +847,6 @@ def test_errors_on_threads_propagate(
     with pytest.raises(ValueError, match="sentinel"):
         getattr(search, query)(*arguments, num_threads=3, split_work=0)
     assert threading.active_count() == num_threads
-
-
-def _get_two_heavy_cosets() -> tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.uint64]]:
-    """A search, and a batch of 64 syndromes whose only heavy cosets are at rows 2 and 40.
-
-    A coset is heavy if it has no word within weight one.
-    """
-    search, minima = _get_rank_deficient_search()
-    light, heavy = int(np.flatnonzero(minima <= 1)[1]), np.flatnonzero(minima > 1)[:2].tolist()
-    rows = [light] * 64
-    rows[2], rows[40] = heavy
-    return search, split_syndromes_into_words(rows, search._num_syndrome_bits)
 
 
 def test_an_earlier_heavy_coset_that_ends_last_is_the_answer(
@@ -1556,3 +1177,382 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     assert any(each.path.startswith("roots[0].") for each in arrays)
     marked = {id(each.array) for each in arrays}
     assert all(id(planning) in marked for planning in plannings)
+
+
+def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]) -> None:
+    """Check single queries and batches of a code's classical coset search against brute force.
+
+    A coset without a word within the maximum weight must get a bound of at least the least weight
+    above the maximum weight that a word of the coset can have.  Below maximum weight two, a single
+    query must give a coset without a word of weight at most one exactly the least weight above one
+    that a word of the coset can have, and from two on, single queries and batches must agree.
+    """
+    num_columns = generators.shape[1]
+    checks = get_kernel(generators)
+    tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    search = coset._get_classical_search(
+        generators, checks, tuning._replace(disjoint_random_column_orders=0)
+    )
+    minima = get_binary_minima(checks)
+    even = not np.any(generators.sum(axis=1) % 2)
+
+    def get_least_bound(syndrome: int, max_weight: int) -> int:
+        """The least weight above the maximum weight that a word of the coset can have."""
+        return max_weight + 1 + int(even and (max_weight + 1 - minima[syndrome]) % 2)
+
+    syndromes = list(range(1 << len(checks)))
+    packed_syndromes = split_syndromes_into_words(syndromes, len(checks))
+    for max_weight in range(-1, num_columns + 2):
+        bounds = {}
+        for syndrome in syndromes:
+            bound = search.get_min_weight_bound(syndrome, max_weight)
+            representative = (bound.representative >> np.arange(num_columns)) & 1
+            weight = int(representative.sum())
+            assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+            assert get_binary_syndrome(checks, representative) == syndrome
+            assert bound.lower_bound <= minima[syndrome] <= weight
+            if bound.within_max_weight:
+                assert weight <= max_weight
+            else:
+                assert bound.lower_bound >= get_least_bound(syndrome, max_weight)
+            if max_weight < 2 and minima[syndrome] >= 2:
+                assert bound.lower_bound == get_least_bound(syndrome, 1)
+            bounds[syndrome] = bound
+
+        # With batches that each start after the last syndrome found, find each syndrome whose
+        # minimum exceeds the maximum weight.
+        found, start = [], 0
+        while True:
+            index, batch_bound = search.find_first_not_within_max_weight(
+                packed_syndromes[start:], max_weight
+            )
+            if batch_bound is None:
+                assert start + index == len(syndromes)
+                break
+            syndrome = syndromes[start + index]
+            representative = (batch_bound.representative >> np.arange(num_columns)) & 1
+            assert get_binary_syndrome(checks, representative) == syndrome
+            assert not batch_bound.within_max_weight
+            assert get_least_bound(syndrome, max_weight) <= batch_bound.lower_bound
+            assert batch_bound.lower_bound <= minima[syndrome]
+            if max_weight >= 2:
+                assert bounds[syndrome] == batch_bound
+            found.append(syndrome)
+            start += index + 1
+        assert found == [syndrome for syndrome in syndromes if minima[syndrome] > max_weight]
+
+
+def _assert_searches_by_tails_match_searches_of_words(
+    generators: npt.NDArray[np.uint8],
+    inverse: npt.NDArray[np.uint8],
+    scale: int,
+    block_sizes: Sequence[int],
+    max_weights: Sequence[int],
+    syndromes: Sequence[int],
+    minima: npt.NDArray[np.int_] | None = None,
+    *,
+    block_bits: int | None = None,
+) -> int:
+    """Check searches by tails against searches of whole words, without or with completion tables.
+
+    The family reduces the embedded generators on consecutive blocks, whose sizes cycle through
+    ``block_sizes``, and adds a set of rank zero.  Without ``block_bits``, both searches give the
+    same bounds, words, and counts.  With tables on blocks of ``block_bits`` columns, they differ
+    only as Section 3.9 of ``brouwer_zimmermann.md`` ("Coset searches") allows.  If ``minima`` is
+    given, the searches also decide as these least weights of the cosets.
+
+    Returns:
+        The number of supports that the searches by tails skipped.
+    """
+    num_rows, num_columns = generators.shape
+    sets, pivots, start = [], [], 0
+    for size in itertools.cycle(block_sizes):
+        if start >= num_columns:
+            break
+        block = np.arange(start, min(start + size, num_columns))
+        reduced, _, block_pivots = row_reduce_binary(generators, columns=block)
+        sets.append(reduced)
+        pivots.append(np.pad(block_pivots, (0, num_rows - len(block_pivots)), constant_values=-1))
+        start += size
+    sets.append(generators)
+    pivots.append(np.full(num_rows, -1))
+    instance = affine_instance.AffineInstance(
+        generators=np.stack([pack_bits(rows) for rows in sets]),
+        labels=np.zeros((len(sets), num_rows, 0), dtype=np.uint64),
+        widths=np.ones(len(sets), dtype=np.int64),
+        pivots=np.array(pivots, dtype=np.int64),
+        certificate=certificates.Certificate(
+            num_rows, tuple(int(np.sum(row >= 0)) for row in pivots)
+        ),
+        weight_factor=2 if scale == 2 else 1,
+    )
+    tables = coset_tables.get_search_tables(instance, inverse, num_columns)
+    tails = coset_tables.get_coset_tails(
+        instance,
+        list(range(len(sets))) if block_bits else [],
+        None,
+        inverse=inverse,
+        block_bits=block_bits or 8,
+        max_table_bytes=MAX_VALUE,
+    )
+    even = scale == 1 and not np.any(generators.sum(axis=1) % 2)
+    packed_syndromes = split_syndromes_into_words(syndromes, len(inverse))
+    total_skipped = 0
+    for max_weight in max_weights:
+        answers = {}
+        for syndrome, packed_syndrome in zip(syndromes, packed_syndromes, strict=True):
+            words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
+            best_weight, parity = coset._get_syndrome_word(
+                packed_syndrome, words[0], tables.inverse, tables.x_mask, scale
+            )
+            if best_weight <= max_weight:
+                continue
+            words[1] = words[0]
+            word = unpack_bits(words[:1], num_columns)[0]
+            coset_parity = int(word.sum()) % 2
+            stop_layer, stop_num_completed, stop_bound = coset_tables.get_stopping_step(
+                coset_tables.get_planning_table(tables.planning, parity), max_weight
+            )
+            *answer, _ = coset._search_from_syndrome_word(
+                packed_syndrome,
+                max_weight,
+                stop_layer,
+                stop_num_completed,
+                stop_bound,
+                words[0],
+                best_weight,
+                tables.generators,
+                tables.pivots,
+                tables.x_mask,
+                None,
+                scale,
+                coset._get_rounding_parity(tables.planning, scale, parity),
+            )
+            *answer_by_tails, skipped = coset._search_from_syndrome_word(
+                packed_syndrome,
+                max_weight,
+                stop_layer,
+                stop_num_completed,
+                stop_bound,
+                words[1],
+                best_weight,
+                tables.generators,
+                tables.pivots,
+                tables.x_mask,
+                tails,
+                scale,
+                coset._get_rounding_parity(tables.planning, scale, parity),
+            )
+            if minima is not None:
+                assert (answer[0] <= max_weight) == (minima[syndrome] <= max_weight)
+                assert answer[0] <= minima[syndrome]
+            answers[syndrome] = answer_by_tails[0], words[1]
+            total_skipped += skipped
+            if not block_bits:
+                assert answer_by_tails == list(answer) and not skipped
+                np.testing.assert_array_equal(words[0], words[1])
+            elif answer[0] <= max_weight:
+                assert answer_by_tails[0] == 0
+                np.testing.assert_array_equal(words[0], words[1])
+            else:
+                least_beyond = max_weight + 1
+                if even and (least_beyond + coset_parity) % 2:
+                    least_beyond += 1
+                assert answer_by_tails[0] == (least_beyond if skipped else answer[0])
+                assert int(np.bitwise_count(words[1]).sum()) >= scale * answer_by_tails[0]
+                # The skip bound ``h(ω)`` of Section 3.9 of ``brouwer_zimmermann.md``: one more than
+                # the greatest Hamming weight at most ``scale * max_weight`` that a word of the
+                # coset can have.
+                skip_bound = scale * max_weight + 1
+                if even and (skip_bound - coset_parity) % 2 == 0:
+                    skip_bound -= 1
+                assert answer_by_tails[1] + skipped == answer[1]
+                assert skipped == sum(
+                    _count_skipped_supports(rows, set_pivots, word, skip_bound, block_bits, last)
+                    for index, (rows, set_pivots) in enumerate(zip(sets, pivots, strict=True))
+                    if (last := stop_layer - (index >= stop_num_completed))
+                    >= num_rows - np.sum(set_pivots >= 0)
+                )
+
+        # With both batch loops, find in turn each syndrome without a light enough word.
+        start = 0
+        while True:
+            words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
+            found = coset._find_first_not_within_max_weight(
+                packed_syndromes[start:],
+                max_weight,
+                _threads.NO_WORK_LIMIT,
+                words[0],
+                *tables,
+                None,
+                scale,
+            )
+            found_by_tails = coset._find_first_not_within_max_weight(
+                packed_syndromes[start:],
+                max_weight,
+                _threads.NO_WORK_LIMIT,
+                words[1],
+                *tables,
+                tails,
+                scale,
+            )
+            assert found_by_tails[0] == found[0]
+            assert found_by_tails[2] == found[2] == (start + found[0] < len(packed_syndromes))
+            if start + found[0] == len(packed_syndromes):
+                break
+            if block_bits:
+                bound, word = answers[syndromes[start + found[0]]]
+                assert found_by_tails[1] == bound
+                np.testing.assert_array_equal(words[1], word)
+            else:
+                assert found_by_tails == found
+                np.testing.assert_array_equal(words[0], words[1])
+            start += found[0] + 1
+    return total_skipped
+
+
+def _count_skipped_supports(
+    rows: npt.NDArray[np.uint8],
+    pivots: npt.NDArray[np.int_],
+    word: npt.NDArray[np.uint8],
+    skip_bound: int,
+    block_bits: int,
+    last_layer: int,
+) -> int:
+    """Count the supports that tables skip in the layers from two to ``last_layer`` of a set.
+
+    ``word`` is the word of a syndrome.  The bound of a support follows Section 3.9 of
+    ``brouwer_zimmermann.md`` ("Coset searches"), on blocks that cover the tails up to their last
+    column with a one.
+    """
+    rank = int(np.sum(pivots >= 0))
+    offset = (word + rows[[row for row in range(rank) if word[pivots[row]]]].sum(axis=0)) % 2
+    columns = np.delete(np.arange(rows.shape[1]), pivots[:rank])
+    tails, offset_tail = rows[:, columns], offset[columns]
+    num_bits = int(np.flatnonzero(tails.any(axis=0)).max(initial=-1)) + 1
+    tails, offset_tail = tails[:, :num_bits], offset_tail[:num_bits]
+    skipped = 0
+    for layer in range(2, last_layer + 1):
+        for support in itertools.combinations(range(len(rows)), layer):
+            prefix = (offset_tail + tails[list(support[:-2])].sum(axis=0)) % 2
+            pairs = list(itertools.combinations(range(support[-2], len(rows)), 2))
+            bound = sum(row < rank for row in support[:-2])
+            bound += min(sum(row < rank for row in pair) for pair in pairs)
+            bound += sum(
+                min(
+                    int(((prefix + tails[i] + tails[j]) % 2)[start : start + block_bits].sum())
+                    for i, j in pairs
+                )
+                for start in range(0, num_bits, block_bits)
+            )
+            if num_bits and bound >= skip_bound:
+                skipped += 1
+    return skipped
+
+
+def _coset_minima(
+    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], syndromes: Sequence[int]
+) -> npt.NDArray[np.int_]:
+    """The least weight of the words of the coset of each syndrome, from every word of the coset."""
+    code = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators % 2
+    bits = (np.array(syndromes)[:, None] >> np.arange(len(checks))) & 1
+    words = bits @ _cosets.get_unit_syndrome_words(checks) % 2
+    assert np.array_equal(get_binary_syndrome(checks, words), syndromes)
+    return np.array([((word + code) % 2).sum(axis=1).min() for word in words])
+
+
+def _assert_min_weights_match_brute_force(
+    search: coset.BrouwerZimmermannCosetSearch,
+    syndromes: Sequence[int],
+    minima: npt.NDArray[np.int_],
+    num_syndrome_bits: int,
+    rng: np.random.Generator,
+) -> None:
+    """Check the minimum weights that a search finds for cosets against their least weights.
+
+    One batch holds the syndromes, in random order.  At each maximum weight, the floors of the batch
+    are zero, then random, then the maximum weight.  A coset whose least weight is at most its floor
+    may get any weight from its least weight to its floor.  Any other coset gets its least weight,
+    or one more than the maximum weight if that is smaller.
+    """
+    order = rng.permutation(len(syndromes))
+    packed_syndromes = split_syndromes_into_words(
+        [syndromes[index] for index in order], num_syndrome_bits
+    )
+    least = minima[order]
+    for max_weight in range(int(least.max()) + 2):
+        random_floors = rng.integers(0, max_weight + 1, len(least))
+        for floors in (np.zeros_like(least), random_floors, np.full_like(least, max_weight)):
+            weights = search.get_min_weights(packed_syndromes, max_weight, floors.astype(np.int64))
+            exact = least > floors
+            assert np.array_equal(weights[exact], np.minimum(least, max_weight + 1)[exact])
+            assert np.all(exact | ((least <= weights) & (weights <= floors)))
+
+
+def _get_searches_with_minima(
+    tuning: coset._CosetTuning,
+) -> list[tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.int_]]]:
+    """Searches of each kind, by physical and CSS weight and of X or Z parts, with their minima.
+
+    The minima are the least weights of the words with each packed syndrome of a search.
+    """
+    states = [(ROUTED_PHYSICAL_STATES[0], False), (ROUTED_CSS_WEIGHT_STATE, True)]
+    searches = [
+        (
+            coset._get_pauli_search(coset._MatrixKey(matrix), css_weight, tuning),
+            get_exhaustive_minima(matrix, css_weight),
+        )
+        for matrix, css_weight in states
+    ]
+    even_code = np.hstack([_SKIPPING_CODE, _SKIPPING_CODE.sum(axis=1, keepdims=True) % 2])
+    for code in (RANK_DEFICIENT_CODE, even_code.astype(np.uint8)):
+        checks = get_kernel(code)
+        searches.append(
+            (coset._get_classical_search(code, checks, tuning), get_binary_minima(checks))
+        )
+    return searches
+
+
+def _get_batches(
+    minima: npt.NDArray[np.int_], max_weight: int, rng: np.random.Generator
+) -> list[npt.NDArray[np.int_]]:
+    """Batches of syndromes whose first coset without a word within ``max_weight`` varies.
+
+    The batches hold such a coset nowhere, first, last, or at several places, and one batch is
+    short.
+    """
+    within = np.flatnonzero(minima <= max_weight)
+    beyond = np.flatnonzero(minima > max_weight)
+    base = rng.choice(within, 100)
+    batches = [base, base[:3]]
+    if len(beyond):
+        for places in ([0], [-1], [33, 50, -1]):
+            batch = base.copy()
+            batch[places] = rng.choice(beyond, len(places))
+            batches.append(batch)
+    return batches
+
+
+def _get_rank_deficient_search() -> tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.int_]]:
+    """The classical search of ``RANK_DEFICIENT_CODE``, and the minima of its syndromes."""
+    tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    checks = get_kernel(RANK_DEFICIENT_CODE)
+    search = coset._get_classical_search(RANK_DEFICIENT_CODE, checks, tuning_fields)
+    return search, get_binary_minima(checks)
+
+
+def _get_row(syndromes: npt.NDArray[np.uint64], batch: npt.NDArray[np.uint64]) -> int:
+    """The index in ``batch`` of the first row of ``syndromes``, a view of rows of ``batch``."""
+    return (syndromes.ctypes.data - batch.ctypes.data) // batch.strides[0]
+
+
+def _get_two_heavy_cosets() -> tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.uint64]]:
+    """A search, and a batch of 64 syndromes whose only heavy cosets are at rows 2 and 40.
+
+    A coset is heavy if it has no word within weight one.
+    """
+    search, minima = _get_rank_deficient_search()
+    light, heavy = int(np.flatnonzero(minima <= 1)[1]), np.flatnonzero(minima > 1)[:2].tolist()
+    rows = [light] * 64
+    rows[2], rows[40] = heavy
+    return search, split_syndromes_into_words(rows, search._num_syndrome_bits)
