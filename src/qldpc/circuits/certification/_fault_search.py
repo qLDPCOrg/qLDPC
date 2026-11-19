@@ -401,7 +401,7 @@ class FaultLister:
         )
         choice_slots = np.full(2 * _MAX_REMEMBERED_CHOICES, -1, dtype=np.int64)
         choice_slots_used = np.empty(_MAX_REMEMBERED_CHOICES, dtype=np.int64)
-        expansion_state = np.array([0, -1, 0, self._num_syndromes, 0], dtype=np.int64)
+        expansion_state = np.array([0, -1, 0, self._num_syndromes, 0, 0], dtype=np.int64)
 
         # Expand each batch of class tuples into faults.  Whenever the expansion pauses, grow the
         # table of syndromes if it should grow, and check the batch of faults if it is full.  At the
@@ -989,11 +989,12 @@ def _expand_class_tuples(
     The level is the index, in a class tuple, of the class whose member is being chosen.  The
     expansion keeps its state between calls in ``expansion_state`` (the index of the class tuple to
     expand, the level or -1 before the class tuple starts, the number of faults in the batch, the
-    number of syndromes in the table, and the number of remembered choices),
-    ``next_member_entries`` (at each level, the entry of ``class_members`` after that of the chosen
-    member), ``chosen_row_sums`` (row ``i`` is the sum of the primitive rows of the members chosen
-    at the first ``i`` levels), ``chosen_start_counts`` (entry ``i`` is the number of start members
-    among them), and ``choice_rows``, ``choice_slots``, and ``choice_slots_used``.  These form a
+    number of syndromes in the table, the number of remembered choices, and the first level whose
+    class has more than one member), ``next_member_entries`` (at each level, the entry of
+    ``class_members`` after that of the chosen member), ``chosen_row_sums`` (row ``i`` is the sum
+    of the primitive rows of the members chosen at the first ``i`` levels), ``chosen_start_counts``
+    (entry ``i`` is the number of start members among them), and ``choice_rows``,
+    ``choice_slots``, and ``choice_slots_used``.  These form a
     hash map as in ``_find_syndrome_slot`` of the choices of members of the current class tuple
     whose completions were listed: each row holds a hash, then the level of the choice and whether
     it has a start member, then its syndrome.  ``choice_slots_used`` lists the slots in use, to
@@ -1014,14 +1015,22 @@ def _expand_class_tuples(
 
     tuple_index, level = expansion_state[0], expansion_state[1]
     num_batched, num_syndromes = expansion_state[2], expansion_state[3]
-    num_choices = expansion_state[4]
+    num_choices, first_branching_level = expansion_state[4], expansion_state[5]
     while tuple_index < len(class_tuples):
+        # Start a class tuple with no remembered choices.  Before the first level whose class has
+        # more than one member, there is only one choice at each level, so none is remembered.
         if level < 0:
             level = 0
             next_member_entries[0] = class_offsets[class_tuples[tuple_index, 0]]
             for choice in range(num_choices):
                 choice_slots[choice_slots_used[choice]] = -1
             num_choices = 0
+            first_branching_level = 0
+            while first_branching_level < fault_weight:
+                branching_class = class_tuples[tuple_index, first_branching_level]
+                if class_offsets[branching_class + 1] - class_offsets[branching_class] > 1:
+                    break
+                first_branching_level += 1
         while level >= 0:
             # Choose the next member of the class at this level, or go back a level if there is
             # none.
@@ -1058,14 +1067,11 @@ def _expand_class_tuples(
                 # Skip every fault that completes this choice if an earlier choice of members of the
                 # same classes of this class tuple had the same syndrome, and a start member if and
                 # only if this one has, since the table then holds the syndromes of all these faults
-                # (see "Skipping faults whose syndromes are listed").  This needs a table that is
-                # not full, and so never was, since it only grows until a violation ends the
-                # listing, and a next class that differs from this one.  Otherwise remember the
-                # choice, if there is room.
-                if (
-                    num_syndromes < len(syndrome_rows)
-                    and class_tuples[tuple_index, level + 1] != current_class
-                ):
+                # (see "Skipping faults whose syndromes are listed").  This needs a table that has
+                # not been full since this call began, which holds if it is not full now, since the
+                # table only grows until a violation ends the call.  Otherwise remember the choice,
+                # if there is room.
+                if num_syndromes < len(syndrome_rows) and level >= first_branching_level:
                     choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
                     choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]
                     choice_hash = chosen_row_sums[level + 1, 0] ^ (
@@ -1116,13 +1122,13 @@ def _expand_class_tuples(
             ):
                 expansion_state[0], expansion_state[1] = tuple_index, level
                 expansion_state[2], expansion_state[3] = num_batched, num_syndromes
-                expansion_state[4] = num_choices
+                expansion_state[4], expansion_state[5] = num_choices, first_branching_level
                 return
         tuple_index += 1
         level = -1
     expansion_state[0], expansion_state[1] = tuple_index, level
     expansion_state[2], expansion_state[3] = num_batched, num_syndromes
-    expansion_state[4] = num_choices
+    expansion_state[4], expansion_state[5] = num_choices, first_branching_level
 
 
 @always_compiled

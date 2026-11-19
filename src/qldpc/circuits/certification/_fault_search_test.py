@@ -377,6 +377,7 @@ def test_checked_faults_follow_the_table_of_syndromes(
     """
     # With no memory, the table of syndromes keeps room for its first two syndromes.
     monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    default_remembered = _fault_search._MAX_REMEMBERED_CHOICES
 
     def check(
         flags: list[int],
@@ -385,8 +386,13 @@ def test_checked_faults_follow_the_table_of_syndromes(
         num_qubits: int,
         num_starts: int,
     ) -> None:
-        """Check the listing against a model of the table, with and without room in it."""
-        for memory_limit, room in ((0, 2), (2**20, None)):
+        """Check the listing against a model of the table, with and without room in it.
+
+        Also check it when the lister remembers only one choice of members of each class tuple.
+        """
+        cases = itertools.product(((0, 2), (2**20, None)), (default_remembered, 1))
+        for (memory_limit, room), remembered in cases:
+            monkeypatch.setattr(_fault_search, "_MAX_REMEMBERED_CHOICES", remembered)
             lister = _fault_search.FaultLister(
                 flags, syndromes, representatives, num_qubits, False, num_starts, memory_limit
             )

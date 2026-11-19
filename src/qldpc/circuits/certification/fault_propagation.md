@@ -191,12 +191,16 @@ Many faults of a fault weight share their syndromes, so the table of syndromes l
 The search skips many of them without looking them up.
 It expands each class codeword, or for fault weight two each start class taken twice, by choosing one member of each of its classes in turn, as [above](#listing-each-irreducible-accepted-fault-once) describes.
 Take two choices `U` and `U'` of members of the first `ℓ < m` classes of a class codeword of `m` classes, where the search chooses `U` first, and either both or neither contain a heavy primitive fault.
-Whether the search skips a member depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it, so the search completes `U` and `U'` by the same choices `R` of members of the other classes.
-If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which the search listed earlier, so by case 2 of [Checking one fault](#checking-one-fault), no fault that completes `U'` is the first violation, and the search skips them all.
-Each skipped fault has the syndrome of a fault listed earlier, so the table holds the syndrome of every fault listed so far, skipped or not, as long as it has had room for every syndrome.
-The search skips faults only while the table has had room, so that the table would have left out each fault that it skips.
-Then skipping changes neither the faults that the search checks nor the table.
-It skips no faults of fault weight two, since the member of the second class must come after that of the first, so `U` and `U'` have different completions.
+The rule above that skips the rest of a class depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it.
+So each choice `R` of members of the other classes that completes `U'` under that rule also completes `U`; for fault weight two, whose class repeats, `R` comes after the member of `U'`, and so after that of `U`.
+If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which comes earlier in the listing order, and the search skips all the faults `U' + R` without looking them up.
+
+Suppose that the table of syndromes has had room for every syndrome so far.
+Then, when the search reaches a fault, the table holds the syndrome of every fault that comes earlier in the listing order, whether the search looked it up or skipped it.
+This holds by induction on the listing order: a fault that the search looked up had its syndrome added to the table, or found it there, and a skipped fault `U' + R` has the syndrome of the earlier fault `U + R`, which by induction is in the table.
+So the table holds the syndrome of each skipped fault, and it holds only syndromes of faults that the search looked up earlier, so by case 2 of [Checking one fault](#checking-one-fault), no skipped fault is the first violation.
+The table would also have left out each skipped fault, so skipping changes neither the faults that the search checks nor the table.
+The search skips faults only while the table has had room for every syndrome.
 
 ### Why the first violation has the smallest fault weight
 
@@ -239,4 +243,4 @@ The number of faults that complete a choice grows with the fault weight.
 Up to fault weight four, looking for such a Pauli error cost about as much time as it saved.
 In searches that listed every fault, it saved little time at fault weight five but made the search about twice as fast at fault weight six.
 Later trials reached fault weight ten, where the search skips most faults because [their syndromes are listed](#skipping-faults-whose-syndromes-are-listed).
-There, expanding class codewords into faults took under a fifth of the time of listing them, and the rule, with the smallest Pauli weight of each heavy part from the oracle, would have removed under a third of the choices of members that remain.
+There, expanding class codewords into faults took under a fifth of the listing's time, and the rule, with the smallest Pauli weight of each heavy part from the oracle, would have removed under a third of the choices of members that remain.
