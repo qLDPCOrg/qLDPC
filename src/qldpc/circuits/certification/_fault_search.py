@@ -45,7 +45,8 @@ _MAX_CLOSING_SIZE = 4
 
 # A closing map of sets of more than two classes is built only once the listing of class codewords
 # at the last fault weight made at least this many lookups for each set of the map, so that building
-# the map takes time of the order of that listing.
+# the map takes time of the order of that listing.  A map is wasted if the next fault weight finds a
+# violation at once, which costs about one such listing.
 _LOOKUPS_PER_CLOSING_SET = 1
 
 # The number of choices of members of a class tuple whose syndromes ``_expand_class_tuples``
@@ -551,13 +552,19 @@ def _take_table_room(
 
     The table has room for ``max_syndromes`` syndromes of ``num_syndrome_words`` words, and has
     ``num_rows`` rows.  Return how many syndromes it has room for after giving up the bytes, or -1
-    if it would then have room for fewer than its rows, or could not grow to as many rows as before
-    (see ``_get_largest_table_size``), so that it would take fewer syndromes.
+    if it would then have room for fewer than its rows, or if an empty table, which starts with
+    ``_INITIAL_SYNDROME_TABLE_SIZE`` rows, could not grow to as many rows as before (see
+    ``_get_largest_table_size``), so that it would take fewer syndromes.  The table grew from that
+    size by the same doublings, so it also still grows as far as before, and so does each table
+    after a violation empties it.
     """
     num_syndromes = -(-num_bytes // _get_syndrome_bytes(num_syndrome_words))
     rest = max_syndromes - num_syndromes
-    largest_size = _get_largest_table_size(num_rows, max_syndromes)
-    if rest < num_rows or _get_largest_table_size(num_rows, rest) < largest_size:
+    largest_size = _get_largest_table_size(_INITIAL_SYNDROME_TABLE_SIZE, max_syndromes)
+    if (
+        rest < num_rows
+        or _get_largest_table_size(_INITIAL_SYNDROME_TABLE_SIZE, rest) < largest_size
+    ):
         return -1
     return rest
 
@@ -994,13 +1001,13 @@ def _expand_class_tuples(
     ``class_members`` after that of the chosen member), ``chosen_row_sums`` (row ``i`` is the sum
     of the primitive rows of the members chosen at the first ``i`` levels), ``chosen_start_counts``
     (entry ``i`` is the number of start members among them), and ``choice_rows``,
-    ``choice_slots``, and ``choice_slots_used``.  These form a
-    hash map as in ``_find_syndrome_slot`` of the choices of members of the current class tuple
-    whose completions were listed: each row holds a hash, then the level of the choice and whether
-    it has a start member, then its syndrome.  ``choice_slots_used`` lists the slots in use, to
-    clear them for the next class tuple.  The expansion returns once the batch has ``batch_size``
-    faults, once the table should grow (see ``_table_should_grow``), or once every class tuple is
-    expanded.  A full table takes no more syndromes.
+    ``choice_slots``, and ``choice_slots_used``.  These form a hash map as in
+    ``_find_syndrome_slot`` of the choices of members of the current class tuple whose completions
+    were listed: each row holds a hash, then the level of the choice and whether it has a start
+    member, then its syndrome.  ``choice_slots_used`` lists the slots in use, to clear them for the
+    next class tuple.  The expansion returns once the batch has ``batch_size`` faults, once the
+    table should grow (see ``_table_should_grow``), or once every class tuple is expanded.  A full
+    table takes no more syndromes.
     """
     # Column 0 of the primitive rows holds the hash of the syndrome, the next columns hold the
     # syndrome, and the rest hold the X and then the Z part of the representative.
@@ -1072,11 +1079,12 @@ def _expand_class_tuples(
                 # same classes of this class tuple had the same syndrome, and a start member if and
                 # only if this one has, since the table then holds the syndromes of all these faults
                 # (see "Skipping faults whose syndromes are listed").  This needs a table that has
-                # had room for every syndrome since the earlier choice was remembered.  A table that
-                # is not full now has had that room, since a full table never grows, as a table
-                # grows when half full whenever it can, and it is cleared only when a violation ends
-                # the listing.  This applies only past the first level whose class has more than
-                # one member (see above).  Otherwise remember the choice, if there is room.
+                # had room for every syndrome so far in this call of ``FaultLister.find_first``, as
+                # that section says.  A table that is not full now has, since a full table never
+                # grows, as a table grows when half full whenever it can, and it is cleared only
+                # when a violation ends the listing.  This applies only past the first level whose
+                # class has more than one member (see above).  Otherwise remember the choice, if
+                # there is room.
                 if num_syndromes < len(syndrome_rows) and level > first_branching_level:
                     choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
                     choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]

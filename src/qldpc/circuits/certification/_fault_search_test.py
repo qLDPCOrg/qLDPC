@@ -433,6 +433,15 @@ def test_checked_faults_follow_the_table_of_syndromes(
     representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
     check(flags, syndromes, representatives, 24, 3)
 
+    # Primitive fault 3 has flags but no syndrome, so adding it to a choice keeps the syndrome of
+    # the choice.  In the class codeword of the classes with flags 1, 2, 4, and 7, the choice of
+    # members 0, 2, and 3 of the first three classes has the syndrome of the choice of members 0 and
+    # 2 of the first two, but other completions, so a remembered choice must also match the level.
+    flags = [1, 1, 2, 4, 7]
+    syndromes = [1, 2, 4, 0, 8]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, syndromes, representatives, 15, 1)
+
 
 @pytest.mark.parametrize("size", [2, 3, 4])
 def test_closing_map_peak_memory_is_within_its_estimate(
@@ -496,11 +505,15 @@ def test_memory_limit_is_split_within_the_caps() -> None:
     assert split(3, 2, pair_bytes - 1) == (False, (pair_bytes - 1) // syndrome_bytes)
 
 
-def test_closing_maps_take_room_that_the_table_does_not_need() -> None:
+def test_closing_maps_take_room_that_the_table_does_not_need(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A closing map takes room from the table of syndromes only if the table can grow as far."""
     take = _fault_search._take_table_room
-    # A syndrome of one word takes 32 bytes, so 33 bytes take the room of two.  A table of four rows
-    # with room for ten syndromes cannot grow, so it can give up the room of six, and no more.
+    # Empty tables start with four rows.  A syndrome of one word takes 32 bytes, so 33 bytes take
+    # the room of two.  A table of four rows with room for ten syndromes cannot grow, so it can give
+    # up the room of six, and no more.
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 4)
     assert take(33, 10, 4, 1) == 8
     assert take(6 * 32, 10, 4, 1) == 4
     assert take(6 * 32 + 1, 10, 4, 1) == -1
@@ -508,6 +521,9 @@ def test_closing_maps_take_room_that_the_table_does_not_need() -> None:
     # of the last step take 96.  It can give up the room of four syndromes, but not of five.
     assert take(4 * 32, 100, 4, 1) == 96
     assert take(5 * 32, 100, 4, 1) == -1
+    # A table that has grown to 64 rows can still give up only the room of four, since a table
+    # emptied by a violation grows again from four rows.
+    assert take(5 * 32, 100, 64, 1) == -1
 
 
 def _listing_lister(num_classes: int, seed: int, memory_limit: int) -> _fault_search.FaultLister:
@@ -532,7 +548,8 @@ def test_closing_maps_do_not_change_the_checked_faults(monkeypatch: pytest.Monke
     """Closing maps of three or four classes leave the checked faults as they are without them.
 
     In particular, a map does not take room that the table of syndromes, which grows from two rows
-    here, would need to take each new syndrome as it does without the map.
+    here, would need to take each new syndrome as it does without the map, also after a violation
+    empties the table.
     """
     monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
     monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
@@ -540,13 +557,19 @@ def test_closing_maps_do_not_change_the_checked_faults(monkeypatch: pytest.Monke
     # take 11,440 and 27,720.  Each syndrome takes 40 bytes, and the listing has 1362 syndromes.
     # With room for 1536, 3072, or 6144 syndromes, the table can just grow to 1024, 2048, or 4096
     # rows, so that any room that a map took would stop it one step short.
-    for room in (1536, 3072, 6144):
+    # Then a violation at fault weight six empties the table, which must grow again as without
+    # the maps when fault weight six is listed again.
+    violating = set(range(0, 2**12, 31))
+    for room in (1500, 1536, 3072, 6144):
         memory_limit = 3168 + 40 * room
         checked = []
         for max_closing_size in (2, 4):
             monkeypatch.setattr(_fault_search, "_MAX_CLOSING_SIZE", max_closing_size)
             lister = _listing_lister(12, 5, memory_limit)
-            checked.append([_check_faults(lister, weight, ())[0] for weight in range(2, 7)])
+            listings = [_check_faults(lister, weight, ()) for weight in range(2, 7)]
+            listings.append(_check_faults(lister, 6, violating))
+            listings.append(_check_faults(lister, 6, ()))
+            checked.append(listings)
         assert checked[0] == checked[1], memory_limit
 
 
