@@ -94,7 +94,8 @@ def find_smallest_violation(
 
     # Check faults only up to fault weight rank(P) + 1, for the matrix P of the flags (see
     # "Irreducible accepted faults have fault weight at most rank(P) + 1").
-    distinct_flags = [flag for flag, _ in signatures]
+    # Repeated flags do not change the rank, so each value enters the matrix once.
+    distinct_flags = list(dict.fromkeys(flag for flag, _ in signatures))
     flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
@@ -554,12 +555,16 @@ def _hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
 
     The hash of a sum of rows is the sum of their hashes.  Rows that differ can share a hash.
     """
+    # Bit ``b`` of word ``c`` adds ``images[c, b]`` to the hash.  Tabulate the hash of each value of
+    # each byte of each word, so that a row takes one lookup per byte rather than steps per bit.
     images = np.random.default_rng(0).integers(2**64, size=(words.shape[1], 64), dtype=np.uint64)
-    hashes = np.zeros(len(words), dtype=np.uint64)
-    for column, column_images in enumerate(images):
-        bits = (words[:, column, None] >> np.arange(64, dtype=np.uint64)) & np.uint64(1)
-        hashes ^= np.bitwise_xor.reduce(bits * column_images, axis=1)
-    return hashes
+    byte_images = images.reshape(words.shape[1], 8, 8)
+    byte_values = np.arange(256)
+    tables = np.zeros((words.shape[1], 8, 256), dtype=np.uint64)
+    for bit in range(8):
+        has_bit = ((byte_values >> bit) & 1).astype(np.uint64)
+        tables ^= byte_images[:, :, bit, None] * has_bit
+    return _hash_bytes(np.ascontiguousarray(words), tables)
 
 
 def _get_num_words(values: Collection[int]) -> int:
@@ -578,6 +583,28 @@ def _hashed_rows(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64
     """For each integer, a row of its linear hash and then its words, as in a table of syndromes."""
     words = _to_words(values, num_words)
     return np.hstack([_hash_words(words)[:, None], words])
+
+
+@always_compiled
+def _hash_bytes(
+    words: npt.NDArray[np.uint64], tables: npt.NDArray[np.uint64]
+) -> npt.NDArray[np.uint64]:
+    """Hash each row of words with tables of the hashes of bytes.
+
+    A row hashes to the XOR, over each byte ``k`` of each word ``c``, of ``tables[c, k, v]`` for the
+    value ``v`` of that byte.
+    """
+    hashes = np.zeros(len(words), dtype=np.uint64)
+    byte_mask = np.uint64(0xFF)
+    for row in range(len(words)):
+        hashed = np.uint64(0)
+        for column in range(words.shape[1]):
+            word = words[row, column]
+            for byte in range(8):
+                value = np.int64((word >> np.uint64(8 * byte)) & byte_mask)
+                hashed ^= tables[column, byte, value]
+        hashes[row] = hashed
+    return hashes
 
 
 @always_compiled
