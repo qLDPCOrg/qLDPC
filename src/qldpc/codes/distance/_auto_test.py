@@ -35,9 +35,6 @@ NO_PROBE = {"auto_brute_force_max_words": 0, "auto_free_work": 0, "auto_probe_wo
 # switches to BZ sooner.
 SWITCH = {**NO_PROBE, "connected_cluster_state_evaluations": 10**6}
 
-# A state cost far below the default, so that a search does not switch to BZ.
-NO_SWITCH = {"connected_cluster_state_evaluations": 1}
-
 
 def get_nested_sector(
     checks: npt.NDArray[np.uint8], excluded: npt.NDArray[np.uint8]
@@ -199,9 +196,7 @@ def test_a_cutoff_ends_the_free_phase_at_once(routes: Routes) -> None:
     before it.
     """
     checks = get_golay_checks()
-    with use_tuning(
-        auto_brute_force_max_words=0, auto_free_work=10**12, auto_probe_work=0, **NO_SWITCH
-    ):
+    with use_tuning(auto_brute_force_max_words=0, auto_free_work=10**12, auto_probe_work=0):
         assert core.get_distance_from_checks(checks, checks, method="auto", cutoff=4) == 7
     assert len(routes.probes) == 1 and routes.switch_bounds == []
 
@@ -268,7 +263,7 @@ def test_an_unfinished_probe_caps_the_search_by_its_bound(routes: Routes) -> Non
     bounds reach the probe's bound.
     """
     surface_code = qldpc.codes.SurfaceCode(5)
-    with use_tuning(**NO_PROBE, **NO_SWITCH):
+    with use_tuning(**NO_PROBE):
         distance = core.get_distance_css(
             surface_code.matrix_x, surface_code.matrix_z, method="auto"
         )

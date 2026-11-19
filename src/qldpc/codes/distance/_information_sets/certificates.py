@@ -114,9 +114,9 @@ class Certificate:
         """Whether ``step_lower_bound(weight, num_completed)`` is at least ``upper_bound``.
 
         This solves a linear program only if the coverage bound falls short and, without
-        ``column_orbits``, the feasible point that sets each pivot column to the largest
-        ``requirement / len(block)`` of its blocks does not show the optimum to fall short too
-        (Section 3.1).
+        ``column_orbits``, the feasible point that sets each pivot column to the largest positive
+        ``requirement / len(block)`` of its blocks, or zero, does not show the optimum to fall short
+        too (Section 3.1).
         """
         if self._step_lower_bounds[weight, num_completed] >= upper_bound:
             return True

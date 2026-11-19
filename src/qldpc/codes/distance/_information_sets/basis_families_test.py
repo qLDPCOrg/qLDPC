@@ -169,7 +169,7 @@ def test_overlapping_family_guards() -> None:
     zeros = np.zeros((1, 3), dtype=np.uint8)
     empty = basis_families.get_disjoint_family(zeros, None, random_column_orders=ORDERS)
     assert not len(empty.ranks)
-    assert not len(_get_overlapping_family(zeros, None, empty, 2, minimum_work=0).ranks)
+    assert not len(_get_overlapping_family(zeros, None, empty, 2).ranks)
 
     # An information set holds one of the third to fifth columns, which are equal, and two of the
     # first, second, and sixth, so attempts rediscover the few such sets.

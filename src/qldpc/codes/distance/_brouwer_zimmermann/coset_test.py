@@ -49,6 +49,35 @@ from ..coset_leaders import CosetLeaderSearch
 from ..min_weight_bounds import MinWeightBound
 from . import affine_instance, coset, coset_tables
 
+# A code whose searches for minimum weights by tails skip completions by tables at the threshold
+# zero, as do those of its even version.
+_SKIPPING_CODE = np.array(
+    [
+        [0, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1],
+        [0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1],
+        [0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1],
+        [0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1],
+        [0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0],
+    ],
+    dtype=np.uint8,
+)
+
+# A longer code with cosets of minimum weight six.  At maximum weight four and the threshold zero,
+# its searches of these cosets for minimum weights skip completions whose bound reaches the skip
+# bound but not the weight of the lightest word weighed.  Its searches by tails of some other
+# cosets, such as those of syndromes 1126, 4578, and 6129, stop early within steps.
+_HEAVY_COSETS_CODE = get_binary_matrix(
+    [
+        "11100011110000110001",
+        "00001011001010001000",
+        "10010110101010101100",
+        "10001100101100100101",
+        "01010100110001001100",
+        "00010000001110010101",
+        "00101100011111000001",
+    ]
+)
+
 
 def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_parity() -> None:
     """Searches by CSS weight stop at bounds of each class, rounded to the parity of |x| + |z|."""
@@ -312,36 +341,6 @@ def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune
     ]
     for matrix, css_weight, search in searches:
         assert_exact_answers(search, matrix, css_weight)
-
-
-# A code whose searches for minimum weights by tails skip completions by tables at the threshold
-# zero, as do those of its even version.
-_SKIPPING_CODE = np.array(
-    [
-        [0, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1],
-        [0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1],
-        [0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1],
-        [0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1],
-        [0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0],
-    ],
-    dtype=np.uint8,
-)
-
-# A longer code with cosets of minimum weight six.  At maximum weight four and the threshold zero,
-# its searches of these cosets for minimum weights skip completions whose bound reaches the skip
-# bound but not the weight of the lightest word weighed.  Its searches by tails of some other
-# cosets, such as those of syndromes 1126, 4578, and 6129, stop early within steps.
-_HEAVY_COSETS_CODE = get_binary_matrix(
-    [
-        "11100011110000110001",
-        "00001011001010001000",
-        "10010110101010101100",
-        "10001100101100100101",
-        "01010100110001001100",
-        "00010000001110010101",
-        "00101100011111000001",
-    ]
-)
 
 
 def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
