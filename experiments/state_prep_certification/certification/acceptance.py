@@ -22,13 +22,13 @@
   first of the five B-cat circuits of largest K and size that qualifies.  A circuit qualifies if its
   last weight takes at least 0.5 s in a full run after a first, warming one, and if a run stopped a
   tenth of the way into that weight completes a weight but not that one.  The stopped run ends as a
-  timeout with T at least the limit, reports
-  its completed weights as consecutive weights from 2 without a violation, and is not rerun when its
-  task is run again.  A ``cert_bz`` run on the weakened C-goto, which violates, gets a
-  post-processing allowance of 1 s, and its description is delayed by 5 s (``post_delay_s``).  The
-  run keeps status ok, T, and its verdict, and its ``post_status`` is ``timeout``.  A fast
-  ``cert_bz`` run on C-goto gets exactly ``repeats.count`` repeats (``repeat_tasks``), each with a
-  limit of 600 s and no ``post_s``, and a repeat ends without post-processing or certificate text.
+  timeout with T at least the limit, reports its completed weights as consecutive weights from 2
+  without a violation, and is not rerun when its task is run again.  A ``cert_bz`` run on the
+  weakened C-goto, which violates, gets a post-processing allowance of 1 s, and its description is
+  delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and its verdict, and its
+  ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets exactly ``repeats.count``
+  repeats (``repeat_tasks``), each with a limit of 600 s and no ``post_s``, and a repeat ends
+  without post-processing or certificate text.
 * **AT5:** every input matches its SHA-256, its recomputed DEM parameters equal those of
   ``circuits.json``, and each code file passes ``code_files.check_code`` (``circuits.py --check``).
   Every noisy input has only the expected noise, with every measurement noisy.
@@ -397,7 +397,7 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
         ends = [record["T_cumulative"] for record in full["partial"]]
         assert None not in ends, full["partial"]
         if len(ends) < 2:
-            too_short.append(f"{circuit['id']} (one weight only)")
+            too_short.append(f"{circuit['id']} (fewer than two weights)")
             continue
         last_weight_seconds = ends[-1] - ends[-2]
         if last_weight_seconds < 0.5:
@@ -412,8 +412,9 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     else:
         if len(too_short) == len(candidates):
             raise AssertionError(
-                "the last weight of each of the five largest cat circuits tried takes under 0.5 s"
-                f" on this machine, too little to stop a run during it: {', '.join(too_short)}"
+                "each of the five largest cat circuits tried completes fewer than two weights, or"
+                " its last weight takes under 0.5 s on this machine, too little to stop a run"
+                f" during it: {', '.join(too_short)}"
             )
         raise AssertionError("no cat circuit completes a weight but not the search in its limit")
     assert row["T"] >= limit, row

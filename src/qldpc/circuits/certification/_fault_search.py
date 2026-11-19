@@ -44,9 +44,9 @@ _BYTES_PER_SET = 40
 _MAX_CLOSING_SIZE = 4
 
 # A closing map of sets of more than two classes is built only once the last listing of class
-# codewords that finished made at least this many lookups for each set of the map, so that building
-# the map takes time of the order of that listing.  A map is wasted if the next fault weight finds a
-# violation at once, which costs about one or two such listings.
+# codewords that ran to its end made at least this many lookups for each set of the map, so that
+# building the map takes time of the order of that listing.  A map is wasted if the next fault
+# weight finds a violation at once, which costs about one or two such listings.
 _LOOKUPS_PER_CLOSING_SET = 1
 
 # The number of choices of members of a class tuple whose syndromes ``_expand_class_tuples``

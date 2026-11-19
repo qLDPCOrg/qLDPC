@@ -131,7 +131,8 @@ def test_listing_matches_brute_force(
     # that one lookup finds decides the order of the faults.  In the fifth, after choosing the
     # classes with flags 1 and 2, a listing must reject the closing set with flags 4, 5, 8, and 10.
     # Unlike in the second, each class of that set is independent of the chosen classes, but the
-    # classes with flags 4 and 5 together are not, since 5 = 1 + 4.
+    # classes with flags 4 and 5 together are not, since 5 = 1 + 4, nor are those with flags 8 and
+    # 10, since 10 = 2 + 8.
     flag_sets = [
         [1, 2, 1, 2, 3, 3],
         [1, 2, 4, 8, 3, 12, 16, 31],
@@ -714,9 +715,10 @@ def test_closing_maps_and_the_table_of_syndromes_stay_within_the_memory_limit(
     # for 1536, since growing to 1024 rows also holds the old 512.  So the map of three fits in
     # both, and the map of four only in 2515, where the table, emptied by a violation at fault
     # weight six, grows again to 1024 rows with every map held, exactly at the limit.  At 2480, a
-    # map of four is built only if the maps under-charge by at least 35 syndromes (1400 bytes), as
-    # a map whose room leaves out some of its bytes or a map that takes no room from the table
-    # does in every mutation tried, and the table's growth then exceeds the limit.
+    # map of four is built only if the maps under-charge by at least 35 syndromes (1400 bytes) in
+    # all, and the table's growth then exceeds the limit.  Leaving out 4 bytes per set of four
+    # (about 50 syndromes), 4 bytes per set of either map (about 72), all 4 bytes per class (66 and
+    # 198), or all the room (979) does so, and so does forgetting the room that an earlier map took.
     sizes_built: set[int] = set()
     for room in (2480, 2515):
         memory_limit = 3168 + 40 * room
