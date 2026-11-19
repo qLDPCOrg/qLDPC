@@ -18,12 +18,13 @@
   fault search makes.  On E-chen, the shadow oracle answers each query that the counters count,
   with one threshold-1 query per reduced mechanism, and an oracle whose answers are shifted raises
   ``ShadowDisagreement``.
-* **AT4:** ``cert_bz`` with a limit of 5 s, on the first of the B-cat circuits of largest K and
-  size that completes a weight in that time, ends as a timeout with T >= 5 s, reports its completed
-  weights as consecutive weights from 2 without a violation, and is not rerun when its task is run
-  again.  A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance
-  of 1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
-  its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
+* **AT4:** ``cert_bz`` with a limit of half the time of its full run, on the first of the B-cat
+  circuits of largest K and size that completes a weight in that time, ends as a timeout with T at
+  least the limit, reports its completed weights as consecutive weights from 2 without a violation,
+  and is not rerun when its task is run again.  A ``cert_bz`` run on the weakened C-goto, which
+  violates, gets a post-processing allowance of 1 s, and its description is delayed by 5 s
+  (``post_delay_s``).  The run keeps status ok, T, and its verdict, and its ``post_status`` is
+  ``timeout``.  A fast ``cert_bz`` run on C-goto gets
   exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
   ``post_s``, and a repeat ends without post-processing or certificate text.
 * **AT5:** every input matches its SHA-256, its recomputed DEM parameters equal those of
@@ -372,18 +373,23 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     """Limits, the post-processing allowance, repeats, worst cases, and resume."""
     # the first of the five cat circuits of largest K and size that completes a weight but not the
-    # search within 5 s
+    # search within half the time of its full run, which takes about a second
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     candidates = [e for e in entries if e["family"] == "B-cat" and e["status"] == "ok"]
     candidates.sort(key=lambda e: (e["options"]["max_weight"], e["num_mechanisms"]), reverse=True)
     for circuit in candidates[:5]:
-        task = experiment._task("cert_bz", circuit, 0, 5.0)
+        task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
+        full = local_runs.run_locally(directory / "full" / circuit["id"], [task])[task["key"]]
+        limit = full["T"] / 2
+        task = experiment._task("cert_bz", circuit, 0, limit)
         row = local_runs.run_locally(directory / circuit["id"], [task])[task["key"]]
         if row["status"] == "timeout" and row["partial"]:
             break
     else:
-        raise AssertionError("no cat circuit completes a weight but not the search in 5 s")
-    assert row["T"] >= 5.0, row
+        raise AssertionError(
+            "no cat circuit completes a weight but not the search in half its time"
+        )
+    assert row["T"] >= limit, row
 
     # the partial results are the completed weights, in order from 2, each without a violation
     weights = [record["m"] for record in row["partial"]]
