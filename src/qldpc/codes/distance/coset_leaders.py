@@ -11,13 +11,19 @@ circuit leave errors that are too heavy.
 from __future__ import annotations
 
 import functools
-import threading
-from typing import Literal, SupportsIndex, cast
+from typing import Literal, SupportsIndex, cast, get_args
 
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import get_kernel, pack_bits, row_reduce_binary
+from qldpc._binary import (
+    get_kernel,
+    get_num_words,
+    pack_bits,
+    row_ints,
+    row_reduce_binary,
+    words_to_int,
+)
 from qldpc._compilation import always_compiled
 
 from . import _threads
@@ -27,8 +33,12 @@ from ._brouwer_zimmermann.coset import (
     get_css_searches,
     get_pauli_search,
 )
-from ._connected_cluster.coset import ConnectedClusterCosetSearch
-from ._cosets import row_ints, words_to_int, xor_selected, xor_selected_rows
+from ._connected_cluster.coset import (
+    ConnectedClusterCosetSearch,
+    find_first_cluster_bound,
+    get_min_cluster_weights,
+)
+from ._cosets import xor_selected, xor_selected_rows
 from ._tuning import get_tuning
 from .core import DistanceMethod, _validate_distance_method
 from .min_weight_bounds import MinWeightBound
@@ -129,13 +139,11 @@ class CosetLeaderSearch:
         # work: words that BZ queries weigh (Section 4.5 of brouwer_zimmermann_code.md), or states
         # that connected-cluster queries visit (Section 3.11 of connected_cluster.md).
         num_threads = _threads.get_num_threads(tuning.num_threads)
-        split_work = min(
-            num_threads << tuning.information_set_batch_exponent, _threads.NO_WORK_LIMIT
-        )
+        split_work = min(num_threads << tuning.search_chunk_exponent, _threads.NO_WORK_LIMIT)
         self._thread_options = {"num_threads": num_threads, "split_work": split_work}
         cluster_search = functools.partial(
             ConnectedClusterCosetSearch,
-            max_rounds=tuning.max_sparsifying_rounds,
+            max_rounds=tuning.max_coset_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
             restrict_viable_symbols=tuning.restrict_viable_symbols,
             stabilizer_overlap_cuts=tuning.stabilizer_overlap_cuts,
@@ -194,10 +202,12 @@ class CosetLeaderSearch:
         # its X part (README.md, "The coset-leader search"), and likewise for Z.
         x_syndrome_map = multiply_binary(z_transform, z_combinations)
         z_syndrome_map = multiply_binary(x_transform, x_combinations)
-        self._map_columns = (
-            pack_bits(np.ascontiguousarray(x_syndrome_map.T)),
-            pack_bits(np.ascontiguousarray(z_syndrome_map.T)),
-        )
+        # Only the batch queries of the BZ searches read the packed columns of the maps.
+        if self._brouwer_zimmermann_searches:
+            self._map_columns = (
+                pack_bits(np.ascontiguousarray(x_syndrome_map.T)),
+                pack_bits(np.ascontiguousarray(z_syndrome_map.T)),
+            )
 
         # Entry ``i`` of ``_joint_map_columns`` holds column ``i`` of the X map in its low
         # ``_num_x_syndrome_bits`` bits, and that of the Z map above them.  So ``_split_syndrome``
@@ -274,7 +284,14 @@ class CosetLeaderSearch:
 
         # The connected-cluster searches answer one syndrome at a time.
         if self._connected_cluster_searches:
-            return self._find_first_cluster_bound(syndromes, max_weight)
+            return find_first_cluster_bound(
+                self._connected_cluster_searches,
+                syndromes,
+                max_weight,
+                self._split_syndrome,
+                self._join_part_bounds,
+                **self._thread_options,
+            )
 
         # With one search, take its bound and the lightest error that it weighed.
         if len(self._brouwer_zimmermann_searches) == 1:
@@ -321,7 +338,13 @@ class CosetLeaderSearch:
 
         # The connected-cluster searches answer one syndrome at a time.
         if self._connected_cluster_searches:
-            return self._get_min_cluster_weights(syndromes, max_weight)
+            return get_min_cluster_weights(
+                self._connected_cluster_searches,
+                syndromes,
+                max_weight,
+                self._split_syndrome,
+                **self._thread_options,
+            )
 
         # Every search starts from weight zero, except those of the Z parts below.
         floors = np.zeros(len(syndromes), dtype=np.int64)
@@ -387,113 +410,6 @@ class CosetLeaderSearch:
         data = np.frombuffer(value.to_bytes((num_bits + 7) // 8, "little"), dtype=np.uint8)
         return np.unpackbits(data, count=num_bits, bitorder="little")
 
-    def _find_first_cluster_bound(
-        self, syndromes: npt.NDArray[np.uint64], max_weight: int
-    ) -> tuple[int, MinWeightBound | None]:
-        """Run ``find_first_not_within_max_weight`` with the connected-cluster searches.
-
-        ``_threads.run_blocks`` moves the rest of a costly batch to threads, and runs every row
-        before the first block that holds a syndrome whose class has no error within
-        ``max_weight``, so the least such index, and its bound, are those of one thread.  The work
-        of a query is the number of states that its searches visit, as a BZ query counts the words
-        that it weighs; a query that looks up its error and visits no state does none, since it
-        spends its time holding Python's global interpreter lock.  Threads run ``run_rows`` at once,
-        so the code that it calls must keep the requirements on threads in Section 5 of
-        ``connected_cluster.md``.
-        """
-        lock = threading.Lock()
-        found: list[tuple[int, MinWeightBound]] = []
-
-        def run_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
-            """Answer the queries of rows in turn, up to the first without an error in reach."""
-            work = 0
-            for index in range(start, end):
-                bound, states = self._get_batch_cluster_bound(
-                    words_to_int(syndromes[index]), max_weight
-                )
-                if not bound.within_max_weight:
-                    with lock:
-                        found.append((index, bound))
-                    return index + 1, True
-                work += states
-                if work >= max_work:
-                    return index + 1, False
-            return end, False
-
-        _threads.run_blocks(len(syndromes), **self._thread_options, start_worker=lambda: run_rows)
-        if not found:
-            return len(syndromes), None
-        return min(found, key=lambda entry: entry[0])
-
-    def _get_min_cluster_weights(
-        self, syndromes: npt.NDArray[np.uint64], max_weight: int
-    ) -> npt.NDArray[np.int64]:
-        """Run ``get_min_weights`` with the connected-cluster searches.
-
-        ``_threads.run_blocks`` moves the rest of a costly batch to threads, with work and
-        requirements on threads as in ``_find_first_cluster_bound``.  Each weight depends only on
-        its syndrome, so the weights are those of one thread.
-        """
-        weights = np.empty(len(syndromes), dtype=np.int64)
-
-        def run_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
-            """Write the weights of the syndromes of rows in turn."""
-            work = 0
-            for row in range(start, end):
-                weights[row], states = self._get_min_cluster_weight(
-                    words_to_int(syndromes[row]), max_weight
-                )
-                work += states
-                if work >= max_work:
-                    return row + 1, False
-            return end, False
-
-        _threads.run_blocks(len(syndromes), **self._thread_options, start_worker=lambda: run_rows)
-        return weights
-
-    def _get_min_cluster_weight(self, syndrome: int, max_weight: int) -> tuple[int, int]:
-        """Find the minimum weight of the class of a syndrome with the connected-cluster searches.
-
-        The searches try increasing weight limits from two.  A Z-part search starts at the weight of
-        the X part instead, since any Z part within it gives the class that weight (Section 3.8 of
-        ``connected_cluster.md``).
-
-        Returns:
-            The minimum weight of the class, or ``max_weight + 1`` if that is larger, and the
-            number of states that the searches visited.
-        """
-        searches = self._connected_cluster_searches
-        if len(searches) == 1:
-            bound, states = searches[0]._get_min_weight_bound_and_states(syndrome, max_weight, 2)
-            return (bound.lower_bound if bound.within_max_weight else max_weight + 1), states
-        x_syndrome, z_syndrome = self._split_syndrome(syndrome)
-        x_bound, x_states = searches[0]._get_min_weight_bound_and_states(x_syndrome, max_weight, 2)
-        if not x_bound.within_max_weight:
-            return max_weight + 1, x_states
-        z_bound, z_states = searches[1]._get_min_weight_bound_and_states(
-            z_syndrome, max_weight, x_bound.lower_bound
-        )
-        if not z_bound.within_max_weight:
-            return max_weight + 1, x_states + z_states
-        return max(x_bound.lower_bound, z_bound.lower_bound), x_states + z_states
-
-    def _get_batch_cluster_bound(
-        self, syndrome: int, max_weight: int
-    ) -> tuple[MinWeightBound, int]:
-        """Answer a query of a batch with the connected-cluster searches, by increasing limits.
-
-        The syndrome of the query must be in range (see ``_check_syndromes``).  Section 3.8 of
-        ``connected_cluster.md`` says why the limits increase.  Also returns the number of states
-        that the searches visited.
-        """
-        searches = self._connected_cluster_searches
-        if len(searches) == 1:
-            return searches[0]._get_min_weight_bound_and_states(syndrome, max_weight, 2)
-        x_syndrome, z_syndrome = self._split_syndrome(syndrome)
-        x_bound, x_states = searches[0]._get_min_weight_bound_and_states(x_syndrome, max_weight, 2)
-        z_bound, z_states = searches[1]._get_min_weight_bound_and_states(z_syndrome, max_weight, 2)
-        return self._join_part_bounds(x_bound, z_bound), x_states + z_states
-
     def _pack_syndrome(self, syndrome: int | npt.ArrayLike) -> int:
         """Return the syndrome of a query packed into an integer, after checking it."""
         if np.ndim(syndrome) == 0:
@@ -528,7 +444,7 @@ class CosetLeaderSearch:
 
         The compiled searches do not check that the set bits of a syndrome are below ``num_qubits``.
         """
-        num_words, num_bits = (self.num_qubits + 63) // 64, self.num_qubits % 64
+        num_words, num_bits = get_num_words(self.num_qubits), self.num_qubits % 64
         if not isinstance(syndromes, np.ndarray) or syndromes.dtype != np.uint64:
             raise TypeError(
                 "A batch of syndromes must be a uint64 array, such as pack_syndromes makes"
@@ -568,17 +484,18 @@ def _get_coset_search_method(
     ``"auto"`` chooses the Brouwer-Zimmermann method, whose coset searches often prove higher
     lower bounds on the weights of coset leaders.
     """
+    coset_methods = [name for name in get_args(DistanceMethod) if name != "brute_force"]
     try:
         canonical = _validate_distance_method(method)
     except ValueError:
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
-            " alias 'information_sets'), or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from"
+            f" {', '.join(map(repr, coset_methods))}."
         ) from None
     if canonical == "brute_force":
         raise ValueError(
-            "The 'brute_force' distance method has no coset-leader search: use 'auto',"
-            " 'brouwer_zimmermann', or 'connected_cluster'."
+            "The 'brute_force' distance method has no coset-leader search: use one of"
+            f" {', '.join(map(repr, coset_methods))}."
         )
     return "brouwer_zimmermann" if canonical == "auto" else canonical
 

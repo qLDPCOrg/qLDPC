@@ -60,8 +60,8 @@ def get_fault_distance(
     # Check the method before the costly analysis of the circuit.
     if method not in get_args(DistanceMethod):
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
-            " alias 'information_sets'), 'brute_force', or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from"
+            f" {', '.join(map(repr, get_args(DistanceMethod)))}."
         )
     dem_arrays = decoders.DetectorErrorModelArrays(circuit)
     detectors = dem_arrays.detector_flip_matrix.toarray().astype(np.uint8)

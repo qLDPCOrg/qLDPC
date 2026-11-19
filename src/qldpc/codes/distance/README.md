@@ -42,7 +42,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - `coset_leaders.py` is the public interface of the coset-leader search, and `min_weight_bounds.py` defines `MinWeightBound`, which its coset searches build too.
 - `_auto.py` holds the parts of the automatic choice of a method, `method="auto"`, that compare the costs of the methods (see "Choosing a method").
 - `_brouwer_zimmermann/` holds the Brouwer-Zimmermann searches, which scan information sets, and `_connected_cluster/` the connected-cluster searches, which grow connected supports.
-  Each holds the distance search of its method, and the coset searches with which the coset-leader search answers queries by that method.
+  Each holds the distance search of its method, and the coset searches with which the coset-leader search answers queries by that method, with their batch queries.
   `_brute_force.py` holds exhaustive enumeration.
 - `_counting/` holds the word scan of the counts, the local Clifford gates of deformed counters, and the MacWilliams method.
 - `_information_sets/` holds the families of information sets and their certificates, which the Brouwer-Zimmermann searches and the counts share.
@@ -69,7 +69,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The tables of BZ coset searches: the bounds of their steps and their stopping steps, and the tails and completion tables of their routes by tails | `_brouwer_zimmermann/coset_tables.py` |
 | The routes of BZ coset searches: the family of information sets for each maximum weight, the gate that chooses it, and the routes by tails | `_brouwer_zimmermann/coset_routes.py` |
 | The connected-cluster search, of distances and of vectors with a given syndrome | `_connected_cluster/search.py` |
-| The connected-cluster coset searches of the coset-leader search | `_connected_cluster/coset.py` |
+| The connected-cluster coset searches of the coset-leader search, and their batch queries | `_connected_cluster/coset.py` |
 | How the connected-cluster searches make their checks sparser with the same span, and find the light sums of pairs of checks and of known words that distance searches add | `_connected_cluster/sparse_checks.py` |
 | Exhaustive enumeration, which the `brute_force` method runs, with its packed symplectic weights | `_brute_force.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
@@ -77,7 +77,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The MacWilliams counting method | `_counting/macwilliams.py` |
 | The bound for one syndrome that the coset-leader search and its coset searches give (`MinWeightBound`) | `min_weight_bounds.py` |
 | Which sectors a distance search of a CSS code searches, and the qubit permutations that map one sector onto the other | `_search_css` of `core.py`, and `_sector_maps.py`, which calls `get_matrix_isomorphism` of `src/qldpc/external/_bliss.py` |
-| The parts that the coset searches of both methods share: words with unit syndromes, packed rows, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
+| The parts that the coset searches of both methods share: words with unit syndromes, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
 | How basis families are built | `_information_sets/basis_families.py` |
 | Certificates, and how searches plan their steps: where they stop, and the work of the steps up to there | `_information_sets/certificates.py` |
 | The step from one support of a layer to the next, which every scan of layers shares | `_information_sets/support_stepping.py` |
@@ -85,7 +85,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | Completion tables, which let a BZ scan skip the supports whose completions by two more rows are too heavy, and the choice of whether to build them | `_information_sets/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
 | The settings that a search reads when it starts (`SearchTuning` and `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
-| How a search runs its work items on threads, how a batch of queries splits into blocks on threads (`run_blocks`), and the default number of threads | `_threads.py`; how the BZ distance search splits a layer into work items is in `_brouwer_zimmermann/distance.py`, how the connected-cluster distance search splits a weight limit, in `_connected_cluster/search.py`, how BZ coset queries search their blocks, in `_brouwer_zimmermann/coset.py`, and how connected-cluster coset queries do, in `coset_leaders.py` |
+| How a search runs its work items on threads, and stops at the first item that ends its work (`run_items_until_first`), how a batch of queries splits into blocks on threads (`run_blocks`), and the default number of threads | `_threads.py`; how the BZ distance search splits a layer into work items is in `_brouwer_zimmermann/distance.py`, how the connected-cluster distance search splits a weight limit, in `_connected_cluster/search.py`, how BZ coset queries search their blocks, in `_brouwer_zimmermann/coset.py`, and how connected-cluster coset queries do, in `_connected_cluster/coset.py` |
 | Binary input checks, binary products, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
 | Bit packing, bit counts, row reduction, or products of packed rows over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -253,14 +253,14 @@ Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`),
 `get_min_weights` answers a batch in one compiled loop per coset search (`BrouwerZimmermannCosetSearch.get_min_weights`; Section 3.10 of `brouwer_zimmermann.md`).
 Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](#threads)).
 The calling thread starts the batch alone, and a batch of cheap queries stays there.
-The split work of a search is `num_threads * 2**information_set_batch_exponent` units of work, one for each query and one for each word that it weighs after the word of its syndrome.
+The split work of a search is `num_threads * 2**search_chunk_exponent` units of work, one for each query and one for each word that it weighs after the word of its syndrome.
 Once the queries of a batch on the calling thread reach the split work, `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks, each searched with the same compiled loop (Section 4.5 of `brouwer_zimmermann_code.md`).
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
 With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query (Section 3.8 of `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
 This method weighs errors by CSS weight only on CSS states (Section 3.8 of `connected_cluster.md`).
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
-`find_first_not_within_max_weight` and `get_min_weights` try increasing weight limits (`_get_batch_cluster_bound` and `_get_min_cluster_weight`), which can find light errors sooner than one search at `max_weight`.
+`find_first_not_within_max_weight` and `get_min_weights` try increasing weight limits (`find_first_cluster_bound` and `get_min_cluster_weights` of `_connected_cluster/coset.py`), which can find light errors sooner than one search at `max_weight`.
 They move a costly batch to threads with `run_blocks` too, with the same split work, in which the work of a query is the number of states that its searches visit; a query that looks up its error does none.
 Their answers are those of one thread (Section 3.11 of `connected_cluster.md`).
 For the CSS weight, the bound that `find_first_not_within_max_weight` returns holds an error for each part, and for a part within `max_weight`, that error can differ from the one that `get_min_weight_bound` gives.
@@ -277,9 +277,16 @@ They are not arguments of public functions, whose arguments say what to compute 
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built.
   `BrouwerZimmermannSearch` and `ConnectedClusterSearch`, which `get_distance_brouwer_zimmermann` and `get_distance_connected_cluster` build, read it only if their callers pass none.
   A cache that outlives a search is keyed by the values that it depends on, as the fields of `_CosetTuning` in `_brouwer_zimmermann/coset.py` key the cached searches of `CosetLeaderSearch`.
-- Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
+- Only a value that qLDPC fixes before any search starts is a constant in `_tuning.py`, such as the size of a cache, which `functools.lru_cache` fixes at import.
+  Code reads cache sizes as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
   The seeds make results reproducible rather than tune anything, though an early exit of a BZ search on several threads can still depend on the timing of its threads.
+  A speed-only value that users may plausibly want to change to run faster is a field.
+  Other speed-only constants, whose best value does not depend materially on the user, the code, or the machine, stay in their modules, since no user would gain by changing them:
+  - `ITEMS_PER_THREAD` and `BLOCKS_PER_THREAD` in `_threads.py`, which only balance threads at the end of the work
+  - `_MAX_ITEMS` and `_MAX_FIXED_WORDS` in `_connected_cluster/search.py`, which bound the items of a frontier and the compiled versions of its search
+  - `_MIN_FOUR_RUSSIANS_SIZE` in `_binary.py`, the crossover of a kernel that searches call only in their setup
+  - `_NUM_RANDOM_WORDS` in `_sector_maps.py`, the size of a cheap prefilter
 - Each field and constant has its own `#:` comment directly above it, for Sphinx to render, with no colon on its first line, since Sphinx reads text before such a colon as a type.
   A field's comment says what the field controls, with its unit and special values, and the class and rule of its default, as the "Retuning" section of the module docstring defines them, or why a field in no class has its default; where a guide section or a cost model explains its heuristic, the comment points there.
   A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
@@ -297,7 +304,7 @@ They are not arguments of public functions, whose arguments say what to compute 
 
 A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann_code.md`).
 A connected-cluster distance search searches each costly weight limit on `num_threads` threads, which give the same witness and count of states as a search on one thread (Section 3.11 of `connected_cluster.md`).
-On any number of threads, it searches in chunks of `2**information_set_batch_exponent` states, between which it takes keyboard interrupts, and a thread stops a work item after its current chunk once an earlier item has a witness.
+On any number of threads, it searches in chunks of `2**search_chunk_exponent` states, between which it takes keyboard interrupts, and a thread stops a work item after its current chunk once an earlier item has a witness.
 With either method, the batch queries of `CosetLeaderSearch`, `find_first_not_within_max_weight` and `get_min_weights`, move the rest of a costly batch to `num_threads` threads ([The coset-leader search](#the-coset-leader-search)).
 A `CosetLeaderSearch` fixes its number of threads when it is built.
 By default, `num_threads` is `None`, which takes the value of the environment variable `QLDPC_NUM_THREADS` when qLDPC was imported, if it was set, and otherwise `numba.config.NUMBA_NUM_THREADS`.

@@ -27,7 +27,8 @@ def test_scans_of_sets_of_any_rank() -> None:
     no_tables = completion_bounds.NO_TABLES
 
     # The sets have full rank, partial rank, and rank zero.  Scans of the last two read fewer packed
-    # words of the rows than the sets store, and these sets have labels only in their second word.
+    # words of the rows than the sets store, and these sets have labels only in their second word,
+    # while the first set has none.
     for dimension in range(1, 7):
         generators = rng.integers(0, 2**64, (3, dimension, 5), dtype=np.uint64)
         labels = np.zeros((3, dimension, 2), dtype=np.uint64)
@@ -39,10 +40,9 @@ def test_scans_of_sets_of_any_rank() -> None:
             support = np.zeros(weight, dtype=np.int64)
             arguments = (
                 generators[index],
-                labels[index],
+                np.ascontiguousarray(labels[index, :, : label_widths[index]]),
                 ranks[index],
                 widths[index],
-                label_widths[index],
                 support,
                 np.zeros((weight + 1, 5), dtype=np.uint64),
             )
@@ -127,7 +127,6 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                                 labels,
                                 dimension,
                                 width,
-                                num_label_words,
                                 support,
                                 prefixes,
                                 depth,
@@ -183,7 +182,7 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
     ):
         if rank < num_rows and set_tables is tables:
             continue
-        arguments = (generators, labels, rank, generators.shape[1], 1)
+        arguments = (generators, labels, rank, generators.shape[1])
         table_arguments = (set_tables.tables, set_tables.offsets, set_tables.block_bits)
 
         # Scan the layer.
@@ -546,7 +545,6 @@ def _scan_layer(
     labels: npt.NDArray[np.uint64],
     rank: int,
     width: int,
-    label_width: int,
     weight: int,
     batch_size: int,
     table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
@@ -562,7 +560,6 @@ def _scan_layer(
             labels,
             rank,
             width,
-            label_width,
             support,
             prefixes,
             depth,
@@ -580,7 +577,6 @@ def _scan_items_on_threads(
     labels: npt.NDArray[np.uint64],
     rank: int,
     width: int,
-    label_width: int,
     weight: int,
     batch_size: int,
     table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
@@ -607,7 +603,6 @@ def _scan_items_on_threads(
                     labels,
                     rank,
                     width,
-                    label_width,
                     support,
                     prefixes,
                     depth,

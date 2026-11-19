@@ -14,6 +14,7 @@ import pytest
 
 from qldpc._binary import get_kernel
 
+from .._tuning import use_tuning
 from ..conftest import (
     get_binary_minima,
     get_binary_syndrome,
@@ -23,7 +24,9 @@ from ..conftest import (
     get_random_css_state,
     get_random_full_rank_matrix,
     get_syndrome,
+    split_syndromes_into_words,
 )
+from ..coset_leaders import CosetLeaderSearch
 from . import coset, search, sparse_checks
 
 
@@ -222,9 +225,9 @@ def test_connected_cluster_answers_match_exhaustive_minima(
             ):
                 minimum = minima[syndrome]
                 single = coset_search.get_min_weight_bound(syndrome, max_weight)
-                from_two = coset_search.get_min_weight_bound(syndrome, max_weight, first_limit=2)
-                late = coset_search.get_min_weight_bound(
-                    syndrome, max_weight, first_limit=max_weight + 1
+                from_two, _ = coset_search._get_min_weight_bound_and_states(syndrome, max_weight, 2)
+                late, _ = coset_search._get_min_weight_bound_and_states(
+                    syndrome, max_weight, max_weight + 1
                 )
                 assert late == single
                 for bound, exact in [(single, False), (from_two, True)]:
@@ -246,3 +249,29 @@ def test_connected_cluster_answers_match_exhaustive_minima(
                         assert bound.lower_bound == weight == minimum
                     else:
                         assert bound.lower_bound == 2 and weight <= max_weight
+
+
+def test_connected_cluster_batches_match_exhaustive_minima() -> None:
+    """Batch queries by one search, or by searches of X and Z parts, agree with exhaustive minima.
+
+    Each batch holds every syndrome.  With chunks of one state, a batch on two threads moves to them
+    once its queries have visited two states.
+    """
+    rng = np.random.default_rng(0)
+    graph_state = get_graph_state(4, [(0, 1), (1, 2), (2, 3)], phase=True)
+    for matrix, css_weight in [(graph_state, False), (get_random_css_state(5, 2, rng), True)]:
+        num_qubits = len(matrix)
+        minima = get_exhaustive_minima(matrix, css_weight)
+        batch = split_syndromes_into_words(list(range(1 << num_qubits)), num_qubits)
+        with use_tuning(num_threads=2, search_chunk_exponent=0):
+            leaders = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
+        for max_weight in range(num_qubits + 1):
+            weights = leaders.get_min_weights(batch, max_weight)
+            assert np.array_equal(weights, np.minimum(minima, max_weight + 1))
+            index, bound = leaders.find_first_not_within_max_weight(batch, max_weight)
+            above = np.flatnonzero(minima > max_weight)
+            assert index == (above[0] if len(above) else len(batch))
+            assert (bound is None) == (not len(above))
+            if bound is not None:
+                assert not bound.within_max_weight and bound.lower_bound > max_weight
+                assert get_syndrome(matrix, bound.representative) == index

@@ -1042,7 +1042,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
                     tables.x_mask,
                     tails,
                     search.scale,
-                    parity if len(tables.planning) == 2 else -1,
+                    coset._get_rounding_parity(tables.planning, search.scale, parity),
                 )
                 _, *found = coset._search_coset_for_min_weight(
                     packed_syndrome, max_weight, 0, best, *tables, tails, search.scale
@@ -1071,7 +1071,7 @@ def _get_searches_with_minima(
     states = [(ROUTED_PHYSICAL_STATES[0], False), (ROUTED_CSS_WEIGHT_STATE, True)]
     searches = [
         (
-            coset._get_pauli_search(coset._StabilizerKey(matrix), css_weight, tuning),
+            coset._get_pauli_search(coset._MatrixKey(matrix), css_weight, tuning),
             get_exhaustive_minima(matrix, css_weight),
         )
         for matrix, css_weight in states
@@ -1275,7 +1275,7 @@ def test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer(
     run_work_items = coset._threads.run_work_items
     compiled = coset._find_first_not_within_max_weight
 
-    def run_and_watch_ranges(num_items: int, num_threads: int, start: Any) -> None:
+    def run_and_watch_ranges(num_items: int, num_threads: int, start: Any, **kwargs: Any) -> None:
         """Run the work items, and note when the thread that searched row 2 ends its range."""
 
         def start_worker(stop: threading.Event) -> Any:
@@ -1290,7 +1290,7 @@ def test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer(
 
             return watched_range
 
-        run_work_items(num_items, num_threads, start_worker)
+        run_work_items(num_items, num_threads, start_worker, **kwargs)
 
     def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
         """Hold row 2 until row 40 starts, and row 40 until row 2 is recorded."""
@@ -1469,7 +1469,9 @@ def test_threads_stop_within_their_ranges_after_an_exception(
     run_work_items = coset._threads.run_work_items
     compiled = coset._find_first_not_within_max_weight
 
-    def run_and_keep_the_stop_event(num_items: int, num_threads: int, start: Any) -> None:
+    def run_and_keep_the_stop_event(
+        num_items: int, num_threads: int, start: Any, **kwargs: Any
+    ) -> None:
         """Run the work items, and keep the stop event that the threads share."""
 
         def start_worker(stop: threading.Event) -> Any:
@@ -1477,7 +1479,7 @@ def test_threads_stop_within_their_ranges_after_an_exception(
             stops.append(stop)
             return start(stop)
 
-        run_work_items(num_items, num_threads, start_worker)
+        run_work_items(num_items, num_threads, start_worker, **kwargs)
 
     def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
         """Wait at the first block until the threads stop, and raise at any later block."""

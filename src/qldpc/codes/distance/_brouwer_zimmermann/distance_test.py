@@ -52,6 +52,9 @@ TABLES_DISABLED = dataclasses.replace(
     completion_bound_max_table_bytes=0,
 )
 
+# ``TABLES_DISABLED``, with scans that return after each support.
+ONE_SUPPORT_CHUNKS = dataclasses.replace(TABLES_DISABLED, search_chunk_exponent=0)
+
 
 def test_brouwer_zimmermann_search_state() -> None:
     """Only completed layers advance the certificate, not interrupted ones or ones cut off.
@@ -68,8 +71,7 @@ def test_brouwer_zimmermann_search_state() -> None:
             certificate=certificates.Certificate(2, (0,)),
         ),
         cutoff=1,
-        batch_size=1,
-        tuning=TABLES_DISABLED,
+        tuning=ONE_SUPPORT_CHUNKS,
         best=3,
         lower_bound=0,
     )
@@ -101,36 +103,6 @@ def test_brouwer_zimmermann_search_state() -> None:
     assert (search.lower_bound, search.next_weight) == (0, 2)
     assert search.advance() == 1
     assert (search.lower_bound, search.next_weight) == (np.iinfo(np.int64).max, 3)
-
-
-def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
-    """Layer work saturates below the largest threshold, which never asks for automorphisms."""
-    # Each row is zero apart from a one at its pivot, so each word of layer 35 weighs 35, the
-    # cutoff, and the scan stops at its first support.
-    dimension, weight = 70, 35
-    assert math.comb(dimension, weight) > MAX_VALUE
-    for minimum_layer_work, expected_calls in ((MAX_VALUE, 0), (2**61, 1)):
-        get_automorphism_family = mock.Mock(return_value=None)
-        search = bz._SectorSearch(
-            affine_instance.AffineInstance(
-                generators=np.zeros((1, dimension, 2), dtype=np.uint64),
-                labels=np.zeros((1, dimension, 0), dtype=np.uint64),
-                widths=np.array([2], dtype=np.int64),
-                pivots=np.arange(dimension, dtype=np.int64)[None],
-                certificate=certificates.Certificate(dimension, (dimension,)),
-            ),
-            cutoff=weight,
-            batch_size=1,
-            tuning=dataclasses.replace(
-                TABLES_DISABLED, automorphism_minimum_layer_work=minimum_layer_work
-            ),
-            best=dimension,
-            lower_bound=0,
-            next_weight=weight,
-            get_automorphism_family=get_automorphism_family,
-        )
-        assert search.advance() == weight
-        assert get_automorphism_family.call_count == expected_calls
 
 
 # Each case reaches one early exit from search setup or a shared search with real inputs.  The test
@@ -232,6 +204,7 @@ def test_brouwer_zimmermann_setup_exits(
 
 def test_brouwer_zimmermann_setup_cutoffs() -> None:
     """Setup can reach the cutoff from initial rows or a newly systematic row."""
+    # Each row weighs three, which bounds the distance, and their sum weighs two.
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
     assert (
         bz._prepare_sector_search(
@@ -239,7 +212,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             _no_labels(basis),
             cutoff=3,
             weight_divisor=1,
-            upper_bound=4,
+            upper_bound=3,
             tuning=DEFAULT_TUNING,
         )
         == 3
@@ -250,7 +223,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             _no_labels(basis),
             cutoff=2,
             weight_divisor=1,
-            upper_bound=4,
+            upper_bound=3,
             tuning=DEFAULT_TUNING,
         )
         == 2
@@ -907,9 +880,9 @@ def test_stepped_searches_use_the_tuning_that_they_are_given(
 
     monkeypatch.setattr(bz, "_prepare_sector_search", recording_prepare)
     code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
-    tuning = dataclasses.replace(DEFAULT_TUNING, information_set_batch_exponent=5)
+    tuning = dataclasses.replace(DEFAULT_TUNING, search_chunk_exponent=5)
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
-    with use_tuning(information_set_batch_exponent=6):
+    with use_tuning(search_chunk_exponent=6):
         bz.get_distance_brouwer_zimmermann(sectors, cutoff=0, tuning=tuning)
     assert tunings == [tuning, tuning]
 
@@ -1066,7 +1039,7 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
             labels,
             cutoff=0,
             weight_divisor=1,
-            upper_bound=num_columns + 1,
+            upper_bound=bz._get_lightest_eligible_row_weight(basis, labels),
             get_automorphisms=get_automorphisms,
             tuning=tuning,
         )
@@ -1364,8 +1337,7 @@ def test_sets_that_are_not_information_sets_count_pivot_ones_only_below_their_ra
             certificate=certificates.Certificate(2, (0,)),
         ),
         cutoff=-1,
-        batch_size=1,
-        tuning=TABLES_DISABLED,
+        tuning=ONE_SUPPORT_CHUNKS,
         best=10,
         lower_bound=0,
     )
@@ -1437,7 +1409,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
-        rows, width, tables, block_bits = args[0], args[3], args[11], args[13]
+        rows, width, tables, block_bits = args[0], args[3], args[10], args[12]
         if scanned_index:
             later_scans["with tables" if len(tables) else "without tables"] += 1
         if len(tables):
@@ -1478,8 +1450,7 @@ def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(cut
     search = bz._SectorSearch(
         affine_instance.get_distance_instance(family, certificate),
         cutoff=cutoff,
-        batch_size=1 << 20,
-        tuning=TABLES_DISABLED,
+        tuning=dataclasses.replace(TABLES_DISABLED, search_chunk_exponent=20),
         best=6,
         lower_bound=certificate.lower_bound(1),
         next_weight=2,
@@ -1513,9 +1484,9 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
     search = bz._SectorSearch(
         affine_instance.get_distance_instance(family, certificate),
         cutoff=0,
-        batch_size=1 << 20,
         tuning=dataclasses.replace(
             DEFAULT_TUNING,
+            search_chunk_exponent=20,
             completion_bound_minimum_layer_work=0,
             completion_bound_max_cost_percent=MAX_VALUE,
         ),
@@ -1635,8 +1606,8 @@ def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set_items(*args)
         counts = (int(result[2]), int(result[3]), int(result[4]))
-        lowered = bool(result[0] < args[8])
-        scans.append(ItemScan(threading.get_ident(), len(args[11]), counts, lowered))
+        lowered = bool(result[0] < args[7])
+        scans.append(ItemScan(threading.get_ident(), len(args[10]), counts, lowered))
         return result
 
     monkeypatch.setattr(affine_search, "scan_set_items", recording_scan)
@@ -1651,7 +1622,7 @@ def small_batches(tune: Tune) -> None:
     which would end them before such layers.
     """
     tune(
-        information_set_batch_exponent=3,
+        search_chunk_exponent=3,
         overlapping_minimum_work=MAX_VALUE,
         partition_work_ratio=MAX_VALUE,
     )
@@ -1792,7 +1763,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     )
     for num_threads in (1, 3):
         prepared.clear()
-        tune(num_threads=num_threads, information_set_batch_exponent=4)
+        tune(num_threads=num_threads, search_chunk_exponent=4)
         search = bz.BrouwerZimmermannSearch(
             [sector], cutoff=0, get_automorphisms=code._get_permutation_automorphisms
         )
@@ -1844,7 +1815,7 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set(*args)
         if result[0] <= cutoff and not witness_items:
-            witness_items.append(tuple(args[5][: items.length].tolist()))
+            witness_items.append(tuple(args[4][: items.length].tolist()))
         return result
 
     with monkeypatch.context() as patch, use_tuning(num_threads=1):
@@ -1978,7 +1949,7 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
             failed.set()
             raise ValueError("failed")
         # The scan from depth -1 before the threads start returns at once.
-        if args[7] >= 0:
+        if args[6] >= 0:
             scanning.set()
             assert failed.wait(timeout=THREAD_TIMEOUT)
         return scan_set_items(*args)
@@ -2006,8 +1977,7 @@ def test_layers_of_a_set_of_deficient_rank_are_exact_on_threads(
     search = bz._SectorSearch(
         affine_instance.get_distance_instance(family, certificate),
         cutoff=0,
-        batch_size=1,
-        tuning=TABLES_DISABLED,
+        tuning=ONE_SUPPORT_CHUNKS,
         best=generators.shape[1] + 1,
         lower_bound=0,
         num_threads=3,

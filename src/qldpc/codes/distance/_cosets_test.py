@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from qldpc._binary import pack_bits
+from qldpc._binary import pack_bits, row_ints
 
 from . import _cosets
 
@@ -24,29 +24,17 @@ def test_unit_syndrome_words_have_one_syndrome_bit_each(pytestconfig: pytest.Con
         np.testing.assert_array_equal(checks @ inverse.T % 2, identity)
 
 
-def test_rows_pack_into_integers_and_back(pytestconfig: pytest.Config) -> None:
-    """Entry ``j`` of a row is bit ``j`` of its integer, which splits back into its packed words."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    matrix = rng.integers(0, 2, (5, 130), dtype=np.uint8)
-    values = _cosets.row_ints(matrix)
-    assert values == tuple(sum(int(bit) << jj for jj, bit in enumerate(row)) for row in matrix)
-    packed = pack_bits(matrix)
-    for row, value in zip(packed, values, strict=True):
-        assert _cosets.words_to_int(row) == value
-        np.testing.assert_array_equal(_cosets.int_to_words(value, packed.shape[1]), row)
-
-
 def test_sums_of_selected_rows_follow_their_definition(pytestconfig: pytest.Config) -> None:
     """``xor_selected`` and ``xor_selected_rows`` add the selected rows modulo two."""
     # The 70 rows make the packed supports span two machine words.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     rows = rng.integers(0, 2, (70, 9), dtype=np.uint8)
-    row_values, packed_rows = _cosets.row_ints(rows), pack_bits(rows)
+    row_values, packed_rows = row_ints(rows), pack_bits(rows)
     for _ in range(10):
         selected = rng.integers(0, 2, len(rows), dtype=np.uint8)
         expected = rows[selected.astype(bool)].sum(axis=0) % 2
-        (support,) = _cosets.row_ints(selected[None])
-        assert _cosets.xor_selected(row_values, support) == _cosets.row_ints(expected[None])[0]
+        (support,) = row_ints(selected[None])
+        assert _cosets.xor_selected(row_values, support) == row_ints(expected[None])[0]
         word = np.zeros(packed_rows.shape[1], dtype=np.uint64)
         _cosets.xor_selected_rows(pack_bits(selected[None])[0], packed_rows, word)
         np.testing.assert_array_equal(word, pack_bits(expected[None])[0])

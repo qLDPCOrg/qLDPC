@@ -326,12 +326,12 @@ def test_deprecated_distance_functions(monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=name):
             get_distance_quantum(logical_ops, stabilizers, homogeneous=True)
 
-    # The block_size argument gives the batch exponents that it gave before it was deprecated:
-    # exhaustive enumeration took it as its exponent, and scans of information sets took at most
-    # it, clamped to the range of the fields.
+    # The block_size argument gives the exponents that it gave before it was deprecated: exhaustive
+    # enumeration took it as the exponent of its batches, and scans of information sets took at most
+    # it as the exponent of their chunks, clamped to the range of the fields.
     from qldpc.codes.distance import _tuning
 
-    with _tuning.use_tuning(information_set_batch_exponent=10) as active_tuning:
+    with _tuning.use_tuning(search_chunk_exponent=10) as active_tuning:
         with _deprecations.core._use_block_size(None):
             assert _tuning.get_tuning() is active_tuning
         for block_size, batches in (
@@ -347,7 +347,7 @@ def test_deprecated_distance_functions(monkeypatch: pytest.MonkeyPatch) -> None:
                 tuning = _tuning.get_tuning()
             assert (
                 tuning.enumeration_batch_exponent,
-                tuning.information_set_batch_exponent,
+                tuning.search_chunk_exponent,
             ) == batches
 
     # The functions search with those batches, and warn at their caller about both deprecations.
@@ -541,7 +541,7 @@ def _get_from_package(module_name: str, name: str) -> object:
 
 
 def _record_batch_exponents(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
-    """Record both active batch exponents, of enumeration and of information sets, at each search.
+    """Record the active exponents of enumeration batches and of search chunks at each search.
 
     The deprecated distance functions look up get_distance_from_generators when called, so they
     call the recording wrapper, which passes each call through unchanged.
@@ -553,7 +553,7 @@ def _record_batch_exponents(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, 
 
     def recording_get_distance(*args: Any, **kwargs: Any) -> Any:
         tuning = _tuning.get_tuning()
-        exponents.append((tuning.enumeration_batch_exponent, tuning.information_set_batch_exponent))
+        exponents.append((tuning.enumeration_batch_exponent, tuning.search_chunk_exponent))
         return get_distance(*args, **kwargs)
 
     monkeypatch.setattr(codes.distance, "get_distance_from_generators", recording_get_distance)

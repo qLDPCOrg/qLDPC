@@ -67,12 +67,12 @@ def test_brute_force_visits_every_nontrivial_word_once(
     tune(enumeration_batch_exponent=batch_exponent)
     rng = np.random.default_rng(97)
     num_stabilizers, num_bits = (3, 98) if symplectic else (4, 97)
-    stabilizers = rng.integers(2, size=(num_stabilizers, num_bits))
-    logical_ops = rng.integers(2, size=(5, num_bits))
+    stabilizers = rng.integers(2, size=(num_stabilizers, num_bits)).astype(np.uint8)
+    logical_ops = rng.integers(2, size=(5, num_bits)).astype(np.uint8)
 
     # Record each word that the enumeration weighs.
     observed_bitstrings: list[tuple[int, ...]] = []
-    weight_function = _brute_force.symplectic_weight if symplectic else np.bitwise_count
+    weight_function = _brute_force._get_riffled_weights if symplectic else np.bitwise_count
 
     def _spy_weight(
         arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
@@ -81,7 +81,7 @@ def test_brute_force_visits_every_nontrivial_word_once(
         return weight_function(arr, out=out)
 
     spy = (
-        mock.patch("qldpc.codes.distance._brute_force.symplectic_weight", _spy_weight)
+        mock.patch("qldpc.codes.distance._brute_force._get_riffled_weights", _spy_weight)
         if symplectic
         else mock.patch.object(np, "bitwise_count", _spy_weight)
     )
@@ -96,8 +96,8 @@ def test_brute_force_visits_every_nontrivial_word_once(
     # Symplectic words are packed with their X and Z bits interleaved.
     stabilizer_bits = _brute_force.riffle(stabilizers) if symplectic else stabilizers
     logical_bits = _brute_force.riffle(logical_ops) if symplectic else logical_ops
-    int_stabilizers = pack_bits(np.asarray(stabilizer_bits, dtype=np.uint8))
-    int_logical_ops = pack_bits(np.asarray(logical_bits, dtype=np.uint8))
+    int_stabilizers = pack_bits(stabilizer_bits)
+    int_logical_ops = pack_bits(logical_bits)
     expected_bitstrings = np.array(
         [
             np.bitwise_xor.reduce(np.vstack(stabs + ops))
@@ -176,12 +176,12 @@ def test_early_exit_returns_only_weighed_operators(symplectic: bool) -> None:
     """An early exit returns the weight of an operator that the search has weighed."""
     # A batch of one word holds no logical operator, so the search weighs none before its sweep.
     num_qubits = 3
-    logical_op = [1, 0, 0, 0, 0, 0] if symplectic else [1, 0, 0]
-    stabilizer = [0, 1, 1, 0, 0, 0] if symplectic else [0, 1, 1]
+    logical_op = np.array([[1, 0, 0, 0, 0, 0] if symplectic else [1, 0, 0]], dtype=np.uint8)
+    stabilizer = np.array([[0, 1, 1, 0, 0, 0] if symplectic else [0, 1, 1]], dtype=np.uint8)
     distance = _brute_force._get_distance_brute_force(
-        [logical_op],
-        [stabilizer],
-        cutoff=len(logical_op),
+        logical_op,
+        stabilizer,
+        cutoff=logical_op.shape[1],
         batch_exponent=0,
         symplectic=symplectic,
     )
@@ -189,8 +189,8 @@ def test_early_exit_returns_only_weighed_operators(symplectic: bool) -> None:
 
     # Without logical operators, the result exceeds every weight, whatever the cutoff.
     distance = _brute_force._get_distance_brute_force(
-        np.empty((0, len(logical_op)), dtype=np.uint8),
-        [stabilizer],
+        np.empty((0, logical_op.shape[1]), dtype=np.uint8),
+        stabilizer,
         cutoff=100,
         batch_exponent=0,
         symplectic=symplectic,
@@ -206,22 +206,22 @@ def test_riffle() -> None:
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     expected = np.stack((symplectic[:, :3], symplectic[:, 3:]), axis=2).reshape(-1, 6)
     np.testing.assert_array_equal(_brute_force.riffle(symplectic), expected)
-    assert np.shape(_brute_force.riffle(np.empty((0, 6)))) == (0, 6)
+    assert np.shape(_brute_force.riffle(np.empty((0, 6), dtype=np.uint8))) == (0, 6)
     with pytest.raises(AssertionError):
-        _brute_force.riffle(np.zeros((1, 3)))
+        _brute_force.riffle(np.zeros((1, 3), dtype=np.uint8))
 
 
-def test_symplectic_weight() -> None:
-    """``symplectic_weight`` matches a reference that counts bits, and writes into ``out``."""
+def test_riffled_weights() -> None:
+    """``_get_riffled_weights`` matches a reference that counts bits, and writes into ``out``."""
     rng = np.random.default_rng(64)
     vals = rng.integers(0, 2**64, size=(7, 11), dtype=np.uint64)
     expected_weights = _count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
-    weights = _brute_force.symplectic_weight(vals)
+    weights = _brute_force._get_riffled_weights(vals)
     assert weights.dtype == np.uint64
     np.testing.assert_array_equal(weights, expected_weights)
 
     out = rng.integers(0, 2**64, size=vals.shape, dtype=vals.dtype)
-    weights = _brute_force.symplectic_weight(vals, out=out)
+    weights = _brute_force._get_riffled_weights(vals, out=out)
     np.testing.assert_array_equal(weights, expected_weights)
     assert weights is out
 

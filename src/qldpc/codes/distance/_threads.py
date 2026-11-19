@@ -5,10 +5,11 @@
 A worker runs compiled code that releases Python's global interpreter lock (see the docstring of
 ``qldpc/_compilation.py``), so that the threads run at once.  Threads share the read-only inputs of
 a search, such as its completion tables, rather than copy them, as processes would.  A caller of
-``run_work_items`` or ``run_blocks`` must keep the requirements on threads in Section 5 of the guide
-of its method, ``brouwer_zimmermann_code.md`` or ``connected_cluster.md``.  Its workers read the
-tuning only from the search, never through ``get_tuning``, since new threads start with the default
-tuning (see the module docstring of ``_tuning.py``).
+``run_work_items``, ``run_items_until_first``, or ``run_blocks`` must keep the requirements on
+threads in Section 5 of the guide of its method, ``brouwer_zimmermann_code.md`` or
+``connected_cluster.md``.  Its workers read the tuning only from the search, never through
+``get_tuning``, since new threads start with the default tuning (see the module docstring of
+``_tuning.py``).
 """
 
 from __future__ import annotations
@@ -37,6 +38,12 @@ _numba_config = cast(_NumbaConfig, numba.config)
 
 ####################################################################################################
 # threads
+
+# The fewest work items for each thread that a search aims for when it splits work across threads: a
+# layer of a BZ search (Section 4.5 of brouwer_zimmermann_code.md) or a weight limit of a
+# connected-cluster search (Section 3.11 of connected_cluster.md).  More items balance the threads
+# better at the end of the work; the number changes no result.
+ITEMS_PER_THREAD = 32
 
 
 def get_num_threads(num_threads: int | None) -> int:
@@ -166,6 +173,56 @@ def run_work_items(
         raise errors[0]
 
 
+def run_items_until_first(
+    num_items: int,
+    num_threads: int,
+    start_worker: Callable[[Callable[[int], bool]], Callable[[int], bool]],
+    *,
+    single_items: bool = False,
+) -> int:
+    """Run work items on threads until the first item that ends the work, and return that item.
+
+    ``run_work_items`` runs the items ``0, ..., num_items - 1``, with ``single_items`` as there.
+    Each thread calls ``start_worker`` once with a function ``needed``.  ``start_worker`` returns a
+    function that runs an item, given its index, and returns whether the item ends the work, as the
+    first item with a witness of a search does.  An item that ends the work lowers a limit to
+    itself, and the threads skip every item after the limit, including the rest of a range that they
+    have claimed.  ``needed(item)`` says whether an item is still before the limit and the stop
+    event of ``run_work_items`` is not set, so that a function that runs an item in chunks can call
+    it between them, and stop.  The limit only falls, and every item before it runs, so the item
+    returned is the first that ends the work, as on one thread, or ``num_items`` if no item does.
+    Items after the returned one may have run, in part or in full, so a caller reads only results up
+    to it.  Exceptions propagate as in ``run_work_items``.
+    """
+    lock = threading.Lock()
+    first = num_items
+
+    def start_items(stop: threading.Event) -> Callable[[int, int], None]:
+        """Return how a worker runs a range of items."""
+
+        def needed(item: int) -> bool:
+            """Whether an item comes before every item that has ended the work, and no stop."""
+            return not stop.is_set() and item < first
+
+        run_item = start_worker(needed)
+
+        def run_range(start: int, end: int) -> None:
+            """Run the items of a range in order, up to the limit or until the event is set."""
+            nonlocal first
+            for item in range(start, end):
+                if not needed(item):
+                    return
+                if run_item(item):
+                    with lock:
+                        first = min(first, item)
+                    return
+
+        return run_range
+
+    run_work_items(num_items, num_threads, start_items, single_items=single_items)
+    return first
+
+
 def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
     """Wait until every thread in a list that has started returns.
 
@@ -213,7 +270,7 @@ RunRows = Callable[[int, int, int], tuple[int, bool]]
 
 def run_blocks(
     num_rows: int, num_threads: int, split_work: int, start_worker: Callable[[], RunRows]
-) -> None:
+) -> int:
     """Run the rows ``0, ..., num_rows - 1`` of a batch, moving costly batches to threads.
 
     Each worker calls ``start_worker`` once, so that it can allocate its own buffers, and runs rows
@@ -230,42 +287,42 @@ def run_blocks(
     too cheap to gain, such as rows that spend much of their time holding the lock.  ``split_work``
     should be enough such work to cost many times as much as starting the threads.  Elapsed time
     would not serve: a long batch of cheap rows that hold the lock takes long, yet runs more slowly
-    on threads.  If rows remain after that, ``run_work_items`` runs them on ``num_threads``
+    on threads.  If rows remain after that, ``run_items_until_first`` runs them on ``num_threads``
     threads, in about ``BLOCKS_PER_THREAD`` contiguous blocks for each thread, which they claim in
-    increasing order.  A block that ends the batch lowers a limit to itself, and the threads skip
-    every block after the limit, including the rest of a range that they have claimed.  The limit
-    only falls, and every row before it runs, so the first row that ends the batch is the one that
-    one thread would find, provided that the caller keeps the least such row.  Exceptions
+    increasing order, and returns the first block that ends the batch.  Every row before that block
+    runs, so the first row that ends the batch is the one that one thread would find.  Exceptions
     propagate as in ``run_work_items``, and the threads stop within their ranges, except in the
     narrow windows that its docstring describes.
+
+    Returns:
+        The first row that ends the batch, or ``num_rows`` if no row does.
     """
     if num_threads < 2:
-        start_worker()(0, num_rows, NO_WORK_LIMIT)
-        return
+        end, ends = start_worker()(0, num_rows, NO_WORK_LIMIT)
+        return end - 1 if ends else num_rows
     first, ends = start_worker()(0, num_rows, split_work)
-    if ends or first == num_rows:
-        return
+    if ends:
+        return first - 1
+    if first == num_rows:
+        return num_rows
     block_size = -(-(num_rows - first) // (BLOCKS_PER_THREAD * num_threads))
     num_blocks = -(-(num_rows - first) // block_size)
-    lock = threading.Lock()
-    limit = num_blocks
+    # The row that ends the batch in each block that ends it, which only its thread writes.
+    ending_rows: dict[int, int] = {}
 
-    def start_ranges(stop: threading.Event) -> Callable[[int, int], None]:
-        """Return how a worker runs a range of blocks."""
+    def start_blocks(_needed: Callable[[int], bool]) -> Callable[[int], bool]:
+        """Return how a worker runs a block, which runs in one call and so never asks ``needed``."""
         run_rows = start_worker()
 
-        def run_range(start: int, end: int) -> None:
-            """Run the blocks of a range in order, up to the limit or until the event is set."""
-            nonlocal limit
-            for block in range(start, end):
-                if stop.is_set() or block > limit:
-                    return
-                row = first + block * block_size
-                _, ends = run_rows(row, min(num_rows, row + block_size), NO_WORK_LIMIT)
-                if ends:
-                    with lock:
-                        limit = min(limit, block)
+        def run_block(block: int) -> bool:
+            """Run the rows of a block, and return whether one of them ends the batch."""
+            row = first + block * block_size
+            end, ends = run_rows(row, min(num_rows, row + block_size), NO_WORK_LIMIT)
+            if ends:
+                ending_rows[block] = end - 1
+            return ends
 
-        return run_range
+        return run_block
 
-    run_work_items(num_blocks, num_threads, start_ranges)
+    block = run_items_until_first(num_blocks, num_threads, start_blocks)
+    return ending_rows[block] if block < num_blocks else num_rows

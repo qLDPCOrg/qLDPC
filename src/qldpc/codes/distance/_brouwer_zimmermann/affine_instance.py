@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits
+from qldpc._binary import get_num_words, pack_bits
 
 from .._information_sets import basis_families, certificates
 
@@ -121,7 +121,7 @@ def get_coset_instance(
     """
     num_generators, num_columns = generators.shape
     if not num_generators:
-        width = max(1, (num_columns + 63) // 64)
+        width = get_num_words(num_columns)
         return AffineInstance(
             generators=np.zeros((1, 0, width), dtype=np.uint64),
             labels=np.zeros((1, 0, 0), dtype=np.uint64),

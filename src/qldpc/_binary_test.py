@@ -131,6 +131,26 @@ def test_get_inverse() -> None:
 
 
 ####################################################################################################
+# packed rows as Python integers
+
+
+def test_rows_pack_into_integers_and_back(pytestconfig: pytest.Config) -> None:
+    """Entry ``j`` of a row is bit ``j`` of its integer, which splits back into its packed words.
+
+    A row of ``n`` bits packs into ``ceil(n / 64)`` words.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    matrix = rng.integers(0, 2, (5, 130), dtype=np.uint8)
+    values = binary.row_ints(matrix)
+    assert values == tuple(sum(int(bit) << jj for jj, bit in enumerate(row)) for row in matrix)
+    packed = binary.pack_bits(matrix)
+    assert [binary.get_num_words(num_bits) for num_bits in (0, 1, 64, 65)] == [0, 1, 1, 2]
+    for row, value in zip(packed, values, strict=True):
+        assert binary.words_to_int(row) == value
+        np.testing.assert_array_equal(binary.int_to_words(value, packed.shape[1]), row)
+
+
+####################################################################################################
 # native word intrinsics
 
 

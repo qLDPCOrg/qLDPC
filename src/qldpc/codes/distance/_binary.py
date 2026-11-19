@@ -24,12 +24,12 @@ from qldpc._binary import (
     row_reduce_binary,
     unpack_bits,
 )
+from qldpc._compilation import always_compiled
 
 # Products with at least this many rows and columns use the Method of Four Russians.  Its tables pay
 # off only over many rows, and each of its additions covers only as many columns as the product has.
-# If either dimension is smaller, float32 BLAS through Apple's Accelerate can be several times
-# faster.  Otherwise, the Method of Four Russians is usually faster under both Accelerate and
-# OpenBLAS, by several times under OpenBLAS.
+# If either dimension is smaller, float32 BLAS can be several times faster, and otherwise the Method
+# of Four Russians usually is.
 _MIN_FOUR_RUSSIANS_SIZE = 512
 
 ####################################################################################################
@@ -188,6 +188,12 @@ def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
     return np.any(labels, axis=1)
 
 
+@always_compiled
+def get_nonzero_columns(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.int64]:
+    """The indices of the columns of a binary matrix that hold a one, in increasing order."""
+    return np.flatnonzero(matrix.sum(axis=0))
+
+
 def multiply_binary(
     left: npt.NDArray[np.uint8], right: npt.NDArray[np.uint8]
 ) -> npt.NDArray[np.uint8]:
@@ -223,6 +229,8 @@ def swap_pauli_halves(paulis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
 
     The symplectic product of two Pauli strings is the dot product of one with the other swapped.
     """
+    # This does not reuse ``qldpc.math.symplectic_conjugate``, which also negates a half by
+    # ``*= -1``.  That raises for a ``uint8`` array, and over GF(2) the negation changes nothing.
     return np.roll(paulis, paulis.shape[1] // 2, axis=1)
 
 

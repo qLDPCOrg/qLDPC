@@ -558,13 +558,13 @@ def get_primitive_central_idempotents(
 def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager[object]:
     """Warn about a deprecated block_size argument, if given, and return a context that applies it.
 
-    Within the context, the active tuning has the batch exponents that block_size gave before it was
+    Within the context, the active tuning has the exponents that block_size gave before it was
     deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
-    information sets took at most it.  As before, any integer, including a bool, is accepted, and an
-    exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive
-    enumeration.  This function warns when it is called, not when its context is entered, since a
-    warning from inside a ``contextlib`` context manager would point to ``contextlib`` rather than
-    to the caller.
+    information sets took at most it as the exponent of their chunks.  As before, any integer,
+    including a bool, is accepted, and an exponent outside the range of the fields is clamped to it,
+    which changes no batch of exhaustive enumeration.  This function warns when it is called, not
+    when its context is entered, since a warning from inside a ``contextlib`` context manager would
+    point to ``contextlib`` rather than to the caller.
     """
     if block_size is None:
         return contextlib.nullcontext()
@@ -579,9 +579,7 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
     exponent = max(0, min(operator.index(block_size), 62))
     return _tuning.use_tuning(
         enumeration_batch_exponent=exponent,
-        information_set_batch_exponent=min(
-            exponent, _tuning.get_tuning().information_set_batch_exponent
-        ),
+        search_chunk_exponent=min(exponent, _tuning.get_tuning().search_chunk_exponent),
     )
 
 

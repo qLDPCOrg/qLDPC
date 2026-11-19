@@ -214,6 +214,7 @@ def get_distance_from_generators(
         upper_bound=upper_bound,
         method=method,
         get_automorphisms=_get_automorphism_getter(automorphisms, num_variables),
+        tuning=get_tuning(),
     )
 
 
@@ -320,6 +321,7 @@ def get_distance_from_checks(
         upper_bound=upper_bound,
         method=method,
         get_automorphisms=_get_automorphism_getter(automorphisms, num_variables),
+        tuning=get_tuning(),
     )
 
 
@@ -393,6 +395,7 @@ def get_distance_css(
         upper_bound=upper_bound,
         method=method,
         get_automorphisms=get_automorphisms,
+        tuning=get_tuning(),
     )
 
 
@@ -453,6 +456,7 @@ def get_distance_pauli(
     gauge = as_binary_matrix(checks, "checks")
     num_qubits = _get_num_variables(gauge.shape[1], symplectic=True)
     get_automorphisms = _get_automorphism_getter(automorphisms, num_qubits)
+    tuning = get_tuning()
 
     # Each row is the product of its X part, a row of gauge_x, and its Z part, a row of gauge_z.  So
     # the rows generate a CSS group exactly if they generate the group of all of these parts, which
@@ -469,6 +473,7 @@ def get_distance_pauli(
             upper_bound=upper_bound,
             method=method,
             get_automorphisms=get_automorphisms,
+            tuning=tuning,
         )
 
     stabilizers = get_pauli_stabilizers(gauge)
@@ -489,6 +494,7 @@ def get_distance_pauli(
         upper_bound=upper_bound,
         method=method,
         get_automorphisms=get_automorphisms,
+        tuning=tuning,
         kept_stabilizers=kept_stabilizers,
     )
 
@@ -502,12 +508,13 @@ def _search_css(
     upper_bound: int | None,
     method: _CanonicalDistanceMethod,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+    tuning: SearchTuning,
 ) -> int | Literal[NoDistance.NAN]:
     """Search the requested sectors of a CSS code, given its X-type and Z-type gauge generators.
 
     The arguments are those of ``get_distance_css``, validated, but ``upper_bound`` is
-    ``max_weight + 1`` or None (see ``_get_weight_limit``), and ``get_automorphisms`` comes from
-    ``_get_automorphism_getter``.
+    ``max_weight + 1`` or None (see ``_get_weight_limit``), ``get_automorphisms`` comes from
+    ``_get_automorphism_getter``, and ``tuning`` is the tuning that the search reads when it starts.
     """
     # Each sector takes the stabilizers of the other type as checks, and excludes the gauge
     # generators of its own type.  get_css_stabilizers returns gauge_x and gauge_z themselves unless
@@ -524,7 +531,6 @@ def _search_css(
         return NO_DISTANCE
 
     # "auto" enumerates the sectors if that is cheap.
-    tuning = get_tuning()
     if method == "auto":
         dimensions = [checks.shape[1] - len(get_independent_rows(checks)) for checks, _ in sectors]
         if is_cheap_to_enumerate(dimensions, gauge_x.shape[1], tuning):
@@ -585,6 +591,7 @@ def _search_css(
                 upper_bound=upper_bound,
                 method=method,
                 get_automorphisms=None,
+                tuning=tuning,
             )
             for checks, excluded in sectors
         )
@@ -637,14 +644,15 @@ def _search_checks(
     upper_bound: int | None,
     method: _CanonicalDistanceMethod,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+    tuning: SearchTuning,
     kept_stabilizers: npt.NDArray[np.uint8] | None = None,
 ) -> int | Literal[NoDistance.NAN]:
     """Search the words that satisfy the checks, outside the row space of the excluded rows.
 
-    The excluded rows satisfy the checks, ``upper_bound`` and ``get_automorphisms`` are as for
-    ``_search_css``, and the other arguments are those of the public functions, validated.  If
-    ``kept_stabilizers`` is given, the checks are the derived stabilizers of a subsystem code, which
-    a connected-cluster search replaces with those of ``_get_sparser_stabilizers``.
+    The excluded rows satisfy the checks, ``upper_bound``, ``get_automorphisms``, and ``tuning`` are
+    as for ``_search_css``, and the other arguments are those of the public functions, validated.
+    If ``kept_stabilizers`` is given, the checks are the derived stabilizers of a subsystem code,
+    which a connected-cluster search replaces with those of ``_get_sparser_stabilizers``.
     """
     # "auto" searches Pauli strings, and binary words if the search excludes a nonzero word, by
     # brute force or by cost.  Other searches, as of a classical code, go on to _search_generators
@@ -657,6 +665,7 @@ def _search_checks(
             cutoff=cutoff,
             upper_bound=upper_bound,
             get_automorphisms=get_automorphisms,
+            tuning=tuning,
             kept_stabilizers=kept_stabilizers,
         )
     if method != "connected_cluster":
@@ -669,6 +678,7 @@ def _search_checks(
             upper_bound=upper_bound,
             method=method,
             get_automorphisms=get_automorphisms,
+            tuning=tuning,
         )
 
     # The words that satisfy the checks span a space of dimension checks.shape[1] - rank(checks),
@@ -676,7 +686,6 @@ def _search_checks(
     dimension = checks.shape[1] - len(get_independent_rows(checks))
     if dimension == len(get_independent_rows(excluded)):
         return NO_DISTANCE
-    tuning = get_tuning()
     if kept_stabilizers is not None:
         checks = _get_sparser_stabilizers(
             checks, kept_stabilizers, symplectic=symplectic, tuning=tuning
@@ -699,6 +708,7 @@ def _search_checks_by_cost(
     cutoff: int,
     upper_bound: int | None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+    tuning: SearchTuning,
     kept_stabilizers: npt.NDArray[np.uint8] | None,
 ) -> int | Literal[NoDistance.NAN]:
     """Search the words that satisfy the checks by brute force if that is cheap, or by cost.
@@ -706,21 +716,20 @@ def _search_checks_by_cost(
     The arguments are those of ``_search_checks``.  ``search_by_cost`` runs a connected-cluster
     search, which may switch to a Brouwer-Zimmermann search.
     """
-    tuning = get_tuning()
     kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
     nested = _get_nested_basis(kernel, excluded)
     if nested is None:
         return NO_DISTANCE
     basis, labels = nested
     if is_cheap_to_enumerate([len(basis)], basis.shape[1], tuning):
-        distance = get_nested_distance_brute_force(
+        return _search_by_brute_force(
             basis,
             labels,
-            cutoff=cutoff,
-            batch_exponent=tuning.enumeration_batch_exponent,
             symplectic=symplectic,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            tuning=tuning,
         )
-        return _apply_upper_bound(distance, upper_bound)
     if kept_stabilizers is not None:
         checks = _get_sparser_stabilizers(
             checks, kept_stabilizers, symplectic=symplectic, tuning=tuning
@@ -778,14 +787,14 @@ def _search_generators(
     upper_bound: int | None,
     method: Literal["auto", "brouwer_zimmermann", "brute_force"],
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+    tuning: SearchTuning,
 ) -> int | Literal[NoDistance.NAN]:
     """Search the words that the generators and excluded rows span, outside the excluded row space.
 
-    ``upper_bound`` and ``get_automorphisms`` are as for ``_search_css``, and the other arguments
-    are those of ``get_distance_from_generators``, validated.  Here ``"auto"`` chooses brute force
-    if that is cheap, and the Brouwer-Zimmermann method otherwise.
+    ``upper_bound``, ``get_automorphisms``, and ``tuning`` are as for ``_search_css``, and the other
+    arguments are those of ``get_distance_from_generators``, validated.  Here ``"auto"`` chooses
+    brute force if that is cheap, and the Brouwer-Zimmermann method otherwise.
     """
-    tuning = get_tuning()
     nested = _get_nested_basis(generators, excluded)
     if nested is None:
         return NO_DISTANCE
@@ -795,14 +804,14 @@ def _search_generators(
         method = "brute_force" if cheap else "brouwer_zimmermann"
 
     if method == "brute_force":
-        distance = get_nested_distance_brute_force(
+        return _search_by_brute_force(
             basis,
             labels,
-            cutoff=cutoff,
-            batch_exponent=tuning.enumeration_batch_exponent,
             symplectic=symplectic,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            tuning=tuning,
         )
-        return _apply_upper_bound(distance, upper_bound)
 
     problem = _get_brouwer_zimmermann_problem(
         [(basis, labels)], symplectic=symplectic, get_automorphisms=get_automorphisms
@@ -817,6 +826,30 @@ def _search_generators(
         tuning=tuning,
     )
     return distance // scale
+
+
+def _search_by_brute_force(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    *,
+    symplectic: bool,
+    cutoff: int,
+    upper_bound: int | None,
+    tuning: SearchTuning,
+) -> int:
+    """Search a nested basis by brute force, and cap the distance by the upper bound.
+
+    The basis and its labels are those of ``_get_nested_basis``, and the other arguments are as for
+    ``_search_checks``.
+    """
+    distance = get_nested_distance_brute_force(
+        basis,
+        labels,
+        cutoff=cutoff,
+        batch_exponent=tuning.enumeration_batch_exponent,
+        symplectic=symplectic,
+    )
+    return distance if upper_bound is None else min(distance, upper_bound)
 
 
 def _get_nested_basis(
@@ -935,11 +968,6 @@ def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[in
     if max_weight < 0:
         raise ValueError(f"max_weight must be nonnegative, not {max_weight}")
     return min(cutoff, max_weight), max_weight + 1
-
-
-def _apply_upper_bound(distance: int, upper_bound: int | None) -> int:
-    """The smaller of a distance and an optional upper bound."""
-    return distance if upper_bound is None else min(distance, upper_bound)
 
 
 def _get_lifted_automorphisms(

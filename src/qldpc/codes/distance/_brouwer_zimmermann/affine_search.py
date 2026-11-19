@@ -40,7 +40,6 @@ def scan_set(
     labels: npt.NDArray[np.uint64],
     rank: int,
     width: int,
-    label_width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     depth: int,
@@ -63,10 +62,10 @@ def scan_set(
     Args:
         generators: Packed rows of the set, with shape ``(num_rows, num_words)``.
         labels: Packed quotient labels of the rows, whose nonzero XOR marks eligible words, with
-            shape ``(num_rows, num_label_words)``.
+            shape ``(num_rows, num_label_words)``.  If the labels have no words, every word is
+            eligible.
         rank: The rank of the block of the set.
         width: The number of packed words of the rows that the set uses.
-        label_width: The number of packed words of the labels that it uses.
         support: The row indices of the current support, updated in place.
         prefixes: The XORs of the leading rows of the support, with shape
             ``(len(support) + 1, num_words)``, updated in place.
@@ -83,47 +82,12 @@ def scan_set(
         The updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked
         up, and of supports skipped.
     """
-    # The scan weighs no X parts, records nothing, and does not end after a work item, so
-    # placeholders fill those arguments.  The skip bound is the best weight at the start, which the
-    # best weight never exceeds, so the scan skips only completions that cannot lower the best
-    # weight.  Every row of an information set has a pivot, so its scan needs no rank.
-    if rank == generators.shape[0]:
-        return _scan(
-            generators,
-            labels,
-            rank,
-            width,
-            label_width,
-            support,
-            prefixes,
-            depth,
-            best,
-            cutoff,
-            batch_size,
-            tables,
-            offsets,
-            block_bits,
-            prefixes[0],
-            prefixes[0],
-            best,
-            support,
-            support,
-            pair_steps=True,
-            deleted_pivots=True,
-            test_labels=True,
-            record=False,
-            css_weight=False,
-            chunked=True,
-            ranked=False,
-            record_support=False,
-            ends_after_item=False,
-        )
-    return _scan(
+    # The scan does not end after a work item, so the support fills ``last_item``.
+    return _scan_set_chunk(
         generators,
         labels,
         rank,
         width,
-        label_width,
         support,
         prefixes,
         depth,
@@ -133,19 +97,7 @@ def scan_set(
         tables,
         offsets,
         block_bits,
-        prefixes[0],
-        prefixes[0],
-        best,
         support,
-        support,
-        pair_steps=True,
-        deleted_pivots=True,
-        test_labels=True,
-        record=False,
-        css_weight=False,
-        chunked=True,
-        ranked=True,
-        record_support=False,
         ends_after_item=False,
     )
 
@@ -180,7 +132,6 @@ def scan_set_items(
     labels: npt.NDArray[np.uint64],
     rank: int,
     width: int,
-    label_width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     depth: int,
@@ -206,14 +157,58 @@ def scan_set_items(
     a layer at once, each with its own ``support`` and ``prefixes``.  The other arguments and the
     results are those of ``scan_set``.
     """
-    # Placeholders fill the arguments that the scan does not read, as in scan_set.
+    return _scan_set_chunk(
+        generators,
+        labels,
+        rank,
+        width,
+        support,
+        prefixes,
+        depth,
+        best,
+        cutoff,
+        batch_size,
+        tables,
+        offsets,
+        block_bits,
+        last_item,
+        ends_after_item=True,
+    )
+
+
+@always_compiled
+def _scan_set_chunk(
+    generators: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    rank: int,
+    width: int,
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    depth: int,
+    best: int,
+    cutoff: int,
+    batch_size: int,
+    tables: npt.NDArray[np.uint8],
+    offsets: npt.NDArray[np.int64],
+    block_bits: int,
+    last_item: npt.NDArray[np.int64],
+    ends_after_item: bool,
+) -> tuple[int, int, int, int, int]:
+    """Scan one chunk for ``scan_set`` or ``scan_set_items``, whose arguments it takes.
+
+    ``ends_after_item``, which both pass as a constant, is True for ``scan_set_items``, and
+    ``_scan`` reads ``last_item`` only then.
+    """
+    # The scan weighs no X parts and records nothing, so placeholders fill those arguments.  The
+    # skip bound is the best weight at the start, which the best weight never exceeds, so the scan
+    # skips only completions that cannot lower the best weight.  Every row of an information set has
+    # a pivot, so its scan needs no rank.
     if rank == generators.shape[0]:
         return _scan(
             generators,
             labels,
             rank,
             width,
-            label_width,
             support,
             prefixes,
             depth,
@@ -236,14 +231,13 @@ def scan_set_items(
             chunked=True,
             ranked=False,
             record_support=False,
-            ends_after_item=True,
+            ends_after_item=ends_after_item,
         )
     return _scan(
         generators,
         labels,
         rank,
         width,
-        label_width,
         support,
         prefixes,
         depth,
@@ -266,7 +260,7 @@ def scan_set_items(
         chunked=True,
         ranked=True,
         record_support=False,
-        ends_after_item=True,
+        ends_after_item=ends_after_item,
     )
 
 
@@ -302,7 +296,6 @@ def scan_coset_layer(
     best, _, weighed, _, _ = _scan(
         rows,
         rows,
-        width,
         width,
         width,
         support,
@@ -356,7 +349,6 @@ def scan_coset_layer_by_css_weight(
     best, _, weighed, _, _ = _scan(
         rows,
         rows,
-        width,
         width,
         width,
         support,
@@ -418,7 +410,6 @@ def scan_coset_layer_by_tails(
         tails,
         tails,
         rank,
-        width,
         width,
         support,
         prefixes,
@@ -490,7 +481,6 @@ def scan_coset_layer_by_tails_with_tables(
         tails,
         rank,
         width,
-        width,
         support,
         prefixes,
         0,
@@ -523,13 +513,12 @@ def scan_coset_layer_by_tails_with_tables(
 # the shared scan
 
 
-@always_compiled(inline=True)
+@always_compiled
 def _scan(
     generators: npt.NDArray[np.uint64],
     labels: npt.NDArray[np.uint64],
     rank: int,
     width: int,
-    label_width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     depth: int,
@@ -677,7 +666,7 @@ def _scan(
             lighter = bool(candidate < best)
             if lighter and test_labels:
                 support[depth] = row
-                lighter = _is_eligible(labels, label_width, support)
+                lighter = _is_eligible(labels, support)
             if lighter:
                 best = int(candidate)
                 if record:
@@ -701,17 +690,14 @@ def _scan(
 
 
 @always_compiled(inline=True)
-def _is_eligible(
-    labels: npt.NDArray[np.uint64],
-    label_width: int,
-    support: npt.NDArray[np.int64],
-) -> bool:
+def _is_eligible(labels: npt.NDArray[np.uint64], support: npt.NDArray[np.int64]) -> bool:
     """Decide whether the word of a support of a search basis lies outside the excluded subcode.
 
     It does if the basis has no label words, since then nothing is excluded, or if the XOR of the
     quotient labels of the rows of the support is nonzero (Section 3.4).
     """
     weight = len(support)
+    label_width = labels.shape[1]
     eligible = label_width == 0
     for word in range(label_width):
         combined = labels[support[0], word]

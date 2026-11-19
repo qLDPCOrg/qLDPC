@@ -111,7 +111,7 @@ def test_tunings_are_validated() -> None:
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
         (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),
         (ValueError, "between 1 and", {"scan_chunk_size": 0}),
-        (ValueError, "between 0 and 62", {"information_set_batch_exponent": 63}),
+        (ValueError, "between 0 and 62", {"search_chunk_exponent": 63}),
         (ValueError, "must be one of", {"completion_bound_block_bits": 12}),
         (TypeError, "must be a real number", {"completion_bound_confidence_z": True}),
         (TypeError, "must be a real number", {"completion_bound_confidence_z": "2"}),
@@ -130,13 +130,15 @@ def test_tunings_are_validated() -> None:
     narrowed: dict[str, dict[str, Any]] = {
         "lp_dual_max_denominator": {"minimum": 1},
         "partition_max_coverage": {"minimum": 1},
+        "max_information_sets": {"maximum": 2**10},
         "completion_bound_block_bits": widths,
         "coset_completion_block_bits": widths,
         "completion_bound_samples": {"minimum": 1, "maximum": 2**12},
         "completion_bound_min_samples": {"minimum": 1},
         "completion_bound_confidence_z": {"maximum": 10.0},
         "enumeration_batch_exponent": {"maximum": 62},
-        "information_set_batch_exponent": {"maximum": 62},
+        "search_chunk_exponent": {"maximum": 62},
+        "connected_cluster_split_shift": {"maximum": 62},
         "num_threads": {"minimum": 1},
         "scan_chunk_size": {"minimum": 1},
         "scan_chunks_per_call": {"minimum": 1},
@@ -386,7 +388,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     with _tuning.use_tuning(
-        information_set_batch_exponent=5,
+        search_chunk_exponent=5,
         num_threads=3,
         disjoint_random_column_orders=5,
         overlapping_minimum_work=0,
@@ -419,8 +421,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
         core.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
         # A search that scans layers, rather than finish while it prepares, scans with batches of
-        # 2**information_set_batch_exponent supports, on num_threads threads, and passes its tuning
-        # to its certificate and to its choices of completion tables.
+        # 2**search_chunk_exponent supports, on num_threads threads, and passes its tuning to its
+        # certificate and to its choices of completion tables.
         bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
 
     expected = {
