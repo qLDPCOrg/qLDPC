@@ -372,10 +372,9 @@ def iterate_in_order(
 
     The threads claim ranges in increasing order, each with the fewest next items whose weight
     reaches ``1 / (RANGES_PER_THREAD * t)`` of the total, for ``t`` threads, so that the next range
-    that the calling thread needs is soon ready.  ``run_work_items`` only starts the threads: with
-    ``t`` items of weight one on ``t`` threads, each of its shares is at most half an item, so it
-    gives each thread one item (see its docstring), whose function claims ranges until none is
-    left.  ``cumulative_weights``, if given, holds for each item the total weight of the items up
+    that the calling thread needs is soon ready.  ``run_work_items`` only starts the threads: it
+    gives each of ``t`` threads one of ``t`` single items, whose function claims ranges until none
+    is left.  ``cumulative_weights``, if given, holds for each item the total weight of the items up
     to it, which estimates their work; without it, items count one each.  The threads hold at most
     ``OUTPUTS_PER_THREAD * t`` outputs.  A thread waits before it adds an output if that many are
     held, unless the calling thread reads its range, so that the calling thread can always go on.
@@ -472,7 +471,7 @@ def iterate_in_order(
     def run() -> None:
         """Run the threads, and record an exception for the calling thread."""
         try:
-            run_work_items(num_workers, num_workers, start_ranges)
+            run_work_items(num_workers, num_workers, start_ranges, single_items=True)
         except BaseException as error:  # noqa: BLE001 - raised again on the calling thread
             with ready:
                 errors.append(error)
