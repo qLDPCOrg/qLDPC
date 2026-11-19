@@ -7,6 +7,7 @@ from __future__ import annotations
 import itertools
 import math
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
@@ -394,14 +395,85 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
     assert raised.value is interrupts[-1]
 
 
-@pytest.mark.parametrize("num_rows", [0, 1000])
-def test_batches_on_one_thread_run_in_one_call_on_the_calling_thread(num_rows: int) -> None:
+@pytest.mark.parametrize("ending_items", [[3, 7], []])
+@pytest.mark.parametrize("num_threads", [1, 3])
+def test_items_run_until_the_first_that_ends_the_work(
+    num_threads: int, ending_items: list[int]
+) -> None:
+    """The first item that ends the work is returned, and every item before it runs in full.
+
+    Each item runs in three chunks, and an item that ends the work does so in its second chunk.  On
+    one thread, no item after the first that ends the work runs.
+    """
+    num_items = 10
+    chunks = [0] * num_items
+
+    def start_worker(needed: Callable[[int], bool]) -> Callable[[int], bool]:
+        def run_item(item: int) -> bool:
+            for chunk in range(3):
+                chunks[item] += 1
+                if item in ending_items and chunk == 1:
+                    return True
+            return False
+
+        return run_item
+
+    first = _threads.run_items_until_first(num_items, num_threads, start_worker, single_items=True)
+    assert first == (ending_items[0] if ending_items else num_items)
+    assert chunks[:first] == [3] * first
+    if ending_items:
+        assert chunks[first] == 2
+    if num_threads == 1:
+        assert not any(chunks[first + 1 :])
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_a_running_item_learns_once_an_earlier_item_ends_the_work(raises: bool) -> None:
+    """An item that asks between its chunks learns that it is not needed once an earlier one ends.
+
+    Item 0 ends the work, or raises an exception, which stops the work, only once item 1 has started
+    on the other thread, and item 1 then asks until it is no longer needed.  Without the exception,
+    item 1 then ends the work too, which leaves the limit at item 0, since the limit only falls.
+    """
+    started = threading.Event()
+    stopped: list[int] = []
+
+    def start_worker(needed: Callable[[int], bool]) -> Callable[[int], bool]:
+        def run_item(item: int) -> bool:
+            if item == 0:
+                assert started.wait(THREAD_TIMEOUT)
+                if raises:
+                    raise ValueError("failed")
+                return True
+            started.set()
+            deadline = time.monotonic() + THREAD_TIMEOUT
+            while needed(item):
+                assert time.monotonic() < deadline
+                time.sleep(0.001)
+            stopped.append(item)
+            return True
+
+        return run_item
+
+    if raises:
+        with pytest.raises(ValueError, match="failed"):
+            _threads.run_items_until_first(2, 2, start_worker, single_items=True)
+    else:
+        assert _threads.run_items_until_first(2, 2, start_worker, single_items=True) == 0
+    assert stopped == [1]
+
+
+@pytest.mark.parametrize(("num_rows", "ending_rows"), [(0, []), (1000, [500])])
+def test_batches_on_one_thread_run_in_one_call_on_the_calling_thread(
+    num_rows: int, ending_rows: list[int]
+) -> None:
     """On one thread, a batch, even an empty one, runs in one call on the calling thread.
 
-    The call has no work limit.
+    The call has no work limit, and the batch returns the row that ends it, if any.
     """
-    rows = _Rows()
-    _threads.run_blocks(num_rows, 1, 0, rows.start_worker)
+    rows = _Rows(ending_rows)
+    index = _threads.run_blocks(num_rows, 1, 0, rows.start_worker)
+    assert index == (ending_rows[0] if ending_rows else num_rows)
     assert rows.calls == [(0, num_rows, _threads.NO_WORK_LIMIT, threading.get_ident())]
 
 
@@ -411,7 +483,8 @@ def test_batches_within_the_split_work_run_in_one_call_on_the_calling_thread(
 ) -> None:
     """A batch that ends, or whose work stays below the split work, starts no thread."""
     rows = _Rows(ending_rows)
-    _threads.run_blocks(1000, 4, 10**6 if not ending_rows else 900, rows.start_worker)
+    index = _threads.run_blocks(1000, 4, 10**6 if not ending_rows else 900, rows.start_worker)
+    assert index == (ending_rows[0] if ending_rows else 1000)
     split_work = rows.calls[0][2]
     assert rows.calls == [(0, 1000, split_work, threading.get_ident())]
     assert rows.workers == [threading.get_ident()]
@@ -428,7 +501,7 @@ def test_costly_batches_move_the_rest_to_threads_in_contiguous_blocks(
     The rest of the batch runs in contiguous blocks that partition it, each in one call.
     """
     rows = _Rows()
-    _threads.run_blocks(num_rows, num_threads, split_work, rows.start_worker)
+    assert _threads.run_blocks(num_rows, num_threads, split_work, rows.start_worker) == num_rows
     first = max(1, split_work)
     assert rows.calls[0] == (0, num_rows, split_work, threading.get_ident())
     blocks = sorted((start, end) for start, end, _, _ in rows.calls[1:])
@@ -444,10 +517,13 @@ def test_costly_batches_move_the_rest_to_threads_in_contiguous_blocks(
 def test_blocks_after_the_first_that_ends_a_batch_are_skipped_by_its_thread(
     ending_rows: list[int],
 ) -> None:
-    """Every row up to the first that ends the batch runs, and its thread runs no later row."""
+    """Every row up to the first that ends the batch runs, and its thread runs no later row.
+
+    The batch returns that row.
+    """
     rows = _Rows(ending_rows)
-    _threads.run_blocks(33, 2, 0, rows.start_worker)
     first = ending_rows[0]
+    assert _threads.run_blocks(33, 2, 0, rows.start_worker) == first
     assert set(range(first + 1)) <= set(rows.rows)
     (finder, start_of_first) = next(
         (thread, start) for start, end, _, thread in rows.calls[1:] if start <= first < end
@@ -455,6 +531,17 @@ def test_blocks_after_the_first_that_ends_a_batch_are_skipped_by_its_thread(
     assert max(start for start, _, _, thread in rows.calls[1:] if thread == finder) == (
         start_of_first
     )
+
+
+def test_a_batch_returns_the_row_that_ends_it_within_a_block() -> None:
+    """A batch in blocks of several rows returns the row that ends it, not the start of its block.
+
+    The calling thread runs row 0, and two threads run the other rows in blocks of three.  Row 5
+    ends the batch in the middle of its block.
+    """
+    rows = _Rows([5])
+    assert _threads.run_blocks(1 + 6 * _threads.BLOCKS_PER_THREAD, 2, 0, rows.start_worker) == 5
+    assert [(start, end) for start, end, _, _ in rows.calls[1:] if start <= 5 < end] == [(4, 7)]
 
 
 def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
@@ -487,7 +574,7 @@ def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
             return logged
 
     rows = _LoggedRows([6, 21], before_row)
-    _threads.run_blocks(33, 2, 0, rows.start_worker)
+    assert _threads.run_blocks(33, 2, 0, rows.start_worker) == 6
     assert set(range(7)) <= set(rows.rows)
     (block_of_6,) = [start for start, end, _, _ in rows.calls[1:] if start <= 6 < end]
     after = events[events.index(("end", block_of_6)) + 1 :]

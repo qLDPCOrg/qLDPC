@@ -136,7 +136,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Support, prefix XORs | `support` and `prefixes` in `_SectorSearch._scan_set` and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion |
-| Batch of a compiled scan | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables, and `num_threads` times as many on threads ([Section 4.5](#45-behavior-spanning-files)) |
+| Batch of a compiled scan | `batch_size`, equal to `1 << search_chunk_exponent` supports, or supports and lookups together in a scan with completion tables, and `num_threads` times as many on threads ([Section 4.5](#45-behavior-spanning-files)) |
 | Work item of a layer, and the threads that scan it ([Section 4.5](#45-behavior-spanning-files)) | `_WorkItems` and `_SectorSearch._scan_set_on_threads` of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), `start_set_items` and `scan_set_items`, and `run_work_items` of [_threads.py](_threads.py); `num_threads` of a search |
 | Split work, and the blocks of a batch of coset queries that threads search ([Section 4.5](#45-behavior-spanning-files)) | `run_blocks` of [_threads.py](_threads.py), which runs a batch on the calling thread until its work reaches the split work, and the rest in blocks with `run_work_items`; `_find_first_on_threads` and `_find_min_weights_on_threads` of [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py); `num_threads` and `split_work` of a `CosetLeaderSearch` |
 | Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
@@ -285,7 +285,9 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Each worker has its own buffer for the lightest word; Numba compiles both loops without the global interpreter lock, and the call on the calling thread compiles them before any thread starts.
   The query takes its route before the threads start, so no thread builds tails or tables, and the threads share the tables of the route, apart from the copies of its planning buffer that `find_first_not_within_max_weight` gives each worker ([Section 4.1](#41-module-map-and-layering)).
   The answer for a syndrome depends only on the code, the maximum weight, and the tuning ([Section 5](#5-correctness-requirements)), so the weights of `get_min_weights` are those of one thread.
-  In `find_first_not_within_max_weight`, a syndrome without a word within the maximum weight ends the batch: on the calling thread, before the split, it ends the query, and in a block, `run_blocks` lowers a limit to the block, and the threads skip each block after the limit, including the rest of a range that they have claimed.
+  In `find_first_not_within_max_weight`, a syndrome without a word within the maximum weight ends the batch.
+  On the calling thread, before the split, it ends the query.
+  In a block, `run_items_until_first` of `_threads.py`, which `run_blocks` calls, lowers a limit to the block, and the threads skip each block after the limit, including the rest of a range that they have claimed.
   The limit only falls, and every row before it runs, so the least index found, with its bound and the lightest word of its own search, is that of one thread.
   For the CSS weight on a CSS state, the X pass, the Z pass on the syndromes before the index of the X pass, and the passes of `get_min_weights` each run their batch in this way.
   An exception before the split, while no other thread runs, reaches the caller at once; one after it, in any thread, such as a keyboard interrupt in the calling thread, reaches the caller as the docstring of `run_work_items` says, and the threads stop within their ranges, except in the narrow windows that it describes.
@@ -359,7 +361,7 @@ A change may use other representations, certificates, and search strategies, but
     The test does not mark the arrays that each thread of `_scan_set_on_threads` gets for itself: its `support` and `prefixes`, and the work items that it scans.
     The test also misses paths that the tests do not run with the arrays read-only, and, in plain Python, writes that tests do not run.
     Review checks that each thread writes only its own arrays.
-  - Other code that threads run writes shared state only under a lock or through thread-safe objects, as the shared `U`, the claims of items, and the stop event are written.
+  - Other code that threads run writes shared state only under a lock, through thread-safe objects, or under its own key, as the shared `U`, the claims of items, the stop event, and the result of a row of a coset batch that ends the batch are written.
     Review checks this.
   - The shared `U` is lowered only as a minimum, under the lock.
     Review checks this.
@@ -373,7 +375,7 @@ A change may use other representations, certificates, and search strategies, but
   Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [README.md](README.md)), reads nothing else that the layers leave.
   None may read what depends on the timing of the threads, such as `U` during the layer of a set, how far the layer of a set has got, or the counts of supports that a split layer weighs, looks up, and skips, which depend on when `U` falls.
   A split layer that stops at the cutoff leaves a `U` that can depend on that timing, but the search then ends, with `U` as the result of an early exit.
-  The lower bound counts the layer of a set only once every work item of that layer has run, as in `advance`, which raises it only after `_scan_set` has scanned each set that it counts.
+  The lower bound counts the layer of a set only once every work item of that layer has run, as in `advance`, which raises it only after `_SectorSearch._scan_set` has scanned each set that it counts.
   `test_searches_on_threads_advance_as_searches_on_one_thread` compares the bounds, best weights, and switches after each layer with those of one thread.
 - **Preserve the return contract.**
   Return `max_weight+1` if every nontrivial word is heavier than `max_weight`, and otherwise the exact minimum, unless `cutoff`, which `max_weight` caps, permits an early exit at a known eligible witness of weight at most `cutoff` ([Section 4.5](#45-behavior-spanning-files)).

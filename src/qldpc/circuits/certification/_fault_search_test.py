@@ -188,7 +188,7 @@ def test_light_pairs_match_brute_force(
     for _ in range(20):
         light = list(dict.fromkeys(int(ss) << 62 for ss in rng.integers(16, size=6)))
         heavy = [int(ss) << 62 for ss in rng.integers(16, size=8)]
-        num_words = _fault_search._get_num_words(light + heavy)
+        num_words = _fault_search._get_num_words_for_values(light + heavy)
         pairs = _fault_search._get_light_pairs(
             _fault_search._hashed_rows(heavy, num_words),
             _fault_search._hashed_rows(light, num_words),

@@ -16,10 +16,9 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits, unpack_bits
+from qldpc._binary import get_num_words, int_to_words, pack_bits, unpack_bits
 from qldpc._compilation import always_compiled
 
-from .._cosets import int_to_words
 from .._information_sets import certificates, completion_bounds
 from . import affine_instance
 
@@ -148,14 +147,14 @@ def get_coset_tails(
         num_columns = inverse.shape[1]
         rows = unpack_bits(instance.generators.reshape(-1, width), num_columns)
         rows = rows.reshape(num_sets, num_rows, num_columns)
-        tail_width = (num_columns - int(instance.ranks.min()) + 63) // 64
+        tail_width = get_num_words(num_columns - int(instance.ranks.min()))
         tails = np.zeros((num_sets, num_rows, tail_width), dtype=np.uint64)
         inverse_tails = np.zeros((num_sets, len(inverse), tail_width), dtype=np.uint64)
         for set_index, (pivots, rank) in enumerate(
             zip(instance.pivots, instance.ranks, strict=True)
         ):
             columns = np.delete(np.arange(num_columns), pivots[:rank])
-            set_width = (len(columns) + 63) // 64
+            set_width = get_num_words(len(columns))
             tails[set_index, :, :set_width] = pack_bits(rows[set_index][:, columns])
             inverse_tails[set_index, :, :set_width] = pack_bits(inverse[:, columns])
         # The tables of a set have at most one block for each block_bits columns of its tails, and

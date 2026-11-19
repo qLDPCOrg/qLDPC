@@ -13,11 +13,10 @@ at once, to search a costly weight limit or to answer several queries (Sections 
 
 from __future__ import annotations
 
-import functools
 import itertools
 import math
-import threading
 from collections.abc import Callable, Sequence
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -27,7 +26,13 @@ from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_w
 from qldpc._compilation import always_compiled
 
 from .. import _threads
-from .._binary import assert_binary, get_nested_code_basis, multiply_binary, swap_pauli_halves
+from .._binary import (
+    assert_binary,
+    get_nested_code_basis,
+    multiply_binary,
+    swap_pauli_halves,
+    symplectic_to_hamming,
+)
 from .._information_sets import automorphism_families
 from .._information_sets.basis_families import infer_weight_divisor
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
@@ -50,6 +55,19 @@ _LOAD_BASE = 4
 # and cached, only when a search first needs it, but each takes seconds to compile, so this bound
 # keeps them few.
 _MAX_FIXED_WORDS = 8
+
+
+class _CheckTables(NamedTuple):
+    """The tables of the checks and tests of a search, the first arguments of ``_search_supports``.
+
+    The docstring of ``_search_supports`` describes them.
+    """
+
+    check_starts: npt.NDArray[np.int64]
+    check_symbols: npt.NDArray[np.int64]
+    symbol_masks: npt.NDArray[np.uint64]
+    test_columns: npt.NDArray[np.uint64]
+
 
 # The tables of the overlap cuts of a search, as ``_get_overlap_cuts`` returns them.
 _CutTables = tuple[
@@ -151,15 +169,13 @@ class ConnectedClusterSearch:
             raise ValueError("Require at least one sector or an upper bound")
 
         # Keep a search of each sector with witnesses; a sector without witnesses only bounds the
-        # result.  A weight limit runs on threads if it is predicted to visit more states than a
-        # quarter of the supports that each thread of a BZ scan on ``num_threads`` threads scans in
-        # one chunk (``_SPLIT_GATE_SHIFT``), and runs in chunks of
-        # ``2**information_set_batch_exponent`` states (Sections 3.6 and 3.11 of
-        # connected_cluster.md).
+        # result.  A weight limit runs on threads if it passes the gate of
+        # ``connected_cluster_split_shift``, and runs in chunks of ``2**search_chunk_exponent``
+        # states (Sections 3.6 and 3.11 of connected_cluster.md).
         tuning = get_tuning() if tuning is None else tuning
         num_threads = _threads.get_num_threads(tuning.num_threads)
-        chunk_states = 1 << tuning.information_set_batch_exponent
-        split_minimum_states = (num_threads * chunk_states) >> _SPLIT_GATE_SHIFT
+        chunk_states = 1 << tuning.search_chunk_exponent
+        split_minimum_states = (num_threads * chunk_states) >> tuning.connected_cluster_split_shift
         self._cutoff = cutoff
         self._best_weight = upper_bound
         self._no_distance_bounds: list[int] = []
@@ -423,14 +439,15 @@ class SupportSearch:
             raise ValueError("The excluded rows must satisfy the checks")
         # Keep the first copy of each nonzero check, in order, since zero and duplicate checks add
         # nothing.  Map each given check to the kept check that equals it, or to -1 if it is zero;
-        # ``rank_of_unique`` maps each of the sorted unique rows to its position among kept checks.
+        # ``position_of_unique`` maps each of the sorted unique rows to its position among kept
+        # checks.
         nonzero_rows = np.flatnonzero(np.any(checks, axis=1))
         first_rows, unique_index_of_row = _get_unique_rows(checks[nonzero_rows])
         order = np.argsort(first_rows)
-        rank_of_unique = np.argsort(order)
+        position_of_unique = np.argsort(order)
         self._checks = checks[nonzero_rows[first_rows[order]]]
         self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
-        self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row]
+        self._kept_index_of_check[nonzero_rows] = position_of_unique[unique_index_of_row]
 
         # The search also branches on and weighs the sums of the pairs of kept checks in
         # ``summed_pairs``, which follow the kept checks (Section 3.4 of connected_cluster.md).
@@ -444,11 +461,13 @@ class SupportSearch:
         # ``tests`` the tests that it fails.
         flips = self._get_symbol_columns(searched_checks)
         sparse_flips = scipy.sparse.csr_array(flips)
-        self._check_starts = sparse_flips.indptr.astype(np.int64)
-        self._check_symbols = sparse_flips.indices.astype(np.int64)
-        self._symbol_masks = pack_bits(np.ascontiguousarray(flips.T))
         tests = self._get_symbol_columns(self._get_tests())
-        self._test_columns = pack_bits(np.ascontiguousarray(tests.T))
+        self._check_tables = _CheckTables(
+            sparse_flips.indptr.astype(np.int64),
+            sparse_flips.indices.astype(np.int64),
+            pack_bits(np.ascontiguousarray(flips.T)),
+            pack_bits(np.ascontiguousarray(tests.T)),
+        )
 
         # Without symmetries, every variable is a root.  Symplectic words get no divisor, since
         # their weights count qubits rather than bits.
@@ -468,17 +487,17 @@ class SupportSearch:
         # The excluded rows are known words for the overlap cuts, and queries may have more.  With
         # pair sums, so are the light sums of pairs of those excluded rows that are no heavier than
         # the heaviest check (Section 3.4 of connected_cluster.md).
-        self._witness_words = excluded
+        self._known_words = excluded
         if pair_sum_checks and stabilizer_overlap_cuts:
             max_check_weight = get_row_weights(self._checks, symplectic=symplectic).max(initial=0)
             word_weights = get_row_weights(excluded, symplectic=symplectic)
             light_words = excluded[word_weights <= max_check_weight]
             sums, _ = get_light_pair_sums(light_words, symplectic=symplectic)
-            self._witness_words = np.vstack([excluded, sums])
+            self._known_words = np.vstack([excluded, sums])
         self._query_words = np.zeros((0, checks.shape[1]), dtype=np.uint8)
         # find_witness tabulates its cuts at its first weight limit.  use_query_overlap_words and
-        # _tabulate_query_cuts tabulate the cuts of queries; otherwise find_vector_with_syndrome
-        # does so at its first query.  Each search tabulates only the kind it uses.
+        # tabulate_query_cuts tabulate the cuts of queries; otherwise find_vector_with_syndrome does
+        # so at its first query.  Each search tabulates only the kind it uses.
         self._cuts: _CutTables | None = None
         self._query_cuts: _CutTables | None = None
 
@@ -486,7 +505,7 @@ class SupportSearch:
     def has_witnesses(self) -> bool:
         """Whether any word is outside the row space of ``excluded``."""
         # Without tests, the packed test columns have no blocks.
-        return self._test_columns.shape[1] > 0
+        return self._check_tables.test_columns.shape[1] > 0
 
     def find_witness(self, max_weight: int) -> npt.NDArray[np.int64] | None:
         """Search for a witness of weight at most ``max_weight``, a weight limit of at least one.
@@ -517,7 +536,7 @@ class SupportSearch:
         # Tabulate the cuts of the known words under the current ranks, if they are not tabulated,
         # before any thread starts, so that threads only read the search.
         if self._cuts is None:
-            words = self._witness_words
+            words = self._known_words
             if not self._stabilizer_overlap_cuts:
                 words = words[:0]
             self._cuts = _get_overlap_cuts(words, self._ranks, self._symplectic)
@@ -540,10 +559,7 @@ class SupportSearch:
         ]:
             """Search the work items of this limit, as ``_search_supports`` does."""
             return _search_supports(
-                self._check_starts,
-                self._check_symbols,
-                self._symbol_masks,
-                self._test_columns,
+                *self._check_tables,
                 roots,
                 paths,
                 frontier_depth,
@@ -554,8 +570,8 @@ class SupportSearch:
                 ends,
                 max_states,
                 # The searches from roots ignore the starting syndrome, and do not memoize.
-                np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
-                _get_fixed_words(self._symbol_masks.shape[1]),
+                np.zeros(self._check_tables.symbol_masks.shape[1], dtype=np.uint64),
+                _get_fixed_words(self._check_tables.symbol_masks.shape[1]),
                 False,
                 self._restrict_viable_symbols,
                 *cuts,
@@ -591,6 +607,11 @@ class SupportSearch:
         and of the words that ``use_query_overlap_words`` adds can change which vector the search
         returns, but not whether it finds one within ``max_weight``.
 
+        Coset searches call ``find_vector_with_packed_syndrome`` instead, which skips validation.
+        Unless ``use_query_overlap_words`` or ``tabulate_query_cuts`` has tabulated the cuts of
+        queries, the first call tabulates them and writes to the search, so no other query of the
+        search may run during that call.
+
         Returns:
             The sorted symbols of a vector with the syndrome, or None if every such vector weighs
             more than ``max_weight``.
@@ -619,11 +640,11 @@ class SupportSearch:
         if not np.any(kept_syndrome):
             return np.empty(0, dtype=np.int64)
         if self._query_cuts is None:
-            self._tabulate_query_cuts()
+            self.tabulate_query_cuts()
         packed_syndrome = pack_bits(kept_syndrome[None])[0]
-        return self._find_vector_with_packed_syndrome(packed_syndrome, max_weight)[0]
+        return self.find_vector_with_packed_syndrome(packed_syndrome, max_weight)[0]
 
-    def _find_vector_with_packed_syndrome(
+    def find_vector_with_packed_syndrome(
         self, packed_syndrome: npt.NDArray[np.uint64], max_weight: int
     ) -> tuple[npt.NDArray[np.int64] | None, int]:
         """Search like ``find_vector_with_syndrome``, from an unvalidated nonzero packed syndrome.
@@ -631,7 +652,7 @@ class SupportSearch:
         ``packed_syndrome`` has one bit for each kept check, packed as ``pack_bits`` packs a row.
         The kept checks are the rows of ``checks`` without zero rows and later copies, in order, so
         independent checks are all kept.  Also returns the number of states that the search visited.
-        The cuts of queries must be tabulated already (see ``_tabulate_query_cuts``), and the query
+        The cuts of queries must be tabulated already (see ``tabulate_query_cuts``), and the query
         only reads the search, so that queries can run on threads.
         """
         assert self._query_cuts is not None
@@ -641,10 +662,7 @@ class SupportSearch:
             sums = bits[self._summed_pairs[:, 0]] ^ bits[self._summed_pairs[:, 1]]
             packed_syndrome = pack_bits(np.concatenate([bits, sums])[None])[0]
         support, item_states, _, _, _ = _search_supports(
-            self._check_starts,
-            self._check_symbols,
-            self._symbol_masks,
-            self._test_columns,
+            *self._check_tables,
             np.array([-1], dtype=np.int64),
             np.empty((1, 0), dtype=np.int64),
             0,
@@ -661,40 +679,6 @@ class SupportSearch:
             *self._query_cuts,
         )
         return (np.sort(support) if len(support) else None), int(item_states[0])
-
-    def _predict_states(self, max_weight: int) -> int:
-        """The number of states that the next weight limit, ``max_weight``, is expected to visit.
-
-        The number is expected to grow by the ratio between those of the last two limits, or not to
-        grow if the earlier of them visited no states, as before the second limit (Section 3.5 of
-        ``connected_cluster.md``).  A first limit is expected to visit no states if it is at most
-        the weight divisor, and otherwise, with no limits below it to predict from, enough to reach
-        any ``automorphism_minimum_states`` short of ``MAX_VALUE``.
-        """
-        if self._last_two_num_states is None:
-            return MAX_VALUE - 1 if max_weight > self.weight_divisor else 0
-        previous, last = self._last_two_num_states
-        return last * last // previous if previous else last
-
-    def _get_symbol_columns(self, matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """The products of the rows of a matrix with the word of each symbol, as columns.
-
-        The word of a symbol has its value on its variable, so for a symplectic problem the columns
-        are those of the ``X`` part, of the ``Z`` part, and of their sum.
-        """
-        if not self._symplectic:
-            return matrix
-        part_x, part_z = matrix[:, : self.num_variables], matrix[:, self.num_variables :]
-        return np.hstack([part_x, part_z, part_x ^ part_z])
-
-    def _get_tests(self) -> npt.NDArray[np.uint8]:
-        """Rows whose products with a word all vanish exactly when the word is excluded.
-
-        They are a basis of the kernel of ``excluded`` modulo the checks, whose halves are already
-        swapped for a symplectic problem (Section 3.6 of ``connected_cluster.md``).
-        """
-        basis, labels = get_nested_code_basis(get_kernel(self._excluded), self._checks)
-        return basis[np.any(labels, axis=1)]
 
     def use_query_overlap_words(self, words: npt.ArrayLike) -> None:
         """Add known words, such as stabilizers, to those that the cuts of syndrome queries use.
@@ -719,9 +703,9 @@ class SupportSearch:
             raise ValueError("The words must satisfy the checks")
         self._query_words = np.vstack([self._query_words, words])
         # Tabulate the cuts now, so that the queries after this call only read the search.
-        self._tabulate_query_cuts()
+        self.tabulate_query_cuts()
 
-    def _tabulate_query_cuts(self) -> None:
+    def tabulate_query_cuts(self) -> None:
         """Tabulate the overlap cuts of queries under the current ranks.
 
         The cuts use the rows of ``excluded`` and the words that ``use_query_overlap_words`` adds,
@@ -731,6 +715,37 @@ class SupportSearch:
         if not self._stabilizer_overlap_cuts:
             words = words[:0]
         self._query_cuts = _get_overlap_cuts(words, self._ranks, self._symplectic)
+
+    def _predict_states(self, max_weight: int) -> int:
+        """The number of states that the next weight limit, ``max_weight``, is expected to visit.
+
+        The number is expected to grow by the ratio between those of the last two limits, or not to
+        grow if the earlier of them visited no states, as before the second limit (Section 3.5 of
+        ``connected_cluster.md``).  A first limit is expected to visit no states if it is at most
+        the weight divisor, and otherwise, with no limits below it to predict from, enough to reach
+        any ``automorphism_minimum_states`` short of ``MAX_VALUE``.
+        """
+        if self._last_two_num_states is None:
+            return MAX_VALUE - 1 if max_weight > self.weight_divisor else 0
+        previous, last = self._last_two_num_states
+        return last * last // previous if previous else last
+
+    def _get_symbol_columns(self, matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        """The products of the rows of a matrix with the word of each symbol, as columns.
+
+        The word of a symbol has its value on its variable, so for a symplectic problem the columns
+        are those of the ``X`` part, of the ``Z`` part, and of their sum.
+        """
+        return symplectic_to_hamming(matrix) if self._symplectic else matrix
+
+    def _get_tests(self) -> npt.NDArray[np.uint8]:
+        """Rows whose products with a word all vanish exactly when the word is excluded.
+
+        They are a basis of the kernel of ``excluded`` modulo the checks, whose halves are already
+        swapped for a symplectic problem (Section 3.6 of ``connected_cluster.md``).
+        """
+        basis, labels = get_nested_code_basis(get_kernel(self._excluded), self._checks)
+        return basis[np.any(labels, axis=1)]
 
     def _use_automorphisms(self, automorphisms: npt.NDArray[np.int_]) -> None:
         """Verify automorphisms, and search only from the least variable of each of their orbits.
@@ -757,7 +772,7 @@ class SupportSearch:
         # so find_witness tabulates its cuts again, and tabulated cuts of queries are replaced now.
         self._cuts = None
         if self._query_cuts is not None:
-            self._tabulate_query_cuts()
+            self.tabulate_query_cuts()
 
 
 def _get_overlap_cuts(
@@ -857,21 +872,9 @@ def _get_fixed_words(num_words: int) -> tuple[int, ...]:
 ####################################################################################################
 # weight limits on threads
 
-# The fewest work items for each thread at which the frontier of a limit on threads stops
-# deepening, so that the threads can share the work (Section 3.11 of connected_cluster.md).
-_ITEMS_PER_THREAD = 32
-
 # The most items that the frontier of a limit on threads targets, which bounds the cost of its
 # passes and the memory of its paths to within the branching of one depth.
 _MAX_ITEMS = 2**14
-
-# A distance search splits a weight limit across threads only if it predicts that the limit visits
-# more than ``(num_threads << information_set_batch_exponent) >> _SPLIT_GATE_SHIFT`` states, a
-# quarter of the supports that each thread of a BZ scan on ``num_threads`` threads scans in one
-# chunk, since a state costs far more than a support.  At the default exponent, a limit that splits
-# is then predicted to cost at least about as much as its split, though one that finds its witness
-# early can cost less (Section 3.11 of connected_cluster.md).
-_SPLIT_GATE_SHIFT = 2
 
 # A path of no states, for calls of _search_supports that resume nothing.
 _NO_PATH = np.empty(0, dtype=np.int64)
@@ -934,16 +937,19 @@ def _search_on_threads(
 
     The frontier deepens from the roots, one depth at a time, until it has about as many states as
     the limit is predicted to visit chunks of ``chunk_states`` states, but at least
-    ``_ITEMS_PER_THREAD`` for each thread and at most ``_MAX_ITEMS``, or it reaches ``max_weight``
-    or a witness, or no state is that deep.  The threads claim its states, the work items, one at a
-    time in DFS order, and search each in chunks of at most ``chunk_states`` states.  Each item
-    before the first with a witness runs in full, and once that witness is found, no item after it
-    starts and a running one stops after its chunk (Section 3.11 of ``connected_cluster.md``).
+    ``_threads.ITEMS_PER_THREAD`` for each thread and at most ``_MAX_ITEMS``, or it reaches
+    ``max_weight`` or a witness, or no state is that deep.  The threads claim its states, the work
+    items, one at a time in DFS order, and search each in chunks of at most ``chunk_states`` states.
+    Each item before the first with a witness runs in full, and once that witness is found, no item
+    after it starts and a running one stops after its chunk (Section 3.11 of
+    ``connected_cluster.md``).
 
     Returns:
         The witness and the number of states of a search of the limit on one thread.
     """
-    target = max(_ITEMS_PER_THREAD * num_threads, min(_MAX_ITEMS, predicted_states // chunk_states))
+    target = max(
+        _threads.ITEMS_PER_THREAD * num_threads, min(_MAX_ITEMS, predicted_states // chunk_states)
+    )
 
     # Each pass lists the states one deeper than the current items, which become states above the
     # frontier, apart from the roots.  ``prefixes`` counts the states above the frontier that come
@@ -977,39 +983,43 @@ def _search_on_threads(
             break
     item_roots, paths, prefixes, above = best
 
-    # Search the items one at a time, each in chunks, and record the states of each item, and the
-    # first item with a witness.
+    # Search the items one at a time, each in chunks, and record the states and the witness of each
+    # item.
     num_items = len(item_roots)
     counts = np.zeros(num_items, dtype=np.int64)
     witnesses: dict[int, npt.NDArray[np.int64]] = {}
-    first = num_items
-    lock = threading.Lock()
 
-    def run_item(stop: threading.Event, item: int, end: int) -> None:
-        """Search the item of a range of one, ``(item, end)``, in chunks, until it ends.
+    def start_items(needed: Callable[[int], bool]) -> Callable[[int], bool]:
+        """Return how a worker searches an item."""
 
-        Between chunks, the item stops once an earlier item has a witness, or once ``stop`` is set.
-        """
-        nonlocal first
-        resume, ends = _NO_PATH, _NO_PATH
-        while not stop.is_set() and item < first:
-            support, item_states, _, resume, ends = search(
-                item_roots[item : item + 1], paths[item : item + 1], 0, resume, ends, chunk_states
-            )
-            counts[item] += item_states[0]
-            if len(support):
-                with lock:
+        def run_item(item: int) -> bool:
+            """Search an item in chunks until it ends, and return whether it has a witness.
+
+            Between chunks, the item stops once it is no longer ``needed``: once an earlier item has
+            a witness, or once the threads stop.
+            """
+            resume, ends = _NO_PATH, _NO_PATH
+            while True:
+                support, item_states, _, resume, ends = search(
+                    item_roots[item : item + 1],
+                    paths[item : item + 1],
+                    0,
+                    resume,
+                    ends,
+                    chunk_states,
+                )
+                counts[item] += item_states[0]
+                if len(support):
                     witnesses[item] = support
-                    first = min(first, item)
-                return
-            if not len(resume):
-                return
+                    return True
+                if not len(resume) or not needed(item):
+                    return False
+
+        return run_item
 
     # Compile the search before the threads call it: a search of no items returns at once.
     search(item_roots[:0], paths[:0], 0, _NO_PATH, _NO_PATH, MAX_VALUE)
-    _threads.run_work_items(
-        num_items, num_threads, lambda stop: functools.partial(run_item, stop), single_items=True
-    )
+    first = _threads.run_items_until_first(num_items, num_threads, start_items, single_items=True)
     if first < num_items:
         return witnesses[first], int(prefixes[first] + np.sum(counts[: first + 1]))
     return witness, int(above + np.sum(counts))

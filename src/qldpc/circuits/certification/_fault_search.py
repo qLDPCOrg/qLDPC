@@ -17,7 +17,13 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
+from qldpc._binary import (
+    get_num_words,
+    get_rank_packed,
+    popcount_word,
+    trailing_zeros_word,
+    words_to_int,
+)
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBound
 
@@ -96,7 +102,9 @@ def find_smallest_violation(
     # "Irreducible accepted faults have fault weight at most rank(P) + 1").
     # Repeated flags do not change the rank, so each value enters the matrix once.
     distinct_flags = list(dict.fromkeys(flag for flag, _ in signatures))
-    flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
+    flag_rank = get_rank_packed(
+        _to_words(distinct_flags, _get_num_words_for_values(distinct_flags))
+    )
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
     oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
@@ -148,7 +156,7 @@ def _search_irreducible_faults(
     light_errors = {syndrome: error for _, syndrome, _, error in light}
     light_syndromes = list(light_errors)
     heavy_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _, _ in heavy))
-    num_words = _get_num_words(light_syndromes + heavy_syndromes)
+    num_words = _get_num_words_for_values(light_syndromes + heavy_syndromes)
     pairs = _get_light_pairs(
         _hashed_rows(heavy_syndromes, num_words), _hashed_rows(light_syndromes, num_words)
     )
@@ -269,12 +277,12 @@ class FaultLister:
         # Build the rows of the classes and of the primitive faults, as the class docstring
         # describes.
         class_flags = [flags[members[0]] for members in member_lists]
-        flag_words = _to_words(class_flags, _get_num_words(class_flags))
+        flag_words = _to_words(class_flags, _get_num_words_for_values(class_flags))
         self._class_rows = np.hstack([_hash_words(flag_words)[:, None], flag_words])
         # The syndromes, and the X and Z parts of the representatives, take a word for every 64
         # output qubits, as the batches of ``CosetLeaderSearch`` need.
         mask = (1 << num_qubits) - 1
-        num_qubit_words = _get_num_words([mask])
+        num_qubit_words = _get_num_words_for_values([mask])
         syndrome_words = _to_words(syndromes, num_qubit_words)
         x_parts = [representative & mask for representative in representatives]
         z_parts = [representative >> num_qubits for representative in representatives]
@@ -351,7 +359,7 @@ class FaultLister:
             # A row of the batch holds the primitive faults of a fault in the order of its classes,
             # so sort them.
             positions = tuple(sorted(batch_members[index].tolist()))
-            syndrome = int.from_bytes(batch_syndromes[index].astype("<u8").tobytes(), "little")
+            syndrome = words_to_int(batch_syndromes[index])
             return positions, syndrome
 
         # The state of the expansion of class tuples into faults (see ``_expand_class_tuples``).
@@ -567,9 +575,9 @@ def _hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     return _hash_bytes(np.ascontiguousarray(words), tables)
 
 
-def _get_num_words(values: Collection[int]) -> int:
+def _get_num_words_for_values(values: Collection[int]) -> int:
     """The number of 64-bit words that hold each of these integers, at least one."""
-    return max(1, (max((value.bit_length() for value in values), default=0) + 63) // 64)
+    return max(1, get_num_words(max((value.bit_length() for value in values), default=0)))
 
 
 def _to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:

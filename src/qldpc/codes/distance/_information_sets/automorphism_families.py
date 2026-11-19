@@ -19,7 +19,7 @@ import numpy.typing as npt
 from qldpc._binary import get_rank_packed, pack_bits, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled
 
-from .._binary import get_eligible_rows
+from .._binary import get_eligible_rows, get_nonzero_columns
 from .basis_families import BasisFamily
 from .certificates import Certificate, get_capped_binomials, plan_steps
 
@@ -79,7 +79,7 @@ def get_automorphism_family(
     dimension, num_columns = basis.shape
     orbits = get_orbits(automorphisms, num_columns)
     rows, packed_labels, pivots = row_reduce_packed(
-        pack_bits(basis), pack_bits(labels), np.flatnonzero(np.any(basis, axis=0))
+        pack_bits(basis), pack_bits(labels), get_nonzero_columns(basis)
     )
     _balance_orbit_shares(rows, packed_labels, pivots, orbits)
     generators, set_labels = (

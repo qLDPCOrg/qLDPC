@@ -21,6 +21,7 @@ from qldpc._binary import unpack_bits
 from ..conftest import Tune
 from . import _threads, coset_leaders
 from ._brouwer_zimmermann.coset import BrouwerZimmermannCosetSearch
+from ._connected_cluster import coset as cluster_coset
 from ._tuning import MAX_VALUE, use_tuning
 from .conftest import (
     ROUTED_CSS_WEIGHT_STATE,
@@ -699,7 +700,7 @@ def test_connected_cluster_searches_take_the_fields_of_their_tuning(
     # fields differ from the defaults.
     css_state = get_random_css_state(4, 2, np.random.default_rng(0))
     with use_tuning(
-        max_sparsifying_rounds=5,
+        max_coset_sparsifying_rounds=5,
         sparsifying_rounds_without_improvement=2,
         restrict_viable_symbols=False,
         stabilizer_overlap_cuts=False,
@@ -788,7 +789,7 @@ def test_connected_cluster_batches_read_syndromes_of_several_words(
     """Connected-cluster batches of syndromes of two words agree with block minima."""
     # One round of sparsifying gives the default checks on these blocks, without the many rounds
     # that are slow as plain Python.
-    tune(max_sparsifying_rounds=1)
+    tune(max_coset_sparsifying_rounds=1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_blocks = 17
     generators = _block_generators(_PHASED_GHZ_BLOCK, num_blocks)
@@ -823,8 +824,8 @@ def test_batches_on_threads_answer_as_on_one_thread(
     """Batch queries on threads answer as on one thread, on a CSS state part by part.
 
     By CSS weight, the batches of Z parts take the weights of the X parts within ``max_weight`` as
-    floors.  With ``information_set_batch_exponent=0``, a batch moves to threads once its queries on
-    the calling thread have done ``num_threads`` units of work.
+    floors.  With ``search_chunk_exponent=0``, a batch moves to threads once its queries on the
+    calling thread have done ``num_threads`` units of work.
     """
     # Record the floors and the weights of each batch query of a BZ search.
     calls: list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]] = []
@@ -854,7 +855,7 @@ def test_batches_on_threads_answer_as_on_one_thread(
     batch = split_syndromes_into_words(syndromes.tolist(), num_qubits)
     with use_tuning(num_threads=1):
         serial = CosetLeaderSearch(matrix, css_weight=True)
-    with use_tuning(num_threads=3, information_set_batch_exponent=0):
+    with use_tuning(num_threads=3, search_chunk_exponent=0):
         threaded = CosetLeaderSearch(matrix, css_weight=True)
 
     # At each maximum weight, the searches find the same classes, the batch of Z parts takes the
@@ -896,13 +897,13 @@ def test_searches_take_their_number_of_threads_when_they_are_built(
 ) -> None:
     """A search passes the threads of the tuning with which it was built to every batch query.
 
-    Its split work grows with ``information_set_batch_exponent``, up to ``NO_WORK_LIMIT``.
+    Its split work grows with ``search_chunk_exponent``, up to ``NO_WORK_LIMIT``.
     """
     calls = _record_thread_options(monkeypatch)
     matrix = ROUTED_PHYSICAL_STATES[0]
     batch = split_syndromes_into_words(list(range(32)), len(matrix))
     for num_threads, exponent in [(3, 4), (3, 5), (16, 62)]:
-        with use_tuning(num_threads=num_threads, information_set_batch_exponent=exponent):
+        with use_tuning(num_threads=num_threads, search_chunk_exponent=exponent):
             search = CosetLeaderSearch(matrix)
         with use_tuning(num_threads=1):
             search.get_min_weights(batch, 2)
@@ -972,7 +973,7 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
         batch = split_syndromes_into_words(syndromes.tolist(), num_qubits)
         searches = []
         for num_threads in (1, 2, 3, 8):
-            with use_tuning(num_threads=num_threads, information_set_batch_exponent=0):
+            with use_tuning(num_threads=num_threads, search_chunk_exponent=0):
                 searches.append(
                     CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
                 )
@@ -1005,11 +1006,12 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
     With chunks of one state, the calling thread answers the first query, which visits states, and
     moves the rest of the batch to two threads, in blocks of one query each.  Every later class has
     no error of weight 2.  The range of the first block runs either after a later range has run, or
-    while a later block that has started its queries waits for it.
+    while a later block that has started its queries waits for it.  Either way, the batch gives the
+    index and bound of one thread.
     """
     later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
     run_work_items = _threads.run_work_items
-    get_bound = CosetLeaderSearch._get_batch_cluster_bound
+    get_bound = cluster_coset._get_batch_cluster_bound
     minima = get_exhaustive_minima(_THREADED_STATE, False)
     heavy = np.flatnonzero(minima > 2).tolist()
     syndromes = [3, heavy[0]] + [heavy[1 + row % (len(heavy) - 1)] for row in range(30)]
@@ -1035,22 +1037,24 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
 
         run_work_items(num_items, num_threads, gated_start, **kwargs)
 
-    def gated_bound(
-        search: CosetLeaderSearch, syndrome: int, max_weight: int
-    ) -> tuple[MinWeightBound, int]:
+    def gated_bound(searches: Any, syndrome: int, *args: Any) -> tuple[MinWeightBound, int]:
         """Get the bound of a query; later ones wait for the first range unless ``later_first``."""
         if not later_first and syndrome not in syndromes[:2]:
             later_started.set()
             assert first_ran.wait(timeout=THREAD_TIMEOUT)
-        return get_bound(search, syndrome, max_weight)
+        return get_bound(searches, syndrome, *args)
 
-    monkeypatch.setattr(_threads, "run_work_items", gated_run)
-    monkeypatch.setattr(CosetLeaderSearch, "_get_batch_cluster_bound", gated_bound)
     batch = split_syndromes_into_words(syndromes, len(_THREADED_STATE))
-    with use_tuning(num_threads=2, information_set_batch_exponent=0):
+    with use_tuning(num_threads=1, search_chunk_exponent=0):
+        search = CosetLeaderSearch(_THREADED_STATE, method="connected_cluster")
+    expected = search.find_first_not_within_max_weight(batch, 2)
+    monkeypatch.setattr(_threads, "run_work_items", gated_run)
+    monkeypatch.setattr(cluster_coset, "_get_batch_cluster_bound", gated_bound)
+    with use_tuning(num_threads=2, search_chunk_exponent=0):
         search = CosetLeaderSearch(_THREADED_STATE, method="connected_cluster")
     index, bound = search.find_first_not_within_max_weight(batch, 2)
     assert later_ran.is_set() and first_ran.is_set()
+    assert (index, bound) == expected
     assert index == 1 and bound is not None and not bound.within_max_weight
 
 
@@ -1075,7 +1079,7 @@ def test_connected_cluster_batches_run_on_the_threads_of_their_search(
     batch = split_syndromes_into_words([1 + row % 31 for row in range(32)], num_qubits)
     for exponent, splits in [(0, True), (15, False)]:
         calls.clear()
-        with use_tuning(num_threads=3, information_set_batch_exponent=exponent):
+        with use_tuning(num_threads=3, search_chunk_exponent=exponent):
             search = CosetLeaderSearch(_THREADED_STATE, method="connected_cluster")
         assert search.find_first_not_within_max_weight(batch, num_qubits) == (len(batch), None)
         num_calls = len(calls)
@@ -1090,7 +1094,7 @@ def test_connected_cluster_batches_run_on_the_threads_of_their_search(
     batch = split_syndromes_into_words(
         [singles[row % len(singles)] for row in range(32)], num_qubits
     )
-    with use_tuning(num_threads=3, information_set_batch_exponent=0):
+    with use_tuning(num_threads=3, search_chunk_exponent=0):
         search = CosetLeaderSearch(_THREADED_STATE, method="connected_cluster")
     assert search.find_first_not_within_max_weight(batch, 1) == (len(batch), None)
     search.get_min_weights(batch, 1)
@@ -1121,7 +1125,7 @@ def test_connected_cluster_batches_by_css_weight_count_the_work_of_z_parts(
     ]
     syndromes = [get_syndrome(matrix, z_error << num_qubits) for z_error in z_errors]
     batch = split_syndromes_into_words(syndromes, num_qubits)
-    with use_tuning(num_threads=2, information_set_batch_exponent=0):
+    with use_tuning(num_threads=2, search_chunk_exponent=0):
         search = CosetLeaderSearch(matrix, css_weight=True, method="connected_cluster")
     assert search.find_first_not_within_max_weight(batch, num_qubits) == (len(batch), None)
     num_calls = len(calls)

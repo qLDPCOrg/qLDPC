@@ -347,8 +347,8 @@ class CSSLogicalCounter:
         counts_x = scan.count_words(
             *sector_x,
             target,
-            method == "brute_force",
             pack_bits(self._stabilizers_x if count_masked_ranks else no_rows),
+            brute_force=method == "brute_force",
             complement=False,
             max_exponent=target if count_masked_ranks else 0,
             reject_lighter=reject_lighter,
@@ -364,8 +364,8 @@ class CSSLogicalCounter:
             counts_z = scan.count_words(
                 *sector_z,
                 target,
-                method == "brute_force",
                 pack_bits(self._gauge_x if count_masked_ranks else no_rows),
+                brute_force=method == "brute_force",
                 complement=True,
                 max_exponent=len(self._gauge_x) if count_masked_ranks else 0,
                 reject_lighter=reject_lighter,

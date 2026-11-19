@@ -436,15 +436,16 @@ def _check_coset_search_method(method: DistanceMethod) -> None:
         ValueError: If the method is unknown, or is ``"brute_force"``, which has no search of
             residual weights.
     """
+    coset_methods = [name for name in typing.get_args(DistanceMethod) if name != "brute_force"]
     if method == "brute_force":
         raise ValueError(
-            "The 'brute_force' distance method has no search of residual weights: use 'auto',"
-            " 'brouwer_zimmermann', or 'connected_cluster'."
+            "The 'brute_force' distance method has no search of residual weights: use one of"
+            f" {', '.join(map(repr, coset_methods))}."
         )
-    if method not in typing.get_args(DistanceMethod):
+    if method not in coset_methods:
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
-            " alias 'information_sets'), or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from"
+            f" {', '.join(map(repr, coset_methods))}."
         )
 
 

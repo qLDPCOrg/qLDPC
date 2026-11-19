@@ -246,7 +246,7 @@ A search that needs more limits than the sum of these over its sectors has a bug
 
 **Interrupts.**
 A keyboard interrupt cannot stop a compiled call, and takes effect after it, as a `KeyboardInterrupt` or a `SystemError` that it caused.
-A distance search runs each weight limit in chunks: compiled calls that each count at most `2**information_set_batch_exponent` states, for the field `information_set_batch_exponent` of `SearchTuning` in `_tuning.py`, and that stop and go on as [Section 3.11](#311-threads) says.
+A distance search runs each weight limit in chunks: compiled calls that each count at most `2**search_chunk_exponent` states, for the field `search_chunk_exponent` of `SearchTuning` in `_tuning.py`, and that stop and go on as [Section 3.11](#311-threads) says.
 So an interrupt takes effect once the chunk of each thread ends, which takes a fraction of a second at the default.
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs in one compiled call, so an interrupt waits for the query to end.
 
@@ -327,7 +327,7 @@ So a query only reads its coset search and the tables of its `SupportSearch` ([S
 
 The sparsest such checks are a lightest basis of the span, which the greedy algorithm for matroids finds by taking, again and again, the lightest word outside the span of those taken; but each step would be an exact search, whose cost grows quickly with the weight of the word.
 So `get_sparser_rows` of `_connected_cluster/sparse_checks.py` instead takes candidates from row reductions in random orders of the columns, and keeps a lightest basis of the candidates and the current checks, so that their total weight never rises.
-`max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` limit the rounds, each a row reduction, and so trade the time to build a coset search against the speed of its queries.
+`max_coset_sparsifying_rounds` and `sparsifying_rounds_without_improvement` limit the rounds, each a row reduction, and so trade the time to build a coset search against the speed of its queries.
 Before and after the rounds, `get_sparser_rows` replaces a check by its sum with another while that makes it lighter.
 Checks with the same span give the same answers and bounds, so the random orders, which a fixed seed makes reproducible, change only the speed and which errors the queries return.
 
@@ -359,12 +359,12 @@ So with `method="connected_cluster"`, these functions give the search two sets o
 
 - the gauge generators that commute with every gauge generator, which are stabilizers, as given, with any redundant rows, but without those heavier than every row of the second set;
 - the derived basis, made sparser by `get_sparser_rows` ([Section 3.8](#38-vectors-with-a-given-syndrome)) in up to `max_distance_sparsifying_rounds` rounds, which `sparsifying_rounds_without_improvement` can end sooner.
-  With `max_distance_sparsifying_rounds` set to 0, a distance search skips sparsifying entirely and keeps the derived basis as it is; a coset search with `max_sparsifying_rounds` set to 0 still replaces checks by lighter sums with other checks, before and after the rounds ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+  With `max_distance_sparsifying_rounds` set to 0, a distance search skips sparsifying entirely and keeps the derived basis as it is; a coset search with `max_coset_sparsifying_rounds` set to 0 still replaces checks by lighter sums with other checks, before and after the rounds ([Section 3.8](#38-vectors-with-a-given-syndrome)).
 
 Together, the two sets span exactly the stabilizer group, since the second spans it and the first lies in it; so they have the kernel of the derived basis, and the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
 A distance search needs only the span of its checks, and no map of syndromes, so it can keep redundant checks.
 These can strengthen it, since each unsatisfied check can prune a state or offer fewer branches.
-Since a distance search uses its checks once, while a `CosetLeaderSearch` sparsifies once for many queries, `max_distance_sparsifying_rounds` defaults to fewer rounds than `max_sparsifying_rounds`.
+Since a distance search uses its checks once, while a `CosetLeaderSearch` sparsifies once for many queries, `max_distance_sparsifying_rounds` defaults to fewer rounds than `max_coset_sparsifying_rounds`.
 
 Sparsity is not all that matters: bases of equal weight can make the search visit very different numbers of states.
 So sparsifying changes the checks only when their total weight drops, which leaves a basis that is already as sparse as possible, such as the derived basis of a Bacon-Shor code, as it is.
@@ -500,21 +500,21 @@ The claims change only which thread searches an item, not the result.
 
 **Ordered commit.**
 A thread searches each item that it claims in chunks.
-Once a thread finds a witness in an item, the threads skip the later items that have not started, stop a running later item after its current chunk, and finish the earlier items, whose witnesses would come first.
+Once a thread finds a witness in an item, the threads skip the later items that have not started, stop a running later item after its current chunk, and finish the earlier items, whose witnesses would come first (`run_items_until_first` of `_threads.py`).
 The search returns the witness of the first item that has one, or else the witness that a pass entered, if any.
 It counts the states above the frontier before that witness in DFS order, the states of the earlier items, and the states of the item of the witness up to the witness, which is the count of one thread; without a witness, it counts every state.
 
 **When to split.**
-A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `num_threads * 2**information_set_batch_exponent // 4` states, a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)), since a state costs far more than a support.
+A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `(num_threads << search_chunk_exponent) >> connected_cluster_split_shift` states, by default a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)), since a state costs far more than a support.
 A split costs up to about a millisecond for each thread, in its frontier passes, the calls that search its items, and the start of the threads.
-At the default exponent, the gate is 8192 states for each thread, about one to a dozen milliseconds of work, so a limit that splits is predicted to cost at least about as much as its split; a limit that finds its witness early can cost less.
-Lowering `information_set_batch_exponent` lets smaller limits split.
+At the default exponent and shift, the gate is 8192 states for each thread, about one to a dozen milliseconds of work, so a limit that splits is predicted to cost at least about as much as its split; a limit that finds its witness early can cost less.
+Raising `connected_cluster_split_shift` lets smaller limits split; lowering `search_chunk_exponent` does too, but also shortens chunks.
 A first limit at the weight divisor is predicted to visit no states, so it runs on one thread.
-A first limit that a `cutoff` sets above the divisor is predicted to visit `MAX_VALUE - 1` states (`_predict_states`), so it runs on threads unless the gate reaches that, which happens only with four or more threads and an exponent near its maximum.
+A first limit that a `cutoff` sets above the divisor is predicted to visit `MAX_VALUE - 1` states (`_predict_states`), so it runs on threads unless the gate reaches that, which, at the default shift, happens only with four or more threads and an exponent near its maximum.
 
 **Syndrome queries.**
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs on one thread.
-The batch queries of `CosetLeaderSearch` instead move the rest of a batch to threads, by syndromes, once their queries on the calling thread have visited `num_threads * 2**information_set_batch_exponent` states, and give the answers of one thread (section "The coset-leader search" of [README.md](README.md#the-coset-leader-search)).
+The batch queries of `CosetLeaderSearch` instead move the rest of a batch to threads, by syndromes, once their queries on the calling thread have visited `num_threads * 2**search_chunk_exponent` states, and give the answers of one thread (section "The coset-leader search" of [README.md](README.md#the-coset-leader-search)).
 A coset search tabulates the overlap cuts of its queries when it is built or given words, so the threads of a batch only read the search.
 
 ## 4. Guide to the source code
@@ -530,21 +530,21 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Distance over several sectors | `get_distance_connected_cluster`, which advances `ConnectedClusterSearch` one weight limit at a time |
 | Distance of a vector `v` from a classical code with generator matrix `G_C` | `ClassicalCode.get_distance_exact(vector=v)` in `src/qldpc/codes/common.py`, which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
-| Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
+| Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch.find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
 | Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
 | Sparser checks with the same span | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `core.py` |
-| Rounds of sparsifying | `max_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `get_min_weight_bound`), and `_get_batch_cluster_bound` and `_get_min_cluster_weight` of `CosetLeaderSearch` |
+| Rounds of sparsifying | `max_coset_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `_get_min_weight_bound_and_states`), and `_get_batch_cluster_bound` and `_get_min_cluster_weight` in `_connected_cluster/coset.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
-| Weight limits on threads: the frontier, work items, replay, claims of one item, ordered commit, and when to split | `_search_on_threads`; `_ITEMS_PER_THREAD` and `_MAX_ITEMS`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `information_set_batch_exponent` and `_SPLIT_GATE_SHIFT`; `run_work_items` of `_threads.py`; and `num_threads` and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
-| Chunks of a weight limit, on one thread and on threads | `_search_in_chunks`, `resume`, `ends`, and `max_states` of `_search_supports`, `chunk_states` of `SupportSearch`, and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
-| Batches of syndrome queries on threads | `_find_first_cluster_bound` and `_get_min_cluster_weights` of `CosetLeaderSearch` in `coset_leaders.py`, `ConnectedClusterCosetSearch._get_min_weight_bound_and_states` in `_connected_cluster/coset.py`, which counts the work of a query, and `run_blocks` of `_threads.py` |
+| Weight limits on threads: the frontier, work items, replay, claims of one item, ordered commit, and when to split | `_search_on_threads`; `_MAX_ITEMS`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `search_chunk_exponent` and `connected_cluster_split_shift`; `ITEMS_PER_THREAD`, `run_work_items`, and `run_items_until_first` of `_threads.py`; and `num_threads`, `search_chunk_exponent`, and `connected_cluster_split_shift` of `SearchTuning` in `_tuning.py` |
+| Chunks of a weight limit, on one thread and on threads | `_search_in_chunks`, `resume`, `ends`, and `max_states` of `_search_supports`, `chunk_states` of `SupportSearch`, and `search_chunk_exponent` of `SearchTuning` in `_tuning.py` |
+| Batches of syndrome queries on threads | `find_first_cluster_bound` and `get_min_cluster_weights` in `_connected_cluster/coset.py`, which `CosetLeaderSearch` calls; `ConnectedClusterCosetSearch._get_min_weight_bound_and_states`, which counts the work of a query; and `run_blocks` of `_threads.py` |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
-| Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `summed_pairs` of `SupportSearch` and its `_find_vector_with_packed_syndrome`, which maps syndromes to them, its `witness_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
+| Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `summed_pairs` of `SupportSearch` and its `find_vector_with_packed_syndrome`, which maps syndromes to them, its `_known_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
@@ -606,7 +606,8 @@ Changes to the search can use other bounds and orders, but must keep these requi
     Both check that the arrays are unchanged.
     Review checks the writes that these tests miss, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those to the roots and paths of work items, which `_search_on_threads` makes for the threads, and to the paths and ends of chunks, which `_search_supports` returns and only reads, copying them into its own arrays; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
   - **Write shared results only in a thread's own entries, or under a lock.**
-    The other code that threads run writes only its own entries of shared results, such as the counts of states of its items and the weights of its rows, or writes under a lock, as when it records a witness or a syndrome without an error in reach.
+    The other code that threads run writes only its own entries of shared results, such as the counts of states of its items, the weights of its rows, and the witness of an item or the bound of a row that ends the work, which it records under its own key.
+    `run_items_until_first` of `_threads.py` keeps the first item that ends the work under a lock.
     Review checks this.
   - **Call no numba-parallel code on threads, and read the tuning there only from the search.**
     Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`), and it reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.

@@ -12,6 +12,9 @@ matrix with one uint8 entry per bit, are compiled with ``always_compiled`` from
 code, ``popcount_word`` and ``trailing_zeros_word`` become single LLVM instructions.  The functions
 ``row_reduce_binary``, ``get_independent_rows``, and ``get_kernel`` are Python-level wrappers for
 binary matrices with one uint8 entry per bit, which pack and unpack around the compiled functions.
+``row_ints`` packs the rows of a binary matrix into Python integers, and ``words_to_int`` and
+``int_to_words`` convert packed rows to and from them, with bit ``j`` of a row in bit ``j`` of its
+integer.  ``get_num_words`` counts the words of a packed row.
 
 NumPy has no linear algebra over GF(2), and ``galois`` provides it only for unpacked arrays at the
 Python level.  NumPy's ``packbits`` and ``bitwise_count`` resemble ``pack_bits`` and
@@ -245,6 +248,30 @@ def get_inverse(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     if len(pivots) < size:
         raise ValueError("The matrix is not invertible over GF(2)")
     return unpack_bits(inverse, size)
+
+
+####################################################################################################
+# packed rows: word counts and Python integers
+
+
+def get_num_words(num_bits: int) -> int:
+    """The number of 64-bit words that hold ``num_bits`` bits, as in a row of ``pack_bits``."""
+    return (num_bits + 63) // 64
+
+
+def row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
+    """Pack each row of a binary matrix into an integer, with entry ``j`` in bit ``j``."""
+    return tuple(map(words_to_int, pack_bits(matrix)))
+
+
+def words_to_int(row: npt.NDArray[np.uint64]) -> int:
+    """Convert a row of 64-bit words into an integer, with word ``j`` in bits ``64 j`` and up."""
+    return sum(int(word) << (64 * jj) for jj, word in enumerate(row))
+
+
+def int_to_words(value: int, num_words: int) -> npt.NDArray[np.uint64]:
+    """Split an integer into ``num_words`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
+    return np.frombuffer(value.to_bytes(8 * num_words, "little"), dtype="<u8").astype(np.uint64)
 
 
 ####################################################################################################

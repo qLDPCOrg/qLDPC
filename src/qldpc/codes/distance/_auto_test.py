@@ -436,13 +436,14 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
     It compares the work to certify the level of its next limit, and the work to reach the probe's
     bound.  After its limits 1 to 4, the Golay sector's search grows faster than a BZ search of a
     basis of rank and width 16, by a factor of more than 11 / 6 per unit of weight, and more slowly
-    than one of rank and width 23.  Its states up to its next limit are fewer than the work of that
-    BZ search to certify its level, so a state cost of 1 does not switch at the next limit, but one
-    of ``10**6`` does.  To reach the bound 23, the length of the code, its projection includes all
-    of the states predicted for its limit 22 and half of those for 23.  The search visits at least
-    one state at its limit 4, so this projection is more than ``(11 / 6)**18 + (11 / 6)**19 / 2``.
-    That exceeds the ``2**16 - 1`` supports of all of the layers of that BZ search, so a state cost
-    of 1 switches with that bound.
+    than one of rank and width 23.  Its states up to its next limit, even with half of those
+    predicted for the limit after it, are fewer than the work of that BZ search to certify its
+    level, so a state cost of 1 switches neither for that level nor for the bound 6, which equals
+    that level, but one of ``10**6`` does.  To reach the bound 23, the length of the code, its
+    projection includes all of the states predicted for its limit 22 and half of those for 23.  The
+    search visits at least one state at its limit 4, so this projection is more than
+    ``(11 / 6)**18 + (11 / 6)**19 / 2``.  That exceeds the ``2**16 - 1`` supports of all of the
+    layers of that BZ search, so a state cost of 1 switches with that bound.
     """
     checks = get_golay_checks()
     clusters = ConnectedClusterSearch([(checks, checks)], cutoff=0)
@@ -460,11 +461,23 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
         pair.advance()
     assert _auto._project_states(pair, 8) == pytest.approx(2 * _auto._project_states(clusters, 8))
 
-    # Against the BZ search of rank 16, the search switches for the level of its next limit at a
-    # state cost of ``10**6`` but not 1, and for the bound 23 at 1.
-    assert not _auto._should_switch(clusters, slow, 5, 1)
-    assert _auto._should_switch(clusters, slow, 5, 10**6)
+    # Against the BZ search of rank 16, the search switches for the level of its next limit, and the
+    # bound 6, which equals that level, at a state cost of ``10**6`` but not 1, and for the bound 23
+    # at 1.
+    assert not _auto._should_switch(clusters, slow, 6, 1)
+    assert _auto._should_switch(clusters, slow, 6, 10**6)
     assert _auto._should_switch(clusters, slow, 23, 1)
+
+    # A second BZ sector, of rank and width 200, keeps the growth of the first, but its work grows
+    # by more than 30 times per unit of weight: about C(200, 5) to certify the level 6, and
+    # C(200, 7) to reach the bound 8.  The search's states, about 600 to the level and 7000 to the
+    # bound, grow 12 times.  At a state cost of 4 * 10**7, their work exceeds the BZ work to the
+    # level by a factor of about 9, and falls short of the BZ work to the bound by a factor of about
+    # 8.  So only the comparison at the level switches.
+    steep = _auto._BrouwerZimmermannCosts(
+        _auto.BrouwerZimmermannProblem([*get_shapes(16, 16).sectors, *get_shapes(200, 200).sectors])
+    )
+    assert _auto._should_switch(clusters, steep, 8, 4 * 10**7)
 
     fast = _auto._BrouwerZimmermannCosts(get_shapes(23, 23))
     assert not _auto._should_switch(clusters, fast, 20, 10**6)

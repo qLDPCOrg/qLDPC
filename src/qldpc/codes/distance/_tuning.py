@@ -89,9 +89,9 @@ Each default is in one of these classes, or was chosen by hand:
   restricts nothing.
 
 The sizes of caches, ``auto_brute_force_max_words``, ``auto_free_work``,
-``connected_cluster_state_evaluations``, ``coset_route_minimum_work``,
-``macwilliams_shared_walk_rank``, and ``num_threads`` were chosen by hand, and the comments of those
-fields say why.
+``connected_cluster_split_shift``, ``connected_cluster_state_evaluations``,
+``coset_route_minimum_work``, ``macwilliams_shared_walk_rank``, and ``num_threads`` were chosen by
+hand, and the comments of those fields say why.
 
 Change a default only when its heuristic changes, or when a check shows that its assumption, such as
 the cost of a step, is off by more than a factor of about 3; only a maintainer changes a budget or a
@@ -159,9 +159,10 @@ class SearchTuning:
     #: The most information sets in a family of overlapping information sets, or in a family of
     #: coverage two or more that matroid partitioning finds; zero disables both, but not maximum
     #: disjoint families.  More sets can stop a search before costly layers, but setup grows roughly
-    #: with the square of this limit, or with its cube when partitioning.  Defaults to 16, a budget
-    #: of setup effort (Section 4.4 of ``brouwer_zimmermann_code.md``).
-    max_information_sets: int = 16
+    #: with the square of this limit, or with its cube when partitioning, so it is at most
+    #: ``2**10``.  Defaults to 16, a budget of setup effort (Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
+    max_information_sets: int = dataclasses.field(default=16, metadata={"maximum": 2**10})
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
     #: packs fewer full disjoint information sets than ``min(N // r, 2**r - 1)``, for ``r`` rows and
@@ -228,7 +229,7 @@ class SearchTuning:
     #: switching to its family of automorphism images before the first coefficient layer whose work,
     #: in candidate/set evaluations, reaches this value; zero considers the switch before the first
     #: layer.  After declining a switch, any search reconsiders before a later such layer once its
-    #: upper bound has dropped.  Values above every work estimate, such as ``MAX_VALUE``, turn
+    #: upper bound has dropped.  Values above ``2**61`` (``WORK_CAP``), such as ``MAX_VALUE``, turn
     #: automorphisms off in every BZ distance search.  Defaults to ``5 * 10**6``, a derived value:
     #: the cost of finding automorphisms, verifying them, and building their family for a large
     #: code, several million evaluations (Section 3.7 of ``brouwer_zimmermann.md`` and Section 4.4
@@ -323,7 +324,7 @@ class SearchTuning:
     #: leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 400, a budget
     #: of setup effort, which a search spends once for all its queries (Section 3.8 of
     #: ``connected_cluster.md``).
-    max_sparsifying_rounds: int = 400
+    max_coset_sparsifying_rounds: int = 400
 
     #: The most rounds in which a connected-cluster distance search of a subsystem code makes the
     #: stabilizers that it derives sparser; zero skips sparsifying, and ``MAX_VALUE`` leaves the
@@ -333,8 +334,9 @@ class SearchTuning:
 
     #: Making checks sparser stops after this many rounds in a row that leave the total weight of
     #: the checks unchanged; zero stops after the first round, and ``MAX_VALUE`` never stops early,
-    #: so the rounds never end if the limit on rounds is ``MAX_VALUE`` too.  Defaults to 200, a
-    #: budget of setup effort.
+    #: so the rounds never end if the limit on rounds is ``MAX_VALUE`` too.  Both the sparsifying of
+    #: a ``CosetLeaderSearch`` and that of a distance search of a subsystem code read it.  Defaults
+    #: to 200, a budget of setup effort.
     sparsifying_rounds_without_improvement: int = 200
 
     # Fields of completion tables.
@@ -439,23 +441,38 @@ class SearchTuning:
 
     # Fields of batches and memory limits.
 
-    #: A distance search by the BZ method scans at most ``2**information_set_batch_exponent``
-    #: supports and lookups of completion tables, counted together, in one call of compiled code,
-    #: which keyboard interrupts cannot stop; on several threads, each thread scans ``num_threads``
-    #: times as many in one call.  A batch query of ``CosetLeaderSearch`` on several threads moves
-    #: the rest of its batch to them once its queries on the calling thread have done
-    #: ``num_threads * 2**information_set_batch_exponent`` units of work.  With the BZ method, a
-    #: query does one unit, and one more for each word that it weighs after the word of its
-    #: syndrome; with the connected-cluster method, it does one unit for each state that its
-    #: searches visit.  A connected-cluster distance search keeps on one thread a weight limit that
-    #: it predicts to visit at most a quarter of
-    #: ``num_threads * 2**information_set_batch_exponent`` states, rounded down, since a state
-    #: costs far more than a support, counts at most ``2**information_set_batch_exponent`` states
-    #: in one call of compiled code, on each thread, and on threads splits a limit into work items
-    #: of about that many states, within bounds on their number (Sections 3.6 and 3.11 of
-    #: ``connected_cluster.md``).  At most 62.  Defaults to 15, a budget of interrupt latency on one
-    #: thread, which grows with the number of threads for BZ scans.
-    information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
+    #: The size of a chunk of work that a search does in one call of compiled code, which keyboard
+    #: interrupts cannot stop: ``2**search_chunk_exponent`` units.  A distance search by the BZ
+    #: method scans at most that many supports and lookups of completion tables, counted together,
+    #: in one call, and on several threads, each thread scans ``num_threads`` times as many.  A
+    #: connected-cluster distance search visits at most that many states in one call, on each
+    #: thread, and on threads splits a weight limit into work items of about that many states,
+    #: within bounds on their number (Sections 3.6 and 3.11 of ``connected_cluster.md``).  The gates
+    #: that decide when work moves to threads reuse this chunk as their unit, although they serve
+    #: another purpose: each should pass only work that costs many times as much as starting
+    #: threads, and their values were chosen by hand.  On several threads, a layer of a BZ set moves
+    #: to threads if it has at least three rows and more than ``num_threads`` chunks of supports,
+    #: and a connected-cluster weight limit if it is predicted to visit more than ``num_threads``
+    #: chunks of states, shifted right by ``connected_cluster_split_shift``.  The calling thread
+    #: runs a batch query of ``CosetLeaderSearch`` alone until its queries have done ``num_threads``
+    #: chunks of work, and then moves the rest of the batch to threads; on one thread, the batch
+    #: never moves.  With the BZ method, a query does one unit of work, and one more for each word
+    #: that it weighs after the word of its syndrome; with the connected-cluster method, it does one
+    #: unit for each state that its searches visit.  At most 62.  Defaults to 15, a budget of
+    #: interrupt latency on one thread, which grows with the number of threads for BZ scans.
+    search_chunk_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
+
+    #: A connected-cluster distance search splits a weight limit across threads only if it predicts
+    #: that the limit visits more than ``(num_threads << search_chunk_exponent) >>
+    #: connected_cluster_split_shift`` states; each step of the shift halves that gate.  A state
+    #: costs far more than a support of a BZ scan, so the gate is a share of the supports that each
+    #: thread of a BZ scan scans in one call.  Unlike lowering ``search_chunk_exponent``, a larger
+    #: shift lets smaller limits split without changing the size of chunks or the time before an
+    #: interrupt takes effect (Section 3.11 of ``connected_cluster.md``).  At most 62.  Defaults to
+    #: 2, chosen by hand: at the default exponent, a limit that splits is then predicted to cost at
+    #: least about as much as its split, and a small search on eight threads ran about 1.6 times
+    #: faster at a shift of 2 than at 0.
+    connected_cluster_split_shift: int = dataclasses.field(default=2, metadata={"maximum": 62})
 
     #: The number of threads on which a distance search by the BZ method scans a costly layer of a
     #: set, which they split into work items, sharing one copy of its completion tables; on which a
@@ -467,17 +484,15 @@ class SearchTuning:
     #: ``qldpc/codes/distance`` says how to set either, and when ``QLDPC_NUM_THREADS`` also sets
     #: numba's own count.  A distance search resolves ``None`` once, when it starts, and a
     #: ``CosetLeaderSearch`` when it is built.  A layer of a set runs on the calling thread alone
-    #: unless it has at least three rows and more than
-    #: ``num_threads * 2**information_set_batch_exponent`` supports, and a batch until its queries
-    #: have done that many units of work, in the units that ``information_set_batch_exponent``
-    #: defines for each method (Section 4.5 of ``brouwer_zimmermann_code.md`` and Section 3.11 of
-    #: ``connected_cluster.md``).  A connected-cluster weight limit runs on the calling thread
-    #: alone unless it is predicted to visit more than a quarter of
-    #: ``num_threads * 2**information_set_batch_exponent`` states, rounded down (Section 3.11 of
-    #: ``connected_cluster.md``).  Programs that run searches in several processes or threads at
-    #: once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before Python starts.
-    #: ``use_tuning(num_threads=1)`` caps a worker only if entered in the function that it runs,
-    #: since new threads and spawned processes normally start with the default tuning (see the
+    #: unless it has at least three rows and more than ``num_threads * 2**search_chunk_exponent``
+    #: supports, and a batch until its queries have done that many units of work, in the units that
+    #: ``search_chunk_exponent`` defines for each method (Section 4.5 of
+    #: ``brouwer_zimmermann_code.md`` and Section 3.11 of ``connected_cluster.md``).  A
+    #: connected-cluster weight limit runs on the calling thread alone unless it passes the gate
+    #: that ``connected_cluster_split_shift`` describes.  Programs that run searches in several
+    #: processes or threads at once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before Python
+    #: starts.  ``use_tuning(num_threads=1)`` caps a worker only if entered in the function that it
+    #: runs, since new threads and spawned processes normally start with the default tuning (see the
     #: module docstring).  Defaults to ``None``, chosen by hand: a search uses the cores that numba
     #: counts unless its caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
