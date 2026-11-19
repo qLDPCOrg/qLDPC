@@ -101,6 +101,15 @@ def get_search(*problem: npt.ArrayLike, **options: Any) -> cs.SupportSearch:
     return cs.SupportSearch(*problem, **options)
 
 
+# The signature of the compiled search, which tests that replace it read before they do.
+KERNEL_SIGNATURE = inspect.signature(cs._search_supports)
+
+
+def get_kernel_arguments(args: tuple[Any, ...]) -> dict[str, Any]:
+    """The arguments of a call of ``_search_supports``, by name."""
+    return dict(KERNEL_SIGNATURE.bind(*args).arguments)
+
+
 def get_known_words(problem: Problem, symplectic: bool, pair_sums: bool) -> npt.NDArray[np.uint8]:
     """The known words of a distance search: the excluded rows, with light pair sums of some.
 
@@ -498,9 +507,7 @@ def test_cosets_of_classical_codes_are_cut_by_their_generators(
     search_supports = cs._search_supports
     signature = inspect.signature(search_supports)
 
-    def record(
-        *args: Any, **kwargs: Any
-    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
         num_cuts_per_search.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
         return search_supports(*args, **kwargs)
 
@@ -839,7 +846,7 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
     packed = cs.pack_bits(np.array([[1, 1, 0, 1]], dtype=np.uint8))[0]
     num_states = {}
     for restrict_viable_symbols in (True, False):
-        support, item_states, _ = cs._search_supports(
+        support, item_states, *_ = cs._search_supports(
             search._check_starts,
             search._check_symbols,
             search._symbol_masks,
@@ -850,6 +857,9 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
             search._ranks,
             search._inverse_overlaps,
             2,
+            cs._NO_PATH,
+            cs._NO_PATH,
+            cs.MAX_VALUE,
             packed,
             cs._get_fixed_words(len(packed)),
             True,
@@ -1121,7 +1131,7 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
 
     def record(*args: Any) -> tuple[npt.NDArray[np.int64], ...]:
         result = search_supports(*args)
-        fixed_words = args[11]
+        fixed_words = get_kernel_arguments(args)["fixed_words"]
         calls.append((len(fixed_words), result[0].tolist(), result[1].tolist()))
         return result
 
@@ -1179,6 +1189,9 @@ def test_a_wrong_number_of_fixed_words_is_rejected() -> None:
                 search._ranks,
                 search._inverse_overlaps,
                 3,
+                cs._NO_PATH,
+                cs._NO_PATH,
+                cs.MAX_VALUE,
                 np.zeros(num_words, dtype=np.uint64),
                 fixed_words,
                 False,
@@ -1561,13 +1574,15 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             positions.append("above")
         above.clear()
 
-    # A search of an item moves on to the next item of its range, and a search above the frontier,
-    # which has no item, records whether it found a witness.
+    # A search of an item moves on to the next item of its range once a call ends the item, rather
+    # than stopping after a chunk, and a search above the frontier, which has no item, records
+    # whether it found a witness.
     def search_numbered(*args: Any, **kwargs: Any) -> Any:
         result = search_supports(*args, **kwargs)
         item = getattr(next_item, "index", None)
         if item is not None:
-            next_item.index = item + 1
+            if not len(result[3]):
+                next_item.index = item + 1
             if len(result[0]):
                 found_items.append(item)
         elif signature.bind(*args, **kwargs).arguments["frontier_depth"] and len(result[0]):
@@ -1603,13 +1618,16 @@ def get_threaded_cases() -> Iterator[
 def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """On threads, each weight limit finds the witness and visits the states of one thread.
+    """In chunks and on threads, each weight limit finds the witness and states of one call.
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
-    both on or both off (Section 3.11 of ``connected_cluster.md``).  The threads run with every
-    array of the search read-only.  The first witness of some limit is in each of the positions that
-    ``get_threaded_cases`` names, in a case with at least as many roots as the 8 threads.  So a
-    witness above the frontier shows that the frontier deepens to more items than one per thread.
+    both on or both off (Section 3.11 of ``connected_cluster.md``).  Chunks of one state resume the
+    search after every state, on one thread and on threads.  After a limit without a witness, the
+    searches also count the states of each root alike, which Section 5 lets later decisions read.
+    The threads run with every array of the search read-only.  The first witness of some limit is
+    in each of the positions that ``get_threaded_cases`` names, in a case with at least as many
+    roots as the 8 threads.  So a witness above the frontier shows that the frontier deepens to more
+    items than one per thread.
     """
     calls = record_thread_counts(monkeypatch)
     positions = record_witness_positions(monkeypatch)
@@ -1622,7 +1640,13 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     ):
         num_positions = len(positions)
         results = []
-        for num_threads in (1, 3, 8):
+        for num_threads, chunk_states in [
+            (1, cs.MAX_VALUE),
+            (3, cs.MAX_VALUE),
+            (8, cs.MAX_VALUE),
+            (1, 1),
+            (8, 1),
+        ]:
             search = get_search(
                 *problem,
                 symplectic=symplectic,
@@ -1631,10 +1655,15 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
                 stabilizer_overlap_cuts=switch,
                 num_threads=num_threads,
                 split_minimum_states=-1,
+                chunk_states=chunk_states,
             )
             results.append(
                 [
-                    (None if witness is None else witness.tolist(), search.num_states)
+                    (
+                        None if witness is None else witness.tolist(),
+                        search.num_states,
+                        None if search._root_states is None else search._root_states.tolist(),
+                    )
                     for witness in map(search.find_witness, range(1, 8))
                 ]
             )
@@ -1751,14 +1780,30 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
 
     At exponent 0, every limit on eight threads that is predicted to visit more than two states
     splits, into many items.  A cutoff makes the search exit at its first limit, which visits
-    states.
+    states; on eight threads, the frontier passes of that limit find the witness.  Except at that
+    limit on eight threads, the searches of the limits run in chunks of
+    ``2**information_set_batch_exponent`` states, here one, and some stop early (Section 3.6 of
+    ``connected_cluster.md``).
     """
     tune(information_set_batch_exponent=0)
     calls = record_thread_counts(monkeypatch)
+    search_supports = cs._search_supports
+    # The budget of each call of a limit, and whether it stopped early.
+    chunks: list[tuple[int, bool]] = []
+
+    def record_chunks(*args: Any) -> tuple[npt.NDArray[np.int64], ...]:
+        result = search_supports(*args)
+        arguments = get_kernel_arguments(args)
+        if len(arguments["roots"]) and not arguments["frontier_depth"]:
+            chunks.append((arguments["max_states"], bool(len(result[3]))))
+        return result
+
+    monkeypatch.setattr(cs, "_search_supports", record_chunks)
     sectors = get_sectors(codes.ToricCode(4))
     steps: list[list[Any]] = []
     for num_threads in (1, 8):
         tune(num_threads=num_threads)
+        chunks.clear()
         search = cs.ConnectedClusterSearch(sectors, cutoff=cutoff)
         steps.append([])
         while not search.finished:
@@ -1766,6 +1811,9 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
             search.advance()
             steps[-1].append((limit, search.num_states))
         steps[-1].append(search.result)
+        if num_threads == 1 or not cutoff:
+            assert {budget for budget, _ in chunks} == {1}
+            assert any(stopped for _, stopped in chunks)
     assert steps[0] == steps[1]
     assert calls and set(calls) == {8}
     assert (steps[0][-1] == 4) if cutoff == 0 else (4 <= steps[0][-1] <= cutoff)
@@ -1799,9 +1847,7 @@ def test_an_error_in_a_thread_propagates(monkeypatch: pytest.MonkeyPatch) -> Non
     search_supports = cs._search_supports
     signature = inspect.signature(search_supports)
 
-    def fail_items(
-        *args: Any, **kwargs: Any
-    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], Any]:
+    def fail_items(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
         arguments = signature.bind(*args, **kwargs).arguments
         if arguments["frontier_depth"] == 0 and len(arguments["roots"]):
             raise RuntimeError("failed item")
@@ -1815,6 +1861,18 @@ def test_an_error_in_a_thread_propagates(monkeypatch: pytest.MonkeyPatch) -> Non
     with pytest.raises(RuntimeError, match="failed item"):
         search.find_witness(1)
     assert threading.active_count() == num_threads
+
+
+def get_ring_problem(num_ring: int) -> Problem:
+    """A problem whose variable 0 is a witness alone, followed by a ring of variables.
+
+    The checks of the ring are its edges, so its only nonzero word is all of it, and a search from
+    one of its variables visits many arcs of the ring below that weight.
+    """
+    checks = np.zeros((num_ring, num_ring + 1), dtype=np.uint8)
+    for index in range(num_ring):
+        checks[index, 1 + index] = checks[index, 1 + (index + 1) % num_ring] = 1
+    return checks, np.zeros((0, num_ring + 1), dtype=np.uint8)
 
 
 @pytest.mark.parametrize("later_first", [True, False])
@@ -1873,25 +1931,24 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
 
 
 @pytest.mark.parametrize("ends_by", ["witness", "error"])
-def test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit(
+def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_limit(
     ends_by: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A thread searches no further item of its range once an earlier item has a witness or fails.
+    """A thread searches no further chunk of an item once an earlier item ends the limit.
 
-    Only variable 0 of this problem is a witness, so of its 100 roots, which are the items on two
-    threads, only the first has a witness.  The range of the first item finds that witness, or
-    raises an error, while the other thread searches the first item of a later range of several
-    items.  After the witness, the later range skips its other items, and after the error, the
-    stop event ends it.
+    Variable 0 of this problem is a witness alone, and the search from a variable of its ring is
+    long (see ``get_ring_problem``).  Under the rotations of the ring, the roots are 0 and 1, which
+    are the items on two threads, and the limit runs in chunks of one state.  The range of item 0
+    finds that witness, or raises an error, while the other thread searches the first chunk of item
+    1.  After the witness, that thread searches no further chunk of item 1, though it had more to
+    search; after the error, the stop event ends it.
     """
     later_started, first_ran = threading.Event(), threading.Event()
     stops: list[threading.Event] = []
     ranges: list[tuple[int, int]] = []
-    later_roots: list[int] = []
-    later_items: list[int] = []
+    later_calls: list[tuple[int, bool]] = []
     run_work_items = cs._threads.run_work_items
     search_supports = cs._search_supports
-    signature = inspect.signature(search_supports)
 
     def gated_run(
         num_items: int,
@@ -1917,39 +1974,170 @@ def test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit(
 
         run_work_items(num_items, num_threads, gated_start, **kwargs)
 
-    def gated_search(*args: Any, **kwargs: Any) -> Any:
-        arguments = signature.bind(*args, **kwargs).arguments
-        roots = arguments["roots"]
-        if arguments["frontier_depth"] == 0 and len(roots):
+    def gated_search(*args: Any) -> Any:
+        arguments = get_kernel_arguments(args)
+        roots, frontier_depth = arguments["roots"], arguments["frontier_depth"]
+        if frontier_depth == 0 and len(roots):
             if roots[0] == 0 and ends_by == "error":
                 raise RuntimeError("failed item 0")
             if roots[0] != 0:
-                # Count the items that the search ran, which a search may end early.
-                later_roots.append(int(roots[0]))
                 later_started.set()
                 assert (first_ran if ends_by == "witness" else stops[0]).wait(
                     timeout=THREAD_TIMEOUT
                 )
-                result = search_supports(*args, **kwargs)
-                later_items.append(len(result[1]))
+                result = search_supports(*args)
+                later_calls.append((int(roots[0]), bool(len(result[3]))))
                 return result
-        return search_supports(*args, **kwargs)
+        return search_supports(*args)
 
-    checks = np.hstack([np.zeros((99, 1), dtype=np.uint8), np.eye(99, dtype=np.uint8)])
-    problem = (checks, np.zeros((0, 100), dtype=np.uint8))
     monkeypatch.setattr(cs._threads, "run_work_items", gated_run)
     monkeypatch.setattr(cs, "_search_supports", gated_search)
-    search = get_search(*problem, num_threads=2, split_minimum_states=-1)
+    monkeypatch.setattr(cs, "_ITEMS_PER_THREAD", 0)
+    rotation = np.array([[0, *range(2, 31), 1]])
+    search = get_search(
+        *get_ring_problem(30),
+        get_automorphisms=lambda: rotation,
+        num_threads=2,
+        split_minimum_states=-1,
+        chunk_states=1,
+    )
     if ends_by == "witness":
-        witness = search.find_witness(1)
+        witness = search.find_witness(8)
         assert witness is not None and witness.tolist() == [0]
     else:
         with pytest.raises(RuntimeError, match="failed item 0"):
-            search.find_witness(1)
+            search.find_witness(8)
 
-    # The later range searched only its first item, though it held more.
-    assert first_ran.is_set() and sum(later_items) == 1
-    assert any(start == later_roots[0] and end - start > 1 for start, end in ranges)
+    # The other thread searched one chunk of item 1, which had more to search.
+    assert search._roots.tolist() == [0, 1] and ranges and first_ran.is_set()
+    assert later_calls == [(1, True)]
+
+
+@pytest.mark.parametrize(("max_weight", "root"), [(5, 0), (6, 1)])
+def test_a_split_call_finds_the_witness_and_counts_the_states_of_one(
+    max_weight: int, root: int
+) -> None:
+    """Two calls of a split, in DFS order, find the witness and count the states of the call.
+
+    Each call searches one item, as a split requires.  A search from a root of the X sector of the
+    toric code of distance 6 runs in chunks of one state, at a limit below the distance, or at the
+    distance, from a root whose splits give the witness to either call.  At each stop, for each
+    state of the path that it returns, and each branch above its entry in the path and below its
+    end, the call that goes on is split there, as ``_search_supports`` describes.
+    """
+    search = get_search(*get_sectors(codes.ToricCode(6))[0])
+    roots = search._roots[root : root + 1]
+
+    def call(resume: npt.NDArray[np.int64], ends: npt.NDArray[np.int64], max_states: int) -> Any:
+        """The witness and count of a search from the root, and the path and ends it returns."""
+        support, item_states, _, path, path_ends = cs._search_supports(
+            search._check_starts,
+            search._check_symbols,
+            search._symbol_masks,
+            search._test_columns,
+            roots,
+            np.empty((1, 0), dtype=np.int64),
+            0,
+            search._ranks,
+            search._inverse_overlaps,
+            max_weight,
+            resume,
+            ends,
+            max_states,
+            np.zeros(search._symbol_masks.shape[1], dtype=np.uint64),
+            cs._get_fixed_words(search._symbol_masks.shape[1]),
+            False,
+            True,
+            *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
+        )
+        return support.tolist(), int(item_states[0]), path, path_ends
+
+    # The number of splits in which the first call has the witness, in which only the second does,
+    # and in which neither does.
+    witnesses_found = [0, 0, 0]
+    _, _, resume, ends = call(cs._NO_PATH, cs._NO_PATH, 1)
+    while len(resume):
+        witness, states, _, _ = call(resume, ends, cs.MAX_VALUE)
+        for depth in range(len(resume)):
+            for branch in range(resume[depth] + 1, ends[depth]):
+                first_ends = np.concatenate([resume[:depth] + 1, [branch], ends[depth + 1 :]])
+                first_witness, first_states, _, _ = call(resume, first_ends, cs.MAX_VALUE)
+                second_witness, second_states, _, _ = call(
+                    np.append(resume[:depth], branch), ends[: depth + 1], cs.MAX_VALUE
+                )
+                witnesses_found[0 if first_witness else 1 if second_witness else 2] += 1
+                if first_witness:
+                    assert (first_witness, first_states) == (witness, states)
+                else:
+                    assert (second_witness, first_states + second_states) == (witness, states)
+        _, _, resume, ends = call(resume, ends, 1)
+    assert witnesses_found[2] if max_weight < 6 else witnesses_found[0] and witnesses_found[1]
+
+
+@pytest.mark.parametrize("num_threads", [1, 2])
+def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
+    num_threads: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A keyboard interrupt on the calling thread ends a limit within a chunk on each thread.
+
+    Python raises an interrupt that arrives during a compiled call once the call returns, as the
+    wrapper of ``_search_supports`` here raises one after a call of the calling thread that stops
+    with more to search.  On two threads, the other thread starts only once the calling thread has,
+    and the interrupt waits until the other thread has searched a chunk.  Most roots of the toric
+    code are items whose searches at this limit, which has no witness, span several chunks of one
+    state.  So the search ends before the limit does, and the other thread starts at most one chunk
+    once the interrupt has set the stop event of the threads.
+    """
+    problem = get_sectors(codes.ToricCode(6))[0]
+    serial = get_search(*problem)
+    assert serial.find_witness(5) is None
+    stops: list[threading.Event] = []
+    main_started, other_started = threading.Event(), threading.Event()
+    run_work_items = cs._threads.run_work_items
+    search_supports = cs._search_supports
+    # The states that each call counted, and whether it started after the stop event was set.
+    calls: list[tuple[int, bool]] = []
+
+    def record_stops(
+        num_items: int,
+        num_threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **kwargs: Any,
+    ) -> None:
+        def start(stop: threading.Event) -> Callable[[int, int], None]:
+            stops.append(stop)
+            return start_worker(stop)
+
+        run_work_items(num_items, num_threads, start, **kwargs)
+
+    def interrupt(*args: Any) -> Any:
+        on_main = threading.current_thread() is threading.main_thread()
+        searches_items = len(get_kernel_arguments(args)["roots"]) > 0
+        if searches_items:
+            if on_main:
+                main_started.set()
+            else:
+                assert main_started.wait(timeout=THREAD_TIMEOUT)
+        after = any(stop.is_set() for stop in stops)
+        result = search_supports(*args)
+        if searches_items:
+            calls.append((int(np.sum(result[1])), after))
+            if not on_main:
+                other_started.set()
+            elif len(result[3]) and not after:
+                assert num_threads == 1 or other_started.wait(timeout=THREAD_TIMEOUT)
+                raise KeyboardInterrupt
+        return result
+
+    monkeypatch.setattr(cs, "_ITEMS_PER_THREAD", 0)
+    monkeypatch.setattr(cs._threads, "run_work_items", record_stops)
+    monkeypatch.setattr(cs, "_search_supports", interrupt)
+    search = get_search(*problem, num_threads=num_threads, split_minimum_states=-1, chunk_states=1)
+    with pytest.raises(KeyboardInterrupt):
+        search.find_witness(5)
+    assert max(states for states, _ in calls) <= 1
+    assert sum(after for _, after in calls) <= num_threads - 1
+    assert sum(states for states, _ in calls) < serial.num_states
 
 
 def get_vector(
@@ -2034,7 +2222,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
     search = get_search(checks, np.zeros((0, checks.shape[1])), pair_sum_checks=False)
 
     def search_from(roots: list[int], syndrome: tuple[int, ...]) -> list[int]:
-        support, _, _ = cs._search_supports(
+        support, *_ = cs._search_supports(
             search._check_starts,
             search._check_symbols,
             search._symbol_masks,
@@ -2045,6 +2233,9 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
             search._ranks,
             search._inverse_overlaps,
             2,
+            cs._NO_PATH,
+            cs._NO_PATH,
+            cs.MAX_VALUE,
             cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
             cs._get_fixed_words(1),
             True,
@@ -2089,6 +2280,9 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
                     search._ranks,
                     search._inverse_overlaps,
                     max_weight,
+                    cs._NO_PATH,
+                    cs._NO_PATH,
+                    cs.MAX_VALUE,
                     packed,
                     cs._get_fixed_words(len(packed)),
                     memoize,

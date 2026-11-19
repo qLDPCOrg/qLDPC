@@ -153,12 +153,13 @@ class ConnectedClusterSearch:
         # Keep a search of each sector with witnesses; a sector without witnesses only bounds the
         # result.  A weight limit runs on threads if it is predicted to visit more states than a
         # quarter of the supports that each thread of a BZ scan on ``num_threads`` threads scans in
-        # one chunk (``_SPLIT_GATE_SHIFT``).
+        # one chunk (``_SPLIT_GATE_SHIFT``), and runs in chunks of
+        # ``2**information_set_batch_exponent`` states (Sections 3.6 and 3.11 of
+        # connected_cluster.md).
         tuning = get_tuning() if tuning is None else tuning
         num_threads = _threads.get_num_threads(tuning.num_threads)
-        split_minimum_states = (
-            num_threads << tuning.information_set_batch_exponent
-        ) >> _SPLIT_GATE_SHIFT
+        chunk_states = 1 << tuning.information_set_batch_exponent
+        split_minimum_states = (num_threads * chunk_states) >> _SPLIT_GATE_SHIFT
         self._cutoff = cutoff
         self._best_weight = upper_bound
         self._no_distance_bounds: list[int] = []
@@ -175,6 +176,7 @@ class ConnectedClusterSearch:
                 pair_sum_checks=tuning.pair_sum_checks,
                 num_threads=num_threads,
                 split_minimum_states=split_minimum_states,
+                chunk_states=chunk_states,
             )
             if search.has_witnesses:
                 self._searches.append(search)
@@ -357,6 +359,9 @@ class SupportSearch:
             calling thread.
         split_minimum_states: ``find_witness`` splits a weight limit across threads only if it
             predicts that the limit visits more states than this.
+        chunk_states: ``find_witness`` searches in compiled calls that each count at most this
+            many states, so that it takes keyboard interrupts between them, and threads can stop a
+            work item between them (Sections 3.6 and 3.11).  Must be at least one.
 
     Attributes:
         num_variables: The number of variables.
@@ -386,6 +391,7 @@ class SupportSearch:
         pair_sum_checks: bool,
         num_threads: int = 1,
         split_minimum_states: int = 0,
+        chunk_states: int = MAX_VALUE,
     ) -> None:
         # The compiled search would read invalid input without an error, so validate it here.
         assert_binary(checks, "checks")
@@ -410,6 +416,7 @@ class SupportSearch:
         self._stabilizer_overlap_cuts = stabilizer_overlap_cuts
         self._num_threads = num_threads
         self._split_minimum_states = split_minimum_states
+        self._chunk_states = chunk_states
 
         # A word satisfies a symplectic check if its dot product with the swapped check vanishes.
         if symplectic:
@@ -520,8 +527,19 @@ class SupportSearch:
         limit = int(min(max_weight, self.num_variables))
 
         def search(
-            roots: npt.NDArray[np.int64], paths: npt.NDArray[np.int64], frontier_depth: int
-        ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+            roots: npt.NDArray[np.int64],
+            paths: npt.NDArray[np.int64],
+            frontier_depth: int,
+            resume: npt.NDArray[np.int64],
+            ends: npt.NDArray[np.int64],
+            max_states: int,
+        ) -> tuple[
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+        ]:
             """Search the work items of this limit, as ``_search_supports`` does."""
             return _search_supports(
                 self._check_starts,
@@ -534,6 +552,9 @@ class SupportSearch:
                 self._ranks,
                 self._inverse_overlaps,
                 limit,
+                resume,
+                ends,
+                max_states,
                 # The searches from roots ignore the starting syndrome, and do not memoize.
                 np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
                 _get_fixed_words(self._symbol_masks.shape[1]),
@@ -546,12 +567,15 @@ class SupportSearch:
         # roots in the next limit that runs on threads.
         if self._num_threads > 1 and self._predict_states(max_weight) > self._split_minimum_states:
             support, num_states, root_states = _search_on_threads(
-                search, self._roots, limit, self._num_threads, self._root_states
+                search,
+                self._roots,
+                limit,
+                self._num_threads,
+                self._root_states,
+                self._chunk_states,
             )
         else:
-            support, root_states, _ = search(
-                self._roots, np.empty((len(self._roots), 0), dtype=np.int64), 0
-            )
+            support, root_states = _search_in_chunks(search, self._roots, self._chunk_states)
             num_states = int(np.sum(root_states))
         if not len(support):
             self._root_states = root_states
@@ -622,7 +646,7 @@ class SupportSearch:
             bits = unpack_bits(packed_syndrome[None], len(self._checks))[0]
             sums = bits[self._summed_pairs[:, 0]] ^ bits[self._summed_pairs[:, 1]]
             packed_syndrome = pack_bits(np.concatenate([bits, sums])[None])[0]
-        support, item_states, _ = _search_supports(
+        support, item_states, _, _, _ = _search_supports(
             self._check_starts,
             self._check_symbols,
             self._symbol_masks,
@@ -633,6 +657,9 @@ class SupportSearch:
             self._ranks,
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
+            _NO_PATH,
+            _NO_PATH,
+            MAX_VALUE,
             packed_syndrome,
             _get_fixed_words(len(packed_syndrome)),
             True,
@@ -850,12 +877,54 @@ _ITEMS_PER_THREAD = 32
 # early can cost less (Section 3.11 of connected_cluster.md).
 _SPLIT_GATE_SHIFT = 2
 
+# A path of no states, for calls of _search_supports that resume nothing.
+_NO_PATH = np.empty(0, dtype=np.int64)
+
 # Searches the work items of a weight limit, as ``_search_supports`` does: from roots, along paths,
-# and with a frontier depth.
+# with a frontier depth, and optionally with a path and ends to resume and a budget of states.
 _ItemSearch = Callable[
-    [npt.NDArray[np.int64], npt.NDArray[np.int64], int],
-    tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]],
+    [
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        int,
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        int,
+    ],
+    tuple[
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+    ],
 ]
+
+
+def _search_in_chunks(
+    search: _ItemSearch, roots: npt.NDArray[np.int64], chunk_states: int
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """Search the subtrees of the roots of a limit on the calling thread, in chunks of states.
+
+    Each call of ``search`` counts at most ``chunk_states`` states, and the next call goes on where
+    it stopped, so the search takes keyboard interrupts between calls, and finds the witness and
+    counts the states of a search in one call (Sections 3.6 and 3.11 of ``connected_cluster.md``).
+
+    Returns:
+        The witness, or an empty array, and the states from each root, which are complete only
+        without a witness.
+    """
+    states = np.zeros(len(roots), dtype=np.int64)
+    paths = np.empty((len(roots), 0), dtype=np.int64)
+    first, resume, ends = 0, _NO_PATH, _NO_PATH
+    while True:
+        support, item_states, _, resume, ends = search(
+            roots[first:], paths[first:], 0, resume, ends, chunk_states
+        )
+        states[first : first + len(item_states)] += item_states
+        if len(support) or not len(resume):
+            return support, states
+        first += len(item_states) - 1
 
 
 def _search_on_threads(
@@ -864,16 +933,18 @@ def _search_on_threads(
     max_weight: int,
     num_threads: int,
     root_states: npt.NDArray[np.int64] | None,
+    chunk_states: int,
 ) -> tuple[npt.NDArray[np.int64], int, npt.NDArray[np.int64]]:
     """Search a weight limit on threads, which split it into the subtrees of a frontier.
 
     The frontier deepens from the roots, one depth at a time, until it has ``_ITEMS_PER_THREAD``
     states for each thread, or it reaches ``max_weight`` or a witness, or no state is that deep.
     The threads claim ranges of its states, the work items, in DFS order, and search the items of
-    a range one at a time.  Each item before the first with a witness runs in full, and no item
-    after it starts once that witness is found (Section 3.11 of ``connected_cluster.md``).  If
-    given, ``root_states`` holds the states from each root in an earlier limit, which weigh the
-    items of the root in the claims; otherwise every item weighs the same.
+    a range one at a time, each in chunks of at most ``chunk_states`` states.  Each item before the
+    first with a witness runs in full, and once that witness is found, no item after it starts and
+    a running one stops after its chunk (Section 3.11 of ``connected_cluster.md``).  If given,
+    ``root_states`` holds the states from each root in an earlier limit, which weigh the items of
+    the root in the claims; otherwise every item weighs the same.
 
     Returns:
         The witness and the number of states of a search of the limit on one thread, and the
@@ -892,7 +963,9 @@ def _search_on_threads(
     witness = np.empty(0, dtype=np.int64)
     best = origins, paths, prefixes, above, above_by_root
     while len(origins) < _ITEMS_PER_THREAD * num_threads and paths.shape[1] < max_weight:
-        support, item_states, listed = search(roots[origins], paths, paths.shape[1] + 1)
+        support, item_states, listed, _, _ = search(
+            roots[origins], paths, paths.shape[1] + 1, _NO_PATH, _NO_PATH, MAX_VALUE
+        )
         above_by_root = above_by_root + np.bincount(
             origins[: len(item_states)], item_states, minlength=len(roots)
         ).astype(np.int64)
@@ -923,8 +996,8 @@ def _search_on_threads(
         shares = root_states[origins] / items_of_root[origins]
         cumulative_weights = np.cumsum(shares + 1, dtype=np.float64)
 
-    # Run the items of each range in order, and record the states of each item, and the witness of
-    # each range up to the first item that has one.
+    # Run the items of each range in order, each in chunks, and record the states of each item, and
+    # the witness of each range up to the first item that has one.
     counts = np.zeros(num_items, dtype=np.int64)
     witnesses: dict[int, npt.NDArray[np.int64]] = {}
     first = num_items
@@ -932,24 +1005,35 @@ def _search_on_threads(
     item_roots = roots[origins]
 
     def run_range(stop: threading.Event, start: int, end: int) -> None:
-        """Search the items of a range one at a time, up to the first item with a witness.
+        """Search the items of a range in turn, up to the first item with a witness.
 
-        The range stops before an item after an item with a witness, or once ``stop`` is set.
+        Between chunks, an item stops once an earlier item has a witness, or once ``stop`` is set.
         """
         nonlocal first
         for item in range(start, end):
-            if stop.is_set() or item > first:
-                return
-            support, item_states, _ = search(item_roots[item : item + 1], paths[item : item + 1], 0)
-            counts[item] = item_states[0]
-            if len(support):
-                with lock:
-                    witnesses[item] = support
-                    first = min(first, item)
-                return
+            resume, ends = _NO_PATH, _NO_PATH
+            while True:
+                if stop.is_set() or item > first:
+                    return
+                support, item_states, _, resume, ends = search(
+                    item_roots[item : item + 1],
+                    paths[item : item + 1],
+                    0,
+                    resume,
+                    ends,
+                    chunk_states,
+                )
+                counts[item] += item_states[0]
+                if len(support):
+                    with lock:
+                        witnesses[item] = support
+                        first = min(first, item)
+                    return
+                if not len(resume):
+                    break
 
     # Compile the search before the threads call it: a search of no items returns at once.
-    search(item_roots[:0], paths[:0], 0)
+    search(item_roots[:0], paths[:0], 0, _NO_PATH, _NO_PATH, MAX_VALUE)
     _threads.run_work_items(
         num_items,
         num_threads,
@@ -980,6 +1064,9 @@ def _search_supports(
     ranks: npt.NDArray[np.int64],
     inverse_overlaps: npt.NDArray[np.int64],
     max_weight: int,
+    resume: npt.NDArray[np.int64],
+    ends: npt.NDArray[np.int64],
+    max_states: int,
     start_syndrome: npt.NDArray[np.uint64],
     fixed_words: tuple[int, ...],
     memoize: bool,
@@ -990,7 +1077,13 @@ def _search_supports(
     cut_entries: npt.NDArray[np.int64],
     cut_capacities: npt.NDArray[np.int64],
     cut_blocked_symbols: npt.NDArray[np.int64],
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+) -> tuple[
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+]:
     """Search the supports that grow from each root through unsatisfied checks.
 
     This is the depth-first search of Sections 3.3, 3.4, and 3.7 of ``connected_cluster.md``, in
@@ -1017,12 +1110,31 @@ def _search_supports(
     order, by the index of its item and its branch at each depth below it.  A ``frontier_depth`` of
     zero lists nothing.  A path must lead to a state that the search enters.
 
+    The search stops early once it has counted ``max_states`` states, which must be at least one, at
+    the next state that does not replay a path, just before that state takes its next branch.  It
+    then returns its stack as a path, ``resume``: the branch that each state on it takes, and, for
+    its last state, the next branch.  It also returns, for each state of that path, its end in
+    ``ends``: the branch before which the state leaves.  Given these, and the items from the one at
+    which it stopped, the search replays ``resume`` instead of the path of its first item, counts
+    no state that the replay enters, and goes on exactly where it stopped, so that a search in
+    several calls visits and counts the states of a search in one call (Section 3.11).  A caller
+    may split a call that resumes only the item at which the search stopped into two calls of that
+    item, at a branch ``b`` above ``resume[d]`` and below ``ends[d]``.  The first call takes
+    the ends ``resume[:d] + 1`` followed by ``b`` and the old ends below depth ``d``, so that it
+    leaves the states above depth ``d`` after their branches on the path.  The second takes the
+    path ``resume[:d]`` followed by ``b``, and the old ``ends[: d + 1]``, so that it searches what
+    comes after the first call in DFS order.  The witness of the call that was split is that of the
+    first call if it has one, and otherwise that of the second, and the call counts the states of
+    the first, and also those of the second if the first has no witness.
+
     Returns:
         The symbols of a witness, or of a vector with the syndrome, of weight at most
-        ``max_weight``, or an empty array; the number of states that the search counted in each
-        item, through the item of the witness if there is one, which never includes the empty
-        state of a root; and the listed states, one per row, as ``[i, b_0, ..., b_{P}]``, for item
-        ``i`` and the branches ``b_d``, through the witness if there is one.
+        ``max_weight``, or an empty array; the number of states, never including the empty state
+        of a root, that the search counted in each item, through the item of the witness or the
+        item at which it stopped; the listed states, one per row, as ``[i, b_0, ...,
+        b_{P}]``, for item ``i`` and the branches ``b_d``, through the witness if there is one;
+        and, if the search stopped early, the path and ends with which its item goes on, and
+        otherwise two empty arrays.
 
     Raises:
         ValueError: If ``fixed_words`` is not empty and its length is not the number of words of a
@@ -1080,13 +1192,28 @@ def _search_supports(
     memos = np.zeros((4, num_symbols if memoize else 0), dtype=np.int64)
     stamp = 0
 
+    # The path of the current item, and the branch before which the state at each depth leaves; the
+    # entry of a depth is MAX_VALUE unless the state at that depth is on the path.  States at
+    # depths below replay_depth replay the path, and are not counted.
+    route = np.empty(max_weight + 1, dtype=np.int64)
+    limits = np.full(max_weight + 1, MAX_VALUE, dtype=np.int64)
+
     # The states at the frontier depth that the search lists, and its count of states.
-    path_length = paths.shape[1]
     frontier = np.empty((len(roots) if frontier_depth else 0, frontier_depth + 1), dtype=np.int64)
     num_listed = 0
     item_states = np.zeros(len(roots), dtype=np.int64)
+    num_counted = 0
     for item in range(len(roots)):
         root = roots[item]
+        if item == 0 and len(resume):
+            path_length = len(resume)
+            route[:path_length] = resume
+            limits[:path_length] = ends
+        else:
+            path_length = paths.shape[1]
+            route[:path_length] = paths[item]
+            limits[:path_length] = paths[item] + 1
+        replay_depth = path_length
         # The empty state has an empty syndrome, and no restriction, unless a query starts it.
         cursors[0] = 0
         depth = 0
@@ -1149,26 +1276,41 @@ def _search_supports(
                     cut_capacities,
                 )
 
-            # Leave the state once it has tried every branch, or its branch on the path of the item,
-            # and release the symbols that it tried or did not allow.
-            if cursors[depth] == num_branches[depth] or (
-                depth < path_length and cursors[depth] > paths[item, depth]
-            ):
+            # Leave the state once it has tried every branch, or every branch before its limit on
+            # the path of the item, and release the symbols that it tried or did not allow.  The
+            # states that its parent enters next do not replay the path, so they are counted.
+            if cursors[depth] >= min(num_branches[depth], limits[depth]):
                 for index in range(cursors[depth]):
                     levels[branches[depth, index]] -= _BLOCKED
                 if restricts[depth]:
                     for index in range(allowance_starts[depth], allowance_starts[depth + 1]):
                         levels[allowances[index]] -= 1
                     num_restrictions -= 1
+                limits[depth] = MAX_VALUE
+                replay_depth = min(replay_depth, depth)
                 depth -= 1
                 continue
 
             # On the path of the item, skip to its branch.  An earlier sibling would leave only its
             # own symbol tried, once the search left its subtree.
-            if depth < path_length:
-                while cursors[depth] < paths[item, depth]:
+            if depth < replay_depth:
+                while cursors[depth] < route[depth]:
                     levels[branches[depth, cursors[depth]]] += _BLOCKED
                     cursors[depth] += 1
+
+            # Stop once enough states are counted, outside the replay of the path, and return the
+            # branch of each state of the stack and the next branch of the last state as a path.
+            if num_counted >= max_states and depth + 1 >= replay_depth:
+                stop_path = cursors[: depth + 1].copy()
+                stop_path[:depth] -= 1
+                stop_ends = np.minimum(limits[: depth + 1], num_branches[: depth + 1])
+                return (
+                    np.empty(0, dtype=np.int64),
+                    item_states[: item + 1],
+                    frontier[:num_listed],
+                    stop_path,
+                    stop_ends,
+                )
 
             # Take the next branch, and skip its state if it cannot meet the weight limit, since a
             # symbol flips at most max_column_weight unsatisfied checks (b1 in Section 3.4).
@@ -1206,17 +1348,24 @@ def _search_supports(
                 continue
 
             # Enter the state: return it if it is a witness, and otherwise choose its branches.
-            # Only the states of the item count, not those on its path.
+            # Only the states of the item count, not those that replay its path.
             depth += 1
-            if depth >= path_length:
+            if depth >= replay_depth:
                 item_states[item] += 1
+                num_counted += 1
             num_branches[depth] = 0
             cursors[depth] = 0
             allowance_starts[depth + 1] = allowance_starts[depth]
             restricts[depth] = False
             if num_unsatisfied == 0:
                 if root < 0 or _is_outside_excluded(test_columns, support, depth):
-                    return support[:depth].copy(), item_states[: item + 1], frontier[:num_listed]
+                    return (
+                        support[:depth].copy(),
+                        item_states[: item + 1],
+                        frontier[:num_listed],
+                        np.empty(0, dtype=np.int64),
+                        np.empty(0, dtype=np.int64),
+                    )
                 continue
 
             # Make room for the symbols that this state may allow, each at most once, and choose its
@@ -1255,7 +1404,13 @@ def _search_supports(
                 if ranks[variable] < ranks[root]:
                     for value in range(num_values):
                         levels[value * num_variables + variable] -= _BLOCKED
-    return np.empty(0, dtype=np.int64), item_states, frontier[:num_listed]
+    return (
+        np.empty(0, dtype=np.int64),
+        item_states,
+        frontier[:num_listed],
+        np.empty(0, dtype=np.int64),
+        np.empty(0, dtype=np.int64),
+    )
 
 
 # Unlike the small helpers, _get_branches is long and has two call sites, but inlining it makes each

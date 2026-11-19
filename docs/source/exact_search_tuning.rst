@@ -59,9 +59,8 @@ Start from a symptom
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        A Brouwer-Zimmermann distance search on several threads scans chunks :attr:`~SearchTuning.num_threads` times as large, so the wait grows with the number of threads.
-       A connected-cluster weight limit that does not split across threads, its own or that of a coset query, takes an interrupt only after it ends.
-       ``method="auto"``, the default, runs a connected-cluster search for the distances of quantum codes and the fault distances of circuits; pass ``method="brouwer_zimmermann"`` to a distance function for prompt interrupts.
-       A connected-cluster limit that splits takes an interrupt once the work items that its threads are searching end, and a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch` by either method, once it has moved to threads, once the blocks that its threads are running end, which can take long.
+       A connected-cluster distance search takes an interrupt within a chunk of ``2**information_set_batch_exponent`` states (:attr:`~SearchTuning.information_set_batch_exponent`) on each thread (`Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#36-from-a-search-to-the-distance>`__ of ``connected_cluster.md``), but a connected-cluster coset query takes it only after the query ends.
+       A batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch` by either method, once it has moved to threads, takes an interrupt once the blocks that its threads are running end, which can take long.
    * - A cheap connected-cluster search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
        Searches ask for them before a first limit that ``cutoff`` sets, unless the field is ``MAX_VALUE``.
@@ -161,10 +160,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.completion_bound_lookup_block_cost`, :attr:`SearchTuning.completion_bound_lookup_block_cost_per_mib`, :attr:`SearchTuning.completion_bound_kept_first_row_ratio`, :attr:`SearchTuning.completion_bound_table_byte_cost`, :attr:`SearchTuning.completion_bound_build_step_cost`
      -
      -
-   * - Distance searches by the Brouwer-Zimmermann method: time before a keyboard interrupt takes effect, and the overhead of returning to Python
+   * - Distance searches by the Brouwer-Zimmermann or connected-cluster method: time before a keyboard interrupt takes effect, and the overhead of returning to Python
      - :attr:`SearchTuning.information_set_batch_exponent`
      -
-     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#45-behavior-spanning-files>`__
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#45-behavior-spanning-files>`__ of ``brouwer_zimmermann_code.md``, and `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#36-from-a-search-to-the-distance>`__ of ``connected_cluster.md``
    * - Distance searches by the Brouwer-Zimmermann method: the threads that scan a costly layer of a set
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -

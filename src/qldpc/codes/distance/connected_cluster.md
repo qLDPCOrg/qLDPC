@@ -245,10 +245,10 @@ The lightest witness of any other sector, with `n` variables and divisor `d`, we
 A search that needs more limits than the sum of these over its sectors has a bug, and raises a `RuntimeError` rather than looping forever.
 
 **Interrupts.**
-On one thread, each weight limit runs in one compiled call, which a keyboard interrupt cannot stop.
-An interrupt takes effect after that call, as a `KeyboardInterrupt` or a `SystemError` that it caused, so the wait can be as long as the last limit of a large search.
-A limit that runs on threads ([Section 3.11](#311-threads)) is one compiled call for each work item.
-An interrupt takes effect once the items that the threads are searching end, which can take long, since an item can hold much of the work of a limit.
+A keyboard interrupt cannot stop a compiled call, and takes effect after it, as a `KeyboardInterrupt` or a `SystemError` that it caused.
+A distance search runs each weight limit in chunks: compiled calls that each count at most `2**information_set_batch_exponent` states, for the field `information_set_batch_exponent` of `SearchTuning` in `_tuning.py`, and that stop and go on as [Section 3.11](#311-threads) says.
+So an interrupt takes effect once the chunk of each thread ends, which takes a fraction of a second at the default.
+A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs in one compiled call, so an interrupt waits for the query to end.
 
 ### 3.7 Qubit codes that are not CSS
 
@@ -475,6 +475,13 @@ What the search has forbidden, blocked, and loaded at a state depends only on th
 Once the search leaves the subtree of an earlier sibling, the sibling's net effect is only that its symbol stays tried, even if the bound `b1` skipped its state.
 So the replay rebuilds the forbidden and blocked symbols, the restrictions, and the loads exactly as one thread has them, and the thread then searches the subtree of the item as one thread does, until it goes back above the frontier.
 
+**Chunks.**
+A compiled call of the search stops once it has counted a chunk of states, outside the replay of a path, just before a state takes its next branch, so that it returns to Python often, on one thread and on threads ([Section 3.6](#36-from-a-search-to-the-distance)).
+It returns its stack as a path: the branch that each state on it takes, and the next branch of its last state.
+It also returns, for each state of the path, its **end**: the branch before which the state leaves, which is its number of branches, unless the state is on the path of the item above the frontier, where its end is one past its branch on that path.
+The next call replays that path with those ends, as it replays the path of an item, counts none of the states that the replay enters, and goes on from the next branch.
+By the argument of the replay, the calls of a limit visit and count the states of a search in one call, and find its witness.
+
 **Choosing the frontier.**
 The search starts with the roots as items, and deepens the frontier one depth at a time while it has fewer than 32 items for each thread, so that the claims below can share the work among the threads.
 Each pass replays the current items, enters their states, which are then above the frontier, and lists their children rather than entering them.
@@ -491,8 +498,8 @@ Without such a limit, as at the first limit after the search starts or takes sym
 The weights change only which thread searches an item, not the result.
 
 **Ordered commit.**
-A thread searches the items of a range one at a time.
-Once a thread finds a witness in an item, the threads skip the later items that have not started, and finish the earlier ones, whose witnesses would come first; an item that is already running ends on its own.
+A thread searches the items of a range one at a time, each in chunks.
+Once a thread finds a witness in an item, the threads skip the later items that have not started, stop a running later item after its current chunk, and finish the earlier items, whose witnesses would come first.
 The search returns the witness of the first item that has one, or else the witness that a pass entered, if any.
 It counts the states above the frontier before that witness in DFS order, the states of the earlier items, and the states of the item of the witness up to the witness, which is the count of one thread; without a witness, it counts every state.
 
@@ -532,6 +539,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weight limits on threads: the frontier, work items, replay, weighted claims, ordered commit, and when to split | `_search_on_threads`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `information_set_batch_exponent` and `_SPLIT_GATE_SHIFT`; `run_work_items` of `_threads.py`; and `num_threads` and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
+| Chunks of a weight limit, on one thread and on threads | `_search_in_chunks`, `resume`, `ends`, and `max_states` of `_search_supports`, `chunk_states` of `SupportSearch`, and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
 | Batches of syndrome queries on threads | `_find_first_cluster_bound` and `_get_min_cluster_weights` of `CosetLeaderSearch` in `coset_leaders.py`, `ConnectedClusterCosetSearch._get_min_weight_bound_and_states` in `_connected_cluster/coset.py`, which counts the work of a query, and `run_blocks` of `_threads.py` |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
@@ -580,11 +588,12 @@ Changes to the search can use other bounds and orders, but must keep these requi
   A caller that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Keep the span of the checks of a coset query**, with an invertible map of the syndromes to the sparser checks, or the queries would search other cosets.
 - **Keep the span of the stabilizers of a subsystem code exactly** ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)): a smaller span would admit words that anticommute with a stabilizer, and a larger one would miss dressed logical operators; redundant rows need no map.
-- **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers of one thread, including the first index of a syndrome without an error within `max_weight`** ([Section 3.11](#311-threads)): replay the path of each work item exactly, run every item before the first with a witness in full, and count the states above the frontier once.
+- **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers of one thread, including the first index of a syndrome without an error within `max_weight`** ([Section 3.11](#311-threads)): replay the path of each work item and of each chunk exactly, count no state that a replay enters, run every item before the first with a witness in full, and count the states above the frontier once.
   The decisions that depend on these counts would otherwise depend on the number of threads.
   So of what a limit leaves, decisions must read only its witness and count of states, and the states of each root only after a limit without a witness, since on threads the items after the first witness may or may not have run.
   In `_connected_cluster/search_test.py`, `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread`, `test_distance_searches_on_threads_take_the_steps_of_one_thread`, and `test_each_support_is_visited_once_above_its_least_variable` compare limits on threads with one thread, including a witness above the frontier and in the first and last items.
-  `test_limits_on_threads_keep_the_first_witness_in_dfs_order` checks the first witness in either order of the threads, and `test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit` checks that a thread searches no later item of its range once an earlier item has a witness or an error.
+  `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` also runs every limit in chunks of one state, which replay a path after every state, on one thread and on threads.
+  `test_limits_on_threads_keep_the_first_witness_in_dfs_order` checks the first witness in either order of the threads, `test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_limit` checks that a thread searches no further chunk of a later item once an earlier item has a witness or an error, and `test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk` checks that a keyboard interrupt on the calling thread ends a limit within a chunk on each thread.
   In `coset_leaders_test.py`, `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` and `test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_first` compare the batches on threads with one thread.
   - **Keep what the search has forbidden, blocked, and loaded at a state a function of the state's path and earlier siblings, so that replay rebuilds it** ([Section 3.11](#311-threads)).
     A pruning rule may keep per-state data only if leaving the state undoes it, as `levels` and the loads of the overlap cuts do, and may add checks and known words only as tables built before the search, as the light sums of pairs of checks are ([Section 3.4](#34-pruning)).
@@ -594,7 +603,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
     `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` in `_connected_cluster/search_test.py` runs threads with every array of their search, such as its tables, read-only, so that numba rejects a write to one in any branch of compiled code.
     `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` does the same for batches of coset queries.
     Both check that the arrays are unchanged.
-    Review checks the writes that these tests miss, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those to the roots and paths of work items, which `_search_on_threads` makes for the threads; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
+    Review checks the writes that these tests miss, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those to the roots and paths of work items, which `_search_on_threads` makes for the threads, and to the paths and ends of chunks, which `_search_supports` returns and only reads, copying them into its own arrays; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
   - **Write shared results only in a thread's own entries, or under a lock.**
     The other code that threads run writes only its own entries of shared results, such as the counts of states of its items and the weights of its rows, or writes under a lock, as when it records a witness or a syndrome without an error in reach.
     Review checks this.

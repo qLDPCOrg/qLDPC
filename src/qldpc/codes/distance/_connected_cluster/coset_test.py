@@ -63,9 +63,7 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
 
-    def record(
-        *args: Any, **kwargs: Any
-    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
         num_checks.append(len(signature.bind(*args, **kwargs).arguments["check_starts"]) - 1)
         return search_supports(*args, **kwargs)
 
@@ -129,9 +127,7 @@ def test_connected_cluster_queries_read_their_restriction(
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
 
-    def record(
-        *args: Any, **kwargs: Any
-    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
         settings.append(signature.bind(*args, **kwargs).arguments["restrict_viable_symbols"])
         return search_supports(*args, **kwargs)
 
@@ -162,9 +158,7 @@ def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
 
-    def record(
-        *args: Any, **kwargs: Any
-    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
         num_cuts_per_query.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
         return search_supports(*args, **kwargs)
 
