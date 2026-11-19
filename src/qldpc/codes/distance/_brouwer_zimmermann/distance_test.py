@@ -1295,12 +1295,9 @@ def test_completion_tables_keep_distances_exact(completion_tables: CompletionRec
 
     # Relabel the columns, and the automorphisms alike: column ``j`` is column ``columns[j]`` of
     # the given sector, so a generator ``g`` maps it to ``inverse[g[columns[j]]]``, for the inverse
-    # permutation ``np.argsort(columns)``.  The search of the given sector, without automorphisms
-    # or tables, is the oracle.
+    # permutation ``np.argsort(columns)``.  The connected-cluster method also finds the distance 8.
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     basis, labels = get_sector(code, Pauli.X)
-    with use_tuning(completion_bound_max_table_bytes=0):
-        expected = bz.get_distance_brouwer_zimmermann([(basis, labels)], cutoff=0)
     columns = rng.permutation(len(code))
     automorphisms = np.asarray(code._get_permutation_automorphisms())
     skipped = completion_tables.skipped
@@ -1311,7 +1308,7 @@ def test_completion_tables_keep_distances_exact(completion_tables: CompletionRec
             np.array, np.argsort(columns)[automorphisms[:, columns]]
         ),
     )
-    assert assert_skips(distance) == expected == 8
+    assert assert_skips(distance) == 8
 
     # A general Pauli problem checks that searched words weigh twice their nontrivial qubits.
     five_qubit_code = qldpc.codes.FiveQubitCode()
