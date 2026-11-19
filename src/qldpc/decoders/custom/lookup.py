@@ -802,7 +802,7 @@ class _CandidateLookupDecoder(WeightedLookupDecoder):
         # that error is selected: an observable-flip prediction if requested (else the error
         # itself), with a trivial erasure bit appended.  The output is precomputed here so that
         # decode() only has to select the minimum-penalty candidate error.
-        self._syndrome_to_candidates: dict[
+        self._syndrome_to_candidates: collections.defaultdict[
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
         get_observable_flip = None
@@ -1012,7 +1012,8 @@ class WeightedObservableLookupDecoder(_CandidateLookupDecoder):
 class _SyndromeToCandidatesView(Mapping[tuple[int, ...], _Candidates]):
     """Read-only view of the candidates of a weighted lookup decoder.
 
-    Values are tuples of read-only views of the stored arrays, which themselves stay writeable.
+    Each value is a tuple of ``(error, output)`` pairs of read-only views of the stored arrays.  The
+    stored table and its arrays stay writeable, so that advanced users can modify its entries.
     """
 
     def __init__(self, decoder: _CandidateLookupDecoder) -> None:
