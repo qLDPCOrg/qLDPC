@@ -68,6 +68,23 @@ def test_every_item_runs_once(num_threads: int) -> None:
     assert len(ranges) <= 2 * num_threads * (1 + math.log(num_items))
 
 
+@pytest.mark.parametrize("num_threads", [1, 3])
+def test_single_items_are_claimed_one_at_a_time(num_threads: int) -> None:
+    """With ``single_items``, each range holds one item, and every item runs once."""
+    claims: list[tuple[int, int]] = []
+    lock = threading.Lock()
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        def run_range(start: int, end: int) -> None:
+            with lock:
+                claims.append((start, end))
+
+        return run_range
+
+    _threads.run_work_items(50, num_threads, start_worker, single_items=True)
+    assert sorted(claims) == [(item, item + 1) for item in range(50)]
+
+
 @pytest.mark.parametrize("num_threads", [2, 4])
 def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None:
     """A range of several items holds at most half of the weight not yet claimed.

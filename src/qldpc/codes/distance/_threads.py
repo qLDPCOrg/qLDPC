@@ -61,6 +61,7 @@ def run_work_items(
     start_worker: Callable[[threading.Event], Callable[[int, int], None]],
     *,
     cumulative_weights: npt.NDArray[np.float64] | None = None,
+    single_items: bool = False,
 ) -> None:
     """Run the work items ``0, ..., num_items - 1`` on up to ``num_threads`` threads.
 
@@ -76,7 +77,11 @@ def run_work_items(
     make a range overshoot that share, and ranges shrink as the work ends.  The claims number at
     most about ``2 * num_threads * ln(W / w) + 1``, for the total weight ``W`` and the weight ``w``
     of the lightest item.  ``cumulative_weights``, if given, holds for each item the total weight of
-    the items up to it, which estimates their work; without it, items count one each.
+    the items up to it, which estimates their work; without it, items count one each.  With
+    ``single_items``, each range instead holds one item, and ``cumulative_weights`` is ignored.
+    That suits work that may end early, as at the first witness of a search in DFS order: claims of
+    one item share the items before the end among the threads, where a share of the remaining
+    weight would leave them to one thread.
 
     The functions that run ranges must not call numba code compiled with ``parallel=True`` or
     ``prange``, such as some of galois's: two threads that call it at once abort the process under
@@ -106,6 +111,9 @@ def run_work_items(
             start = next_item
             if stop.is_set() or start == num_items:
                 return start, start
+            if single_items:
+                next_item = start + 1
+                return start, next_item
             claimed = cumulative_weights[start - 1] if start else 0.0
             share = (cumulative_weights[-1] - claimed) / (2 * num_threads)
             end = int(np.searchsorted(cumulative_weights, claimed + share)) + 1

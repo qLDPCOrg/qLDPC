@@ -483,7 +483,9 @@ The next call replays that path with those ends, as it replays the path of an it
 By the argument of the replay, the calls of a limit visit and count the states of a search in one call, and find its witness.
 
 **Choosing the frontier.**
-The search starts with the roots as items, and deepens the frontier one depth at a time while it has fewer than 32 items for each thread, so that the claims below can share the work among the threads.
+The search starts with the roots as items, and deepens the frontier one depth at a time while it has fewer items than its target, so that the claims below can share the work among the threads.
+The target is the number of chunks of states ([Section 3.6](#36-from-a-search-to-the-distance)) that the search predicts ([Section 3.5](#35-symmetries)) the limit to visit, but at least 32 items for each thread and at most `2**14`, which bounds the cost of the passes and the memory of the paths of the items.
+So between those bounds, the items average about a chunk of states each.
 Each pass replays the current items, enters their states, which are then above the frontier, and lists their children rather than entering them.
 The deepening ends at the weight limit, or at a witness that a pass enters, after which no listed item comes in DFS order.
 It also ends once no state is deep enough, and then the passes have searched the whole limit.
@@ -491,14 +493,13 @@ The search keeps the frontier with the most items, unless a pass enters a witnes
 Each state above the final frontier is entered by one pass, so the passes cost about as much as those states and the paths of the items, and, if the search keeps a wider frontier than the last, also the states that the later passes entered.
 
 **Claims.**
-The threads claim ranges of items in DFS order, each about `1 / (2 num_threads)` of the weight of the items that no thread has claimed, so that the ranges shrink as the work ends (`run_work_items` of `_threads.py`).
-The subtrees of the roots shrink quickly in the order of their ranks, so the work of an item can differ from that of the next by orders of magnitude.
-So each item weighs one more than an even share, over the items of its root, of the states from that root in the last limit of the search without a witness, if that limit had the same roots.
-Without such a limit, as at the first limit after the search starts or takes symmetries, every item weighs the same, and the first claims can hold most of the work.
-The weights change only which thread searches an item, not the result.
+The threads claim the items one at a time, in DFS order (`run_work_items` of `_threads.py`).
+The subtrees of the roots shrink quickly in the order of their ranks, so the work of an item can differ from that of the next by orders of magnitude, and the items before the first witness of a limit can hold little of its work.
+Claiming one item at a time shares both the uneven work and the items before a witness among the threads, where claims of shares of the remaining work would leave the items before a witness to one thread.
+The claims change only which thread searches an item, not the result.
 
 **Ordered commit.**
-A thread searches the items of a range one at a time, each in chunks.
+A thread searches each item that it claims in chunks.
 Once a thread finds a witness in an item, the threads skip the later items that have not started, stop a running later item after its current chunk, and finish the earlier items, whose witnesses would come first.
 The search returns the witness of the first item that has one, or else the witness that a pass entered, if any.
 It counts the states above the frontier before that witness in DFS order, the states of the earlier items, and the states of the item of the witness up to the witness, which is the count of one thread; without a witness, it counts every state.
@@ -538,7 +539,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
-| Weight limits on threads: the frontier, work items, replay, weighted claims, ordered commit, and when to split | `_search_on_threads`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `information_set_batch_exponent` and `_SPLIT_GATE_SHIFT`; `run_work_items` of `_threads.py`; and `num_threads` and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
+| Weight limits on threads: the frontier, work items, replay, claims of one item, ordered commit, and when to split | `_search_on_threads`; `_ITEMS_PER_THREAD` and `_MAX_ITEMS`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `information_set_batch_exponent` and `_SPLIT_GATE_SHIFT`; `run_work_items` of `_threads.py`; and `num_threads` and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
 | Chunks of a weight limit, on one thread and on threads | `_search_in_chunks`, `resume`, `ends`, and `max_states` of `_search_supports`, `chunk_states` of `SupportSearch`, and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
 | Batches of syndrome queries on threads | `_find_first_cluster_bound` and `_get_min_cluster_weights` of `CosetLeaderSearch` in `coset_leaders.py`, `ConnectedClusterCosetSearch._get_min_weight_bound_and_states` in `_connected_cluster/coset.py`, which counts the work of a query, and `run_blocks` of `_threads.py` |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
@@ -590,7 +591,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - **Keep the span of the stabilizers of a subsystem code exactly** ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)): a smaller span would admit words that anticommute with a stabilizer, and a larger one would miss dressed logical operators; redundant rows need no map.
 - **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers of one thread, including the first index of a syndrome without an error within `max_weight`** ([Section 3.11](#311-threads)): replay the path of each work item and of each chunk exactly, count no state that a replay enters, run every item before the first with a witness in full, and count the states above the frontier once.
   The decisions that depend on these counts would otherwise depend on the number of threads.
-  So of what a limit leaves, decisions must read only its witness and count of states, and the states of each root only after a limit without a witness, since on threads the items after the first witness may or may not have run.
+  So of what a limit leaves, decisions must read only its witness and count of states, since on threads the items after the first witness may or may not have run.
   In `_connected_cluster/search_test.py`, `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread`, `test_distance_searches_on_threads_take_the_steps_of_one_thread`, and `test_each_support_is_visited_once_above_its_least_variable` compare limits on threads with one thread, including a witness above the frontier and in the first and last items.
   `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` also runs every limit in chunks of one state, which replay a path after every state, on one thread and on threads.
   `test_limits_on_threads_keep_the_first_witness_in_dfs_order` checks the first witness in either order of the threads, `test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_limit` checks that a thread searches no further chunk of a later item once an earlier item has a witness or an error, and `test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk` checks that a keyboard interrupt on the calling thread ends a limit within a chunk on each thread.
