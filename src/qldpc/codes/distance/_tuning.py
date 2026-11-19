@@ -450,8 +450,9 @@ class SearchTuning:
     #: searches visit.  A connected-cluster distance search keeps on one thread a weight limit that
     #: it predicts to visit at most a quarter of
     #: ``num_threads * 2**information_set_batch_exponent`` states, rounded down, since a state
-    #: costs far more than a support, and counts at most ``2**information_set_batch_exponent``
-    #: states in one call of compiled code, on each thread (Sections 3.6 and 3.11 of
+    #: costs far more than a support, counts at most ``2**information_set_batch_exponent`` states
+    #: in one call of compiled code, on each thread, and on threads splits a limit into work items
+    #: of about that many states, within bounds on their number (Sections 3.6 and 3.11 of
     #: ``connected_cluster.md``).  At most 62.  Defaults to 15, a budget of interrupt latency on one
     #: thread, which grows with the number of threads for BZ scans.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})

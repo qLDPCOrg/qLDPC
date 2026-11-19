@@ -1529,8 +1529,8 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Record where the witness of each limit on threads comes from, in wrappers that still run.
 
     The witness is in the first work item, a middle one, or the last, or above the frontier, after
-    every item.  A limit without a witness records nothing.  The wrappers number the items of each
-    range in the order in which ``_search_on_threads`` searches them.
+    every item.  A limit without a witness records nothing.  The wrappers number the item of each
+    claim, which holds one item.
     """
     # The positions, the items of the current limit whose searches found a witness, and whether a
     # search above the frontier found one.
@@ -1548,7 +1548,7 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         start_worker: Callable[[threading.Event], Callable[[int, int], None]],
         **kwargs: Any,
     ) -> None:
-        # Each range numbers its items from its start, on the thread that searches them.
+        # Each claim numbers its item, on the thread that searches it.
         def start_numbered(stop: threading.Event) -> Callable[[int, int], None]:
             run_range = start_worker(stop)
 
@@ -1574,15 +1574,12 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             positions.append("above")
         above.clear()
 
-    # A search of an item moves on to the next item of its range once a call ends the item, rather
-    # than stopping after a chunk, and a search above the frontier, which has no item, records
-    # whether it found a witness.
+    # A search of an item records whether it found a witness, and so does a search above the
+    # frontier, which has no item.
     def search_numbered(*args: Any, **kwargs: Any) -> Any:
         result = search_supports(*args, **kwargs)
         item = getattr(next_item, "index", None)
         if item is not None:
-            if not len(result[3]):
-                next_item.index = item + 1
             if len(result[0]):
                 found_items.append(item)
         elif signature.bind(*args, **kwargs).arguments["frontier_depth"] and len(result[0]):
@@ -1610,7 +1607,7 @@ def get_threaded_cases() -> Iterator[
     # The Golay code has one root under its cyclic shifts, and 23 without them.
     yield get_golay_problem(), False, None
     yield get_golay_problem(), False, lambda: np.roll(np.arange(23), -1)[None]
-    # Only the last root is a witness, and with 100 roots, they are the items.
+    # Only the last root is a witness, and on up to three threads, its 100 roots are the items.
     checks = np.hstack([np.eye(99, dtype=np.uint8), np.zeros((99, 1), dtype=np.uint8)])
     yield (checks, np.zeros((0, 100), dtype=np.uint8)), False, None
 
@@ -1622,12 +1619,10 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
     both on or both off (Section 3.11 of ``connected_cluster.md``).  Chunks of one state resume the
-    search after every state, on one thread and on threads.  After a limit without a witness, the
-    searches also count the states of each root alike, which Section 5 lets later decisions read.
-    The threads run with every array of the search read-only.  The first witness of some limit is
-    in each of the positions that ``get_threaded_cases`` names, in a case with at least as many
-    roots as the 8 threads.  So a witness above the frontier shows that the frontier deepens to more
-    items than one per thread.
+    search after every state, on one thread and on threads.  The threads run with every array of
+    the search read-only.  The first witness of some limit is in each of the positions that
+    ``get_threaded_cases`` names, in a case with at least as many roots as the 8 threads.  So a
+    witness above the frontier shows that the frontier deepens to more items than one per thread.
     """
     calls = record_thread_counts(monkeypatch)
     positions = record_witness_positions(monkeypatch)
@@ -1659,11 +1654,7 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
             )
             results.append(
                 [
-                    (
-                        None if witness is None else witness.tolist(),
-                        search.num_states,
-                        None if search._root_states is None else search._root_states.tolist(),
-                    )
+                    (None if witness is None else witness.tolist(), search.num_states)
                     for witness in map(search.find_witness, range(1, 8))
                 ]
             )
@@ -1819,6 +1810,48 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
     assert (steps[0][-1] == 4) if cutoff == 0 else (4 <= steps[0][-1] <= cutoff)
 
 
+def test_the_frontier_deepens_to_about_a_chunk_of_states_for_each_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The frontier of a limit on threads deepens to the predicted number of chunks of states.
+
+    The Golay code has one root under its cyclic shifts.  With chunks of one state, its last three
+    limits on two threads predict more than 40 chunks, so their frontiers deepen to at least
+    ``_MAX_ITEMS`` items, here 40.  With chunks without a limit, every frontier stops once it has
+    ``_ITEMS_PER_THREAD`` items for each thread, here one, which takes fewer than 40 items (Section
+    3.11 of ``connected_cluster.md``).
+    """
+    calls = record_thread_counts(monkeypatch)
+    num_items: list[int] = []
+    run_work_items = cs._threads.run_work_items
+
+    def record_items(count: int, *args: Any, **kwargs: Any) -> None:
+        num_items.append(count)
+        run_work_items(count, *args, **kwargs)
+
+    monkeypatch.setattr(cs._threads, "run_work_items", record_items)
+    monkeypatch.setattr(cs, "_ITEMS_PER_THREAD", 1)
+    monkeypatch.setattr(cs, "_MAX_ITEMS", 40)
+    items = []
+    for chunk_states in (1, cs.MAX_VALUE):
+        num_items.clear()
+        search = get_search(
+            *get_golay_problem(),
+            get_automorphisms=lambda: np.roll(np.arange(23), -1)[None],
+            num_threads=2,
+            split_minimum_states=-1,
+            chunk_states=chunk_states,
+        )
+        for max_weight in range(1, 8):
+            if max_weight >= 5:
+                assert search._predict_states(max_weight) > 40
+            search.find_witness(max_weight)
+        items.append(list(num_items))
+    assert len(items[0]) >= 3 and min(items[0][-3:]) >= 40
+    assert items[1] and max(items[1]) < 40
+    assert calls
+
+
 def test_limits_split_across_threads_only_if_costly(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
@@ -1882,8 +1915,8 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
     """A witness of a later item never displaces that of an earlier item, whichever ends first.
 
     Every symbol of this problem is a witness, so each of its 100 roots is an item with a witness.
-    On two threads, the range of item 0 runs either after a later range has run, or while a later
-    range that has started searching waits for it.
+    On two threads, item 0 runs either after a later item has run, or while a later item that has
+    started searching waits for it.
     """
     later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
     run_work_items = cs._threads.run_work_items
@@ -1938,7 +1971,7 @@ def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_l
 
     Variable 0 of this problem is a witness alone, and the search from a variable of its ring is
     long (see ``get_ring_problem``).  Under the rotations of the ring, the roots are 0 and 1, which
-    are the items on two threads, and the limit runs in chunks of one state.  The range of item 0
+    are the items on two threads, and the limit runs in chunks of one state.  The search of item 0
     finds that witness, or raises an error, while the other thread searches the first chunk of item
     1.  After the witness, that thread searches no further chunk of item 1, though it had more to
     search; after the error, the stop event ends it.
@@ -1993,6 +2026,7 @@ def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_l
     monkeypatch.setattr(cs._threads, "run_work_items", gated_run)
     monkeypatch.setattr(cs, "_search_supports", gated_search)
     monkeypatch.setattr(cs, "_ITEMS_PER_THREAD", 0)
+    monkeypatch.setattr(cs, "_MAX_ITEMS", 0)
     rotation = np.array([[0, *range(2, 31), 1]])
     search = get_search(
         *get_ring_problem(30),
@@ -2130,6 +2164,7 @@ def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
         return result
 
     monkeypatch.setattr(cs, "_ITEMS_PER_THREAD", 0)
+    monkeypatch.setattr(cs, "_MAX_ITEMS", 0)
     monkeypatch.setattr(cs._threads, "run_work_items", record_stops)
     monkeypatch.setattr(cs, "_search_supports", interrupt)
     search = get_search(*problem, num_threads=num_threads, split_minimum_states=-1, chunk_states=1)

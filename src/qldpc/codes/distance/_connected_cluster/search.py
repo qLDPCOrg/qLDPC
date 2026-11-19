@@ -407,8 +407,6 @@ class SupportSearch:
         self.num_states = 0
         self._symplectic = symplectic
         self._last_two_num_states: tuple[int, int] | None = None
-        # The states from each root in the last limit without a witness, if it had these roots.
-        self._root_states: npt.NDArray[np.int64] | None = None
         self._excluded = excluded
         self._get_automorphisms = get_automorphisms
         self._automorphism_minimum_states = automorphism_minimum_states
@@ -563,22 +561,18 @@ class SupportSearch:
                 *cuts,
             )
 
-        # A limit without a witness counts the states of every root, which weigh the work of the
-        # roots in the next limit that runs on threads.
-        if self._num_threads > 1 and self._predict_states(max_weight) > self._split_minimum_states:
-            support, num_states, root_states = _search_on_threads(
+        predicted_states = self._predict_states(max_weight)
+        if self._num_threads > 1 and predicted_states > self._split_minimum_states:
+            support, num_states = _search_on_threads(
                 search,
                 self._roots,
                 limit,
                 self._num_threads,
-                self._root_states,
                 self._chunk_states,
+                predicted_states,
             )
         else:
-            support, root_states = _search_in_chunks(search, self._roots, self._chunk_states)
-            num_states = int(np.sum(root_states))
-        if not len(support):
-            self._root_states = root_states
+            support, num_states = _search_in_chunks(search, self._roots, self._chunk_states)
         self.num_states += num_states
         last = self._last_two_num_states[1] if self._last_two_num_states else 0
         self._last_two_num_states = (last, num_states)
@@ -757,7 +751,6 @@ class SupportSearch:
         automorphism_families.verify_automorphisms(basis, labels, lifted)
         orbits = automorphism_families.get_orbits(automorphisms, self.num_variables)
         self._roots = np.unique(orbits, return_index=True)[1].astype(np.int64)
-        self._root_states = None
         self._ranks = np.empty(self.num_variables, dtype=np.int64)
         self._ranks[np.argsort(orbits, kind="stable")] = np.arange(self.num_variables)
         # A cut can leave out the lowest-ranked variable of its word, which the new ranks can move,
@@ -864,10 +857,13 @@ def _get_fixed_words(num_words: int) -> tuple[int, ...]:
 ####################################################################################################
 # weight limits on threads
 
-# The number of work items for each thread at which the frontier stops deepening, so that the
-# claims of the threads, weighed by earlier states, can share the work (Section 3.11 of
-# connected_cluster.md).
+# The fewest work items for each thread at which the frontier of a limit on threads stops
+# deepening, so that the threads can share the work (Section 3.11 of connected_cluster.md).
 _ITEMS_PER_THREAD = 32
+
+# The most items that the frontier of a limit on threads targets, which bounds the cost of its
+# passes and the memory of its paths to within the branching of one depth.
+_MAX_ITEMS = 2**14
 
 # A distance search splits a weight limit across threads only if it predicts that the limit visits
 # more than ``(num_threads << information_set_batch_exponent) >> _SPLIT_GATE_SHIFT`` states, a
@@ -903,7 +899,7 @@ _ItemSearch = Callable[
 
 def _search_in_chunks(
     search: _ItemSearch, roots: npt.NDArray[np.int64], chunk_states: int
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+) -> tuple[npt.NDArray[np.int64], int]:
     """Search the subtrees of the roots of a limit on the calling thread, in chunks of states.
 
     Each call of ``search`` counts at most ``chunk_states`` states, and the next call goes on where
@@ -911,19 +907,18 @@ def _search_in_chunks(
     counts the states of a search in one call (Sections 3.6 and 3.11 of ``connected_cluster.md``).
 
     Returns:
-        The witness, or an empty array, and the states from each root, which are complete only
-        without a witness.
+        The witness, or an empty array, and the number of states.
     """
-    states = np.zeros(len(roots), dtype=np.int64)
+    num_states = 0
     paths = np.empty((len(roots), 0), dtype=np.int64)
     first, resume, ends = 0, _NO_PATH, _NO_PATH
     while True:
         support, item_states, _, resume, ends = search(
             roots[first:], paths[first:], 0, resume, ends, chunk_states
         )
-        states[first : first + len(item_states)] += item_states
+        num_states += int(np.sum(item_states))
         if len(support) or not len(resume):
-            return support, states
+            return support, num_states
         first += len(item_states) - 1
 
 
@@ -932,120 +927,92 @@ def _search_on_threads(
     roots: npt.NDArray[np.int64],
     max_weight: int,
     num_threads: int,
-    root_states: npt.NDArray[np.int64] | None,
     chunk_states: int,
-) -> tuple[npt.NDArray[np.int64], int, npt.NDArray[np.int64]]:
+    predicted_states: int,
+) -> tuple[npt.NDArray[np.int64], int]:
     """Search a weight limit on threads, which split it into the subtrees of a frontier.
 
-    The frontier deepens from the roots, one depth at a time, until it has ``_ITEMS_PER_THREAD``
-    states for each thread, or it reaches ``max_weight`` or a witness, or no state is that deep.
-    The threads claim ranges of its states, the work items, in DFS order, and search the items of
-    a range one at a time, each in chunks of at most ``chunk_states`` states.  Each item before the
-    first with a witness runs in full, and once that witness is found, no item after it starts and
-    a running one stops after its chunk (Section 3.11 of ``connected_cluster.md``).  If given,
-    ``root_states`` holds the states from each root in an earlier limit, which weigh the items of
-    the root in the claims; otherwise every item weighs the same.
+    The frontier deepens from the roots, one depth at a time, until it has about as many states as
+    the limit is predicted to visit chunks of ``chunk_states`` states, but at least
+    ``_ITEMS_PER_THREAD`` for each thread and at most ``_MAX_ITEMS``, or it reaches ``max_weight``
+    or a witness, or no state is that deep.  The threads claim its states, the work items, one at a
+    time in DFS order, and search each in chunks of at most ``chunk_states`` states.  Each item
+    before the first with a witness runs in full, and once that witness is found, no item after it
+    starts and a running one stops after its chunk (Section 3.11 of ``connected_cluster.md``).
 
     Returns:
-        The witness and the number of states of a search of the limit on one thread, and the
-        states from each root, which are complete only without a witness.
+        The witness and the number of states of a search of the limit on one thread.
     """
+    target = max(_ITEMS_PER_THREAD * num_threads, min(_MAX_ITEMS, predicted_states // chunk_states))
+
     # Each pass lists the states one deeper than the current items, which become states above the
-    # frontier, apart from the roots.  ``origins`` holds the index of the root of each item,
-    # ``prefixes`` counts the states above the frontier that come before each item in DFS order,
-    # and ``above`` counts them all, also by root.  A witness above the frontier, with the states
-    # through it, ends the deepening, and comes after every listed item.
-    origins = np.arange(len(roots))
+    # frontier, apart from the roots.  ``prefixes`` counts the states above the frontier that come
+    # before each item in DFS order, and ``above`` counts them all.  A witness above the frontier,
+    # with the states through it, ends the deepening, and comes after every listed item.
+    item_roots = roots
     paths = np.empty((len(roots), 0), dtype=np.int64)
     prefixes = np.zeros(len(roots), dtype=np.int64)
     above = 0
-    above_by_root = np.zeros(len(roots), dtype=np.int64)
     witness = np.empty(0, dtype=np.int64)
-    best = origins, paths, prefixes, above, above_by_root
-    while len(origins) < _ITEMS_PER_THREAD * num_threads and paths.shape[1] < max_weight:
+    best = item_roots, paths, prefixes, above
+    while len(item_roots) < target and paths.shape[1] < max_weight:
         support, item_states, listed, _, _ = search(
-            roots[origins], paths, paths.shape[1] + 1, _NO_PATH, _NO_PATH, MAX_VALUE
+            item_roots, paths, paths.shape[1] + 1, _NO_PATH, _NO_PATH, MAX_VALUE
         )
-        above_by_root = above_by_root + np.bincount(
-            origins[: len(item_states)], item_states, minlength=len(roots)
-        ).astype(np.int64)
         if len(support):
             witness = support
             above = int(prefixes[len(item_states) - 1] + np.sum(item_states))
         else:
             above += int(np.sum(item_states))
         if not len(listed) and not len(support):
-            return witness, above, above_by_root
+            return witness, above
         parents = listed[:, 0]
-        origins, paths = origins[parents], np.ascontiguousarray(listed[:, 1:])
+        item_roots, paths = item_roots[parents], np.ascontiguousarray(listed[:, 1:])
         # Each old item at depth one or more is one state now above the frontier, but the empty
         # states of the roots are not counted.
         prefixes = prefixes[parents] + (parents + 1 if paths.shape[1] > 1 else 0)
-        if len(support) or len(origins) > len(best[0]):
-            best = origins, paths, prefixes, above, above_by_root
+        if len(support) or len(item_roots) > len(best[0]):
+            best = item_roots, paths, prefixes, above
         if len(support):
             break
-    origins, paths, prefixes, above, above_by_root = best
+    item_roots, paths, prefixes, above = best
 
-    # Weigh each item by an even share of the earlier states of its root, plus one, so that every
-    # item weighs something.
-    num_items = len(origins)
-    cumulative_weights = None
-    if root_states is not None:
-        items_of_root = np.bincount(origins, minlength=len(roots))
-        shares = root_states[origins] / items_of_root[origins]
-        cumulative_weights = np.cumsum(shares + 1, dtype=np.float64)
-
-    # Run the items of each range in order, each in chunks, and record the states of each item, and
-    # the witness of each range up to the first item that has one.
+    # Search the items one at a time, each in chunks, and record the states of each item, and the
+    # first item with a witness.
+    num_items = len(item_roots)
     counts = np.zeros(num_items, dtype=np.int64)
     witnesses: dict[int, npt.NDArray[np.int64]] = {}
     first = num_items
     lock = threading.Lock()
-    item_roots = roots[origins]
 
-    def run_range(stop: threading.Event, start: int, end: int) -> None:
-        """Search the items of a range in turn, up to the first item with a witness.
+    def run_item(stop: threading.Event, item: int, end: int) -> None:
+        """Search the item of a range of one, ``(item, end)``, in chunks, until it ends.
 
-        Between chunks, an item stops once an earlier item has a witness, or once ``stop`` is set.
+        Between chunks, the item stops once an earlier item has a witness, or once ``stop`` is set.
         """
         nonlocal first
-        for item in range(start, end):
-            resume, ends = _NO_PATH, _NO_PATH
-            while True:
-                if stop.is_set() or item > first:
-                    return
-                support, item_states, _, resume, ends = search(
-                    item_roots[item : item + 1],
-                    paths[item : item + 1],
-                    0,
-                    resume,
-                    ends,
-                    chunk_states,
-                )
-                counts[item] += item_states[0]
-                if len(support):
-                    with lock:
-                        witnesses[item] = support
-                        first = min(first, item)
-                    return
-                if not len(resume):
-                    break
+        resume, ends = _NO_PATH, _NO_PATH
+        while not stop.is_set() and item < first:
+            support, item_states, _, resume, ends = search(
+                item_roots[item : item + 1], paths[item : item + 1], 0, resume, ends, chunk_states
+            )
+            counts[item] += item_states[0]
+            if len(support):
+                with lock:
+                    witnesses[item] = support
+                    first = min(first, item)
+                return
+            if not len(resume):
+                return
 
     # Compile the search before the threads call it: a search of no items returns at once.
     search(item_roots[:0], paths[:0], 0, _NO_PATH, _NO_PATH, MAX_VALUE)
     _threads.run_work_items(
-        num_items,
-        num_threads,
-        lambda stop: functools.partial(run_range, stop),
-        cumulative_weights=cumulative_weights,
-    )
-    states_by_root = above_by_root + np.bincount(origins, counts, minlength=len(roots)).astype(
-        np.int64
+        num_items, num_threads, lambda stop: functools.partial(run_item, stop), single_items=True
     )
     if first < num_items:
-        return witnesses[first], int(prefixes[first] + np.sum(counts[: first + 1])), states_by_root
-    return witness, int(above + np.sum(counts)), states_by_root
+        return witnesses[first], int(prefixes[first] + np.sum(counts[: first + 1]))
+    return witness, int(above + np.sum(counts))
 
 
 ####################################################################################################
