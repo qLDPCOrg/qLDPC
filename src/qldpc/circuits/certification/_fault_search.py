@@ -261,9 +261,9 @@ class FaultLister:
     ``find_first``) grows within the rest of the memory limit, up to 2**31 syndromes.  With the map
     of pairs, a fault weight ``m`` may use a closing map of up to ``min(m - 2, _MAX_CLOSING_SIZE)``
     classes instead: one that was built for an earlier fault weight, or one that is built now
-    because the last listing of class codewords to finish, which a listing that finds a violation
-    does not, made enough lookups (see ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can
-    give up the room for it and still grow to the same largest size (see ``_take_table_room``).
+    because the last listing of class codewords that ran to its end made enough lookups (see
+    ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can give up the room for it and still
+    grow to the same largest size (see ``_take_table_room``).
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
