@@ -7,7 +7,7 @@ information sets.  As in Section 5.1 of Lisoněk and Trummer (References of
 ``brouwer_zimmermann.md``), ``get_information_sets_with_coverage`` finds the most information sets
 that use no column more than ``b`` times, by partitioning ``b`` copies of each column into
 independent sets with Edmonds' matroid partitioning algorithm.  Section 4.4 of
-``brouwer_zimmermann.md`` says which searches use it.
+``brouwer_zimmermann_code.md`` says which searches use it.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ def get_information_sets_with_coverage(
     With ``keep_partial``, a nonempty partial set, of fewer independent columns than the rows, may
     follow the information sets, and counts toward ``max_sets``.  With coverage one, no other choice
     of as many information sets leaves room for a larger one (Section 4.4 of
-    ``brouwer_zimmermann.md``).
+    ``brouwer_zimmermann_code.md``).
 
     Args:
         basis: A binary matrix with independent rows.

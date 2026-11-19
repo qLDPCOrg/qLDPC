@@ -7,8 +7,8 @@ Distance searches and counts build families in stages, with their own exits betw
 ``get_disjoint_family``, ``prune_family``, ``get_overlapping_family``, and
 ``get_partitioned_family``.  Each stage aims at a target ``upper_bound``: the best weight ``U`` of a
 distance search, or ``t + 1`` for a count of the words of weight ``t``.  Sections cited in this
-module are those of ``brouwer_zimmermann.md``, whose Section 4.4 gives the rules of the stages and
-of the families of the coset searches.
+module are those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 4.4
+gives the rules of the stages and of the families of the coset searches.
 """
 
 from __future__ import annotations

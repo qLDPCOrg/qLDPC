@@ -126,8 +126,8 @@ class CosetLeaderSearch:
         # Read the active tuning, and prepare the searches.
         tuning = get_tuning()
         # A batch query moves to threads once its queries on the calling thread have done the split
-        # work: words that BZ queries weigh (Section 4.5 of brouwer_zimmermann.md), or states that
-        # connected-cluster queries visit (Section 3.11 of connected_cluster.md).
+        # work: words that BZ queries weigh (Section 4.5 of brouwer_zimmermann_code.md), or states
+        # that connected-cluster queries visit (Section 3.11 of connected_cluster.md).
         num_threads = _threads.get_num_threads(tuning.num_threads)
         split_work = min(
             num_threads << tuning.information_set_batch_exponent, _threads.NO_WORK_LIMIT

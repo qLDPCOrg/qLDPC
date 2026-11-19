@@ -3,7 +3,7 @@
 This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, counts the logical operators of a given weight in binary CSS codes, and finds light Pauli errors with given syndromes on stabilizer states.
 Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py`, which call the distance functions for binary codes.
-`brouwer_zimmermann.md` and `connected_cluster.md` explain the Brouwer-Zimmermann and connected-cluster searches, map them to the source code, explain their heuristics, and list the requirements that every change to them must keep.
+`brouwer_zimmermann.md` and `connected_cluster.md` explain the Brouwer-Zimmermann and connected-cluster searches, map them to the source code, explain their heuristics, and list the requirements that every change to them must keep; for the Brouwer-Zimmermann search, the last three are in `brouwer_zimmermann_code.md`.
 
 ## Public names
 
@@ -227,7 +227,7 @@ A better rule could use:
 - more features of the sectors, such as the weights of their checks.
 
 It could also resume the probe rather than start a new BZ search.
-It must read from a search only what is the same on any number of threads, as Section 5 of each guide requires ("Decide only from what a layer leaves the same on any number of threads" in `brouwer_zimmermann.md`).
+It must read from a search only what is the same on any number of threads, as Section 5 of each guide requires ("Decide only from what a layer leaves the same on any number of threads" in `brouwer_zimmermann_code.md`).
 For example, the counts of supports that a BZ layer on threads weighs and skips depend on the timing of its threads, but the predictions of its completion tables do not.
 To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
 A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.
@@ -246,7 +246,7 @@ For a single query, each looks up words of weight at most one in a table, then a
   Each pure-Z stabilizer is a product of given stabilizers, so the syndrome bit of `x` for it, which is that of the error, is the sum of the bits of the given syndrome for those factors, and likewise for `z`.
   `get_min_weights` searches the Z part of an error only if its X part is within `max_weight`, with the weight of the X part as the floor of that search.
 
-By default, each coset search is a Brouwer-Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann.md`).
+By default, each coset search is a Brouwer-Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann_code.md`).
 The BZ search of Pauli errors is cached by stabilizer matrix (`PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`), since its syndromes are for the given stabilizers.
 Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`), so `CosetLeaderSearch` objects for different generators of one state share them.
 `find_first_not_within_max_weight` returns the bound that a single BZ search found for the first syndrome without an error within `max_weight`, or, with two BZ searches, the bound that `get_min_weight_bound` gives for that syndrome.
@@ -254,7 +254,7 @@ Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`),
 Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](#threads)).
 The calling thread starts the batch alone, and a batch of cheap queries stays there.
 The split work of a search is `num_threads * 2**information_set_batch_exponent` units of work, one for each query and one for each word that it weighs after the word of its syndrome.
-Once the queries of a batch on the calling thread reach the split work, `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks, each searched with the same compiled loop (Section 4.5 of `brouwer_zimmermann.md`).
+Once the queries of a batch on the calling thread reach the split work, `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks, each searched with the same compiled loop (Section 4.5 of `brouwer_zimmermann_code.md`).
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
 With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query (Section 3.8 of `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
@@ -295,7 +295,7 @@ They are not arguments of public functions, whose arguments say what to compute 
 
 ### Threads
 
-A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann.md`).
+A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann_code.md`).
 A connected-cluster distance search searches each costly weight limit on `num_threads` threads, which give the same witness and count of states as a search on one thread (Section 3.11 of `connected_cluster.md`).
 With either method, the batch queries of `CosetLeaderSearch`, `find_first_not_within_max_weight` and `get_min_weights`, move the rest of a costly batch to `num_threads` threads ([The coset-leader search](#the-coset-leader-search)).
 A `CosetLeaderSearch` fixes its number of threads when it is built.
@@ -345,7 +345,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - Coverage cannot trace compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
-- A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads in Section 5 of the guide of each method, and pass the tests on threads that the guide lists.
+- A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads in Section 5 of the guide of each method (`brouwer_zimmermann_code.md` or `connected_cluster.md`), and pass the tests on threads that the guide lists.
   So must a change to data that threads read, such as completion tables, the routes of coset searches, and the tables of a connected-cluster search, or to a decision that a search makes from the results of a layer or a weight limit.
   Code that threads run reads the tuning only from its search, never through `get_tuning()`, since new threads start with the default tuning (see the module docstring of `_tuning.py`).
 - While each test of this package runs, the fixture `check_code_on_threads` of `conftest.py` fails it if its threads read the tuning through `get_tuning()` or call numba-parallel code from Python.

@@ -392,8 +392,8 @@ def get_partition_gate(
     Partitioning skips a coverage ``b`` if its bound is at least the work of the best family so far.
     At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
     is over disjoint families.  It skips coverage one if the given family is disjoint and has the
-    pruned disjoint rank bound (Section 4.4 of ``brouwer_zimmermann.md``).  The record also says
-    whether these quantities let partitioning run (``partitioned``), even if it then tried no
+    pruned disjoint rank bound (Section 4.4 of ``brouwer_zimmermann_code.md``).  The record also
+    says whether these quantities let partitioning run (``partitioned``), even if it then tried no
     coverage or found no family; ``wrap_family`` clears ``partitioned`` when a competing family
     rules partitioning out.
     """

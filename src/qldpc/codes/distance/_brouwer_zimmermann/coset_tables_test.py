@@ -54,7 +54,7 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
             expected = (*stopping_step, int(bounds[stopping_step]))
             # Plant each step as the cached one, including stale steps, and pairs that mix the layer
             # of one step and the number of completed sets of another, as interleaved queries can
-            # leave (Section 4.1 of ``brouwer_zimmermann.md``).
+            # leave (Section 4.1 of ``brouwer_zimmermann_code.md``).
             table[-1, :2] = planted
             plans.clear()
             assert get_stopping_step(table, max_weight) == expected

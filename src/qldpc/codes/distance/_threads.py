@@ -6,9 +6,9 @@ A worker runs compiled code that releases Python's global interpreter lock (see 
 ``qldpc/_compilation.py``), so that the threads run at once.  Threads share the read-only inputs of
 a search, such as its completion tables, rather than copy them, as processes would.  A caller of
 ``run_work_items`` or ``run_blocks`` must keep the requirements on threads in Section 5 of the guide
-of its method, ``brouwer_zimmermann.md`` or ``connected_cluster.md``.  Its workers read the tuning
-only from the search, never through ``get_tuning``, since new threads start with the default tuning
-(see the module docstring of ``_tuning.py``).
+of its method, ``brouwer_zimmermann_code.md`` or ``connected_cluster.md``.  Its workers read the
+tuning only from the search, never through ``get_tuning``, since new threads start with the default
+tuning (see the module docstring of ``_tuning.py``).
 """
 
 from __future__ import annotations
