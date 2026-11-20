@@ -385,7 +385,8 @@ Changes to the listing must keep these requirements.
   Each batch that a thread hands to the calling thread holds at most `2^10` class codewords, so that the held batches take bounded memory.
 - **Call no numba-parallel code on threads, and read the tuning only on the calling thread.**
   The search reads its number of threads before it lists, and `test_certifications_list_on_the_threads_of_the_search_tuning` checks that a certification lists on the number of threads of the tuning that it runs within.
-  The fixture `check_code_on_threads` of `qldpc/codes/distance/conftest.py`, which `conftest.py` here imports, fails each test of this package whose threads call numba-parallel code from Python or read the tuning through `get_tuning`, as `test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads` checks.
+  The fixture `check_code_on_threads` of `qldpc/codes/distance/conftest.py`, which `conftest.py` here imports, fails each test of this package whose threads call numba-parallel code from Python or read the tuning through `get_tuning`.
+  `test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads` checks that the fixture is active here: it runs `iterate_in_order`, which listings use, with a thread that calls `get_tuning`, and expects that thread to fail.
   `test_nothing_asks_numba_for_parallel_code` of `qldpc/_compiled_code_rules_test.py` checks that qLDPC compiles none of its functions numba-parallel.
   `test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads` in `_fault_search_test.py` checks that this section names each function of this package compiled with `nogil=True`.
 
