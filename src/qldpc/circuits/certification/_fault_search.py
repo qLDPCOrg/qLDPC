@@ -573,10 +573,10 @@ class _SharedFlagWalk:
         self._bit_index = bit_index
         self._class_map = class_map
 
-        # Make the arrays of ``_list_by_shared_flags``, with a column or row for each class of a
-        # state, at most ``m - 2`` for fault weight ``m``, and the walk's resumable position
-        # (``walk_state``).  The array of class codewords takes memory only for the rows that the
-        # walk writes.
+        # Make the arrays of ``_list_by_shared_flags``, of which ``levels``, ``chosen_row_sums``,
+        # ``basis``, and ``pivots`` have a column, row, or entry for each class of a state, at most
+        # ``m - 2`` for fault weight ``m``.  The array of class codewords takes memory only for the
+        # rows that the walk writes.
         num_classes, num_words = class_rows.shape
         num_levels = fault_weight - 2
         self._levels = np.zeros((4, num_levels), dtype=np.int64)
@@ -642,11 +642,11 @@ def _get_root_weights(
 
     The weights decide whether a listing moves to threads and how its roots are split between them,
     never what is listed.  A class codeword of fault weight ``m`` whose root is ``r`` has its other
-    ``m - 1`` classes after ``r``, and the walk chooses all of them but one, which it finds by a
-    probe.  So each root is weighed by ``C(q - 1 - r, m - 2)``, for ``q`` classes, the number of
-    these choices.  The candidates of every state of the walk by shared flags come after ``r``, so
-    the work of a root falls with ``r`` about as fast as this weight does if the classes that share
-    each flag bit are spread over the order of the classes.  The weights are divided by
+    ``m - 1`` classes after ``r``, and the walk chooses or tries all of them but one, which it
+    finds by a probe.  So each root is weighed by ``C(q - 1 - r, m - 2)``, for ``q`` classes, the
+    number of these choices.  The candidates of every state of the walk by shared flags come after
+    ``r``, so the work of a root falls with ``r`` about as fast as this weight does if the classes
+    that share each flag bit are spread over the order of the classes.  The weights are divided by
     ``C(q - 1, m - 2)``, so that each is the product of the factors
     ``(q - 1 - r - j) / (q - 1 - j)`` for ``j < m - 2``, each from 0 to 1, and never overflows.  A
     weight is zero if ``q - 1 - r < m - 2``.
@@ -806,12 +806,12 @@ def _list_by_shared_flags(
     holds the class codewords that the listing keeps in the pass, which it sorts in lexicographic
     order once the pass is done, after any rows of earlier passes that it has not yet returned.  If
     the kept class codewords fill the array when the listing examines another class at the last
-    level, it keeps the first ``⌊D/2⌋`` of them in lexicographic order, for ``D`` rows, and makes
+    depth, it keeps the first ``⌊D/2⌋`` of them in lexicographic order, for ``D`` rows, and makes
     another pass for the others, as "Roots with many class codewords" in ``fault_propagation.md``
     describes.  The listing counts its work in probes, as "Listing class codewords on threads" in
     ``fault_propagation.md`` describes, with ``reduction_cost`` probes for each reduction of flags.
 
-    The listing keeps its state between calls in the other arrays.  The depth is the index, among
+    The listing keeps its position between calls in the other arrays.  The depth is the index, among
     the chosen classes, of the last one chosen, and the chosen classes are the state ``A`` of the
     guide.  Column ``d`` of ``levels`` holds the class chosen at depth ``d``, the entry of
     ``bit_classes`` of its next candidate and the entry after its last, and the number of marks when
@@ -900,10 +900,10 @@ def _list_by_shared_flags(
                 has_ceiling = 0
             continue
 
-        # A class examined here adds at most one class codeword.  If the array has no room for it,
-        # return the rows of earlier passes, or else keep the first half, rounded down, of the rows
-        # of this pass in lexicographic order, and from now on keep only class codewords before the
-        # first row dropped.
+        # At the last depth, a class examined adds at most one class codeword.  If the array has no
+        # room for it, return the rows of earlier passes, or else keep the first half, rounded down,
+        # of the rows of this pass in lexicographic order, and from now on keep only class codewords
+        # before the first row dropped.
         if depth == last_depth and num_ready + num_pending == len(codewords):
             if num_ready:
                 break

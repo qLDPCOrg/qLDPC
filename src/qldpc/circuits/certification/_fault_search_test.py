@@ -208,15 +208,15 @@ def test_the_walk_lists_each_class_codeword_once_in_lexicographic_order(
     The flags of the classes are dense, or sparse, each with one or two bits of up to ten, so that
     the walk has few candidates and forbids classes at several depths.  The 15 classes of every
     nonzero flag of four bits have class codewords with several classes that have the bit that the
-    walk chooses at their root, which a walk that ignores forbidden classes lists twice, and sets of
-    six classes whose flags sum to zero but have rank four, which a walk that skips its last test of
-    independence lists.  In the other cases, the walk's array has two rows.  So a full array makes
-    it return the class codewords of earlier roots before it finishes a root, and then move those of
-    the root to the start of the array, and it makes several passes over a root with more than two
-    class codewords.  Each case is listed by a walk that pauses after each probe of work, as on
-    threads, and resumes, and then by the lister on one thread.  The paused walk may return a
-    bounded number of batches and class codewords, and both listings run on a thread of their own
-    with a timeout, so that a listing that does not end fails rather than hangs.
+    walk chooses at their root.  A walk that ignores forbidden classes lists these twice.  They also
+    have sets of six classes whose flags sum to zero but have rank four, which a walk that skips its
+    last test of independence lists.  In the other cases, the walk's array has two rows.  So a full
+    array makes it return the class codewords of earlier roots before it finishes a root, and then
+    move those of the root to the start of the array, and it makes several passes over a root with
+    more than two class codewords.  Each case is listed by a walk that pauses after each probe of
+    work, as on threads, and resumes, and then by the lister on one thread.  The paused walk may
+    return a bounded number of batches and class codewords, and both listings run on a thread of
+    their own with a timeout, so that a listing that does not end fails rather than hangs.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(list(range(1, 16)), 1, 6, _fault_search._MAX_ROOT_CODEWORDS)]
@@ -275,7 +275,7 @@ def _list_class_tuples(
 
 
 @pytest.mark.parametrize("collide", [False, True])
-def test_a_class_codeword_found_at_two_states_is_listed_once(
+def test_a_class_codeword_that_two_states_could_find_is_listed_once(
     collide: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The walk by shared flags lists a class codeword once, also with members and hashes shared.
@@ -790,8 +790,8 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
 
     # Check each fault on its own, and stop at the fifth, the last class codeword of the second
     # root, so that the calling thread closes the listing while threads list.  They cannot finish:
-    # the five roots after it take at least two calls of one probe each, and so at least ten
-    # batches, more than the at most eight that the threads may hold while the calling thread takes
+    # the five roots after it take at least ten calls of the walk, each of which passes on a batch,
+    # more than the at most eight batches that the threads may hold while the calling thread takes
     # no more (see ``iterate_in_order``).
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 1)

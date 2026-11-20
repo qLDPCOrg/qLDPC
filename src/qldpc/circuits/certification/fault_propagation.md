@@ -220,7 +220,7 @@ By induction on `|A|`, the walk finds `C`.
 
 **The walk finds each class codeword once.**
 The walk never reaches the same set of classes twice.
-If one visit is below another, it has more classes.
+If one visit is below another, the lower one has more classes.
 Otherwise the two visits are at or below different children `A ∪ {u}` and `A ∪ {u'}` of a visit `A`, with `u` before `u'`.
 The sets at or below `A ∪ {u}` all contain `u`, while those at or below `A ∪ {u'}` do not, since `u` is in `Φ(A ∪ {u'})`, forbidden classes stay forbidden below a state, and the walk adds only available classes.
 So the walk visits each state once, and `Φ(A)` depends only on `A`.
@@ -235,7 +235,8 @@ In general, suppose that the walk finds `C` at two states `A` and `A'`, with can
 If `A = A'`, then `C \ A = {x, z} = {x', z'}`, and since `σ(A) = f(x) + f(z)` has bit `b`, exactly one of `x` and `z` has bit `b`.
 Both `x` and `x'` are candidates, and so have bit `b`, so `x = x'` and `z = z'`, and the two findings are one.
 Otherwise neither state is below the other, since both have `m - 2` classes.
-Let `B` be the last state that both are below, where their paths first diverge, and `B ∪ {u}` and `B ∪ {u'}` the children of `B` that `A` and `A'` are at or below, with `u` before `u'`, swapping `A` and `A'` if needed, so that `u` is in `Φ(B ∪ {u'})`, and so in `Φ(A')`.
+Swapping `A` and `A'` if needed, let `B` be the last state that both are below, where their paths first diverge, and `B ∪ {u}` and `B ∪ {u'}` the children of `B` that `A` and `A'` are at or below, with `u` before `u'`.
+Then `u` is in `Φ(B ∪ {u'})`, and so in `Φ(A')`.
 Then `u` is in `A`, and so in `C`.
 But `u` is not in `A'`: it is not in `B` or `u'`, since it was a candidate of `B`, and the walk adds below `B ∪ {u'}` only classes that are available, and so not forbidden.
 It is not `x'`, which is available at `A'`, and it is not `z'`, since the walk finds `C` at `A'` only if `z'` is neither forbidden nor in `A'`.
@@ -251,17 +252,21 @@ The result depends on the listing only through this sequence of class codewords 
 The search reports the first violating fault of the smallest fault weight in this sequence, so a fixed order keeps the reported fault the same between versions of qLDPC.
 
 **Roots with many class codewords.**
-At a state with `|A| = m - 2`, each class after `r` with bit `b` that the walk examines adds at most one class codeword, so the walk makes room before it examines one.
+At a state with `|A| = m - 2`, each class after `r` with bit `b` that the walk examines, candidate or not, adds at most one class codeword, so the walk makes room before it examines one.
 If the array is full, the walk **halves** it: it sorts its rows and keeps the first `⌊D/2⌋ ≥ 1` of them.
 From then on, it keeps only class codewords that come before the first one dropped, its **ceiling**, which it lowers at each halving.
 A later pass over a root also has a **floor**, the last class codeword released by the pass before, and keeps only class codewords after it.
+A missing floor or ceiling imposes no bound.
 The floor and the ceiling decide only which class codewords a pass keeps, never which states it visits, so each pass finds every class codeword of the root once, as shown above.
 
-At each moment of a pass, the array holds exactly the class codewords that the pass has found so far and that come after the floor and before the current ceiling.
+By induction over the steps of a pass, at each moment the array holds exactly the class codewords that the pass has found so far and that come after the floor and before the current ceiling.
 Each such class codeword entered when it was found, since the walk had made room for it, and it came before the ceiling of that moment, which is no earlier than the current one.
 No halving dropped it, since a halving drops exactly the rows at or after its new ceiling, the rows being distinct and sorted.
 Conversely, a class codeword enters only when it is found between the floor and the ceiling of that moment.
-If it comes at or after the current ceiling, the first halving after it entered whose new ceiling is no later than it dropped it, since the halvings before had later ceilings, and the pass does not find it again.
+Suppose that a class codeword that entered comes at or after the current ceiling.
+The ceiling when it entered came after it, so some halving after it entered has a new ceiling no later than it.
+The halvings before the first of these had later ceilings and kept it, and the first of these dropped it.
+The pass finds each class codeword once, so it does not enter again.
 
 When the pass is done, the array therefore holds every class codeword of the root between the floor and the ceiling, and the search releases them in order.
 If the pass halved the array, it releases at least the `⌊D/2⌋ ≥ 1` rows that the last halving kept; the last one released becomes the new floor, and the walk makes another pass.
