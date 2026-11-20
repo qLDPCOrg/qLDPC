@@ -47,8 +47,10 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   of the cost projection on each side of its threshold; the break-even outcomes at their
   boundaries; projected costs; the exemption of parts with few draws, at its boundary and with the
   floor s_min sigma_target^2; each part's estimate and bound; and the nonzero draws of a
-  calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.  A row
-  with ``compiled_in_timing`` set stops the analysis, with an error that names it.
+  calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.  A
+  histogram's, the direct reference's, or the calibration's row with ``compiled_in_timing`` set
+  gives no CPU seconds but keeps the scores and the reference.  Such a row of an admitted circuit,
+  in a group of two, leaves the group without costs, and ``checks.json`` lists it.
 
 Each test prints PASS or FAIL; the script exits with status 1 if any failed.
 """
@@ -987,19 +989,58 @@ def rt10_rules(directory: pathlib.Path) -> None:
         mean = (increases - decreases) / count
         assert analyze.nonzero_changes(mean, error, count) == increases + decreases
 
-    # a row with compiled_in_timing set (the row of a retry that compiled too) stops the analysis,
-    # with an error that names it
+    # a row with compiled_in_timing set (the row of a retry that compiled too) gives no CPU seconds:
+    # evaluate drops those of that row alone, whether a histogram's, the direct reference's, or the
+    # calibration's
+    calib_result = {
+        "calibration": passing_calibration.to_dict(),
+        "num_samples": 1000,
+        "cpu_consumer_setup_s": 0.4,
+        "cpu_sampled_s": 5.0,
+        "score_timing": {"mean_cpu_s": {"rebuild_histogram": 0.01, "phi_cal": 0.02}},
+    }
+    cpu = {"cpu_setup_s": 0.1, "cpu_exact_s": 0.2, "cpu_sampled_s": 0.3}
+    x_fields = experiment.histogram_fields(passing_histogram) | cpu
+    timed_rows = {
+        "histogram": (
+            f"histogram.z.p{rate:g}",
+            {"status": "ok", "result": {"total": fields | cpu, "x": x_fields}},
+        ),
+        "direct": (f"direct.z.p{rate:g}", candidate_rows[f"direct.z.p{rate:g}"]),
+        "calib": (f"calib.g.p{rate:g}", {"status": "ok", "result": calib_result}),
+    }
+    state = {"id": "z", "stabilizers": passing_calibration.state_stabilizers}
+    admission = [{"id": "z", "admitted": True, "group_in_scope": True}]
+    for flagged in (None, *timed_rows):
+        flagged_rows = {
+            key: row | {"compiled_in_timing": name == flagged}
+            for name, (key, row) in timed_rows.items()
+        }
+        evaluated, groups = analyze.evaluate(flagged_rows, {"g": [state]}, admission)
+        (scored,) = [c for c in evaluated if c["rate"] == rate]
+        (group_row,) = [g for g in groups if g["rate"] == rate]
+        assert "phi_cal" in scored and "phi_true" in scored, (flagged, scored)
+        present = {
+            "histogram": "cpu_histogram" in scored,
+            "direct": "cpu_direct" in scored,
+            "calib": "score_timing" in group_row or "cpu_sampled_s" in group_row,
+        }
+        assert present == {name: name != flagged for name in present}, (flagged, present)
+        expected_arms = flagged if flagged in ("histogram", "direct") else None
+        assert scored["compiled_arms"] == expected_arms, (flagged, scored)
+        assert group_row["compiled_in_timing_calib"] is (flagged == "calib"), group_row
+
+    # such a row of an admitted circuit leaves its group without costs, and checks.json lists it
+    members = [{"group": "g", "rate": rate, "admitted": True, "compiled_arms": None}]
+    members += [members[0] | {"compiled_arms": "direct"}]
+    (cost_line,) = analyze.costs(members, [{"group": "g", "rate": rate}])
+    assert cost_line["reason"] == "a row has compiled_in_timing set", cost_line
     label_dir = directory / "compiled"
     label_dir.mkdir(parents=True, exist_ok=True)
     store.append_row(
         label_dir, {"task_key": "direct.c", "status": "ok", "compiled_in_timing": True}
     )
-    try:
-        analyze._ranking_rows(label_dir)
-    except ValueError as refusal:
-        assert "direct.c" in str(refusal), refusal
-    else:
-        raise AssertionError("a row with compiled_in_timing set was analyzed")
+    assert analyze._ranking_rows(label_dir)[1] == ["direct.c: compiled_in_timing"]
 
 
 ####################################################################################################

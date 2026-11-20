@@ -50,5 +50,4 @@ python experiments/state_prep_certification/ranking/analyze.py --label-dir DIR -
 On the node, `node.sh ranking --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes; it first runs the acceptance tests that check the inputs, the consumers, and the node's modules (RT1, RT2, and RT8 of [`acceptance.py`](acceptance.py)).
 A bundle for ranking must also name `certification`, whose entry carries the inputs and code files: `bundle.py certification ranking --out DIR`.
 `analyze.py --archive PATH --certification-archive PATH` reads the ranking archive and the certification archive of subset `main` that come back, checks the certification archive's provenance, and writes CSV and JSON tables; its docstring lists them.
-A row of the ranking archive with `compiled_in_timing` set (see the [shared README](../README.md#runs)) stops the analysis with an error that names it.
-The analysis admits circuits by the verdicts of the certification archive's rows, whatever their `compiled_in_timing`, although a flagged certification timeout may have timed out only because it compiled.
+`analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
