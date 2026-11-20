@@ -27,6 +27,10 @@ from qldpc.codes.distance.conftest import THREAD_TIMEOUT
 
 from . import _fault_search
 
+# The timeout of a test whose function, on a thread of its own, may compile the lister on a cold
+# cache of compiled code, as for the read-only arrays of the threads.
+_COMPILE_TIMEOUT = 6 * THREAD_TIMEOUT
+
 
 def _irreducible_faults(
     flags: Sequence[int], fault_weight: int, num_starts: int
@@ -550,10 +554,9 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
         for lister in listers:
             listed.clear()
             in_use[:] = [lister]
-            # A cold cache of compiled code compiles the read-only versions on the first calls.
             checked, result = distance_conftest.run_on_a_thread(
                 functools.partial(_check_faults, lister, fault_weight, violating),
-                timeout=6 * THREAD_TIMEOUT,
+                timeout=_COMPILE_TIMEOUT,
             )
             totals = [sum(column) for column in zip(*listed, strict=True)] if listed else []
             results.append((checked, result, totals))
@@ -701,21 +704,23 @@ def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(
             assert _check_faults(_fault_search.FaultLister(*args, 3), 3, violating) == expected
             assert later_listed.is_set()
 
-    distance_conftest.run_on_a_thread(check)
+    distance_conftest.run_on_a_thread(check, timeout=_COMPILE_TIMEOUT)
 
 
+@pytest.mark.parametrize(("lookups_per_set", "expected_sizes"), [(0.59, [1, 2, 3]), (0.61, [1, 2])])
 def test_listing_on_threads_counts_the_lookups_of_one_thread(
-    monkeypatch: pytest.MonkeyPatch,
+    lookups_per_set: float, expected_sizes: list[int], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """On threads, a lister counts every lookup, so it builds the closing maps of one thread.
+    """On threads, a lister counts every lookup once, so it builds the closing maps of one thread.
 
     With classes of flags 1 to 7, a listing of fault weight four makes 21 lookups, one for each pair
-    of classes, and the closing map of the 35 sets of three classes waits for 20.65 lookups.  The
-    calling thread makes seven of them alone.  So the map is built for fault weight five only if
-    the threads' lookups count.
+    of classes.  The closing map of the 35 sets of three classes waits for 20.65 lookups, or for
+    21.35.  The calling thread makes seven of them alone.  So the map is built for fault weight five
+    in the first case only if the threads' lookups are counted, and in the second only if lookups
+    are counted more than once.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_LOOKUPS_PER_THREAD", 2)
-    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0.59)
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", lookups_per_set)
     sizes: list[int] = []
     get_closing_map = _fault_search._get_closing_map
 
@@ -740,9 +745,9 @@ def test_listing_on_threads_counts_the_lookups_of_one_thread(
             checked = [_check_faults(lister, fault_weight, ()) for fault_weight in range(2, 6)]
             results.append((checked, list(sizes)))
 
-    distance_conftest.run_on_a_thread(check)
+    distance_conftest.run_on_a_thread(check, timeout=_COMPILE_TIMEOUT)
     assert results[0] == results[1]
-    assert results[0][1] == [1, 2, 3]
+    assert results[0][1] == expected_sizes
 
 
 @pytest.mark.parametrize("split_lookups", [1, 5])
@@ -776,7 +781,7 @@ def test_only_costly_listings_move_to_threads(
         expected = _check_faults(_fault_search.FaultLister(*args), 3, ())
         assert _check_faults(_fault_search.FaultLister(*args, 3), 3, ()) == expected
 
-    distance_conftest.run_on_a_thread(check)
+    distance_conftest.run_on_a_thread(check, timeout=_COMPILE_TIMEOUT)
     assert bool(iterations) == (split_lookups == 1)
 
 
@@ -821,7 +826,7 @@ def test_listing_on_threads_stops_its_threads_when_an_exception_is_raised(
                     each.close()
                 assert not running
 
-    distance_conftest.run_on_a_thread(list_faults)
+    distance_conftest.run_on_a_thread(list_faults, timeout=_COMPILE_TIMEOUT)
 
 
 def test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads() -> None:
@@ -852,7 +857,7 @@ def test_certifications_list_on_the_threads_of_the_search_tuning(
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_LOOKUPS_PER_THREAD", 0)
     thread_counts: list[int] = []
-    iterations: list[int] = []
+    iterator_thread_counts: list[int] = []
     fault_lister = _fault_search.FaultLister
     iterate_in_order = _fault_search.iterate_in_order
 
@@ -860,12 +865,12 @@ def test_certifications_list_on_the_threads_of_the_search_tuning(
         thread_counts.append(kwargs["num_threads"])
         return fault_lister(*args, **kwargs)
 
-    def count_iterations(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
-        iterations.append(args[1])
+    def record_iterator_threads(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
+        iterator_thread_counts.append(args[1])
         return iterate_in_order(*args, **kwargs)
 
     monkeypatch.setattr(_fault_search, "FaultLister", record_lister)
-    monkeypatch.setattr(_fault_search, "iterate_in_order", count_iterations)
+    monkeypatch.setattr(_fault_search, "iterate_in_order", record_iterator_threads)
     circuit = stim.Circuit()
     circuit.append("I", range(9))
     for flag in range(1, 16):
@@ -889,9 +894,9 @@ def test_certifications_list_on_the_threads_of_the_search_tuning(
                 )
         return certificates
 
-    one, three = distance_conftest.run_on_a_thread(certify)
+    one, three = distance_conftest.run_on_a_thread(certify, timeout=_COMPILE_TIMEOUT)
     assert thread_counts == [1, 3]
-    assert iterations and set(iterations) == {3}
+    assert iterator_thread_counts and set(iterator_thread_counts) == {3}
     assert one.certified and one == three
 
 

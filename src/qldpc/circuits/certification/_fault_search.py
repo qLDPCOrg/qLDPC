@@ -487,8 +487,8 @@ class FaultLister:
 
         For fault weight two, each class tuple is ``(c, c)`` for a start class ``c`` with at least
         two members.  For larger fault weights, the class tuples are the class codewords that start
-        with a start class, in the serial order.  Each batch is a view of an array that a
-        later batch can overwrite.  On several threads, closing the iterator stops its threads.
+        with a start class, in the serial order.  Each batch is a view of an array that a later
+        batch can overwrite.  On several threads, closing the iterator stops its threads.
         """
         if fault_weight == 2:
             class_sizes = np.diff(self._class_offsets[: self._num_start_classes + 1])

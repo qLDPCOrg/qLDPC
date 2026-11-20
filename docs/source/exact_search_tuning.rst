@@ -49,8 +49,8 @@ Start from a symptom
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
    * - A distance search by the Brouwer-Zimmermann or connected-cluster method, a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch`, or a certification of bounded fault propagation (:func:`~qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation`) uses too many or too few cores, as when several processes run searches at once
-     - By default, a search uses one thread for each CPU that numba counts, unless the environment variable ``NUMBA_NUM_THREADS`` sets another number.
-       Set the environment variable ``QLDPC_NUM_THREADS`` before Python starts, which sets the default number of threads, or set :attr:`~SearchTuning.num_threads`.
+     - By default, a search or certification uses ``QLDPC_NUM_THREADS`` threads if that environment variable was set before Python started, or else ``numba.config.NUMBA_NUM_THREADS``, which is one for each CPU that numba counts unless the environment variable ``NUMBA_NUM_THREADS`` sets another number.
+       To change it, set ``QLDPC_NUM_THREADS`` before Python starts, or set :attr:`~SearchTuning.num_threads`.
        A :class:`~qldpc.codes.distance.CosetLeaderSearch` reads ``num_threads`` when it is built.
        Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example with ``QLDPC_NUM_THREADS=1``.
        Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota rounded down, or to 1 if the quota is below 1.
