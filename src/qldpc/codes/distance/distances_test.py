@@ -567,9 +567,9 @@ def test_connected_cluster_searches_take_the_active_tuning(
 ) -> None:
     """CSS and Pauli distances search by connected clusters with the active tuning.
 
-    ``get_distance_css`` searches through ``_search_css``, and ``get_distance_pauli``, whose
-    searches are symplectic, through ``_search`` alone.  Each search takes both of its switches
-    from the active tuning, whether they are on or off.
+    ``get_distance_css`` searches binary sectors, and ``get_distance_pauli`` searches the five-qubit
+    code, which is not CSS, as Pauli strings.  Each search takes both of its switches from the
+    active tuning, whether they are on or off.
     """
     switches: list[tuple[bool, bool, bool]] = []
     initialize = SupportSearch.__init__
