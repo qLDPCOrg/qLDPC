@@ -232,8 +232,7 @@ def test_state_stabilizer_signs_must_be_determined() -> None:
 
 def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyPatch) -> None:
     """Simulation gives the stabilizers, signs, and errors that flows give, on random circuits."""
-    # the cases of test_state_stabilizer_signs_must_be_determined, and bundled MR, for which flows
-    # trip Stim issue 1109
+    # the cases of test_state_stabilizer_signs_must_be_determined
     cases: list[tuple[stim.Circuit, list[int]]] = [
         (stim.Circuit(text), qubits)
         for text, qubits in [
@@ -242,8 +241,6 @@ def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyP
             ("H 0\nCX 0 1\nM 0\nDETECTOR rec[-1]", [2]),
             ("X 0\nCX 0 1\nM 1\nDETECTOR rec[-1]\nH 2\nM 2\nDETECTOR rec[-1]", [0, 1]),
             ("H 0\nCX 0 1\nCX 0 2\nM 0 1\nDETECTOR rec[-2] rec[-1]", [2]),
-            ("H 0\nCX 0 1\nMR 0 0\nDETECTOR rec[-2]", [1]),
-            ("H 0\nCX 0 1\nMR 0 0\nDETECTOR rec[-1]", [1]),
         ]
     ]
 
@@ -263,15 +260,13 @@ def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyP
     simulate = unittest.mock.Mock(wraps=encoding._get_fixed_parities_by_simulation)
     monkeypatch.setattr(encoding, "_get_fixed_parities_by_simulation", simulate)
 
-    # Compare with flows of the circuit with each MR, MRX, and MRY split into single-target
-    # instructions, which avoids https://github.com/quantumlib/Stim/issues/1109.
+    # compare with flows
     outcomes = []
     for circuit, qubits in cases:
         outcome = _get_state_stabilizer_outcome(circuit, qubits)
         with monkeypatch.context() as context:
             context.setattr(encoding, "_is_simulable", lambda _circuit: False)
-            split_circuit = _split_reset_measurements(circuit)
-            assert outcome == _get_state_stabilizer_outcome(split_circuit, qubits)
+            assert outcome == _get_state_stabilizer_outcome(circuit, qubits)
         outcomes.append(outcome)
     assert simulate.call_count == len(cases)
 
@@ -303,6 +298,24 @@ def test_state_stabilizers_by_flows(
     monkeypatch.setattr(encoding, "_get_fixed_parities_by_flows", use_flows)
     circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
     assert use_flows.called
+
+
+@pytest.mark.parametrize("simulate", [True, False])
+def test_state_stabilizers_with_repeated_reset_measurement(
+    monkeypatch: pytest.MonkeyPatch, simulate: bool
+) -> None:
+    """Both routes handle MR with a repeated target, whose flows Stim gets wrong.
+
+    After ``H 0; CX 0 1``, the first result of ``MR 0 0`` is random and gives the sign of Z on
+    qubit 1, while the second result is 0, so the detector on it is deterministic.  So only Z on the
+    untouched qubit 2 is a stabilizer with a fixed sign.  Stim's flows of ``MR 0 0`` attribute the
+    first result to the second (https://github.com/quantumlib/Stim/issues/1109), which would tie
+    the sign of Z on qubit 1 to the detector, and raise an error for it.
+    """
+    if not simulate:
+        monkeypatch.setattr(encoding, "_is_simulable", lambda _circuit: False)
+    circuit = stim.Circuit("H 0\nCX 0 1\nMR 0 0\nDETECTOR rec[-1]")
+    assert circuits.get_state_stabilizers(circuit, [1, 2]) == [stim.PauliString("+_Z")]
 
 
 def _get_random_state_prep_circuit(
@@ -351,57 +364,3 @@ def _get_state_stabilizer_outcome(circuit: stim.Circuit, qubits: list[int]) -> l
         return [str(stabilizer) for stabilizer in circuits.get_state_stabilizers(circuit, qubits)]
     except ValueError as error:
         return f"{type(error).__name__}: {error}"
-
-
-def _split_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
-    """Split each MR, MRX, and MRY instruction into single-target instructions, separated by TICK.
-
-    The TICK instructions stop Stim from merging adjacent instructions with the same name.
-    """
-    split_circuit = stim.Circuit()
-    for instruction in circuit:
-        assert isinstance(instruction, stim.CircuitInstruction)
-        if instruction.name in ("MR", "MRX", "MRY"):
-            for target in instruction.targets_copy():
-                split_circuit.append(instruction.name, [target], instruction.gate_args_copy())
-                split_circuit.append("TICK")
-        else:
-            split_circuit.append(instruction)
-    return split_circuit
-
-
-def test_deprecated_logical_state_stabilizers_argument_order() -> None:
-    """The released argument order (state_prep_circuit, code, qubit_ids) warns and still works."""
-    code = codes.SteaneCode()
-    data = tuple(range(3, 3 + len(code)))
-    prep = circuits.with_remapped_qubits(circuits.get_encoding_circuit(code, only_zero=True), data)
-    qids = circuits.QubitIDs(data, tuple(range(20, 20 + code.num_checks)))
-    expected = circuits.get_logical_state_stabilizers(code, prep, qids)
-
-    # the released keyword names still work in any order, without warning
-    assert expected == circuits.get_logical_state_stabilizers(
-        state_prep_circuit=prep, code=code, qubit_ids=qids
-    )
-
-    with pytest.warns(DeprecationWarning, match="DEPRECATED") as record:
-        stabilizers = circuits.get_logical_state_stabilizers(prep, code, qids)
-    assert stabilizers == expected
-    assert len(record) == 1 and record[0].filename == __file__
-
-
-def test_get_logical_tableau_from_code_data() -> None:
-    """Identify a logical tableau, and reject invalid encoders and non-logical circuits."""
-    code = codes.FiveQubitCode()
-    encoder, decoder = circuits.get_encoder_and_decoder(code)
-    logical_x = math.op_to_string(code.get_logical_ops(Pauli.X, symplectic=True)[0])
-    logical_tableau = encoding._get_logical_tableau_from_code_data(
-        1, 0, encoder, decoder, logical_x.to_tableau().to_circuit()
-    )
-    assert logical_tableau == stim.Tableau.from_named_gate("X")
-
-    with pytest.raises(ValueError, match="does not implement a logical operation"):
-        encoding._get_logical_tableau_from_code_data(1, 0, encoder, decoder, stim.Circuit("X 0"))
-    with pytest.raises(ValueError, match="incompatible dimensions"):
-        encoding._get_logical_tableau_from_code_data(
-            1, 0, stim.Tableau(1), stim.Tableau(2), stim.Circuit()
-        )

@@ -214,7 +214,10 @@ def get_state_stabilizers(
     analyzes the random outcomes with Stim's detector error model, allowing gauge detectors.
     Circuits with instructions that this analysis does not cover, such as observables, REPEAT
     blocks, classically controlled gates, and heralded noise, use ``stim.Circuit.flow_generators``
-    instead, whose cost grows about as the cube of the circuit's size.
+    instead, whose cost grows about as the cube of the circuit's size.  Before finding flows, this
+    function splits each MR, MRX, or MRY instruction that repeats a target, such as ``MR 0 0``,
+    into single-target instructions, since Stim's flows of such instructions are wrong (Stim issue
+    https://github.com/quantumlib/Stim/issues/1109).
 
     Args:
         state_prep_circuit: The circuit that prepares the state.
@@ -497,7 +500,7 @@ def _get_fixed_parities_by_flows(
     observables.  Returns all detectors of the circuit, and the reduced row echelon form of the
     fixed parities.
     """
-    flow_generators = circuit.flow_generators()
+    flow_generators = _split_repeated_reset_measurements(circuit).flow_generators()
 
     # identify some useful numbers
     num_qubits = circuit.num_qubits
@@ -556,6 +559,31 @@ def _get_fixed_parities_by_flows(
     num_unwanted_columns = len(unwanted_columns)
     on_others = np.any(rows[:, :num_unwanted_columns], axis=1)
     return np.arange(num_detectors), rows[~on_others, num_unwanted_columns:]
+
+
+def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
+    """Split each MR, MRX, or MRY instruction that repeats a target into single-target instructions.
+
+    This works around https://github.com/quantumlib/Stim/issues/1109: for such an instruction, such
+    as ``MR 0 0``, ``stim.Circuit.flow_generators`` attributes the outcome of one measurement to
+    another.  TICK instructions between the single-target instructions stop Stim from merging them
+    back together.  The measurements keep their order.
+    """
+    split_circuit = stim.Circuit()
+    for instruction in circuit:
+        if isinstance(instruction, stim.CircuitRepeatBlock):
+            body = _split_repeated_reset_measurements(instruction.body_copy())
+            split_circuit.append(stim.CircuitRepeatBlock(instruction.repeat_count, body))
+            continue
+        targets = instruction.targets_copy()
+        qubits = [target.value for target in targets]
+        if instruction.name in ("MR", "MRX", "MRY") and len(set(qubits)) < len(qubits):
+            for target in targets:
+                split_circuit.append(instruction.name, [target], instruction.gate_args_copy())
+                split_circuit.append("TICK")
+        else:
+            split_circuit.append(instruction)
+    return split_circuit
 
 
 def _get_logical_tableau_from_code_data(
