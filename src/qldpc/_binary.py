@@ -154,9 +154,9 @@ def row_reduce_packed(
     columns, so if the columns are ``0, 1, ..., width - 1`` in order, ``reduced[: len(pivots)]`` is
     the reduced row echelon form without zero rows.
 
-    The reduction stops after ``max_rank`` pivots, for a nonnegative ``max_rank``.  These are the
-    first pivots of the full reduction, and if it stops there, it has reduced only over the columns
-    up to the last of them.
+    ``max_rank``, which must be nonnegative, caps the number of pivots; by default there is no cap.
+    The pivots found are the first ones of the full reduction.  A reduction that the cap stops
+    promises only these pivots, not its rows or labels.
     """
     words, tags = rows.copy(), labels.copy()
     num_rows = len(words)
@@ -237,9 +237,10 @@ def multiply_packed(
 
 @always_compiled
 def get_rank_packed(rows: npt.NDArray[np.uint64], max_rank: int = _NO_RANK_LIMIT) -> int:
-    """Return the rank of packed rows over GF(2), or a nonnegative ``max_rank`` if that is smaller.
+    """Return the rank of packed rows over GF(2), or ``max_rank`` if that is smaller.
 
-    The row reduction stops after ``max_rank`` pivots, so a small ``max_rank`` saves time.
+    ``max_rank`` must be nonnegative.  The function stops row-reducing once it finds that many
+    pivots, so a small ``max_rank`` saves time.
     """
     labels = np.empty((len(rows), 0), dtype=np.uint64)
     _, _, pivots = row_reduce_packed(rows, labels, np.arange(64 * rows.shape[1]), max_rank)

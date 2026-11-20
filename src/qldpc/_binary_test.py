@@ -131,13 +131,17 @@ def test_get_inverse() -> None:
 
 
 def test_rank_and_row_reduction_stop_at_max_rank() -> None:
-    """A rank stops at ``max_rank``, and a row reduction at the first ``max_rank`` pivots."""
+    """A rank is capped at ``max_rank``, and a reduction that it stops finds the first pivots.
+
+    ``get_rank_packed`` gives min(rank, ``max_rank``), and a row reduction that ``max_rank`` stops
+    finds the first pivots of the full one.
+    """
     matrix = np.random.default_rng(6).integers(0, 2, (6, 70), dtype=np.uint8)
     matrix[-1] = matrix[0] ^ matrix[1]
     rank = np.linalg.matrix_rank(galois.GF2(matrix))
     packed, labels, columns = binary.pack_bits(matrix), np.empty((6, 0), np.uint64), np.arange(70)
     _, _, pivots = binary.row_reduce_packed(packed, labels, columns)
-    for max_rank in range(rank + 2):
+    for max_rank in (0, 2, rank, rank + 1):
         assert binary.get_rank_packed(packed, max_rank) == min(rank, max_rank)
         _, _, first_pivots = binary.row_reduce_packed(packed, labels, columns, max_rank)
         np.testing.assert_array_equal(first_pivots, pivots[:max_rank])

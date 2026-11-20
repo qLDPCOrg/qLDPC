@@ -432,7 +432,10 @@ def _listing(
         "q": len(classes.flags),
         "q_h": classes.num_start,
         "h": sum(heavy),
-        "threshold_one_queries": {"zero_flag": reduced.num_zero_flag, "flagged": len(flagged)},
+        "threshold_one_queries": {
+            "zero_flag": reduced.num_zero_flag,
+            "flagged": len({reduced.syndromes[i] for i in flagged}),
+        },
     }
 
     # the class parameters go first as a partial result, so that a run killed while listing keeps

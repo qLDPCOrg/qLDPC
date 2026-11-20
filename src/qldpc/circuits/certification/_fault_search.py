@@ -138,17 +138,19 @@ def find_smallest_violation(
         if any(signature):
             signatures.setdefault(signature, index)
 
-    # Check faults only up to fault weight rank(P) + 1, for the matrix P of the flags (see
-    # "Irreducible accepted faults have fault weight at most rank(P) + 1").  With ``max_weight``,
-    # every rank from ``max_weight - 1`` up gives the same limit, so the rank is computed only up to
-    # ``max_weight - 1``.  Repeated flags do not change the rank, so each value enters the matrix
-    # once.
+    # Repeated flags do not change the rank of the matrix P of the flags, so each value enters it
+    # once.  Faults are checked only up to fault weight min(max_weight, rank(P) + 1) (see
+    # "Irreducible accepted faults have fault weight at most rank(P) + 1").  Every rank of at least
+    # ``max_weight - 1`` gives the limit ``max_weight``, so the rank is computed only up to
+    # ``max_weight - 1``, and the capped rank plus one is the limit (see "Duplicate and zero
+    # signatures can be dropped").  The cap is also at most the number of rows, which bounds the
+    # rank, so that it fits in 64 bits.
     distinct_flags = list(dict.fromkeys(flag for flag, _ in signatures))
     flag_rows = _to_words(distinct_flags, _get_num_words_for_values(distinct_flags))
     if max_weight is None:
         max_fault_weight = get_rank_packed(flag_rows) + 1
     else:
-        max_fault_weight = min(max_weight, get_rank_packed(flag_rows, max_weight - 1) + 1)
+        max_fault_weight = get_rank_packed(flag_rows, min(max_weight - 1, len(flag_rows))) + 1
 
     oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
     return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
@@ -179,12 +181,12 @@ def _search_irreducible_faults(
 
     # Split the other primitive faults into heavy and light ones.  A fault that contains no heavy
     # primitive fault satisfies the bound (see "A violating fault contains a heavy primitive
-    # fault"), so the search stops if none is heavy.  Many primitive faults share a syndrome, so the
-    # oracle answers each syndrome once.  A query with the threshold one reads only tables that the
-    # oracle fixed when it was built, so a repeated query would give the same answer.
+    # fault"), so the search stops if none is heavy.  Heaviness depends only on the syndrome, and
+    # any error with the syndrome serves as a representative (see "Checking one fault"), so the
+    # search queries the oracle once for each distinct syndrome.
     bounds_by_syndrome = {
-        syndrome: oracle.get_min_weight_bound(syndrome, 1)
-        for syndrome in dict.fromkeys(syndrome for _, syndrome, _ in flagged)
+        distinct_syndrome: oracle.get_min_weight_bound(distinct_syndrome, 1)
+        for distinct_syndrome in dict.fromkeys(syndrome for _, syndrome, _ in flagged)
     }
     heavy: list[tuple[int, int, int, int]] = []
     light: list[tuple[int, int, int, int]] = []

@@ -16,8 +16,8 @@
   its variant, and A-ft steane; every wrapped name exists; on a CSS circuit with a violation, each
   query of the fault search is counted once, against an independent spy of the calls that the
   fault search makes.  On E-chen, the shadow oracle answers each query that the counters count,
-  with one threshold-1 query per reduced mechanism, and an oracle whose answers are shifted raises
-  ``ShadowDisagreement``.
+  with one threshold-1 query per reduced zero-flag mechanism and one per distinct syndrome of the
+  flagged ones, and an oracle whose answers are shifted raises ``ShadowDisagreement``.
 * **AT4:** ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on the
   first of the five B-cat circuits of largest K and size that qualifies.  A circuit qualifies if its
   last weight takes at least 0.5 s in a full run after a first, warming one, and if a run stopped a
