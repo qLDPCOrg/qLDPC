@@ -818,13 +818,12 @@ def test_cutoff_must_be_an_integer() -> None:
 
 
 def test_distance_method_validation() -> None:
-    """Each method name resolves to its canonical name, and the types list every accepted name."""
-    for method in METHODS:
+    """Each distance method is accepted as itself, and any other name is rejected."""
+    for method in get_args(core.DistanceMethod):
         assert core._validate_distance_method(method) == method
-    assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
-
-    assert set(get_args(core.DistanceMethod)) == set(core._DISTANCE_METHODS)
-    assert set(get_args(core._CanonicalDistanceMethod)) == set(core._DISTANCE_METHODS.values())
+    for unknown in ("information_sets", "macwilliams", ["auto"]):
+        with pytest.raises(ValueError, match="Unknown distance method"):
+            core._validate_distance_method(cast(Any, unknown))
 
 
 def test_no_distance_behaves_as_nan_and_survives_copies() -> None:

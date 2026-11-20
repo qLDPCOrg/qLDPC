@@ -106,7 +106,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc import circuits as qldpc_circuits
-from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBound
+from qldpc.codes.distance import CosetLeaderSearch, CosetMethod, MinWeightBound
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -191,7 +191,7 @@ def test(function: Callable[[pathlib.Path, bool], None]) -> Callable[[pathlib.Pa
     return function
 
 
-def _certify(circuit_id: str, method: DistanceMethod, max_weight: int | None = None) -> Any:
+def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None) -> Any:
     """Certify a circuit of ``circuits.json`` with its options, at its K unless one is given."""
     from qldpc import circuits as qldpc_circuits
 

@@ -8,7 +8,7 @@ import enum
 import functools
 import math
 from collections.abc import Callable
-from typing import Literal, SupportsIndex
+from typing import Literal, SupportsIndex, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -35,9 +35,7 @@ from ._connected_cluster.sparse_checks import get_row_weights, get_sparser_rows
 from ._sector_maps import get_sector_map
 from ._tuning import SearchTuning, get_tuning
 
-DistanceMethod = Literal[
-    "auto", "brouwer_zimmermann", "information_sets", "connected_cluster", "brute_force"
-]
+DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "brute_force"]
 """The methods of exact distance searches.
 
 - ``"auto"`` (the default of distance searches): a choice of the methods below, made for each
@@ -49,14 +47,11 @@ DistanceMethod = Literal[
   probe may give the result first, or cap the connected-cluster search (`Choosing a method
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`_
   in the guide to the distance package).  Functions that take generators choose between
-  ``"brute_force"`` and ``"brouwer_zimmermann"``, and coset searches, such as those of
-  :class:`~qldpc.codes.distance.CosetLeaderSearch`, take ``"brouwer_zimmermann"``.  Every method
-  gives the same result unless the search exits early.  Which method runs, and so which weight an
-  early exit at a ``cutoff`` returns, can depend on the tuning and on the version of qLDPC.  For a
-  ``"brouwer_zimmermann"`` search on more than one thread, that weight can also depend on the
-  timing of the threads.
-- ``"brouwer_zimmermann"`` and its alias ``"information_sets"``: the
-  `Brouwer-Zimmermann algorithm
+  ``"brute_force"`` and ``"brouwer_zimmermann"``.  Every method gives the same result unless the
+  search exits early.  Which method runs, and so which weight an early exit at a ``cutoff``
+  returns, can depend on the tuning and on the version of qLDPC.  For a ``"brouwer_zimmermann"``
+  search on more than one thread, that weight can also depend on the timing of the threads.
+- ``"brouwer_zimmermann"``: the `Brouwer-Zimmermann algorithm
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
   which enumerates words of increasing weight in several information sets, and stops once a lower
   bound that the sets prove meets the lightest word found.
@@ -74,10 +69,10 @@ DistanceMethod = Literal[
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also fastest
   for classical codes of low dimension whose distance is a large fraction of their length, on which
   the time and setup memory of ``"brouwer_zimmermann"`` can grow with the square of the length.
-  :class:`~qldpc.codes.distance.CosetLeaderSearch` and
-  :func:`~qldpc.circuits.certify_bounded_fault_propagation` reject it.
 
-:doc:`/exact_search_tuning` says how to make costly searches faster.
+Searches of coset leaders take a :data:`~qldpc.codes.distance.CosetMethod`, and counts of logical
+operators a :data:`~qldpc.codes.distance.LogicalCountMethod`.  :doc:`/exact_search_tuning` says how
+to make costly searches faster.
 """
 
 
@@ -114,18 +109,6 @@ NO_DISTANCE = NoDistance.NAN
 
 It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
 """
-
-_CanonicalDistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "brute_force"]
-
-# The canonical name of every accepted method name, including aliases.
-_DISTANCE_METHODS: dict[str, _CanonicalDistanceMethod] = {
-    "auto": "auto",
-    "brouwer_zimmermann": "brouwer_zimmermann",
-    "information_sets": "brouwer_zimmermann",
-    "connected_cluster": "connected_cluster",
-    "brute_force": "brute_force",
-}
-
 
 ####################################################################################################
 # exact binary distances
@@ -164,9 +147,9 @@ def get_distance_from_generators(
             number of qubits on which it acts nontrivially.
         cutoff: Exit early once a nontrivial word of weight at most ``cutoff`` is found (see
             "Returns").
-        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
-            ``"information_sets"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  Here
-            ``"auto"`` chooses between ``"brute_force"`` and ``"brouwer_zimmermann"``.
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, or ``"brute_force"`` (see
+            :data:`DistanceMethod`).  Here ``"auto"`` chooses between ``"brute_force"`` and
+            ``"brouwer_zimmermann"``.
             ``"connected_cluster"`` needs parity checks: use :func:`get_distance_from_checks`.
         max_weight: If given, a nonnegative integer limit on the weights to search (see "Returns").
             The search stops once it proves that every nontrivial word is heavier than the limit,
@@ -269,9 +252,8 @@ def get_distance_from_checks(
             :func:`get_distance_from_generators`).
         cutoff: Exit early once a nontrivial word of weight at most ``cutoff`` is found (see
             :func:`get_distance_from_generators`).
-        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
-            ``"information_sets"``, ``"connected_cluster"``, or ``"brute_force"`` (see
-            :data:`DistanceMethod`).
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, ``"connected_cluster"``, or
+            ``"brute_force"`` (see :data:`DistanceMethod`).
         max_weight: If given, a nonnegative integer limit on the weights to search (see
             :func:`get_distance_from_generators`).
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
@@ -361,9 +343,8 @@ def get_distance_css(
             Brouwer-Zimmermann and connected-cluster methods find faster than two calls would.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
-        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
-            ``"information_sets"``, ``"connected_cluster"``, or ``"brute_force"`` (see
-            :data:`DistanceMethod`, which also covers subsystem codes).
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, ``"connected_cluster"``, or
+            ``"brute_force"`` (see :data:`DistanceMethod`, which also covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search (see
             :func:`get_distance_from_generators`).
         automorphisms: Permutations of the qubits that map the row space of ``checks_x``, and that
@@ -431,9 +412,8 @@ def get_distance_pauli(
         checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
-        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
-            ``"information_sets"``, ``"connected_cluster"``, or ``"brute_force"`` (see
-            :data:`DistanceMethod`, which also covers subsystem codes).
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, ``"connected_cluster"``, or
+            ``"brute_force"`` (see :data:`DistanceMethod`, which also covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search (see
             :func:`get_distance_from_generators`).
         automorphisms: Permutations of the qubits that map the row space of ``checks`` onto itself,
@@ -509,7 +489,7 @@ def _search_css(
     *,
     cutoff: int,
     upper_bound: int | None,
-    method: _CanonicalDistanceMethod,
+    method: DistanceMethod,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
     tuning: SearchTuning,
 ) -> int | Literal[NoDistance.NAN]:
@@ -645,7 +625,7 @@ def _search_checks(
     symplectic: bool,
     cutoff: int,
     upper_bound: int | None,
-    method: _CanonicalDistanceMethod,
+    method: DistanceMethod,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
     tuning: SearchTuning,
     kept_stabilizers: npt.NDArray[np.uint8] | None = None,
@@ -992,20 +972,18 @@ def _get_lifted_automorphisms(
 # method selectors
 
 
-def _validate_distance_method(
-    method: DistanceMethod,
-) -> _CanonicalDistanceMethod:
-    """Validate the name of a distance method, and return the canonical name of the method."""
-    if not isinstance(method, str) or method not in _DISTANCE_METHODS:
+def _validate_distance_method(method: DistanceMethod) -> DistanceMethod:
+    """Validate the name of a distance method, and return it."""
+    if not isinstance(method, str) or method not in get_args(DistanceMethod):
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
-            " alias 'information_sets'), 'brute_force', or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from"
+            f" {', '.join(map(repr, get_args(DistanceMethod)))}."
         )
-    return _DISTANCE_METHODS[method]
+    return method
 
 
 def _reject_connected_cluster(
-    method: _CanonicalDistanceMethod,
+    method: DistanceMethod,
 ) -> Literal["auto", "brouwer_zimmermann", "brute_force"]:
     """Return the method, unless it is ``"connected_cluster"``, which needs parity checks."""
     if method == "connected_cluster":

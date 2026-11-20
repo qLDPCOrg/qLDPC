@@ -50,7 +50,7 @@ from experiments.state_prep_certification.certification.counting import (
 )
 from qldpc.circuits.certification import _fault_search, fault_propagation
 from qldpc.circuits.certification._fault_search import Violation
-from qldpc.codes.distance import DistanceMethod
+from qldpc.codes.distance import CosetMethod
 
 CONFIG = json.loads((pathlib.Path(__file__).resolve().parent / "config.json").read_text())
 
@@ -131,7 +131,7 @@ class BruteForce:
         max_weight: int | None,
         css_weight: bool,
         memory_limit: int = 2**30,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: CosetMethod = "auto",
     ) -> Violation | None:
         """Find a violating accepted fault of the smallest fault weight by brute force, or None.
 
@@ -163,7 +163,7 @@ class BruteForce:
         stabilizers: npt.ArrayLike,
         max_weight: int | None,
         css_weight: bool,
-        method: DistanceMethod,
+        method: CosetMethod,
     ) -> Violation | None:
         """Reduce the signatures, build the oracle, and check each weight in turn."""
         reduced = reduce_signatures(flags, syndromes)
@@ -258,7 +258,7 @@ def brute_force_smallest_violation(
     max_weight: int | None,
     css_weight: bool,
     memory_limit: int = 2**30,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: CosetMethod = "auto",
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight by brute force, or None.
 

@@ -33,10 +33,10 @@ checkpoint must start over.  ``--refine PATH`` starts a new chain, with new opti
 lowest-energy code of a checkpoint or from the code of a record, written by any runtime.
 
 Scoring.  ``--method`` is ``auto`` or an exact method of ``CSSLogicalCounter.count_logical_ops``.
-All give the same scores.  The default, ``auto``, chooses between Brouwer--Zimmermann and
-MacWilliams at every epoch (see ``_select_method`` in ``annealing.py``).  Every run but a dry run
-compiles the set-up of its counts, which pays off only in a long search.  ``--skip-compile`` skips
-it.
+All give the same scores.  The default, this search's own ``auto``, unlike the library's, chooses
+between Brouwer--Zimmermann and MacWilliams at every epoch (see ``_select_method`` in
+``annealing.py``).  Every run but a dry run compiles the set-up of its counts, which pays off only
+in a long search.  ``--skip-compile`` skips it.
 """
 
 from __future__ import annotations
