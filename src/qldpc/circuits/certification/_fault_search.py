@@ -788,12 +788,17 @@ class _SharedFlagWalk:
         walk_state[0], walk_state[1], walk_state[2] = start, end, -1
         walk_state[7:] = 0
         lookups_per_call = max(1, probes_per_call // _PROBES_PER_LOOKUP)
+        bit_offsets, bit_classes = self._bit_index
+        closing_keys, closing_sets, closing_slots = self._single_map
         while walk_state[0] < end:
             walk_state[5] = min(int(walk_state[4]) + probes_per_call, 1 << 62)
             num_codewords = _list_by_shared_flags(
                 self._class_rows,
-                *self._bit_index,
-                *self._single_map,
+                bit_offsets,
+                bit_classes,
+                closing_keys,
+                closing_sets,
+                closing_slots,
                 self._root_budgets,
                 _PROBES_PER_STATE,
                 _CODEWORD_BATCH_SIZE,
@@ -851,8 +856,8 @@ def _get_bit_index(
             while remaining:
                 offsets[64 * word + trailing_zeros_word(remaining) + 1] += 1
                 remaining &= remaining - np.uint64(1)
-    for bit in range(64 * num_words):
-        offsets[bit + 1] += offsets[bit]
+    for entry in range(64 * num_words):
+        offsets[entry + 1] += offsets[entry]
     classes = np.empty(offsets[-1], dtype=np.int64)
     next_entries = offsets[:-1].copy()
     for each in range(num_classes):
