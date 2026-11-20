@@ -26,7 +26,7 @@ from qldpc._binary import (
     words_to_int,
 )
 from qldpc._compilation import always_compiled
-from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBound
+from qldpc.codes.distance import CosetLeaderSearch, CosetMethod, MinWeightBound
 from qldpc.codes.distance._threads import get_num_threads, iterate_in_order
 from qldpc.codes.distance._tuning import get_tuning
 
@@ -104,7 +104,7 @@ def find_smallest_violation(
     max_weight: int | None,
     css_weight: bool,
     memory_limit: int = 2**30,  # 1 GiB
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: CosetMethod = "auto",
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.
 

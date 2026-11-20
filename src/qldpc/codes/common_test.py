@@ -836,13 +836,13 @@ def test_exact_code_distance_method_api() -> None:
     with pytest.raises(ValueError, match="Unknown distance method"):
         classical_code.get_distance(bound=True, method="other")  # type: ignore[arg-type]
 
-    # The "information_sets" alias selects the joint Brouwer-Zimmermann search of a CSS code.
+    # The Brouwer-Zimmermann method selects the joint search of both sectors of a CSS code.
     hgp_code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
     css_code = codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z)
     with unittest.mock.patch.object(
         common, "get_distance_css", wraps=common.get_distance_css
     ) as joint_search:
-        assert css_code.get_distance_exact(method="information_sets") == 3
+        assert css_code.get_distance_exact(method="brouwer_zimmermann") == 3
     joint_search.assert_called_once()
     arguments = (
         inspect.signature(get_distance_css)

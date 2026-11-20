@@ -44,8 +44,8 @@ def get_fault_distance(
 
     Args:
         circuit: A noisy Stim circuit annotated with detectors and logical observables.
-        method: The exact-distance method: ``"auto"`` (the default), ``"brouwer_zimmermann"``
-            (with alias ``"information_sets"``), ``"brute_force"``, or ``"connected_cluster"`` (see
+        method: The exact-distance method: ``"auto"`` (the default), ``"brouwer_zimmermann"``,
+            ``"brute_force"``, or ``"connected_cluster"`` (see
             :data:`~qldpc.codes.distance.DistanceMethod`).  ``"auto"`` chooses among the others.
             ``"connected_cluster"`` searches the sparse detector matrix :math:`D` for undetected
             faults that are connected through its detectors.

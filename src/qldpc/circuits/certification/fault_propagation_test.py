@@ -17,7 +17,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.codes.distance import DistanceMethod, MinWeightBound
+from qldpc.codes.distance import CosetMethod, MinWeightBound
 
 from . import fault_propagation
 
@@ -571,13 +571,13 @@ def test_the_connected_cluster_method_finds_the_same_fault() -> None:
         M 4
         DETECTOR rec[-1]
     """)
-    default, alias, result = (
+    default, automatic, result = (
         circuits.certify_bounded_fault_propagation(
             circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
         )
-        for method in ("brouwer_zimmermann", "information_sets", "connected_cluster")
+        for method in ("brouwer_zimmermann", "auto", "connected_cluster")
     )
-    assert alias == default
+    assert automatic == default
     _assert_valid_counterexample(result, circuit)
     assert default.counterexample is not None and result.counterexample is not None
     assert result.counterexample.fault_indices == default.counterexample.fault_indices == (0, 1)
@@ -586,32 +586,28 @@ def test_the_connected_cluster_method_finds_the_same_fault() -> None:
     )
 
     # The +1 eigenstate of Y is not CSS, so the connected-cluster search cannot weigh its errors by
-    # CSS weight, but the default search, also under its alias, can.  This shows that ``method``
-    # reaches the coset searches.
+    # CSS weight, but the Brouwer-Zimmermann search, which "auto" takes, can.  This shows that
+    # ``method`` reaches the coset searches.
     y_state = stim.Circuit("H 0\nS 0")
     with pytest.raises(ValueError, match="only on CSS states"):
         circuits.certify_bounded_fault_propagation(
             y_state, css_weight=True, method="connected_cluster"
         )
     assert circuits.certify_bounded_fault_propagation(
-        y_state, css_weight=True, method="information_sets"
+        y_state, css_weight=True, method="auto"
     ).certified
 
 
-def test_every_distance_method_but_brute_force_searches_residual_weights() -> None:
-    """The method check accepts every exact-distance method but brute force, and no other method."""
-    for method in typing.get_args(DistanceMethod):
-        if method == "brute_force":
-            with pytest.raises(ValueError, match="no search of residual weights"):
-                fault_propagation._check_coset_search_method(method)
-        else:
-            fault_propagation._check_coset_search_method(method)
-    unknown: Any = "gap"
-    with pytest.raises(ValueError, match="Unknown distance method"):
-        fault_propagation._check_coset_search_method(unknown)
+def test_every_coset_method_searches_residual_weights() -> None:
+    """The method check accepts every coset method, and no other method."""
+    for method in typing.get_args(CosetMethod):
+        fault_propagation._check_coset_search_method(method)
+    for unknown in ("brute_force", "gap"):
+        with pytest.raises(ValueError, match="Unknown coset method"):
+            fault_propagation._check_coset_search_method(cast(Any, unknown))
     # The method is checked before the circuit, which has no unmeasured qubit.
-    with pytest.raises(ValueError, match="no search of residual weights"):
-        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
+    with pytest.raises(ValueError, match="Unknown coset method"):
+        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method=cast(Any, "gap"))
 
 
 def test_added_flags_match_explicit_flag_detectors() -> None:

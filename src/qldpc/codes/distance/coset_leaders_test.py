@@ -38,8 +38,7 @@ from .conftest import (
     shared_arrays_read_only,
     split_syndromes_into_words,
 )
-from .core import DistanceMethod
-from .coset_leaders import CosetLeaderSearch, _get_coset_search_method
+from .coset_leaders import CosetLeaderSearch, CosetMethod, _get_coset_search_method
 from .min_weight_bounds import MinWeightBound
 
 # Four-qubit blocks: a GHZ state, which is CSS, and the same state after S on its first qubit, which
@@ -360,24 +359,17 @@ def test_stabilizers_must_define_a_pure_state() -> None:
             CosetLeaderSearch(stabilizers)
 
 
-def test_methods_take_the_names_of_distance_methods() -> None:
-    """Coset-leader searches take each distance method but brute force, and reject invalid uses."""
+def test_methods_take_the_coset_methods() -> None:
+    """Coset-leader searches take each coset method, and reject other names and invalid uses."""
     matrix = get_graph_state(2, [(0, 1)], phase=True)
     with pytest.raises(ValueError, match="only on CSS states"):
         CosetLeaderSearch(matrix, css_weight=True, method="connected_cluster")
-    assert_exact_answers(
-        CosetLeaderSearch(matrix, css_weight=True, method="information_sets"), matrix, True
-    )
-    with pytest.raises(ValueError, match="no coset-leader search"):
-        CosetLeaderSearch(matrix, method="brute_force")
-    for unknown in ("gap", ["brouwer_zimmermann"]):
-        with pytest.raises(ValueError, match="Unknown distance method") as error:
+    for unknown in ("brute_force", "information_sets", ["brouwer_zimmermann"]):
+        with pytest.raises(ValueError, match="Unknown coset method"):
             CosetLeaderSearch(matrix, method=cast(Any, unknown))
-        assert "brute_force" not in str(error.value)
 
-    for method in get_args(DistanceMethod):
-        if method != "brute_force":
-            assert_exact_answers(CosetLeaderSearch(matrix, method=method), matrix, False)
+    for method in get_args(CosetMethod):
+        assert_exact_answers(CosetLeaderSearch(matrix, method=method), matrix, False)
 
     # This state is not CSS, so only the Brouwer-Zimmermann method weighs its errors by CSS weight,
     # and "auto" takes that method.
@@ -558,7 +550,7 @@ def test_min_weights_match_exhaustive_minima(
         packed_syndromes = split_syndromes_into_words(syndromes.tolist(), num_qubits)
         # The tuning of these families does not configure the connected-cluster method, which
         # weighs by CSS weight only on CSS states.
-        methods: list[DistanceMethod] = ["brouwer_zimmermann"]
+        methods: list[CosetMethod] = ["brouwer_zimmermann"]
         if by_support and not tuning:
             methods.append("connected_cluster")
         for method in methods:
