@@ -398,25 +398,19 @@ def test_a_root_whose_class_codewords_fill_its_array_takes_more_passes(
     that only the first pass may count against it.
     """
     _force_walk(monkeypatch, "shared flags")
-    given_up: list[int] = []
-    list_root = _fault_search._ClosingSetWalk.list_root
 
-    def record_root(
-        walk: _fault_search._ClosingSetWalk, root: int, lookups_per_call: int
-    ) -> Iterator[npt.NDArray[np.int64]]:
-        given_up.append(root)
-        return list_root(walk, root, lookups_per_call)
-
-    # Record the work of the walk, which another pass over a root adds to.
+    # Record the work of the walk, which another pass over a root adds to, and whether it gave a
+    # root up.
     works: list[int] = []
+    given_up: list[bool] = []
     list_by_shared_flags = _fault_search._list_by_shared_flags
 
     def record_work(*args: Any) -> int:
         num_codewords = list_by_shared_flags(*args)
         works.append(int(args[-2][4]))
+        given_up.append(bool(args[-2][9]))
         return num_codewords
 
-    monkeypatch.setattr(_fault_search._ClosingSetWalk, "list_root", record_root)
     monkeypatch.setattr(_fault_search, "_list_by_shared_flags", record_work)
     flags = list(range(1, 16))
     expected = _class_codewords(flags, 4, 3)
@@ -434,7 +428,7 @@ def test_a_root_whose_class_codewords_fill_its_array_takes_more_passes(
         )
     monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
     assert _list_class_tuples(flags, 3, 4, len(expected) + 1) == expected
-    assert not given_up
+    assert not any(given_up)
     assert (works[-1] > one_pass_work) == more_passes
 
 
