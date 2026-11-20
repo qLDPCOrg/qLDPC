@@ -288,8 +288,7 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
     assert hasattr(fault_propagation, "find_smallest_violation")
     for name in ("CosetLeaderSearch", "FaultLister", "_check_fault"):
         assert hasattr(_fault_search, name), name
-    for name in ("_should_build_closing_pairs", "_max_syndromes"):
-        assert name in _fault_search.FaultLister.__init__.__code__.co_names, name
+    assert "_max_syndromes" in _fault_search.FaultLister.__init__.__code__.co_names
 
     ids = ["cgoto", "w.cgoto"] + [
         e["id"]
