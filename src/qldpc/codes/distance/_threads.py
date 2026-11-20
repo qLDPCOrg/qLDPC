@@ -344,16 +344,16 @@ def run_blocks(
 # threads better at the end, and fewer ranges cost fewer calls; the number changes no output.
 RANGES_PER_THREAD = 32
 
-# The threads of ``iterate_in_order`` hold at most this many outputs for each thread, plus one (see
-# its docstring).  More let them run further ahead of the calling thread, at the cost of memory; the
-# number changes no output.
+# The threads of ``iterate_in_order`` hold at most this many outputs for each thread, and one more
+# in total (see its docstring).  More let them run further ahead of the calling thread, at the cost
+# of memory; the number changes no output.
 OUTPUTS_PER_THREAD = 64
 
 # The seconds after which a thread of ``iterate_in_order`` that waits to add an output checks again
 # whether to stop.  A thread that cannot be started, or a second interrupt that comes before the
 # threads are notified, sets an event without notifying the waiting threads.  So the timeout makes a
-# waiting thread stop promptly after a failed start even if no other thread wakes it, and it is the
-# only way for the thread to stop after a second interrupt.
+# waiting thread stop promptly after a failed start even if no other thread wakes it, and, after a
+# second interrupt, it is the only way for a waiting thread to stop once no other thread runs.
 _HALT_CHECK_SECONDS = 0.5
 
 

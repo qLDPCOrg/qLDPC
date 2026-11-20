@@ -872,14 +872,16 @@ def test_a_thread_that_cannot_be_started_stops_the_thread_of_the_range_being_rea
     event but wakes no thread, and the calling thread takes no more outputs, which would wake it.
     """
     taken, waiting = threading.Event(), threading.Event()
+    produced: list[int] = []
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
         def run_range(start: int, end: int) -> Iterator[int]:
             yield 0
             assert taken.wait(timeout=THREAD_TIMEOUT)
-            for output in itertools.count(1):
+            for output in range(1, 100):
                 if output == 4:
                     waiting.set()
+                produced.append(output)
                 yield output
 
         return run_range
@@ -898,6 +900,8 @@ def test_a_thread_that_cannot_be_started_stops_the_thread_of_the_range_being_rea
                     if thread.name == "qldpc-search":
                         thread.join(timeout=max(0.0, deadline - time.monotonic()))
                         assert not thread.is_alive()
+                # A thread that ignores the stop then fails here, without listing forever.
+                assert produced[-1] == 4
                 with pytest.raises(RuntimeError, match="can't start new thread"):
                     next(iterator)
 
@@ -908,13 +912,13 @@ def test_a_thread_that_cannot_be_started_stops_the_thread_of_the_range_being_rea
 
 
 def test_a_range_that_ends_after_a_stop_is_not_done() -> None:
-    """A range whose iterator ends after the stop event is set yields nothing after it.
+    """The calling thread yields no output after a range whose iterator ends after the stop event.
 
-    Of three threads, the first lists range 0 only once the stop event is set, and then ends it
-    without an output.  The second adds two outputs of range 1, and then, once the stop event is
-    set, waits a moment before its next output, so that the threads end only after range 0 does.
-    Then the third raises as it starts.  If range 0 counted as done, the calling thread would yield
-    the outputs of range 1 before the exception.
+    Of three threads, the first lists range 0 only once the stop event is set.  The second adds two
+    outputs of range 1.  Then the third raises as it starts, which sets the stop event: the first
+    then ends range 0 without an output, and the second waits a moment before its next output, so
+    that the threads end only after range 0 does.  If range 0 counted as done, the calling thread
+    would yield the outputs of range 1 before the exception.
     """
     held = threading.Event()
     lock = threading.Lock()
