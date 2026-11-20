@@ -586,9 +586,8 @@ def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
 def test_outputs_come_in_the_order_of_the_items(num_threads: int) -> None:
     """The calling thread gets the outputs of every item once, in order, on any number of threads.
 
-    The calling thread runs no item unless it runs them all.  With two or more threads, ranges hold
-    the fewest next items whose weight reaches the share of a range: here a 32nd of the weight for
-    each thread that runs items, which a single heavy item can exceed.
+    Each item is in one range, and the calling thread runs no item unless it runs them all, as one
+    range.  Otherwise at most ``num_threads - 1`` threads run the ranges.
     """
     weights = np.array([1.0, 50.0] + [1.0] * 198)
     ranges: list[tuple[int, int, int]] = []
@@ -617,10 +616,8 @@ def test_outputs_come_in_the_order_of_the_items(num_threads: int) -> None:
     if num_threads == 1:
         assert ranges == [(0, 200, calling_thread)]
     else:
-        share = weights.sum() / (_threads.RANGES_PER_THREAD * (num_threads - 1))
         assert not on_calling_thread
-        for start, end, _ in ranges:
-            assert weights[start : end - 1].sum() < share <= weights[start:end].sum() or end == 200
+        assert len({thread for _, _, thread in ranges}) <= num_threads - 1
 
 
 def test_threads_are_no_more_than_the_items() -> None:
@@ -631,12 +628,15 @@ def test_threads_are_no_more_than_the_items() -> None:
         workers.append(threading.get_ident())
         return lambda start, end: iter(range(start, end))
 
-    for num_threads in (1, 3):
-        assert not list(_threads.iterate_in_order(0, num_threads, start_worker))
-    assert workers == [threading.get_ident()]
-    workers.clear()
-    assert list(_threads.iterate_in_order(2, 8, start_worker)) == [0, 1]
-    assert len(set(workers)) == 2 and threading.get_ident() not in workers
+    def iterate() -> None:
+        for num_threads in (1, 3):
+            assert not list(_threads.iterate_in_order(0, num_threads, start_worker))
+        assert workers == [threading.get_ident()]
+        workers.clear()
+        assert list(_threads.iterate_in_order(2, 8, start_worker)) == [0, 1]
+        assert len(set(workers)) == 2 and threading.get_ident() not in workers
+
+    run_on_a_thread(iterate)
 
 
 @pytest.mark.parametrize("close_early", [False, True])
@@ -740,18 +740,22 @@ def test_an_exception_of_a_thread_stops_a_thread_that_waits() -> None:
 def test_a_thread_that_fails_to_start_stops_the_others() -> None:
     """If a thread raises as it starts, the others stop, also one that waits to add an output.
 
-    Of three threads, the first claims range 0 and waits to list it, and the second, with one
-    output held for each thread, adds three outputs of range 1 and waits with its fourth.  Then the
-    third raises as it starts, which lets the first list.
+    Of three threads, the first claims range 0 and waits to list it until the stop event is set,
+    and the second, with one output held for each thread, adds three outputs of range 1 and waits
+    with its fourth.  Then the third raises as it starts, which sets the stop event, and only the
+    first can then wake the second.
     """
     starts: list[int] = []
     lock = threading.Lock()
-    claimed, waiting, released = (threading.Event() for _ in range(3))
+    claimed, waiting = (threading.Event() for _ in range(2))
 
-    def list_first(start: int, end: int) -> Iterator[int]:
-        claimed.set()
-        assert released.wait(timeout=THREAD_TIMEOUT)
-        yield start
+    def get_list_first(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
+        def list_first(start: int, end: int) -> Iterator[int]:
+            claimed.set()
+            assert stop.wait(timeout=THREAD_TIMEOUT)
+            yield start
+
+        return list_first
 
     def list_second(start: int, end: int) -> Iterator[int]:
         for output in range(10):
@@ -764,12 +768,11 @@ def test_a_thread_that_fails_to_start_stops_the_others() -> None:
             starts.append(threading.get_ident())
             index = len(starts) - 1
         if index == 0:
-            return list_first
+            return get_list_first(stop)
         assert claimed.wait(timeout=THREAD_TIMEOUT)
         if index == 1:
             return list_second
         assert waiting.wait(timeout=THREAD_TIMEOUT)
-        released.set()
         raise MemoryError("no room")
 
     def iterate() -> None:
@@ -781,6 +784,87 @@ def test_a_thread_that_fails_to_start_stops_the_others() -> None:
 
     run_on_a_thread(iterate)
     assert len(starts) == 3
+
+
+def test_the_thread_of_the_range_that_the_calling_thread_reads_keeps_the_cap() -> None:
+    """The thread of the range that the calling thread reads also waits once the cap is reached.
+
+    With two outputs held for each thread, one thread lists 50 outputs of one range.  While the
+    calling thread takes no more after the first, the thread holds at most the cap and one more.
+    """
+    appended: list[int] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
+        def run_range(start: int, end: int) -> Iterator[int]:
+            for output in range(50):
+                yield output
+                appended.append(output)
+
+        return run_range
+
+    def iterate() -> tuple[int, list[int]]:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 2)
+            iterator = _threads.iterate_in_order(1, 2, start_worker)
+            outputs = [next(iterator)]
+            time.sleep(0.2)
+            # The thread adds each output to the held ones before it records it in ``appended``.
+            num_held = len(appended) + 1 - len(outputs)
+            outputs += list(iterator)
+        return num_held, outputs
+
+    num_held, outputs = run_on_a_thread(iterate)
+    assert num_held <= 2 + 1
+    assert outputs == list(range(50))
+
+
+def test_a_thread_whose_start_fails_stops_a_thread_that_waits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If a new thread fails to start, a thread that waits to add an output stops too.
+
+    Of four threads, the first claims range 0 and lists it only once the stop event is set, and
+    the second, with one output held for each thread, adds four outputs of range 1 and waits with
+    its fifth.  Then the start of the third raises, which sets the stop event but wakes no thread.
+    """
+    claimed, waiting = threading.Event(), threading.Event()
+    num_starts = 0
+    original_start = threading.Thread.start
+
+    def fail_third_start(thread: threading.Thread) -> None:
+        nonlocal num_starts
+        if thread.name == "qldpc-search":
+            num_starts += 1
+            # The helper of ``iterate_in_order`` starts first, then two threads of its own.
+            if num_starts == 4:
+                assert waiting.wait(timeout=THREAD_TIMEOUT)
+                raise RuntimeError("can't start new thread")
+        original_start(thread)
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
+        def run_range(start: int, end: int) -> Iterator[int]:
+            # The thread of range 0 stops after its first output, since the stop event is set.
+            if start == 0:
+                claimed.set()
+                assert stop.wait(timeout=THREAD_TIMEOUT)
+                yield 0
+            assert claimed.wait(timeout=THREAD_TIMEOUT)
+            for output in range(10):
+                if output == 4:
+                    waiting.set()
+                yield output
+
+        return run_range
+
+    def iterate() -> None:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+            patch.setattr(_threads, "RANGES_PER_THREAD", 1)
+            with pytest.raises(RuntimeError, match="can't start new thread"):
+                list(_threads.iterate_in_order(8, 5, start_worker))
+
+    monkeypatch.setattr(threading.Thread, "start", fail_third_start)
+    run_on_a_thread(iterate)
 
 
 ####################################################################################################

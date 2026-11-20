@@ -344,10 +344,14 @@ def run_blocks(
 # threads better at the end, and fewer ranges cost fewer calls; the number changes no output.
 RANGES_PER_THREAD = 32
 
-# The number of outputs for each thread that the threads of ``iterate_in_order`` hold at most.  More
-# let them run further ahead of the calling thread, at the cost of memory; the number changes no
-# output.
+# The number of outputs for each thread that the threads of ``iterate_in_order`` hold, beyond which
+# only one more output can be held (see its docstring).  More let them run further ahead of the
+# calling thread, at the cost of memory; the number changes no output.
 OUTPUTS_PER_THREAD = 64
+
+# The seconds after which a thread of ``iterate_in_order`` that waits to add an output checks again
+# whether to stop, in case an interrupt kept it from being woken.
+_HALT_CHECK_SECONDS = 0.5
 
 
 def iterate_in_order(
@@ -364,8 +368,8 @@ def iterate_in_order(
     the items ``start, ..., end - 1``, in order.  With fewer than two threads, the calling thread
     runs every item itself, as one range.  Otherwise a new thread calls ``run_work_items`` to start
     ``min(num_threads - 1, num_items)`` threads, including itself, while the calling thread yields
-    the outputs of each range as they come, range by range in the order of the items.  So these
-    threads and the calling thread are at most ``num_threads``, and the calling thread can work on
+    the outputs of each range as they come, range by range in the order of the items.  So at most
+    ``num_threads`` threads run, counting the calling thread, and the calling thread can work on
     each output while the threads run later items; work of its own that starts more threads, such
     as a batch of queries, adds to them.  The functions that the threads run follow the rules of
     ``run_work_items``.
@@ -375,15 +379,18 @@ def iterate_in_order(
     that the calling thread needs is soon ready.  ``run_work_items`` only starts the threads: it
     gives each of ``t`` threads one of ``t`` single items, whose function claims ranges until none
     is left.  ``cumulative_weights``, if given, holds for each item the total weight of the items up
-    to it, which estimates their work; without it, items count one each.  The threads hold at most
-    ``OUTPUTS_PER_THREAD * t`` outputs.  A thread waits before it adds an output if that many are
-    held, unless the calling thread reads its range, so that the calling thread can always go on.
+    to it, which estimates their work; without it, items count one each.  A thread waits before it
+    adds an output while ``OUTPUTS_PER_THREAD * t`` outputs are held, unless it runs the range that
+    the calling thread reads and the calling thread has taken every output of that range, so that
+    the calling thread can always go on.  So the threads hold at most ``OUTPUTS_PER_THREAD * t + 1``
+    outputs.
 
     Closing the iterator, as ``contextlib.closing`` does when its block ends early or raises, stops
     the threads between outputs, and waits until they have returned, as ``run_work_items`` does at
     an exception.  A further interrupt while it waits can leave threads running, in the narrow
-    windows that the comment in ``run_work_items`` describes; they stop before their next output,
-    since the halt event is set first.  An exception of a thread stops the others, and is raised on
+    windows that the comment in ``run_work_items`` describes; since the halt event is set first,
+    they stop before their next output, or within ``_HALT_CHECK_SECONDS`` if they wait to add one.
+    An exception of a thread, or a thread that fails to start, stops the others, and is raised on
     the calling thread once they have returned.  It can be raised before outputs that come before
     it in item order, so before the calling thread reaches what one thread would have reached
     first, such as an output that would have ended the iteration.
@@ -449,10 +456,21 @@ def iterate_in_order(
                 try:
                     for output in run_range(start, end):
                         with ready:
-                            while start != position and num_held >= max_held and not halt.is_set():
-                                ready.wait()
+                            # Wait while the cap is reached, unless this thread runs the range that
+                            # the calling thread reads and the calling thread has taken its outputs,
+                            # so that the calling thread can always go on.  Nothing notifies when an
+                            # interrupt or a thread that fails to start sets an event, so check the
+                            # events again after a timeout too.
+                            while (
+                                num_held >= max_held
+                                and (start != position or record.outputs)
+                                and not (halt.is_set() or stop.is_set())
+                            ):
+                                ready.wait(_HALT_CHECK_SECONDS)
                             if halt.is_set() or stop.is_set():
                                 stop.set()
+                                halt.set()
+                                ready.notify_all()
                                 return
                             record.outputs.append(output)
                             num_held += 1
