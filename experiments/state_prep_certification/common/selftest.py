@@ -442,6 +442,38 @@ def test_local_runs_reject_compiled(directory: pathlib.Path, node: bool) -> None
 
 
 @test
+def test_local_runs_interrupted(directory: pathlib.Path, node: bool) -> None:
+    """``local_runs.run_locally`` stops a task's run if an exception interrupts it meanwhile."""
+    from experiments.state_prep_certification.common import local_runs
+
+    class Interrupted(Exception):
+        """The exception of a caller whose time limit ran out."""
+
+    deadline = time.monotonic() + 30
+
+    def interrupt(signum: int, frame: Any) -> None:
+        # interrupt only once the run's sleep has started, so that there is a run to stop
+        if not _processes_matching("time.sleep(53.25)"):
+            assert time.monotonic() < deadline, "the run's sleep did not start"
+            signal.setitimer(signal.ITIMER_REAL, 0.5)
+            return
+        raise Interrupted
+
+    previous = signal.signal(signal.SIGALRM, interrupt)
+    signal.setitimer(signal.ITIMER_REAL, 1.0)
+    try:
+        local_runs.run_locally(directory, [_task("stop", [["spawn", 53.25]], limit_s=60.0)])
+    except Interrupted:
+        pass
+    else:
+        raise AssertionError("the run was not interrupted")
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    assert not _processes_matching("time.sleep(53.25)")
+
+
+@test
 def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
     """On SIGTERM the runner kills its run, writes no row, and exits with status 2."""
     tasks.write_pass1(directory, [_task("stop", [["spawn", 49.25]], limit_s=60.0)])
