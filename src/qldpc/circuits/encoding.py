@@ -19,9 +19,11 @@ from .bookkeeping import QubitIDs
 from .common import _restrict_to_qubits
 from .transforms import with_remapped_qubits
 
-# The instructions of the noiseless circuits whose state stabilizers get_state_stabilizers finds by
-# simulation; its tests compare simulation with flows on random circuits of these instructions.
-# Circuits with other features use stim.Circuit.flow_generators (the flows route):
+# get_state_stabilizers finds the stabilizers of a circuit's output state in one of two ways: by
+# simulating the circuit once (the simulation route, the faster), or with
+# stim.Circuit.flow_generators (the flows route).  It simulates a circuit only if, without noise,
+# the circuit uses nothing but the instructions below, since its tests compare the two routes on
+# random circuits of exactly these.  Circuits with other instructions take the flows route:
 #   - OBSERVABLE_INCLUDE, since Stim's detector error model rejects a random observable even with
 #     gauge detectors allowed;
 #   - REPEAT blocks, classically controlled gates, and inverted result targets, such as M !0,
