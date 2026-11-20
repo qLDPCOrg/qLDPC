@@ -19,9 +19,16 @@ from .bookkeeping import QubitIDs
 from .common import _restrict_to_qubits
 from .transforms import with_remapped_qubits
 
-# The instructions of noiseless circuits whose state stabilizers get_state_stabilizers finds by
-# simulation.  Other circuits, such as ones with observables, REPEAT blocks, MPAD (which heralded
-# noise becomes without noise), pair measurements, or SPP, use flows.
+# The instructions of the noiseless circuits whose state stabilizers get_state_stabilizers finds by
+# simulation; its tests compare simulation with flows on random circuits of these instructions.
+# Circuits with other features take the flows route:
+#   - OBSERVABLE_INCLUDE, since Stim's detector error model rejects a random observable even with
+#     gauge detectors allowed;
+#   - REPEAT blocks, classically controlled gates, and inverted results, which simulation has not
+#     been compared on yet;
+#   - MPAD, which heralded noise becomes without noise, and has not been compared on yet;
+#   - pair measurements, such as MXX, and SPP, which have not been compared on yet;
+#   - any other instruction, such as Clifford gates missing from this list, for the same reason.
 _SIMULATED_INSTRUCTIONS = frozenset(
     [
         # Clifford gates
@@ -210,14 +217,11 @@ def get_state_stabilizers(
     raises an error for it.  Every other stabilizer has the same sign in every noiseless run, and
     a simulation of one run finds this sign.
 
-    To find which stabilizers have fixed signs, this function simulates one run of the circuit, and
-    analyzes the random outcomes with Stim's detector error model, allowing gauge detectors.
-    Circuits with instructions that this analysis does not cover, such as observables, REPEAT
-    blocks, classically controlled gates, and heralded noise, use ``stim.Circuit.flow_generators``
-    instead, whose cost grows about as the cube of the circuit's size.  Before finding flows, this
-    function splits each MR, MRX, or MRY instruction that repeats a target, such as ``MR 0 0``,
-    into single-target instructions, since Stim's flows of such instructions are wrong (Stim issue
-    https://github.com/quantumlib/Stim/issues/1109).
+    To find these stabilizers, this function simulates one run of the circuit, and analyzes its
+    random outcomes with Stim's detector error model, allowing gauge detectors.  Circuits with
+    instructions that this analysis does not cover, such as OBSERVABLE_INCLUDE, REPEAT blocks,
+    classically controlled gates, and heralded noise, use ``stim.Circuit.flow_generators`` instead,
+    whose cost grows about as the cube of the circuit's size.
 
     Args:
         state_prep_circuit: The circuit that prepares the state.
@@ -242,22 +246,25 @@ def get_state_stabilizers(
     resets = stim.Circuit("R " + " ".join(map(str, range(num_qubits))))
     circuit = resets + state_prep_circuit.without_noise()
 
-    # Simulate one run, which gives the signs of the stabilizers whose signs are fixed.
+    # Simulate one run, which gives the signs of the stabilizers whose signs are fixed.  The
+    # simulation route below reuses this run.
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
 
     # Find the parities that the circuit fixes: the pairs (D, P) of a set D of detectors and a Pauli
     # string P on the requested qubits for which the outcome of measuring P after the circuit,
-    # combined with the outcomes of the detectors in D, is deterministic.  Each route returns some
-    # detectors, and the reduced row echelon form of the fixed parities whose D is among them, in
-    # the column order [D | X part of P | Z part of P].  Each detector that a route leaves out is
-    # deterministic on its own, and so adds only a row with no Pauli string P.  Simulation is much
-    # faster than flows on large circuits, since flows track every measurement.
-    distinct_qubits = len(np.unique(state_qubits)) == len(state_qubits)
-    if distinct_qubits and np.all(state_qubits >= 0) and _is_simulable(circuit):
+    # combined with the outcomes of the detectors in D, is deterministic.  Two routes find them:
+    # simulation for circuits that _takes_simulation_route accepts, and flows otherwise.
+    # Simulation is much faster on large circuits, since flows track every measurement.  Each
+    # route returns some detectors, and the reduced row echelon form of the fixed parities whose D
+    # is among them, in the column order [D | X part of P | Z part of P].  Each detector that a
+    # route leaves out is deterministic on its own, so its column is the pivot of a row with no
+    # Pauli string and zero in every other row, and leaving it out changes no row with a Pauli
+    # string.
+    if _takes_simulation_route(circuit, state_qubits):
         detectors, rows = _get_fixed_parities_by_simulation(circuit, simulator, state_qubits)
     else:
-        detectors, rows = _get_fixed_parities_by_flows(state_prep_circuit, circuit, state_qubits)
+        detectors, rows = _get_fixed_parities_by_flows(circuit, state_qubits)
     num_detectors = len(detectors)
     on_detectors = np.any(rows[:, :num_detectors], axis=1)
     on_state = np.any(rows[:, num_detectors:], axis=1)
@@ -382,13 +389,17 @@ class _UndeterminedSignError(ValueError):
         )
 
 
-def _is_simulable(circuit: stim.Circuit) -> bool:
-    """Whether get_state_stabilizers may find the fixed parities of a circuit by simulation.
+def _takes_simulation_route(circuit: stim.Circuit, state_qubits: npt.NDArray[np.int_]) -> bool:
+    """Whether get_state_stabilizers finds the fixed parities of a noiseless circuit by simulation.
 
-    The circuit must be noiseless.  Each of its instructions must be in _SIMULATED_INSTRUCTIONS, and
-    target qubits, or Pauli products for MPP, without inverted results.  Classically controlled
-    gates, such as ``CX rec[-1] 0``, do not qualify.
+    It does if the requested qubits are distinct and nonnegative, and each instruction of the
+    circuit is in _SIMULATED_INSTRUCTIONS, with targets that are qubits, or Pauli products for MPP,
+    and no inverted results.  So classically controlled gates, such as ``CX rec[-1] 0``, take the
+    flows route.  Repeated or negative requested qubits take the flows route too, so that their
+    results stay those of the flows.
     """
+    if len(np.unique(state_qubits)) < len(state_qubits) or np.any(state_qubits < 0):
+        return False
     for instruction in circuit:
         if not isinstance(instruction, stim.CircuitInstruction):
             return False
@@ -410,12 +421,12 @@ def _is_simulable(circuit: stim.Circuit) -> bool:
 def _get_fixed_parities_by_simulation(
     circuit: stim.Circuit, simulator: stim.TableauSimulator, state_qubits: npt.NDArray[np.int_]
 ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.uint8]]:
-    """Find the parities that a circuit fixes, as get_state_stabilizers describes, by simulation.
+    """Find the fixed parities of a circuit by simulation.
 
-    The circuit must reset every qubit first and pass _is_simulable, the simulator must have run it,
-    and the requested qubits must be distinct.  Returns the circuit's detectors that some random
-    outcome flips, and the reduced row echelon form of the fixed parities whose detectors are among
-    them.
+    Fixed parities are as the comment in get_state_stabilizers defines them.  The circuit must reset
+    every qubit first, the simulator must have run it, and the circuit and requested qubits must
+    pass _takes_simulation_route.  Returns the circuit's detectors that some random outcome flips,
+    and the reduced row echelon form of the fixed parities whose detectors are among them.
     """
     num_qubits = circuit.num_qubits
     num_state_qubits = len(state_qubits)
@@ -424,11 +435,10 @@ def _get_fixed_parities_by_simulation(
     # Up to sign, these are the images T(Z_i), where T is the inverse of the simulator's inverse
     # tableau V.  The inverse of a symplectic matrix S is Ω Sᵀ Ω, so T(Z_i) has X part z2x[:, i]
     # and Z part x2x[:, i] of V, and V need not be inverted.
-    simulator.set_num_qubits(num_qubits)
     x2x, _, z2x, *_ = simulator.current_inverse_tableau().to_numpy()
 
-    # Row-reduce the final stabilizers with the other qubits first.  The rows that vanish on the
-    # other qubits span the candidates: the stabilizers on the requested qubits, up to sign.
+    # Row-reduce the final stabilizers with the qubits not requested first.  The rows that vanish on
+    # these qubits span the candidates: the stabilizers on the requested qubits, up to sign.
     other_qubits = np.setdiff1d(np.arange(num_qubits), state_qubits)
     generators = np.concatenate(
         [z2x[other_qubits], x2x[other_qubits], z2x[state_qubits], x2x[state_qubits]]
@@ -439,8 +449,9 @@ def _get_fixed_parities_by_simulation(
 
     # Measure each candidate after the circuit, with a detector on its outcome.  Stim's detector
     # error model then lists the gauges: for each random outcome, the detectors that it flips, up
-    # to Gaussian elimination.  Detectors have a deterministic combined outcome exactly when every
-    # gauge flips an even number of them.
+    # to Gaussian elimination.  Every error of the model is a gauge, since the circuit is
+    # noiseless.  Detectors have a deterministic combined outcome exactly when every gauge flips an
+    # even number of them.
     measurements = stim.Circuit()
     for candidate in candidates.astype(bool):
         xs = np.zeros(num_qubits, dtype=bool)
@@ -461,8 +472,10 @@ def _get_fixed_parities_by_simulation(
         if isinstance(instruction, stim.DemInstruction) and instruction.type == "error"
     ]
 
-    # Keep the circuit's detectors that some gauge flips, since each other detector is
-    # deterministic on its own.  Then index the kept detectors and the candidates' detectors.
+    # Keep the circuit's detectors that some gauge flips.  Each other detector is deterministic on
+    # its own, so the matrix below needs no row or column for any of them, and most detectors of
+    # a large circuit, such as flag detectors, are of this kind.  Then index the kept detectors and
+    # the candidates' detectors.
     num_detectors = circuit.num_detectors
     num_candidates = len(candidates)
     flipped = np.zeros(num_detectors + num_candidates, dtype=bool)
@@ -491,23 +504,23 @@ def _get_fixed_parities_by_simulation(
 
 
 def _get_fixed_parities_by_flows(
-    state_prep_circuit: stim.Circuit, circuit: stim.Circuit, state_qubits: npt.NDArray[np.int_]
+    circuit: stim.Circuit, state_qubits: npt.NDArray[np.int_]
 ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.uint8]]:
-    """Find the parities that a circuit fixes, as get_state_stabilizers describes, from its flows.
+    """Find the fixed parities of a circuit from its flows.
 
-    The circuit is the state preparation circuit without noise, after resets of every qubit, so each
-    of its flows has the form ``1 -> P xor M``, for a Pauli string P and a set M of measurements and
-    observables.  Returns all detectors of the circuit, and the reduced row echelon form of the
-    fixed parities.
+    Fixed parities are as the comment in get_state_stabilizers defines them.  The circuit must be
+    noiseless and reset every qubit first, so each of its flows has the form ``1 -> P xor M``, for
+    a Pauli string P and a set M of measurements and observables.  Returns all detectors of the
+    circuit, and the reduced row echelon form of the fixed parities.
     """
     flow_generators = _split_repeated_reset_measurements(circuit).flow_generators()
 
     # identify some useful numbers
     num_qubits = circuit.num_qubits
-    num_measurements = state_prep_circuit.num_measurements
-    num_observables = state_prep_circuit.num_observables
+    num_measurements = circuit.num_measurements
+    num_observables = circuit.num_observables
     num_columns = 2 * num_qubits + num_measurements + num_observables
-    num_detectors = state_prep_circuit.num_detectors
+    num_detectors = circuit.num_detectors
     num_rows = len(flow_generators) + num_detectors
 
     # build a matrix of stabilizers for the entire circuit output, determined by the flows
@@ -526,7 +539,7 @@ def _get_fixed_parities_by_flows(
     # add stabilizers defined by detectors in the circuit
     detector_counter = 0
     measurement_counter = 0
-    for instruction in state_prep_circuit.flattened():
+    for instruction in circuit.flattened():
         measurement_counter += instruction.num_measurements
         if instruction.name == "DETECTOR":
             row = len(flow_generators) + detector_counter
@@ -566,8 +579,11 @@ def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
 
     This works around https://github.com/quantumlib/Stim/issues/1109: for such an instruction, such
     as ``MR 0 0``, ``stim.Circuit.flow_generators`` attributes the outcome of one measurement to
-    another.  TICK instructions between the single-target instructions stop Stim from merging them
-    back together.  The measurements keep their order.
+    another.  The issue also gives MPAD wrong flows, but they differ only in sign, which
+    get_state_stabilizers ignores, so MPAD needs no split.  The single-target instructions keep the
+    original tag, so that they do not merge with a neighbor that has a different tag, and TICK
+    instructions between them stop Stim from merging them with each other.  The measurements keep
+    their order.
     """
     split_circuit = stim.Circuit()
     for instruction in circuit:
@@ -579,7 +595,9 @@ def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
         qubits = [target.value for target in targets]
         if instruction.name in ("MR", "MRX", "MRY") and len(set(qubits)) < len(qubits):
             for target in targets:
-                split_circuit.append(instruction.name, [target], instruction.gate_args_copy())
+                split_circuit.append(
+                    instruction.name, [target], instruction.gate_args_copy(), tag=instruction.tag
+                )
                 split_circuit.append("TICK")
         else:
             split_circuit.append(instruction)
