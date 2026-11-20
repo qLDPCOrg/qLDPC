@@ -20,7 +20,7 @@ import numpy.typing as npt
 import pytest
 import stim
 
-from qldpc import conftest
+from qldpc import circuits, conftest
 from qldpc.codes.distance import _threads, _tuning
 from qldpc.codes.distance import conftest as distance_conftest
 from qldpc.codes.distance.conftest import THREAD_TIMEOUT
@@ -550,8 +550,10 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
         for lister in listers:
             listed.clear()
             in_use[:] = [lister]
+            # A cold cache of compiled code compiles the read-only versions on the first calls.
             checked, result = distance_conftest.run_on_a_thread(
-                functools.partial(_check_faults, lister, fault_weight, violating)
+                functools.partial(_check_faults, lister, fault_weight, violating),
+                timeout=6 * THREAD_TIMEOUT,
             )
             totals = [sum(column) for column in zip(*listed, strict=True)] if listed else []
             results.append((checked, result, totals))
@@ -688,14 +690,18 @@ def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(
     syndromes = [1 << jj for jj in range(7)]
     errors = [0b1111111 << (7 * jj) for jj in range(7)]
     args = (flags, syndromes, errors, 49, False, 7, 0)
-    checked, _ = _check_faults(_fault_search.FaultLister(*args), 3, ())
-    first, last = 2 | 8 | 32, 16 | 32 | 64
-    assert len(checked) == 7 and checked[-1] == last and first in checked
-    for violating in ((), {first, last}):
-        later_listed.clear()
-        expected = _check_faults(_fault_search.FaultLister(*args), 3, violating)
-        assert _check_faults(_fault_search.FaultLister(*args, 3), 3, violating) == expected
-        assert later_listed.is_set()
+
+    def check() -> None:
+        checked, _ = _check_faults(_fault_search.FaultLister(*args), 3, ())
+        first, last = 2 | 8 | 32, 16 | 32 | 64
+        assert len(checked) == 7 and checked[-1] == last and first in checked
+        for violating in ((), {first, last}):
+            later_listed.clear()
+            expected = _check_faults(_fault_search.FaultLister(*args), 3, violating)
+            assert _check_faults(_fault_search.FaultLister(*args, 3), 3, violating) == expected
+            assert later_listed.is_set()
+
+    distance_conftest.run_on_a_thread(check)
 
 
 def test_listing_on_threads_counts_the_lookups_of_one_thread(
@@ -705,8 +711,8 @@ def test_listing_on_threads_counts_the_lookups_of_one_thread(
 
     With classes of flags 1 to 7, a listing of fault weight four makes 21 lookups, one for each pair
     of classes, and the closing map of the 35 sets of three classes waits for 20.65 lookups.  The
-    calling thread makes seven of them alone.  The count of lookups after each fault weight is that
-    of one thread.
+    calling thread makes seven of them alone.  So the map is built for fault weight five only if
+    the threads' lookups count.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_LOOKUPS_PER_THREAD", 2)
     monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0.59)
@@ -724,15 +730,17 @@ def test_listing_on_threads_counts_the_lookups_of_one_thread(
     syndromes = [1 << jj for jj in range(7)]
     errors = [0b1111111 << (7 * jj) for jj in range(7)]
     results = []
-    for num_threads in (1, 3):
-        sizes.clear()
-        lister = _fault_search.FaultLister(
-            flags, syndromes, errors, 49, False, 7, 2**20, num_threads
-        )
-        checked = []
-        for fault_weight in range(2, 6):
-            checked.append((_check_faults(lister, fault_weight, ()), lister._num_lookups))
-        results.append((checked, list(sizes)))
+
+    def check() -> None:
+        for num_threads in (1, 3):
+            sizes.clear()
+            lister = _fault_search.FaultLister(
+                flags, syndromes, errors, 49, False, 7, 2**20, num_threads
+            )
+            checked = [_check_faults(lister, fault_weight, ()) for fault_weight in range(2, 6)]
+            results.append((checked, list(sizes)))
+
+    distance_conftest.run_on_a_thread(check)
     assert results[0] == results[1]
     assert results[0][1] == [1, 2, 3]
 
@@ -763,8 +771,12 @@ def test_only_costly_listings_move_to_threads(
     syndromes = [1 << jj for jj in range(7)]
     errors = [0b1111111 << (7 * jj) for jj in range(7)]
     args = (flags, syndromes, errors, 49, False, 7, 0)
-    expected = _check_faults(_fault_search.FaultLister(*args), 3, ())
-    assert _check_faults(_fault_search.FaultLister(*args, 3), 3, ()) == expected
+
+    def check() -> None:
+        expected = _check_faults(_fault_search.FaultLister(*args), 3, ())
+        assert _check_faults(_fault_search.FaultLister(*args, 3), 3, ()) == expected
+
+    distance_conftest.run_on_a_thread(check)
     assert bool(iterations) == (split_lookups == 1)
 
 
@@ -822,8 +834,65 @@ def test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads() -> N
     def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[object]]:
         return lambda start, end: iter([_tuning.get_tuning()])
 
-    with pytest.raises(AssertionError, match="get_tuning"):
-        list(_threads.iterate_in_order(2, 2, start_worker))
+    def iterate() -> None:
+        with pytest.raises(AssertionError, match="get_tuning"):
+            list(_threads.iterate_in_order(2, 2, start_worker))
+
+    distance_conftest.run_on_a_thread(iterate)
+
+
+def test_certifications_list_on_the_threads_of_the_search_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A certification lists faults on the number of threads of the search tuning.
+
+    The circuit of ``test_flagged_circuit_with_permuted_signed_outputs`` in
+    ``fault_propagation_test.py``, without its damaging fault, lists faults up to fault weight
+    three.  With every listing moved to threads, the certificate on three threads is that of one.
+    """
+    monkeypatch.setattr(_fault_search, "_SPLIT_LOOKUPS_PER_THREAD", 0)
+    thread_counts: list[int] = []
+    iterations: list[int] = []
+    fault_lister = _fault_search.FaultLister
+    iterate_in_order = _fault_search.iterate_in_order
+
+    def record_lister(*args: Any, **kwargs: Any) -> _fault_search.FaultLister:
+        thread_counts.append(kwargs["num_threads"])
+        return fault_lister(*args, **kwargs)
+
+    def count_iterations(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
+        iterations.append(args[1])
+        return iterate_in_order(*args, **kwargs)
+
+    monkeypatch.setattr(_fault_search, "FaultLister", record_lister)
+    monkeypatch.setattr(_fault_search, "iterate_in_order", count_iterations)
+    circuit = stim.Circuit()
+    circuit.append("I", range(9))
+    for flag in range(1, 16):
+        for syndrome in (3, 5, 6):
+            targets = [stim.target_x(jj) for jj in range(3) if (syndrome >> jj) & 1]
+            targets += [stim.target_x(5 + jj) for jj in range(4) if (flag >> jj) & 1]
+            circuit.append("CORRELATED_ERROR", targets, 0.001)
+    circuit += stim.Circuit("H 0 1 2\nS 0 2\nX 0")
+    circuit.append("M", range(5, 9))
+    for jj in range(4):
+        circuit.append("DETECTOR", [stim.target_rec(jj - 4)])
+
+    def certify() -> list[circuits.BoundedFaultPropagationCertificate]:
+        certificates = []
+        for num_threads in (1, 3):
+            with _tuning.use_tuning(num_threads=num_threads):
+                certificates.append(
+                    circuits.certify_bounded_fault_propagation(
+                        circuit, output_qubits=[2, 0, 4, 1, 3], post_select=range(4), max_weight=3
+                    )
+                )
+        return certificates
+
+    one, three = distance_conftest.run_on_a_thread(certify)
+    assert thread_counts == [1, 3]
+    assert iterations and set(iterations) == {3}
+    assert one.certified and one == three
 
 
 @pytest.mark.parametrize("size", [2, 3, 4])

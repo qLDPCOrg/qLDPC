@@ -513,7 +513,7 @@ def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_tuning, "_ACTIVE_TUNING", _CheckedTuning(_tuning._ACTIVE_TUNING))
 
 
-def run_on_a_thread(function: Callable[[], _Result]) -> _Result:
+def run_on_a_thread(function: Callable[[], _Result], timeout: float = THREAD_TIMEOUT) -> _Result:
     """Run a function on a thread of its own, and fail if it does not return within the timeout.
 
     So code on threads that deadlocks fails a test rather than hangs it.  The thread is a daemon, as
@@ -531,7 +531,7 @@ def run_on_a_thread(function: Callable[[], _Result]) -> _Result:
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
-    thread.join(timeout=THREAD_TIMEOUT)
+    thread.join(timeout=timeout)
     assert not thread.is_alive(), "The function did not return within the timeout"
     if errors:
         raise errors[0]
