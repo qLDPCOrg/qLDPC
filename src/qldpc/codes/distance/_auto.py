@@ -2,15 +2,16 @@
 
 """The parts of ``method="auto"`` that compare the costs of exact distance searches.
 
-``core.py`` chooses a method for each search.  It enumerates every word if ``is_cheap_to_enumerate``
-says that this is cheap.  Otherwise, it takes the Brouwer-Zimmermann (BZ) method for a search given
-by generators, or for a search of binary words that excludes no nonzero word, as for a classical
-code.  Other searches, as of a quantum code or of the faults of a circuit, run ``search_by_cost``: a
-connected-cluster search that switches to a BZ search once that is predicted to cost less.  The
-section "Choosing a method" of ``README.md`` in ``src/qldpc/codes/distance/`` explains the rule, why
-it keeps results exact, and its estimates.  Both searches can run on several threads, so the rule
-decides only from results that are the same on any number of threads, as Section 5 of the guide of
-each method, ``brouwer_zimmermann_code.md`` or ``connected_cluster.md``, requires.
+``distances.py`` chooses a method for each search.  It enumerates every word if
+``is_cheap_to_enumerate`` says that this is cheap.  Otherwise, it takes the Brouwer-Zimmermann (BZ)
+method for a search given by generators, or for a search of binary words that excludes no nonzero
+word, as for a classical code.  Other searches, as of a quantum code or of the faults of a circuit,
+run ``search_by_cost``: a connected-cluster search that switches to a BZ search once that is
+predicted to cost less.  The section "Choosing a method" of ``README.md`` in
+``src/qldpc/codes/distance/`` explains the rule, why it keeps results exact, and its estimates.
+Both searches can run on several threads, so the rule decides only from results that are the same on
+any number of threads, as Section 5 of the guide of each method, ``brouwer_zimmermann_code.md`` or
+``connected_cluster.md``, requires.
 """
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ class BrouwerZimmermannProblem:
             ``symplectic_to_hamming``, and one otherwise.
         weight_divisor: A proven divisor of the weights of BZ words.  Certificates round up to its
             multiples (Section 3.2 of ``brouwer_zimmermann.md``).  It equals ``weight_scale`` for
-            the problems that ``core.py`` builds.
+            the problems that ``distances.py`` builds.
         get_automorphisms: A function that returns automorphisms of the coordinates of the BZ
             words, or None, as ``get_distance_brouwer_zimmermann`` takes it.
     """
