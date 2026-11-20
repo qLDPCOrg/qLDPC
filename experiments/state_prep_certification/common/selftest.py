@@ -341,6 +341,15 @@ def test_runner_compile_on_thread(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_compile_vectorize(directory: pathlib.Path, node: bool) -> None:
+    """An uncached ``numba.vectorize`` ufunc is reported, and the retry recompiles it, flagged."""
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        row = _run(directory, _task("ufunc", [["vectorize"], ["value", 1]]), node)
+    assert row["status"] == "ok" and row["compiled_in_timing"], row
+    assert row["compiled_function"].endswith("_add_one"), row
+
+
+@test
 def test_runner_compile_untimed(directory: pathlib.Path, node: bool) -> None:
     """Compilations before and after the measured call, even uncached, are not reported."""
     task = _task("untimed", [["compile_untimed"], ["value", 6], ["post", 0.5]])

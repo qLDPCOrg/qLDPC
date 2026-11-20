@@ -38,12 +38,11 @@ A run is `ok` if the measured call returns within the task's limit, and a `timeo
 Process start, imports, and any untimed preparation before the measured call are capped at 120 s, beyond which the run is an `error`.
 The runner kills a run above its memory cap as a `memout`, and kills every process of a stopped run at once, then waits up to 30 s for them to exit.
 Work after the measured call, such as describing a counterexample, has its own allowance if the experiment sends its measured result first; running out of it then marks only the row's `post_status`.
-While the measured call runs, the measured process reports to the runner the first compilation that numba announces through its documented event `numba:compile`.
+While the measured call runs, the measured process reports to the runner the first compilation that numba announces through its documented events `numba:compile` and `numba:run_pass`.
 The runner discards a run whose measured call compiled, whatever its status, and runs the task once more, in a fresh process that loads the compiled code from numba's disk cache: the retry, which is never discarded.
 A run's T includes loading from the cache any compiled code that its process first reaches in its measured call, and the other first-call work of a fresh process.
 The task's one row is that of its kept run, which records any discarded run in `discarded_run`.
 A row has `compiled_in_timing` set when its run is a retry that compiled too, and only then does its T include a compilation that numba reports; [`common/runner.py`](common/runner.py) says when that happens.
-numba does not report the compilation of a `numba.vectorize` ufunc, such as those of galois's GF(2) arithmetic, which ranking's measured calls reach, so an unflagged row's T can still include such a compilation.
 A row with `compiled_in_timing` set is kept so that it is visible, but its T enters no analysis.
 Each experiment's analysis stops with an error that names such rows.
 The ranking analysis, which admits circuits by certification's verdicts, still reads the verdicts of flagged certification rows.

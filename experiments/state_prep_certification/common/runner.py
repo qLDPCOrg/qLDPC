@@ -29,11 +29,10 @@ child and the runner in ``active/<task_key>``, and watches the child:
   to ``grace_s`` for the processes to go, and accepts no other message.  A process is killed only
   if its start time is the one recorded when it was seen, so that a reused process id is never
   killed.
-* **Compilation:** while the measured call runs, the child listens to numba's documented event
-  ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and reports
-  the first compilation to the parent.  numba does not send this event when it compiles a
-  ``numba.vectorize`` or ``numba.guvectorize`` ufunc or a ``numba.cfunc``, such as galois's ufuncs
-  (see ``certification/counting.py``), so such a compilation in a measured call goes unreported.
+* **Compilation:** while the measured call runs, the child listens to two of numba's documented
+  events: ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and
+  ``"numba:run_pass"``, which it sends for each compiler pass of any compilation, including those
+  of ``numba.vectorize`` ufuncs.  The child reports the first compilation to the parent.
 
   The parent discards a run whose measured call compiled, whatever its status.  The discarded run is
   not stopped early, since numba writes compiled code to its cache only after the compilation ends,
@@ -48,11 +47,11 @@ child and the runner in ``active/<task_key>``, and watches the child:
   T include a compilation that numba reports.  That happens for code whose compilation was lost when
   the discarded run was killed at its limit or memory cap or ended in an error, for code that the
   discarded run never reached, and for code that numba does not cache on disk, such as galois's
-  ``numba.jit`` functions when a task does not compile them first.  It can also happen when
-  processes compile different versions of one function at once, since one can overwrite the cache
-  entry that another wrote (numba/numba#10862).  Such a row is kept so that it is visible.
-  ``compiled_in_timing`` is the flag that the analyses test, and ``compiled_function`` names the
-  first function compiled, to show what to look into.
+  arithmetic when a task does not compile it first.  It can also happen when processes compile
+  different versions of one function at once, since one can overwrite the cache entry that another
+  wrote (numba/numba#10862).  Such a row is kept so that it is visible.  ``compiled_in_timing`` is
+  the flag that the analyses test, and ``compiled_function`` names the first function compiled, to
+  show what to look into.
 
 ``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
 during or between its runs, kills any current run, waits up to the grace for its processes to go,
@@ -596,8 +595,8 @@ def timed(function: Callable[..., _ReturnType], *args: Any, **kwargs: Any) -> _R
     """Call the measured function once, timing it, and tell the runner when it starts and ends.
 
     T is the wall time by ``time.perf_counter``, and the CPU time includes child processes.  While
-    the function runs, the first compilation that numba reports in this process, on any thread, is
-    reported to the runner (see the module docstring).
+    the function runs, the first compilation by numba in this process, on any thread, is reported
+    to the runner (see the module docstring).
     """
     # numba is imported here, in the child, so that the runner's own process does not load it
     from numba.core import event
@@ -608,7 +607,10 @@ def timed(function: Callable[..., _ReturnType], *args: Any, **kwargs: Any) -> _R
     _CHANNEL.send({"type": "start", "affinity": _affinity()})
     cpu_start = _cpu_seconds()
     reporter = _new_compile_reporter()
-    with event.install_listener("numba:compile", reporter):
+    with (
+        event.install_listener("numba:compile", reporter),
+        event.install_listener("numba:run_pass", reporter),
+    ):
         _CHANNEL.wall_start = time.perf_counter()
         value = function(*args, **kwargs)
         wall = time.perf_counter() - _CHANNEL.wall_start
@@ -673,11 +675,11 @@ def child_main(
 
 
 def _new_compile_reporter() -> Any:
-    """A listener of numba's event ``"numba:compile"`` that reports the first compilation.
+    """A listener of numba's compilations that reports the first one to the runner.
 
-    numba sends this event for the compilation of a ``numba.jit`` function (see the module
-    docstring for what it does not report).  The listener's class is defined here, on call, since
-    it subclasses numba's ``event.Listener``, and only the child imports numba.
+    ``timed`` installs it for the events ``"numba:compile"`` and ``"numba:run_pass"`` (see the
+    module docstring).  The listener's class is defined here, on call, since it subclasses numba's
+    ``event.Listener``, and only the child imports numba.
     """
     from numba.core import event
 
@@ -690,8 +692,11 @@ def _new_compile_reporter() -> Any:
             if self.reported:
                 return
             self.reported = True
-            function = started.data["dispatcher"].py_func
-            name = f"{function.__module__}.{function.__qualname__}"
+            if started.kind == "numba:compile":
+                function = started.data["dispatcher"].py_func
+                name = f"{function.__module__}.{function.__qualname__}"
+            else:
+                name = f"{started.data['module']}.{started.data['qualname']}"
             _CHANNEL.send({"type": "compiled", "function": name})
 
         def on_end(self, ended: event.Event) -> None:

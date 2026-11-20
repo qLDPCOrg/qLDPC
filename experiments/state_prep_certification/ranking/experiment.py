@@ -22,13 +22,14 @@ circuit's options at rate p:
   ``Consumer.estimate_excess_failure_probability``.
 * ``repro``: one ``histogram`` and one ``direct`` task of ``repro``, each twice, with the same seed.
 
-The seed of a task is the first 8 bytes of the SHA-256 of its key, and the two copies of a
-``repro`` task share the seed of their key without the copy.  Each run calls ``runner.timed`` once,
-around the whole task.  The ``histogram`` and ``direct`` tasks also record the CPU seconds of their
-parts for the cost comparison: setup (detector error models, decoders, and mechanism lists),
-exactly listed strata, and sampled strata; ``calib`` records its setup and its sampled cells.  Each
-sends its finished parts as partial results, which a run killed at its limit keeps.  Admission of
-candidates by their certification verdicts is left to ``analyze.py``, so every task runs.
+The seed of a task is the first 8 bytes of the SHA-256 of its key, and the two copies of a ``repro``
+task share the seed of their key without the copy.  Each run calls ``runner.timed`` once, around the
+rest of the task, after an untimed ``_compile_galois``.  The ``histogram`` and ``direct`` tasks also
+record the CPU seconds of their parts for the cost comparison: setup (detector error models,
+decoders, and mechanism lists), exactly listed strata, and sampled strata; ``calib`` records its
+setup and its sampled cells.  Each sends its finished parts as partial results, which a run killed
+at its limit keeps.  Admission of candidates by their certification verdicts is left to
+``analyze.py``, so every task runs.
 """
 
 from __future__ import annotations
@@ -283,7 +284,8 @@ def histogram_from_fields(fields: dict[str, Any]) -> ResidualWeightHistogram:
 
 
 def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
-    """Run one task of the ranking experiment."""
+    """Run one task of the ranking experiment, after compiling galois's arithmetic, untimed."""
+    _compile_galois()
     inputs, seed = task["input"], int(task["seed"])
     arm = task["arm"]
     if arm == "repro":
@@ -588,6 +590,18 @@ def histogram_options(entry: dict[str, Any]) -> dict[str, Any]:
         "post_select": options["post_select"],
         "css_weight": options["css_weight"],
     }
+
+
+def _compile_galois() -> None:
+    """Compile the galois arithmetic that every arm reaches, before a task's measured call.
+
+    galois compiles its GF(2) arithmetic in each process that uses it, and does not cache it on
+    disk, so the runner's retry cannot remove that compilation from a measured call.  The arms reach
+    it through qLDPC's residual-weight code and through ``consumer.py``.
+    """
+    import galois
+
+    galois.GF2([[1, 1], [0, 1]]).row_reduce()
 
 
 def _evaluate(
