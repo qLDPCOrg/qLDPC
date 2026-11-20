@@ -89,6 +89,7 @@ Dropping a primitive fault with zero signature, or a pair with equal signatures,
 So a violating accepted fault with the smallest fault weight contains no such primitive faults, and it is enough to keep one primitive fault for each distinct nonzero signature.
 We call the primitive faults that remain the **kept primitive faults**.
 Each column of `P` for a dropped primitive fault is zero or equals the column of a kept primitive fault, so the flags of the kept primitive faults have rank `rank(P)`, and the search computes `rank(P)` from them.
+For a finite `K`, it computes the rank only up to `K - 1`, since every rank from `K - 1` up gives the same `min(K, rank(P) + 1)`.
 
 ## The search
 

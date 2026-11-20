@@ -355,8 +355,11 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
     )
     reduced = counting.reduce_signatures(flags, syndromes)
     assert counted_by_kind["zero_flag:1"] == reduced.num_zero_flag, counted_by_kind
-    num_flagged = reduced.num_reduced - reduced.num_zero_flag
-    assert counted_by_kind["classification:1"] == num_flagged, counted_by_kind
+    # the search classifies each distinct syndrome of the flagged mechanisms once
+    flagged_syndromes = {
+        syndrome for flag, syndrome in zip(reduced.flags, reduced.syndromes, strict=True) if flag
+    }
+    assert counted_by_kind["classification:1"] == len(flagged_syndromes), counted_by_kind
     assert any(key.startswith("batch:") for key in shadowed), shadowed
     assert instrumentation.shadow["auto"] in ("brouwer_zimmermann", "connected_cluster")
 
