@@ -9,7 +9,6 @@ supported cell, in each of its modes, on small random instances against brute fo
 
 from __future__ import annotations
 
-import functools
 import itertools
 from collections.abc import Callable
 from pathlib import Path
@@ -20,7 +19,6 @@ import numpy.typing as npt
 import pytest
 
 from qldpc import codes, math
-from qldpc._binary import get_kernel
 from qldpc.codes.conftest import Tune
 from qldpc.codes.distance import (
     CosetLeaderSearch,
@@ -31,7 +29,7 @@ from qldpc.codes.distance import (
     get_distance_pauli,
 )
 
-from . import _threads
+from . import _threads, _tuning, core, logical_counts
 from .conftest import (
     assert_exact_answers,
     enumerate_logical_ops,
@@ -75,9 +73,11 @@ _CELLS = [
 
 
 def test_the_grid_lists_every_problem_and_the_methods_that_it_takes() -> None:
-    """Each problem of the table accepts exactly the methods whose cells are supported."""
+    """The table has a column for each method, and each problem takes the methods of its cells."""
     assert set(_GRID) == set(_ACCEPTS) == set(_CHECKS)
+    methods = {*core._DISTANCE_METHODS.values(), *logical_counts._LOGICAL_COUNT_METHODS.values()}
     for problem, row in _GRID.items():
+        assert set(row) == methods
         assert set(row.values()) <= {*_MODES, "not yet", "not by design"}
         for method, cell in row.items():
             assert _ACCEPTS[problem](method) == (cell in _MODES), (problem, method, cell)
@@ -92,30 +92,32 @@ def test_every_cell_answers_as_brute_force(
     monkeypatch: pytest.MonkeyPatch,
     pytestconfig: pytest.Config,
 ) -> None:
-    """Every supported cell gives the answers of brute force, and runs on threads in that mode.
+    """Every supported cell gives the answers of brute force, and uses threads only in that mode.
 
-    On threads, each split gate is open: chunks of one unit of work, and ``"auto"`` never
-    enumerates, so that small instances take the threaded paths.
+    ``"auto"`` never enumerates here, so that it takes the routes of the other methods.  A cell
+    that runs on threads, in that mode, and a cell that always runs on one thread, are given two
+    threads and chunks of one unit of work, so that the searches and batches of small instances
+    split onto threads wherever they can.
     """
     threads = mode == "threads"
-    if threads:
+    if threads or _GRID[problem][method] == "one thread":
         tune(num_threads=2, search_chunk_exponent=0, auto_brute_force_max_words=0)
     else:
-        tune(num_threads=1)
+        tune(num_threads=1, auto_brute_force_max_words=0)
 
     # Record the number of threads of each run of work items, which every threaded path starts.
-    counts: list[int] = []
+    thread_counts: list[int] = []
     run_work_items = _threads.run_work_items
 
     def record(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
-        counts.append(min(num_items, num_threads))
+        thread_counts.append(min(num_items, num_threads))
         run_work_items(num_items, num_threads, *args, **kwargs)
 
     monkeypatch.setattr(_threads, "run_work_items", record)
 
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     _CHECKS[problem](method, rng, threads)
-    assert any(count > 1 for count in counts) == threads
+    assert any(count > 1 for count in thread_counts) == threads
 
 
 ####################################################################################################
@@ -130,7 +132,7 @@ def _accepts_distance(method: Any) -> bool:
 def _accepts_vector(method: Any) -> bool:
     """Whether the coset weight of a vector accepts a method."""
     code = codes.ClassicalCode([[1, 1, 1]])
-    return _accepts(lambda: code.get_distance_exact(vector=[1, 0, 0], method=method))
+    return _accepts(lambda: code.get_distance_exact(vector=[1, 1, 1], method=method))
 
 
 def _accepts_coset_leaders(method: Any) -> bool:
@@ -148,11 +150,11 @@ def _check_distances(method: Any, rng: np.random.Generator, threads: bool) -> No
     # A classical code, from its checks and, except by the connected-cluster method, which needs
     # checks, from its generators.
     checks = rng.integers(2, size=(4, 9), dtype=np.uint8)
-    generators = get_kernel(checks)
-    distance = min(word.bit_count() for word in get_span(generators) - {0})
+    words = _get_words_with_syndrome(checks, 0)
+    distance = min(int(word.sum()) for word in words if word.any())
     assert get_distance_from_checks(checks, method=method) == distance
     if method != "connected_cluster":
-        assert get_distance_from_generators(generators, method=method) == distance
+        assert get_distance_from_generators(words, method=method) == distance
 
     # A CSS code.
     code = get_random_css_code(rng, 8, 2, 3)
@@ -184,20 +186,24 @@ def _check_distances(method: Any, rng: np.random.Generator, threads: bool) -> No
 
 def _check_vector_cosets(method: Any, rng: np.random.Generator, threads: bool) -> None:
     """The coset weights of vectors of a classical code, against brute force."""
-    # On threads, a fixed code and vector whose BZ search scans a layer of three rows, which a
-    # coset of small weight need not reach.
-    cases = [(rng, 4, 10, 4)]
+    # The coset of each vector holds the words with its syndrome.
+    checks = rng.integers(2, size=(4, 10), dtype=np.uint8)
+    code = codes.ClassicalCode(checks)
+    for vector in rng.integers(2, size=(4, len(code)), dtype=np.uint8):
+        syndrome = int(checks @ vector % 2 @ (1 << np.arange(len(checks))))
+        expected = int(_get_words_with_syndrome(checks, syndrome).sum(axis=1).min())
+        assert code.get_distance_exact(vector=vector, method=method) == expected
+
+    # On threads, a fixed code and vector whose coset weighs five, so that its BZ search reaches a
+    # layer of three rows, which splits onto threads; a small random case may stop earlier.  Its
+    # 2**16 code words come from its generator, which the random cases check independently.
     if threads:
-        cases.append((np.random.default_rng(0), 14, 30, 1))
-    for case_rng, num_checks, num_bits, num_vectors in cases:
-        code = codes.ClassicalCode(
-            case_rng.integers(2, size=(num_checks, num_bits), dtype=np.uint8)
-        )
-        words = get_span(code.generator)
-        for vector in case_rng.integers(2, size=(num_vectors, num_bits), dtype=np.uint8):
-            value = sum(int(bit) << jj for jj, bit in enumerate(vector))
-            expected = min((word ^ value).bit_count() for word in words)
-            assert code.get_distance_exact(vector=vector, method=method) == expected
+        fixed_rng = np.random.default_rng(0)
+        code = codes.ClassicalCode(fixed_rng.integers(2, size=(14, 30), dtype=np.uint8))
+        vector = fixed_rng.integers(2, size=(1, 30), dtype=np.uint8)[0]
+        value = sum(int(bit) << jj for jj, bit in enumerate(vector))
+        expected = min((word ^ value).bit_count() for word in get_span(code.generator))
+        assert code.get_distance_exact(vector=vector, method=method) == expected
 
 
 def _check_coset_leaders(method: Any, rng: np.random.Generator, threads: bool) -> None:
@@ -227,19 +233,22 @@ def _check_counts(method: Any, rng: np.random.Generator, threads: bool) -> None:
     """Counts of logical operators at the distance and above it, against enumeration."""
     code = get_random_css_code(rng, 7, 2, 2)
     counts_x, counts_z, distance, full = enumerate_logical_ops(code)
+
+    # A count at its default weight runs a distance search, which can use threads (see "The grid"
+    # in the README), so it runs on one thread here.
     count_pauli = method != "macwilliams" or code.is_self_dual
-    counts = count_logical_ops_css(
-        code.matrix_x, code.matrix_z, method=method, count_pauli=count_pauli
-    )
+    with _tuning.use_tuning(num_threads=1):
+        counts = count_logical_ops_css(
+            code.matrix_x, code.matrix_z, method=method, count_pauli=count_pauli
+        )
     assert counts.weight == distance
     assert (counts.count_x, counts.count_z) == (counts_x[distance], counts_z[distance])
     assert counts.count_pauli == (full if count_pauli else None)
-    weight = distance + 1
-    counts = count_logical_ops_css(code.matrix_x, code.matrix_z, weight, method=method)
-    assert (counts.count_x, counts.count_z) == (counts_x[weight], counts_z[weight])
+    for weight in (distance, distance + 1):
+        counts = count_logical_ops_css(code.matrix_x, code.matrix_z, weight, method=method)
+        assert (counts.count_x, counts.count_z) == (counts_x[weight], counts_z[weight])
 
 
-# The method names come from the README as strings, which the entry points check at run time.
 _ACCEPTS: dict[str, Callable[[Any], bool]] = {
     "Distance": _accepts_distance,
     "Coset weight of a vector": _accepts_vector,
@@ -262,15 +271,23 @@ def _accepts(call: Callable[[], object]) -> bool:
     """Whether a call runs, rather than rejecting its method with a ``ValueError``."""
     try:
         call()
-    except ValueError:
+    except ValueError as error:
+        assert "method" in str(error), error
         return False
     return True
 
 
-@functools.cache
 def _get_paulis(num_qubits: int) -> npt.NDArray[np.int_]:
     """Every Pauli string on ``num_qubits`` qubits, as rows ``[x|z]``."""
     return np.array(list(itertools.product([0, 1], repeat=2 * num_qubits)), dtype=int)
+
+
+def _get_words_with_syndrome(checks: npt.NDArray[np.uint8], syndrome: int) -> npt.NDArray[np.int_]:
+    """Every binary word with a packed syndrome for the checks, by enumeration, one per row."""
+    num_bits = checks.shape[1]
+    words = (np.arange(1 << num_bits)[:, None] >> np.arange(num_bits)) & 1
+    syndromes = (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
+    return words[syndromes == syndrome]
 
 
 def _get_pauli_distance(checks: npt.NDArray[np.uint8]) -> int:
