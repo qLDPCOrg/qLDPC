@@ -198,8 +198,8 @@ class SearchTuning:
     #: candidate/set evaluations, reaches this multiple of the sum of ``b**2 * r**2 * N`` over the
     #: coverages ``b`` that it may try, for ``r`` rows and ``N`` nonzero columns; zero removes this
     #: gate, and ``MAX_VALUE`` closes it.  Defaults to 2, a derived value: trying every such
-    #: coverage costs roughly that sum times one or two evaluations (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: coverage costs roughly that sum times one or two evaluations when coverages of two or more
+    #: are tried, and less at coverage one alone (Section 4.4 of ``brouwer_zimmermann_code.md``).
     partition_work_ratio: int = 2
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches
@@ -210,15 +210,16 @@ class SearchTuning:
     #: ``brouwer_zimmermann_code.md``).
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
-    #: The estimated work, in candidate/set evaluations, from which a distance search or count of
-    #: overlapping information sets also bounds unvisited words by the linear program of Section 3.1
-    #: of ``brouwer_zimmermann.md``; zero in every such search or count, and ``MAX_VALUE`` in none.
-    #: A search that gets automorphisms solves the program over orbits of Section 3.7 of
-    #: ``brouwer_zimmermann.md`` in place of that program, for the family that it has then, disjoint
-    #: or overlapping, whatever this value, unless ``automorphism_orbit_bounds`` is off.  Defaults
-    #: to ``5 * 10**7``, a derived value: the cost of linear programming, planning included, in a
-    #: search of a large basis, tens of millions of evaluations (Section 3.1 of
-    #: ``brouwer_zimmermann.md`` and Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: The estimated work, in candidate/set evaluations, from which a distance search or count that
+    #: uses overlapping information sets also bounds unvisited words by the linear program of
+    #: Section 3.1 of ``brouwer_zimmermann.md``.  Zero turns these programs on in every such search
+    #: or count, and ``MAX_VALUE`` turns them off.  A distance search that gets automorphisms solves
+    #: the program over orbits of Section 3.7 of ``brouwer_zimmermann.md`` in place of that program,
+    #: for the family that it has then, disjoint or overlapping, whatever this value, unless
+    #: ``automorphism_orbit_bounds`` is off.  Defaults to ``5 * 10**7``, a derived value: the cost
+    #: of linear programming, planning included, in a search of a large basis, tens of millions of
+    #: evaluations (Section 3.1 of ``brouwer_zimmermann.md`` and Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
     lp_minimum_work: int = 50_000_000
 
     #: The largest denominator of the fractions to which the certificate from linear programming
