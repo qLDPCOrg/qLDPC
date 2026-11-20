@@ -206,10 +206,10 @@ def get_state_stabilizers(
 ) -> list[stim.PauliString]:
     """Identify stabilizers of the prepared state that are supported on specified qubits.
 
-    The circuit runs without noise, from the all-|0⟩ state.  Its measurement outcomes, and so the
-    state that it prepares, may vary from run to run.  This function returns a basis of the Pauli
-    strings on the specified qubits that stabilize the prepared state with the same sign in every
-    run.
+    The circuit runs without noise, from the state ``|0...0⟩``.  Its measurement outcomes, and so
+    the state that it prepares, may vary from run to run.  This function returns a basis of the
+    Pauli strings on the specified qubits that stabilize the prepared state with the same sign in
+    every run.
 
     The circuit's detectors count as post-selected.  Their combined outcomes should be
     deterministic in a noiseless run, as Stim assumes.  A stabilizer on the specified qubits that
