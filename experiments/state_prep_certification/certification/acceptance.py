@@ -355,11 +355,13 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
     )
     reduced = counting.reduce_signatures(flags, syndromes)
     assert counted_by_kind["zero_flag:1"] == reduced.num_zero_flag, counted_by_kind
-    # the search classifies each distinct syndrome of the flagged mechanisms once
-    flagged_syndromes = {
+    # the search classifies each distinct syndrome of the flagged mechanisms once, and E-chen's
+    # flagged mechanisms repeat syndromes, so this count differs from one query per mechanism
+    flagged_syndromes = [
         syndrome for flag, syndrome in zip(reduced.flags, reduced.syndromes, strict=True) if flag
-    }
-    assert counted_by_kind["classification:1"] == len(flagged_syndromes), counted_by_kind
+    ]
+    assert len(set(flagged_syndromes)) < len(flagged_syndromes), len(flagged_syndromes)
+    assert counted_by_kind["classification:1"] == len(set(flagged_syndromes)), counted_by_kind
     assert any(key.startswith("batch:") for key in shadowed), shadowed
     assert instrumentation.shadow["auto"] in ("brouwer_zimmermann", "connected_cluster")
 

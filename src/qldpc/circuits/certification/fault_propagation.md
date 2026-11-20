@@ -80,6 +80,7 @@ The null vectors of `P[:, F]`, padded with zeros at the other error mechanisms, 
 So a nonzero fault `F` is an irreducible accepted fault exactly when the all-ones vector spans the null space of `P[:, F]`.
 By rank-nullity, an irreducible accepted fault `F` has `|F| = rank(P[:, F]) + 1 ≤ rank(P) + 1`.
 So, since [irreducible accepted faults suffice](#irreducible-accepted-faults-suffice), no fault of fault weight above `min(K, rank(P) + 1)` needs checking.
+For a finite `K`, the search computes the rank only up to `K - 1`, since every rank of at least `K - 1` gives `min(K, rank(P) + 1) = K`.
 
 ### Duplicate and zero signatures can be dropped
 
@@ -89,7 +90,6 @@ Dropping a primitive fault with zero signature, or a pair with equal signatures,
 So a violating accepted fault with the smallest fault weight contains no such primitive faults, and it is enough to keep one primitive fault for each distinct nonzero signature.
 We call the primitive faults that remain the **kept primitive faults**.
 Each column of `P` for a dropped primitive fault is zero or equals the column of a kept primitive fault, so the flags of the kept primitive faults have rank `rank(P)`, and the search computes `rank(P)` from them.
-For a finite `K`, it computes the rank only up to `K - 1`, since every rank of at least `K - 1` gives `min(K, rank(P) + 1) = K`.
 
 ## The search
 

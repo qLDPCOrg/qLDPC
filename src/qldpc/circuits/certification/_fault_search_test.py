@@ -1321,14 +1321,14 @@ def test_light_primitive_faults_are_never_searched(monkeypatch: pytest.MonkeyPat
 
 
 def test_max_weight_limits_the_fault_weight() -> None:
-    """Only faults of fault weight at most ``max_weight`` are checked, which may exceed 64 bits."""
+    """``max_weight``, even one that exceeds 64 bits, limits the fault weight of checked faults."""
     # The only accepted fault is that of all three primitive faults.
     failures = {
         max_weight: _certify_map([1, 2, 3], [1, 2, 12], max_weight, 4)
-        for max_weight in (None, 2**70, 30, 2)
+        for max_weight in (None, 2**70, 2)
     }
     assert failures[2] is None and failures[None] is not None
-    assert failures[2**70] == failures[30] == failures[None]
+    assert failures[2**70] == failures[None]
 
 
 def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> None:

@@ -139,12 +139,10 @@ def find_smallest_violation(
             signatures.setdefault(signature, index)
 
     # Repeated flags do not change the rank of the matrix P of the flags, so each value enters it
-    # once.  Faults are checked only up to fault weight min(max_weight, rank(P) + 1) (see
-    # "Irreducible accepted faults have fault weight at most rank(P) + 1").  Every rank of at least
-    # ``max_weight - 1`` gives the limit ``max_weight``, so the rank is computed only up to
-    # ``max_weight - 1``, and the capped rank plus one is the limit (see "Duplicate and zero
-    # signatures can be dropped").  The cap is also at most the number of rows, which bounds the
-    # rank, so that it fits in 64 bits.
+    # once.  Faults are checked only up to fault weight min(max_weight, rank(P) + 1), so with
+    # ``max_weight`` the rank is computed only up to ``max_weight - 1`` (see "Irreducible accepted
+    # faults have fault weight at most rank(P) + 1").  The limit is also at most ``len(flag_rows)``,
+    # which bounds the rank, so that compiled code receives a 64-bit integer.
     distinct_flags = list(dict.fromkeys(flag for flag, _ in signatures))
     flag_rows = _to_words(distinct_flags, _get_num_words_for_values(distinct_flags))
     if max_weight is None:
