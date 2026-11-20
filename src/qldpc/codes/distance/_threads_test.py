@@ -623,11 +623,18 @@ def test_outputs_come_in_the_order_of_the_items(num_threads: int) -> None:
 
 
 def test_threads_are_no_more_than_the_items() -> None:
-    """With no items, no thread starts, and with fewer items than threads, one for each item."""
+    """With no items, no thread starts, and with fewer items than threads, one for each item.
+
+    With two items, each worker waits for the other to start before it lists, since a thread that
+    starts only after the iteration has ended finds the stop event set and starts no worker.
+    """
     workers: list[int] = []
+    both_started = threading.Barrier(2, timeout=THREAD_TIMEOUT)
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
         workers.append(threading.get_ident())
+        if threading.current_thread().name == "qldpc-search":
+            both_started.wait()
         return lambda start, end: iter(range(start, end))
 
     def iterate() -> None:
@@ -786,6 +793,42 @@ def test_a_worker_that_raises_as_it_starts_stops_the_others() -> None:
 
     run_on_a_thread(iterate)
     assert len(starts) == 3
+
+
+def test_closing_the_iterator_sets_the_stop_event_of_its_threads() -> None:
+    """Closing the iterator sets the stop event of its threads, so a range without outputs ends.
+
+    Of two ranges, range 0 has one output, and range 1 has none and waits for the stop event, as
+    the iterator of a range that checks it between chunks of its work would.  The calling thread
+    takes the output of range 0, waits until a thread runs range 1, and closes the iterator, which
+    sets the event, so that the close does not wait for the timeout of that wait.
+    """
+    waited: list[bool] = []
+    waiting = threading.Event()
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[str]]:
+        def run_range(start: int, end: int) -> Iterator[str]:
+            if start == 0:
+                yield "first"
+                return
+            waiting.set()
+            waited.append(stop.wait(timeout=THREAD_TIMEOUT))
+
+        return run_range
+
+    def iterate() -> float:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 1)
+            outputs = _threads.iterate_in_order(2, 3, start_worker)
+            assert next(outputs) == "first"
+            assert waiting.wait(timeout=THREAD_TIMEOUT)
+            started = time.perf_counter()
+            outputs.close()
+            return time.perf_counter() - started
+
+    # Without the event, the wait would end only at its timeout, so allow the thread more time.
+    seconds = run_on_a_thread(iterate, timeout=2 * THREAD_TIMEOUT)
+    assert waited == [True] and seconds < THREAD_TIMEOUT
 
 
 def test_the_thread_of_the_range_that_the_calling_thread_reads_keeps_the_cap() -> None:

@@ -341,8 +341,9 @@ def run_blocks(
 
 # The number of ranges for each of its threads into which ``iterate_in_order`` splits the weight of
 # the items.  More ranges let the calling thread find the next range ready sooner, and balance the
-# threads better at the end, and fewer ranges cost fewer calls; the number changes no output.
-RANGES_PER_THREAD = 32
+# threads better where the weights estimate the work poorly, and fewer ranges cost fewer calls; the
+# number changes no output.
+RANGES_PER_THREAD = 256
 
 # The threads of ``iterate_in_order`` hold at most this many outputs for each thread, and one more
 # in total (see its docstring).  More let them run further ahead of the calling thread, at the cost
@@ -368,7 +369,9 @@ def iterate_in_order(
 
     ``start_worker`` is called once on each thread that runs items, with a stop event, and returns a
     function that, given a range ``(start, end)`` of items, returns an iterator over the outputs of
-    the items ``start, ..., end - 1``, in order.  With fewer than two threads, the calling thread
+    the items ``start, ..., end - 1``, in order.  On several threads, the stop event is set when the
+    threads should stop, as when the iterator is closed, so that the iterator of a range can check
+    it between chunks of its work and end early.  With fewer than two threads, the calling thread
     runs every item itself, as one range.  Otherwise a new thread calls ``run_work_items`` to start
     ``min(num_threads - 1, num_items)`` threads, including itself, while the calling thread yields
     the outputs of each range as they come, range by range in the order of the items.  So at most
@@ -389,10 +392,12 @@ def iterate_in_order(
     outputs.
 
     Closing the iterator, as ``contextlib.closing`` does when its block ends early or raises, stops
-    the threads between outputs, and waits until they have returned, as ``run_work_items`` does at
-    an exception.  A further interrupt while it waits can leave threads running, in the narrow
-    windows that the comment in ``run_work_items`` describes; since the halt event is set first,
-    they stop before their next output, or within ``_HALT_CHECK_SECONDS`` if they wait to add one.
+    the threads between outputs, or between chunks of work where the iterators of their ranges check
+    the stop event, and waits until they have returned, as ``run_work_items`` does at an exception.
+    A further interrupt while it waits can leave threads running, in the narrow windows that the
+    comment in ``run_work_items`` describes; since the halt event and the stop event are set first,
+    they stop before their next output or their iterator's next check of the stop event, or within
+    ``_HALT_CHECK_SECONDS`` if they wait to add an output.
     An exception of a thread, or a thread that cannot be started, stops the others, and is raised on
     the calling thread once they have returned.  It can be raised before outputs that come before
     it in item order, so before the calling thread reaches what one thread would have reached
@@ -431,14 +436,25 @@ def iterate_in_order(
         ranges[start] = _Range(next_item)
         return start, next_item, ranges[start]
 
+    # The stop event of ``run_work_items``, which its threads share, once a thread has recorded it.
+    shared_stop: threading.Event | None = None
+
     def stop_all() -> None:
-        """Set the halt event, so that every thread stops and the calling thread waits for them."""
+        """Set the halt event and the threads' stop event, so that every thread stops."""
         with ready:
             halt.set()
+            if shared_stop is not None:
+                shared_stop.set()
             ready.notify_all()
 
     def start_ranges(stop: threading.Event) -> Callable[[int, int], None]:
         """Return how a thread claims ranges and adds their outputs to their records."""
+        # Record the stop event, so that halting sets it.  A thread records it before it claims a
+        # range, and claims none once the halt event is set, so no range runs with the event unset
+        # after a halt.
+        nonlocal shared_stop
+        with ready:
+            shared_stop = stop
         try:
             run_range = start_worker(stop)
         except BaseException:
