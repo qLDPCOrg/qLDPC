@@ -8,7 +8,7 @@ import itertools
 import threading
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeVar
 
 import numba
 import numpy as np
@@ -30,6 +30,9 @@ from .coset_leaders import CosetLeaderSearch
 # How long, in seconds, a test waits for another thread, so that a deadlock fails the test rather
 # than hangs it.
 THREAD_TIMEOUT = 10
+
+# The result of a function that ``run_on_a_thread`` runs.
+_Result = TypeVar("_Result")
 
 
 @pytest.fixture
@@ -472,13 +475,15 @@ def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the workers of ``run_work_items`` fail if they break a rule on threads, in every test.
 
     Section 5 of each method's guide, ``brouwer_zimmermann_code.md`` or ``connected_cluster.md``,
-    states the rules.  While a worker runs, on a new thread or on the thread that called
-    ``run_work_items``, a call from Python of numba code compiled with ``parallel=True``, such as
-    some of galois's, or of ``_tuning.get_tuning``, raises an ``AssertionError``, which
-    ``run_work_items`` raises again.  Two threads that run numba-parallel
-    code at once abort the process under numba's workqueue layer, and a new thread reads the default
-    tuning.  The fixture sees only the calls that tests make on workers.  In compiled code, two
-    tests of ``qldpc/_compiled_code_rules_test.py`` check the rest:
+    states the rules, and "Threads" in ``qldpc/circuits/certification/fault_propagation.md`` those
+    of the certifier's fault lister, whose tests use this fixture too.  While a worker runs, on a
+    new thread or on the thread that called ``run_work_items``, a call from Python of numba code
+    compiled with ``parallel=True``, such as some of galois's, or of ``_tuning.get_tuning``, raises
+    an ``AssertionError``, which ``run_work_items`` raises again.  The workers include the threads
+    of ``iterate_in_order``, which start through ``run_work_items``.  Two threads that run
+    numba-parallel code at once abort the process under numba's workqueue layer, and a new thread
+    reads the default tuning.  The fixture sees only the calls that tests make on workers.  In
+    compiled code, two tests of ``qldpc/_compiled_code_rules_test.py`` check the rest:
     ``test_nothing_asks_numba_for_parallel_code`` keeps the functions of qLDPC from being
     numba-parallel, and ``test_always_compiled_functions_use_nothing_from_outside_qldpc`` keeps out
     those of galois.
@@ -506,6 +511,31 @@ def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(_threads, "run_work_items", run_checked)
     monkeypatch.setattr(_tuning, "_ACTIVE_TUNING", _CheckedTuning(_tuning._ACTIVE_TUNING))
+
+
+def run_on_a_thread(function: Callable[[], _Result], timeout: float = THREAD_TIMEOUT) -> _Result:
+    """Run a function on a thread of its own, and fail if it does not return within the timeout.
+
+    So code on threads that deadlocks fails a test rather than hangs it.  The thread is a daemon, as
+    are the threads that it starts, so that a stuck thread does not keep the test run from ending.
+    An exception of the function is raised again.
+    """
+    results: list[_Result] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            results.append(function())
+        except BaseException as error:  # noqa: BLE001 - raised again on the calling thread
+            errors.append(error)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    assert not thread.is_alive(), "The function did not return within the timeout"
+    if errors:
+        raise errors[0]
+    return results[0]
 
 
 @contextlib.contextmanager

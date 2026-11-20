@@ -10,8 +10,10 @@ the guide's sections by title.
 
 from __future__ import annotations
 
+import contextlib
 import math
-from collections.abc import Callable, Collection, Iterator, Sequence
+import threading
+from collections.abc import Callable, Collection, Generator, Iterator, Sequence
 from typing import NamedTuple
 
 import numpy as np
@@ -26,6 +28,8 @@ from qldpc._binary import (
 )
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBound
+from qldpc.codes.distance._threads import get_num_threads, iterate_in_order
+from qldpc.codes.distance._tuning import get_tuning
 
 # The peak memory, in bytes per set, of building a closing map of sets of two or more classes (see
 # ``FaultLister``), apart from 4 bytes for each class of a set.  The finished map takes 8 bytes per
@@ -33,9 +37,9 @@ from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBou
 # closing table is built, before the slots, each set takes at most 8 more for a bucket count, so the
 # peak is 40 bytes plus 4 for each class: 48 for a pair.  This leaves out the extra memory of merge
 # sorting a bucket (a range of the table whose keys share their top bits) of more than 32 sets that
-# is out of order (see ``_sort_bucket``), and the array into which ``_list_class_codewords`` lists
-# class codewords, whose rows have room for all the class codewords of one lookup (see
-# ``FaultLister._iter_class_tuples``).
+# is out of order (see ``_sort_bucket``), and the arrays into which ``_list_class_codewords`` lists
+# class codewords, one for each thread that lists, whose rows have room for all the class codewords
+# of one lookup (see ``_CodewordWalk``).
 _BYTES_PER_SET = 40
 
 # The largest number of classes in a closing set (see ``FaultLister``).  Each class that a closing
@@ -64,6 +68,24 @@ _BATCH_SIZE = 2**12
 # The number of class codewords (see ``FaultLister``) after which ``_list_class_codewords`` returns,
 # to be resumed by its next call, so that memory does not grow with their number.
 _CODEWORD_BATCH_SIZE = 2**10
+
+# The number of lookups after which ``_list_class_codewords`` also returns on threads, so that a
+# thread checks often whether to stop (see "Threads" in ``fault_propagation.md``).
+_LOOKUPS_PER_CALL = 2**16
+
+# A listing of class codewords moves to threads once the calling thread, listing alone, has made
+# this many lookups for each thread, and the lookups left are estimated to be at least as many.
+# Starting threads and draining them costs about as much as half this many lookups for each thread,
+# so small listings never start them.
+_SPLIT_LOOKUPS_PER_THREAD = 2**14
+
+# The number of work items into which a listing on threads splits its walk for each thread, about
+# ``_WALK_ITEMS_PER_THREAD / RANGES_PER_THREAD`` for each range of ``iterate_in_order``, so that the
+# ranges hold about equal work.
+_WALK_ITEMS_PER_THREAD = 256
+
+# A walk end (see ``_list_class_codewords``) after every class codeword.
+_NO_WALK_END = (1 << 62, 0)
 
 # The number of syndromes that the table of listed syndromes starts with room for.
 _INITIAL_SYNDROME_TABLE_SIZE = 2**10
@@ -192,7 +214,8 @@ def _search_irreducible_faults(
     # faults to check are the ones that contain one of the first ``len(heavy)`` primitive faults.
     primitives = heavy + light
 
-    # The oracle needs only small tables, so the lister may use the whole memory limit.
+    # The oracle needs only small tables, so the lister may use the whole memory limit.  It lists on
+    # as many threads as the oracle's searches use.
     lister = FaultLister(
         [flag for flag, _, _, _ in primitives],
         [syndrome for _, syndrome, _, _ in primitives],
@@ -201,6 +224,7 @@ def _search_irreducible_faults(
         oracle.css_weight,
         len(heavy),
         memory_limit,
+        num_threads=get_num_threads(get_tuning().num_threads),
     )
 
     # Check the faults by increasing fault weight, and keep the oracle's bound for a violating
@@ -265,6 +289,12 @@ class FaultLister:
     ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can give up the room for it and still
     grow to the same largest size (see ``_take_table_room``).
 
+    On several threads, a costly listing of class codewords moves to threads, while the calling
+    thread expands the class codewords into faults in the serial order, that of a listing on a
+    single thread, so that the lister checks the same faults as on one thread ("Threads" in
+    ``fault_propagation.md``).  Each thread allocates arrays for its listing as large as the calling
+    thread's.
+
     Args:
         flags: The flags of each primitive fault, packed into an integer.
         syndromes: The syndrome of each primitive fault, packed into an integer.
@@ -273,6 +303,8 @@ class FaultLister:
         memory_limit: The approximate number of bytes for the closing maps of two or more classes
             and the table of syndromes.  The closing map of pairs has first claim, since it saves
             more time.
+        num_threads: The number of threads of a costly listing, counting the calling thread; with
+            fewer than two, the calling thread lists alone.
     """
 
     def __init__(
@@ -284,6 +316,7 @@ class FaultLister:
         css_weight: bool,
         num_starts: int,
         memory_limit: int,
+        num_threads: int = 1,
     ) -> None:
         # Group the primitive faults into classes by their flags, each with its members in order,
         # and order the classes by their first members, so that the start classes come first.
@@ -322,6 +355,7 @@ class FaultLister:
         self._num_syndrome_words = syndrome_words.shape[1]
         self._css_weight = css_weight
         self._num_starts = num_starts
+        self._num_threads = num_threads
 
         # Split the memory limit, and start with no closing maps, which are built when first
         # needed, and an empty table of syndromes.
@@ -406,52 +440,55 @@ class FaultLister:
 
         # Expand each batch of class tuples into faults.  Whenever the expansion pauses, grow the
         # table of syndromes if it should grow, and check the batch of faults if it is full.  At the
-        # end, check the last batch.
-        for class_tuples in self._iter_class_tuples(fault_weight):
-            expansion_state[0], expansion_state[1] = 0, -1
-            while expansion_state[0] < len(class_tuples):
-                _expand_class_tuples(
-                    class_tuples,
-                    self._class_offsets,
-                    self._class_members,
-                    self._num_start_classes,
-                    self._num_starts,
-                    self._primitive_rows,
-                    self._css_weight,
-                    batch_size,
-                    batch_members,
-                    batch_syndromes,
-                    self._syndrome_rows,
-                    self._syndrome_slots,
-                    self._max_syndromes,
-                    next_member_entries,
-                    chosen_row_sums,
-                    chosen_start_counts,
-                    choice_rows,
-                    choice_slots,
-                    choice_slots_used,
-                    expansion_state,
-                )
-                self._num_syndromes = int(expansion_state[3])
-                num_rows = len(self._syndrome_rows)
-                if _table_should_grow(self._num_syndromes, num_rows, self._max_syndromes):
-                    self._syndrome_rows, self._syndrome_slots = _grow_syndrome_table(
-                        self._syndrome_rows, self._num_syndromes
+        # end, check the last batch.  Closing the batches of class tuples stops the threads that
+        # list them, if any, when a violation ends the listing early or an exception is raised.
+        with contextlib.closing(self._iter_class_tuples(fault_weight)) as class_tuple_batches:
+            for class_tuples in class_tuple_batches:
+                expansion_state[0], expansion_state[1] = 0, -1
+                while expansion_state[0] < len(class_tuples):
+                    _expand_class_tuples(
+                        class_tuples,
+                        self._class_offsets,
+                        self._class_members,
+                        self._num_start_classes,
+                        self._num_starts,
+                        self._primitive_rows,
+                        self._css_weight,
+                        batch_size,
+                        batch_members,
+                        batch_syndromes,
+                        self._syndrome_rows,
+                        self._syndrome_slots,
+                        self._max_syndromes,
+                        next_member_entries,
+                        chosen_row_sums,
+                        chosen_start_counts,
+                        choice_rows,
+                        choice_slots,
+                        choice_slots_used,
+                        expansion_state,
                     )
-                if expansion_state[2] == batch_size:
-                    violation = check_batch(batch_size)
-                    if violation is not None:
-                        return violation
-                    expansion_state[2] = 0
-                    batch_size = min(2 * batch_size, _BATCH_SIZE)
+                    self._num_syndromes = int(expansion_state[3])
+                    num_rows = len(self._syndrome_rows)
+                    if _table_should_grow(self._num_syndromes, num_rows, self._max_syndromes):
+                        self._syndrome_rows, self._syndrome_slots = _grow_syndrome_table(
+                            self._syndrome_rows, self._num_syndromes
+                        )
+                    if expansion_state[2] == batch_size:
+                        violation = check_batch(batch_size)
+                        if violation is not None:
+                            return violation
+                        expansion_state[2] = 0
+                        batch_size = min(2 * batch_size, _BATCH_SIZE)
         return check_batch(int(expansion_state[2]))
 
-    def _iter_class_tuples(self, fault_weight: int) -> Iterator[npt.NDArray[np.int64]]:
+    def _iter_class_tuples(self, fault_weight: int) -> Generator[npt.NDArray[np.int64], None, None]:
         """Yield the class tuples of a fault weight in batches, one class tuple per row.
 
         For fault weight two, each class tuple is ``(c, c)`` for a start class ``c`` with at least
         two members.  For larger fault weights, the class tuples are the class codewords that start
-        with a start class.  Each batch is a view of an array that the next batch overwrites.
+        with a start class, in the serial order.  Each batch is a view of an array that a later
+        batch can overwrite.  On several threads, closing the iterator stops its threads.
         """
         if fault_weight == 2:
             class_sizes = np.diff(self._class_offsets[: self._num_start_classes + 1])
@@ -459,39 +496,76 @@ class FaultLister:
             return
 
         # Find the last classes of a class codeword together, as a closing set, in a closing map,
-        # after choosing the classes before them.  List the class codewords in batches, into an
-        # array of ``_CODEWORD_BATCH_SIZE`` rows plus as many as one lookup can add, as
-        # ``_list_class_codewords`` needs.
+        # after choosing the classes before them.  On one thread, list every class codeword in one
+        # walk of the classes to choose.
         closing_map = self._get_closing_map(fault_weight)
-        closing_size = closing_map[1].shape[1]
-        num_chosen = fault_weight - closing_size
-        num_classes, num_words = self._class_rows.shape
-        max_lookup_codewords = math.comb(num_classes, closing_size - 1)
-        codewords = np.empty(
-            (_CODEWORD_BATCH_SIZE + max_lookup_codewords, fault_weight), dtype=np.int64
-        )
+        num_chosen = fault_weight - closing_map[1].shape[1]
+        walk = _CodewordWalk(self._class_rows, self._num_start_classes, closing_map, fault_weight)
+        if self._num_threads < 2:
+            yield from walk.list_range(None, _NO_WALK_END)
+            self._num_lookups = walk.num_lookups
+            return
 
-        # The state of the listing (see ``_list_class_codewords``).  The basis has room for the
-        # chosen classes and every closing class but the last.
-        next_classes = np.zeros(num_chosen, dtype=np.int64)
-        chosen_row_sums = np.zeros((num_chosen + 1, num_words), dtype=np.uint64)
-        basis = np.zeros((fault_weight - 1, num_words - 1), dtype=np.uint64)
-        pivots = np.zeros(fault_weight - 1, dtype=np.int64)
-        walk_state = np.zeros(2, dtype=np.int64)
-        while walk_state[0] >= 0:
-            num_codewords = _list_class_codewords(
-                self._class_rows,
-                self._num_start_classes,
-                *closing_map,
-                next_classes,
-                chosen_row_sums,
-                basis,
-                pivots,
-                walk_state,
-                codewords,
+        # On several threads, split the walk into work items, and list the first items alone, in
+        # ranges of 1, 2, 4, and more items, until the lookups show that the listing is costly (see
+        # "Threads" in ``fault_propagation.md``).  If the lookups left, estimated from the weights
+        # of the items, are fewer than ``_SPLIT_LOOKUPS_PER_THREAD`` for each thread, list the rest
+        # alone too.
+        firsts, seconds, cumulative_weights = _get_walk_items(
+            len(self._class_rows), self._num_start_classes, num_chosen, self._num_threads
+        )
+        num_items = len(firsts)
+
+        def get_prefix(item: int) -> tuple[int, int]:
+            """The first two classes of an item, or the end of the walk after the last item."""
+            return (int(firsts[item]), int(seconds[item])) if item < num_items else _NO_WALK_END
+
+        split_lookups = self._num_threads * _SPLIT_LOOKUPS_PER_THREAD
+        num_listed, num_next = 0, 1
+        while num_listed < num_items and walk.num_lookups < split_lookups:
+            end = min(num_items, num_listed + num_next)
+            yield from walk.list_range(get_prefix(num_listed), get_prefix(end))
+            num_listed, num_next = end, 2 * num_next
+        listed_weight = cumulative_weights[num_listed - 1] if num_listed else 0.0
+        weight_left = cumulative_weights[-1] - listed_weight if num_items else 0.0
+        if (
+            num_listed < num_items
+            and walk.num_lookups * weight_left < split_lookups * listed_weight
+        ):
+            yield from walk.list_range(get_prefix(num_listed), _NO_WALK_END)
+            num_listed = num_items
+
+        # List the other items on threads, each with its own walk, and yield their class codewords
+        # in the order of the items, while the threads list later items.
+        walks = [walk]
+
+        def start_walk(
+            stop: threading.Event,
+        ) -> Callable[[int, int], Iterator[npt.NDArray[np.int64]]]:
+            """Start the walk of a thread, and return how it lists a range of the other items."""
+            thread_walk = _CodewordWalk(
+                self._class_rows, self._num_start_classes, closing_map, fault_weight
             )
-            yield codewords[:num_codewords]
-        self._num_lookups = int(walk_state[1])
+            walks.append(thread_walk)
+
+            def list_range(start: int, end: int) -> Iterator[npt.NDArray[np.int64]]:
+                """List the class codewords of a range of the other items, a batch at a time."""
+                prefixes = get_prefix(num_listed + start), get_prefix(num_listed + end)
+                # Copy each batch, since the walk overwrites its array while the calling thread
+                # reads earlier ones.
+                for class_codewords in thread_walk.list_range(*prefixes, _LOOKUPS_PER_CALL):
+                    yield class_codewords.copy()
+
+            return list_range
+
+        if num_listed < num_items:
+            yield from iterate_in_order(
+                num_items - num_listed,
+                self._num_threads,
+                start_walk,
+                cumulative_weights=cumulative_weights[num_listed:] - listed_weight,
+            )
+        self._num_lookups = sum(each.num_lookups for each in walks)
 
     def _get_closing_map(
         self, fault_weight: int
@@ -522,6 +596,150 @@ class FaultLister:
         if size not in self._closing_maps:
             self._closing_maps[size] = _get_closing_map(hashes, size)
         return self._closing_maps[size]
+
+
+class _CodewordWalk:
+    """A walk of ``_list_class_codewords`` on one thread, with the arrays that it lists into.
+
+    ``class_rows`` and ``num_start_classes`` are those of a ``FaultLister``, and ``closing_map`` its
+    closing map for the fault weight.  A walk lists ranges of class codewords, one range at a time,
+    and counts its lookups over all of them.
+    """
+
+    def __init__(
+        self,
+        class_rows: npt.NDArray[np.uint64],
+        num_start_classes: int,
+        closing_map: tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]],
+        fault_weight: int,
+    ) -> None:
+        self._class_rows = class_rows
+        self._num_start_classes = num_start_classes
+        self._closing_map = closing_map
+
+        # Make an array of ``_CODEWORD_BATCH_SIZE`` rows plus as many as one lookup can add, as
+        # ``_list_class_codewords`` needs, and the state of the walk.  The basis has room for the
+        # chosen classes and every closing class but the last.
+        closing_size = closing_map[1].shape[1]
+        num_chosen = fault_weight - closing_size
+        num_classes, num_words = class_rows.shape
+        max_lookup_codewords = math.comb(num_classes, closing_size - 1)
+        self._codewords = np.empty(
+            (_CODEWORD_BATCH_SIZE + max_lookup_codewords, fault_weight), dtype=np.int64
+        )
+        self._next_classes = np.zeros(num_chosen, dtype=np.int64)
+        self._chosen_row_sums = np.zeros((num_chosen + 1, num_words), dtype=np.uint64)
+        self._basis = np.zeros((fault_weight - 1, num_words - 1), dtype=np.uint64)
+        self._pivots = np.zeros(fault_weight - 1, dtype=np.int64)
+        self._walk_state = np.zeros(5, dtype=np.int64)
+
+    @property
+    def num_lookups(self) -> int:
+        """The number of lookups of closing sets that the walk has made in all of its ranges."""
+        return int(self._walk_state[1])
+
+    def list_range(
+        self,
+        start: tuple[int, int] | None,
+        end: tuple[int, int],
+        lookups_per_call: int = 1 << 62,
+    ) -> Iterator[npt.NDArray[np.int64]]:
+        """Yield the class codewords of a range of the walk, in its order, in batches.
+
+        The range starts at the first class codeword, if ``start`` is None, or else at the first
+        class codeword whose first two classes are ``start`` or come after it in lexicographic
+        order, and ends before the first whose first two classes are ``end`` or come after it.
+        ``start`` must hold a start class and a later class.  Each batch is a view of an array that
+        the next batch overwrites.  A call of ``_list_class_codewords`` makes at most
+        ``lookups_per_call`` lookups, so that a batch can be empty.
+        """
+        # Start the walk as it is when it has just chosen the first class of ``start``, and will
+        # choose the second next (see ``_list_class_codewords``).
+        walk_state = self._walk_state
+        walk_state[0] = 0
+        if start is None:
+            self._next_classes[0] = 0
+        else:
+            first, second = start
+            self._pivots[0] = _reduce_flags(
+                self._class_rows[first, 1:], self._basis[:0], self._pivots, self._basis[0]
+            )
+            self._chosen_row_sums[1] = self._class_rows[first]
+            self._next_classes[:2] = first + 1, second
+            walk_state[0] = 1
+        walk_state[2], walk_state[3] = end
+        while walk_state[0] >= 0:
+            walk_state[4] = walk_state[1] + lookups_per_call
+            num_codewords = _list_class_codewords(
+                self._class_rows,
+                self._num_start_classes,
+                *self._closing_map,
+                self._next_classes,
+                self._chosen_row_sums,
+                self._basis,
+                self._pivots,
+                walk_state,
+                self._codewords,
+            )
+            yield self._codewords[:num_codewords]
+
+
+def _get_walk_items(
+    num_classes: int, num_start_classes: int, num_chosen: int, num_threads: int
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+    """Split the walk of ``_list_class_codewords`` into work items for threads.
+
+    The walk chooses ``k = num_chosen`` classes, at least two, before each lookup, the first a start
+    class ``c1``.  Any two classes are independent, so the walk chooses each pair of ``c1`` and a
+    later class ``c2``.  An item holds the class codewords whose first chosen class is ``c1`` and
+    whose second is in a range ``[b, e)`` of later classes.  Its weight estimates its lookups: the
+    number of ways to choose the other ``k - 2`` classes after the second, summed over the range,
+    which is ``C(q - b, k - 1) - C(q - e, k - 1)`` for ``q`` classes.  The classes after each start
+    class are split into the fewest ranges whose weights are about
+    ``1 / (_WALK_ITEMS_PER_THREAD * num_threads)`` of the total or less, so that the number of
+    items grows with the number of start classes and of threads, not of classes.  Return the first
+    two classes of each item, in the order of the walk, and the total weight of the items up to
+    each.
+    """
+    # ``suffix[c]`` is the weight of the pairs of a start class before ``c`` and a class from ``c``
+    # on, ``C(q - c, k - 1)``, as a float, which is zero once ``q - c < k - 1``.
+    remaining = num_classes - np.arange(num_classes + 1, dtype=np.float64)
+    factors = (remaining[:, None] - np.arange(num_chosen - 1)) / (
+        num_chosen - 1 - np.arange(num_chosen - 1)
+    )
+    suffix = np.prod(np.maximum(factors, 0.0), axis=1)
+
+    # Split the later classes of each start class ``c1`` into ``G`` ranges of about equal weight,
+    # at most one for each later class.  Range ``j`` starts at the first class from which the weight
+    # left is at most ``1 - j / G`` of that of ``c1``.
+    firsts = np.arange(num_start_classes, dtype=np.int64)
+    first_weights = suffix[firsts + 1]
+    target = (
+        first_weights.sum() / (_WALK_ITEMS_PER_THREAD * num_threads) if num_start_classes else 0.0
+    )
+    num_ranges = np.ones(num_start_classes, dtype=np.int64)
+    if target > 0:
+        # A start class with no later class has the upper bound zero, which ``np.clip`` returns
+        # when it is below the lower bound, so give it one range again.
+        num_ranges = np.clip(np.ceil(first_weights / target), 1, num_classes - 1 - firsts)
+        num_ranges = np.maximum(num_ranges, 1).astype(np.int64)
+    item_firsts = np.repeat(firsts, num_ranges)
+    starts = np.repeat(np.cumsum(num_ranges) - num_ranges, num_ranges)
+    indices = np.arange(len(item_firsts)) - starts
+    totals = np.repeat(num_ranges, num_ranges)
+    weights_left = suffix[item_firsts + 1] * (1 - indices / totals)
+    seconds = np.searchsorted(-suffix, -weights_left).astype(np.int64)
+    seconds = np.where(indices == 0, item_firsts + 1, np.maximum(seconds, item_firsts + 1))
+
+    # Drop ranges that start where the one before starts, and weigh each by the weight from its
+    # start to the start of the next range of its start class, or to the end.
+    keep = np.ones(len(seconds), dtype=bool)
+    keep[1:] = (seconds[1:] != seconds[:-1]) | (item_firsts[1:] != item_firsts[:-1])
+    item_firsts, seconds = item_firsts[keep], seconds[keep]
+    ends = np.full(len(seconds), num_classes, dtype=np.int64)
+    same_first = item_firsts[1:] == item_firsts[:-1]
+    ends[:-1][same_first] = seconds[1:][same_first]
+    return item_firsts, seconds, np.cumsum(suffix[seconds] - suffix[ends])
 
 
 def _split_memory_limit(
@@ -830,7 +1048,7 @@ def _sort_bucket(
 # compiled listing
 
 
-@always_compiled
+@always_compiled(nogil=True)
 def _list_class_codewords(
     class_rows: npt.NDArray[np.uint64],
     num_start_classes: int,
@@ -857,14 +1075,20 @@ def _list_class_codewords(
     its state between calls in ``next_classes`` (at each level, the class after the chosen one),
     ``chosen_row_sums`` (row ``i`` is the sum of the class rows of the classes chosen at the first
     ``i`` levels), ``basis`` and ``pivots`` (the reduced flags of the chosen classes, as in
-    ``_reduce_flags``, in their first ``len(next_classes)`` rows), and ``walk_state`` (the level of
-    the next choice, and the number of lookups made so far).  They start as zeros, and the level is
-    -1 once every class codeword is listed.  The other ``s - 1`` rows of ``basis`` and ``pivots``
-    hold the closing classes being checked.
+    ``_reduce_flags``, in their first ``len(next_classes)`` rows), and ``walk_state``.  This holds
+    the level of the next choice, the number of lookups made so far, the end of the walk (two
+    classes ``e1`` and ``e2``), and a number of lookups at which to pause.  The state starts as
+    zeros, apart from the end and the lookups at which to pause, or as the state just after
+    choosing a start class at level 0 (see ``_CodewordWalk.list_range``).  The walk lists the class
+    codewords whose first two classes come before ``(e1, e2)`` in lexicographic order, then sets the
+    level to -1.  The other ``s - 1`` rows of ``basis`` and ``pivots`` hold the closing classes
+    being checked.
 
     The listing pauses once at most ``C(num_classes, s - 1)`` rows of the array are free, since one
     lookup adds at most that many class codewords (see "Listing each irreducible accepted fault
-    once").
+    once"), or once it has made the lookups at which to pause.  Threads run this without the global
+    interpreter lock, each with its own state and array (see "Threads" in
+    ``fault_propagation.md``).
     """
     # Column 0 of the class rows holds the hash of the flags, and the other columns the flags.
     num_classes, num_words = class_rows.shape
@@ -881,11 +1105,22 @@ def _list_class_codewords(
 
     num_codewords = 0
     current_level, num_lookups = walk_state[0], walk_state[1]
-    while current_level >= 0 and num_codewords < len(codewords) - max_lookup_codewords:
-        # Choose the next candidate class at this level, or go back a level if there is none.  Only
-        # a start class can be chosen first.
+    end_first, end_second, max_lookups = walk_state[2], walk_state[3], walk_state[4]
+    while (
+        current_level >= 0
+        and num_codewords < len(codewords) - max_lookup_codewords
+        and num_lookups < max_lookups
+    ):
+        # Choose the next candidate class at this level, or go back a level if there is none
+        # before the end of the walk.  Only a start class can be chosen first.
         chosen_class = next_classes[current_level]
-        if chosen_class == (num_start_classes if current_level == 0 else num_classes):
+        if current_level == 0:
+            end_class = min(num_start_classes, end_first + 1)
+        elif current_level == 1 and next_classes[0] == end_first + 1:
+            end_class = end_second
+        else:
+            end_class = num_classes
+        if chosen_class >= end_class:
             current_level -= 1
             continue
         next_classes[current_level] = chosen_class + 1
@@ -954,7 +1189,7 @@ def _list_class_codewords(
     return num_codewords
 
 
-@always_compiled
+@always_compiled(nogil=True)
 def _expand_class_tuples(
     class_tuples: npt.NDArray[np.int64],
     class_offsets: npt.NDArray[np.int64],
@@ -1007,7 +1242,9 @@ def _expand_class_tuples(
     member, then its syndrome.  ``choice_slots_used`` lists the slots in use, to clear them for the
     next class tuple.  The expansion returns once the batch has ``batch_size`` faults, once the
     table should grow (see ``_table_should_grow``), or once every class tuple is expanded.  A full
-    table takes no more syndromes.
+    table takes no more syndromes.  The calling thread runs this without the global interpreter
+    lock, so that threads that list class codewords meanwhile can take it (see "Threads" in
+    ``fault_propagation.md``).
     """
     # Column 0 of the primitive rows holds the hash of the syndrome, the next columns hold the
     # syndrome, and the rest hold the X and then the Z part of the representative.
