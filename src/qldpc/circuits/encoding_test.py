@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import unittest.mock
-
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -131,6 +129,7 @@ def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.Monk
     circuit.append("X", [len(code)])
     circuit.append("M", [len(code)])
     circuit.append("DETECTOR", [stim.target_rec(-1)])
+    circuit.append("OBSERVABLE_INCLUDE", [stim.target_rec(-1)], 0)
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
 
@@ -179,19 +178,41 @@ def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.Monk
         circuits.get_state_stabilizers(stim.Circuit("H 0"), [0])
 
 
+@pytest.mark.parametrize("qubits", [[0, 1, 0], [-1], -1])
+def test_state_stabilizers_of_invalid_qubits(qubits: list[int] | int) -> None:
+    """Reject negative or repeated requested qubits, and a negative number of qubits.
+
+    Position i of a returned string refers to qubits[i], so with qubits [0, 1, 0] after
+    ``H 0; CX 0 1``, a returned XXX would stand for X0 X1 X0 = X1, which is not a stabilizer.
+    """
+    with pytest.raises(ValueError, match="must be nonnegative"):
+        circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), qubits)
+
+
 def test_state_stabilizer_failure_regressions() -> None:
-    """Exercise row-space, detector-parity, noisy-sign, and zero-logical edge cases."""
+    """Exercise row-space, qubit-order, detector-parity, noisy-sign, and zero-logical cases."""
     ghz = circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), [0, 1])
     assert stim.PauliString("+XX") in ghz
     assert stim.PauliString("+ZZ") in ghz
 
+    # The only stabilizer of this rotated GHZ state on qubits 1 and 2 is X1 Z2, the product of Z0 X1
+    # and Z0 Z2, so finding it requires eliminating qubit 0 from the stabilizers.  Requested as
+    # [2, 1], it is returned as ZX, since position i refers to qubits[i].
+    rotated_ghz = stim.Circuit("H 0\nCX 0 1 0 2\nH 1")
+    assert circuits.get_state_stabilizers(rotated_ghz, [1, 2]) == [stim.PauliString("+XZ")]
+    assert circuits.get_state_stabilizers(rotated_ghz, [2, 1]) == [stim.PauliString("+ZX")]
+
+    # the integer 0 requests no qubits, and gives no stabilizers
+    assert circuits.get_state_stabilizers(rotated_ghz, 0) == []
+
     repeated_detector = stim.Circuit("H 0\nM 0\nDETECTOR rec[-1] rec[-1]")
     assert circuits.get_state_stabilizers(repeated_detector, [0]) == []
 
+    # noise is dropped, so every run gives +Z
     noisy_signs = [
         circuits.get_state_stabilizers(stim.Circuit("X_ERROR(0.5) 0"), [0]) for _ in range(20)
     ]
-    assert all(signs == noisy_signs[0] for signs in noisy_signs)
+    assert noisy_signs == [[stim.PauliString("+Z")]] * 20
 
     zero_logical = codes.TrivialCode(1, num_stabs_x=1)
     assert circuits.get_logical_state_stabilizers(zero_logical, stim.Circuit("R 0")) == []
@@ -203,7 +224,7 @@ def test_state_stabilizer_failure_regressions() -> None:
     assert len(circuits.get_logical_state_stabilizers(code, prep, qids)) == code.dimension
 
 
-def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_state_stabilizer_signs_must_be_determined() -> None:
     """Raise when a stabilizer on the requested qubits needs post-selection on random detectors."""
     # Z1 is a stabilizer only after post-selecting on the random outcome of M 0.  With a third
     # qubit, Z1 Z2 is a stabilizer with a fixed sign, but Z1 and Z2 need that post-selection.
@@ -214,16 +235,20 @@ def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPat
     with pytest.raises(ValueError, match=r"stabilizer Z[12] .*detectors \[0\]"):
         circuits.get_state_stabilizers(measured_ghz, [1, 2])
 
-    # Here a deterministic detector precedes the random one.  The simulation route leaves the
+    # Here a deterministic detector precedes the random one.  The simulation leaves the
     # deterministic one out of its matrix, but the error still names the random one by its index in
     # the circuit.
     circuit = stim.Circuit("M 0\nDETECTOR rec[-1]\nH 1\nCX 1 2\nM 1\nDETECTOR rec[-1]")
-    for force_flows in [False, True]:
-        with monkeypatch.context() as context:
-            if force_flows:
-                context.setattr(encoding, "_takes_simulation_route", lambda *_args: False)
-            with pytest.raises(ValueError, match=r"stabilizer Z2 .*detectors \[1\]"):
-                circuits.get_state_stabilizers(circuit, [2])
+    with pytest.raises(ValueError, match=r"stabilizer Z2 .*detectors \[1\]"):
+        circuits.get_state_stabilizers(circuit, [2])
+
+    # Each round's random outcome flips qubit 1 when it is 1, so the sign of Z1 is the parity of
+    # three random detectors.  From three repetitions on, Stim keeps the REPEAT block in the
+    # detector error model instead of unrolling it, so this case checks that the random detectors
+    # inside the folded block are all found.
+    circuit = stim.Circuit("REPEAT 3 {\n    H 0\n    CX 0 1\n    MR 0\n    DETECTOR rec[-1]\n}")
+    with pytest.raises(ValueError, match=r"stabilizer Z1 .*detectors \[0, 1, 2\]"):
+        circuits.get_state_stabilizers(circuit, [1])
 
     # the error names a logical stabilizer by its logical qubit, here on physical qubit 2
     qubit_ids = circuits.QubitIDs(data=(2,))
@@ -241,78 +266,56 @@ def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPat
     assert circuits.get_state_stabilizers(circuit, [2]) == []
 
 
-def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Simulation gives the stabilizers, signs, and errors that flows give, on random circuits."""
-    # random circuits of every instruction that get_state_stabilizers simulates, with some noise
-    non_gates = {"MPP", "DETECTOR", "TICK", "QUBIT_COORDS", "SHIFT_COORDS"}
-    gates = sorted(encoding._SIMULATED_INSTRUCTIONS - non_gates)
-    one_qubit_gates = [gate for gate in gates if stim.gate_data(gate).is_single_qubit_gate]
-    two_qubit_gates = [gate for gate in gates if stim.gate_data(gate).is_two_qubit_gate]
-    assert len(one_qubit_gates) + len(two_qubit_gates) == len(gates)
-    rng = np.random.default_rng(0)
-    cases = [
-        _get_random_state_prep_circuit(rng, one_qubit_gates, two_qubit_gates) for _ in range(400)
-    ]
+@pytest.mark.parametrize(
+    ("circuit", "qubits", "expected"),
+    [
+        ("H 0\nOBSERVABLE_INCLUDE(0) Z0\nH 0", [0], ["+Z"]),
+        ("H 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]", [0], []),
+        ("H 0\nREPEAT 3 {\n    OBSERVABLE_INCLUDE(0) Z0\n}", [0], ["+X"]),
+        (
+            (
+                "REPEAT 2 {\n    H 0\n    CX 0 1\n    MR 0\n    OBSERVABLE_INCLUDE(0) rec[-1]\n}\n"
+                "CX rec[-1] 1"
+            ),
+            [1],
+            [],
+        ),
+    ],
+)
+def test_state_stabilizers_ignore_observables(
+    circuit: str, qubits: list[int], expected: list[str]
+) -> None:
+    """Ignore observables, even random ones, which Stim's detector error model rejects.
 
-    # the random circuits include multi-target measurements, and MR, MRX, or MRY with a repeated
-    # target, which Stim's flows get wrong unless they are split
-    measurements = [
-        instruction
-        for circuit, _ in cases
-        for instruction in circuit
-        if isinstance(instruction, stim.CircuitInstruction)
-        and instruction.name in ("M", "MX", "MY", "MR", "MRX", "MRY")
-    ]
-    assert any(len(instruction.targets_copy()) > 1 for instruction in measurements)
-    assert any(
-        instruction.name in ("MR", "MRX", "MRY") and _repeats_target(instruction)
-        for instruction in measurements
-    )
-
-    # by default, get_state_stabilizers simulates every case
-    simulate = unittest.mock.Mock(wraps=encoding._get_fixed_parities_by_simulation)
-    monkeypatch.setattr(encoding, "_get_fixed_parities_by_simulation", simulate)
-
-    # compare with flows
-    outcomes = []
-    for circuit, qubits in cases:
-        outcome = _get_state_stabilizer_outcome(circuit, qubits)
-        with monkeypatch.context() as context:
-            context.setattr(encoding, "_takes_simulation_route", lambda *_args: False)
-            assert outcome == _get_state_stabilizer_outcome(circuit, qubits)
-        outcomes.append(outcome)
-    assert simulate.call_count == len(cases)
-
-    # the cases include nonempty lists of stabilizers, and undetermined signs
-    assert any(isinstance(outcome, list) and outcome for outcome in outcomes)
-    assert any(isinstance(outcome, tuple) for outcome in outcomes)
+    In the last case, the final feedback leaves qubit 1 flipped by the random result of the first
+    round, so Z1 has no fixed sign.  This checks that removing the observables keeps the block's
+    repeat count: with one repetition, the detector error model would see no random outcome
+    reaching Z1, and Z1 would be returned with a random sign.
+    """
+    stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
+    assert stabilizers == [stim.PauliString(string) for string in expected]
 
 
 @pytest.mark.parametrize(
     ("circuit", "qubits", "expected"),
     [
-        ("REPEAT 2 {\n    H 0\n}", [0], ["+Z"]),
-        ("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]", [0], ["+Z"]),
-        ("M 0\nCX rec[-1] 1", [1], ["+Z"]),
-        ("HERALDED_ERASE(0.1) 0", [0], ["+Z"]),
-        ("MXX 0 1", [0, 1], ["+ZZ"]),
-        ("SPP Z0", [0], ["+Z"]),
-        ("MPP !Z0", [0], ["+Z"]),
-        ("M !0", [0], ["+Z"]),
-        ("H 0", [0, 0], None),
-        ("H 0", [-1], None),
+        ("CX sweep[0] 0", [0], ["+Z"]),
+        ("M !0\nCX rec[-1] 1", [1], ["-Z"]),
+        ("H 0\nCX 0 1\nM 0\nCX rec[-1] 1", [1], ["+Z"]),
+        ("MPAD 1\nCX rec[-1] 0", [0], ["-Z"]),
+        ("HERALDED_ERASE(0.1) 0\nCX rec[-1] 1", [1], ["+Z"]),
+        ("REPEAT 3 {\n    X 0\n}", [0], ["-Z"]),
     ],
 )
-def test_state_stabilizers_by_flows(
-    monkeypatch: pytest.MonkeyPatch, circuit: str, qubits: list[int], expected: list[str] | None
-) -> None:
-    """Circuits that simulation does not cover, and repeated or negative qubits, use flows."""
-    use_flows = unittest.mock.Mock(wraps=encoding._get_fixed_parities_by_flows)
-    monkeypatch.setattr(encoding, "_get_fixed_parities_by_flows", use_flows)
+def test_state_stabilizer_signs(circuit: str, qubits: list[int], expected: list[str]) -> None:
+    """Find the signs of stabilizers that sweep bits, measurement results, and REPEAT blocks fix.
+
+    Sweep bits are 0.  ``M !0`` reports 1 for qubit 0 in |0>, and so flips qubit 1.  Feedback on
+    the random result of ``M 0`` in a Bell state undoes the result's effect on qubit 1.  ``MPAD 1``
+    reports 1.  Without noise, heralded noise reports 0.
+    """
     stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
-    assert use_flows.called
-    if expected is not None:
-        assert stabilizers == [stim.PauliString(string) for string in expected]
+    assert stabilizers == [stim.PauliString(string) for string in expected]
 
 
 @pytest.mark.parametrize(
@@ -323,38 +326,27 @@ def test_state_stabilizers_by_flows(
         ("H 0\nCX 0 1\nMRY 0 0\nDETECTOR rec[-1]", [1, 2], ["+_Z"]),
         ("H 0\nCX 0 1\nMR 0 0\nDETECTOR rec[-2]", [1], r"stabilizer Z1 .*detectors \[0\]"),
         ("H 0\nCX 0 1\nREPEAT 2 {\n    MR 0 0\n}\nDETECTOR rec[-3]", [1, 2], ["+_Z"]),
-        ("H 0\nCX 0 1\nMR 0\nMR[t] 0 0\nDETECTOR rec[-2]", [1, 2], ["+_Z"]),
     ],
 )
 def test_state_stabilizers_with_repeated_reset_measurements(
-    monkeypatch: pytest.MonkeyPatch, circuit: str, qubits: list[int], expected: list[str] | str
+    circuit: str, qubits: list[int], expected: list[str] | str
 ) -> None:
-    """Both routes handle MR, MRX, and MRY with a repeated target, whose flows Stim gets wrong.
+    """Find state stabilizers after MR, MRX, and MRY with a repeated target.
 
-    Stim's flows of ``MR 0 0`` attribute the first result to the second
-    (https://github.com/quantumlib/Stim/issues/1109).  After ``H 0; CX 0 1``, that would tie the
-    sign of Z on qubit 1 to a detector on the second result, and raise an error for it.
-
-    In fact, the first result of ``MR 0 0`` is random, and gives the sign of Z on qubit 1.  The
-    second result is 0, so a detector on it is deterministic.  So only Z on the untouched qubit 2
-    has a fixed sign.  A detector on the first result instead leaves the sign of Z on qubit 1
-    undetermined.
-
-    MRX and MRY act alike in their own bases.  So does the first ``MR 0 0`` of a REPEAT block,
-    which takes the flows route either way.  In ``MR 0; MR[t] 0 0``, the first result is random and
-    the rest are 0.  This case guards against the single-target pieces of ``MR[t] 0 0`` merging
-    with the preceding ``MR 0`` into another repeated-target MR.
+    After ``H 0; CX 0 1``, the first result of ``MR 0 0`` is random, and gives the sign of Z on
+    qubit 1.  The second result is 0, so a detector on it is deterministic.  So only Z on the
+    untouched qubit 2 has a fixed sign.  A detector on the first result instead leaves the sign of Z
+    on qubit 1 undetermined.  MRX and MRY act alike in their own bases, and so does the first
+    ``MR 0 0`` of a REPEAT block.  Stim's flow generators attribute the first result to the second
+    (https://github.com/quantumlib/Stim/issues/1109), so a stabilizer finder built on them would
+    give other answers here.
     """
-    for force_flows in [False, True]:
-        with monkeypatch.context() as context:
-            if force_flows:
-                context.setattr(encoding, "_takes_simulation_route", lambda *_args: False)
-            if isinstance(expected, str):
-                with pytest.raises(ValueError, match=expected):
-                    circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
-            else:
-                stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
-                assert stabilizers == [stim.PauliString(string) for string in expected]
+    if isinstance(expected, str):
+        with pytest.raises(ValueError, match=expected):
+            circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
+    else:
+        stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
+        assert stabilizers == [stim.PauliString(string) for string in expected]
 
 
 def test_deprecated_logical_state_stabilizers_argument_order() -> None:
@@ -392,71 +384,3 @@ def test_get_logical_tableau_from_code_data() -> None:
         encoding._get_logical_tableau_from_code_data(
             1, 0, stim.Tableau(1), stim.Tableau(2), stim.Circuit()
         )
-
-
-def _get_random_state_prep_circuit(
-    rng: np.random.Generator, one_qubit_gates: list[str], two_qubit_gates: list[str]
-) -> tuple[stim.Circuit, list[int]]:
-    """A random circuit, and a random list of distinct qubits to request.
-
-    The circuit has the given gates, MPP, detectors, annotations, and noise.  Each gate and MPP has
-    one or two groups of targets, drawn with replacement across groups, so that targets repeat on
-    purpose.
-    """
-    num_qubits = int(rng.integers(2, 6))
-    circuit = stim.Circuit()
-    for _ in range(int(rng.integers(1, 25))):
-        kind = rng.random()
-        groups = [rng.permutation(num_qubits).tolist() for _ in range(rng.integers(1, 3))]
-        if kind < 0.35:
-            targets = [group[0] for group in groups]
-            circuit.append(str(rng.choice(one_qubit_gates)), targets)
-        elif kind < 0.6:
-            targets = [qubit for group in groups for qubit in group[:2]]
-            circuit.append(str(rng.choice(two_qubit_gates)), targets)
-        elif kind < 0.7:
-            products: list[stim.GateTarget] = []
-            for group in groups:
-                paulis = ["_"] * num_qubits
-                for qubit in group[: rng.integers(1, 4)]:
-                    paulis[qubit] = str(rng.choice(["X", "Y", "Z"]))
-                products += stim.target_combined_paulis(stim.PauliString("".join(paulis)))
-            circuit.append("MPP", products)
-        elif kind < 0.85:
-            num_measurements = circuit.num_measurements
-            if num_measurements:
-                size = int(rng.integers(1, min(3, num_measurements) + 1))
-                lookbacks = (rng.choice(num_measurements, size=size, replace=False) + 1).tolist()
-                circuit.append("DETECTOR", [stim.target_rec(-lookback) for lookback in lookbacks])
-        elif kind < 0.9:
-            circuit.append("TICK")
-            circuit.append("QUBIT_COORDS", groups[0][:1], [0, 1])
-            circuit.append("SHIFT_COORDS", [], [1])
-        elif kind < 0.95:
-            circuit.append("X_ERROR", groups[0][:1], 0.1)
-        else:
-            circuit.append("DEPOLARIZE2", groups[0][:2], 0.1)
-
-    # request distinct qubits in a random order, which may include a qubit that the circuit misses
-    num_requested = int(rng.integers(0, num_qubits + 2))
-    requested = rng.choice(num_qubits + 1, size=num_requested, replace=False).tolist()
-    return circuit, requested
-
-
-def _repeats_target(instruction: stim.CircuitInstruction) -> bool:
-    """Whether an instruction has a target more than once."""
-    values = [target.value for target in instruction.targets_copy()]
-    return len(set(values)) < len(values)
-
-
-def _get_state_stabilizer_outcome(
-    circuit: stim.Circuit, qubits: list[int]
-) -> list[str] | tuple[str, list[int], str]:
-    """The stabilizers that get_state_stabilizers returns, or its error for an undetermined sign.
-
-    The error is given by the stabilizer and detectors that it names, and its message.
-    """
-    try:
-        return [str(stabilizer) for stabilizer in circuits.get_state_stabilizers(circuit, qubits)]
-    except encoding._UndeterminedSignError as error:
-        return str(error.stabilizer), error.detectors, str(error)
