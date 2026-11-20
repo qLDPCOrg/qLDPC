@@ -32,6 +32,8 @@ from qldpc.objects import Pauli, PauliXZ
 
 _CODE = codes.SteaneCode()
 _NUM_QUBITS = len(_CODE)
+# the noise of the Steane-swap windows whose excess terms are compared
+_WINDOW_NOISE = circuits.DepolarizingNoiseModel(1e-3)
 
 
 def test_calibration_matches_brute_force() -> None:
@@ -455,7 +457,7 @@ def test_steane_swap_noise() -> None:
     """
     probability = 1e-3
 
-    def first_qubit_readout(operation: stim.CircuitInstruction) -> circuits.NoiseRule | None:
+    def qubit_zero_readout(operation: stim.CircuitInstruction) -> circuits.NoiseRule | None:
         if operation.name not in ("M", "MX"):
             return None
         on_qubit_zero = operation.targets_copy()[0].qubit_value == 0
@@ -463,7 +465,7 @@ def test_steane_swap_noise() -> None:
 
     for noise_model, num_mechanisms in [
         (circuits.NoiseModel(readout_error=probability), 5 * _NUM_QUBITS),
-        (circuits.NoiseModel(rule_func=first_qubit_readout), 5),
+        (circuits.NoiseModel(rule_func=qubit_zero_readout), 5),
     ]:
         consumer = get_steane_swap_consumer(_CODE, noise_model)
         dem = decoders.DetectorErrorModelArrays(
@@ -475,26 +477,21 @@ def test_steane_swap_noise() -> None:
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
 def test_steane_swap_window_length(basis: PauliXZ) -> None:
-    """The window holds every step whose faults have a first-order effect on block errors.
+    """The window holds every step whose error mechanisms have a first-order effect on block errors.
 
-    In a repeating cycle, faults in the two steps before the entry step leave errors that the entry
-    step or the step after it decodes, together with the errors of the block under test.  Faults
-    in the two steps after the entry step can make the two decodings of the Z errors of a fresh |0>
-    block (X errors of a fresh |+> block) differ.  The exact first-order excess is therefore the
-    same with a further noisy step before or after the window, and differs with only one step before
-    or after the entry step.
+    Error mechanisms in the two steps before the entry step leave errors that the entry step or the
+    step after it decodes, together with the errors of the block under test.  Error mechanisms in
+    the two steps after the entry step can make the two decodings of the Z errors of a fresh |0>
+    block, and likewise of the X errors of a fresh |+> block, differ.  The exact first-order excess
+    is therefore the same with a further noisy step before or after the window, and differs with
+    only one step before or after the entry step.
     """
-    model = circuits.DepolarizingNoiseModel(1e-3)
-    reference = get_steane_swap_consumer(_CODE, model, basis=basis)
-    first_order_terms = [_get_excess_terms(reference, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
+    reference = get_steane_swap_consumer(_CODE, _WINDOW_NOISE, basis=basis)
+    reference_terms = _get_first_order_terms(reference)
     for num_before, num_after, same in [(3, 2, True), (2, 3, True), (1, 2, False), (2, 1, False)]:
-        preparation, circuit, qubits, bases = consumers._get_steane_swap_window(
-            _CODE, model, basis, num_before, num_after
-        )
-        decoder = consumers._SteaneSwapDecoder(_CODE, bases)
-        variant = Consumer(preparation, circuit, decoder, block_qubits=qubits)
-        variant_terms = [_get_excess_terms(variant, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
-        assert np.allclose(first_order_terms, variant_terms, rtol=1e-9, atol=0) == same
+        variant = _get_window_variant(_CODE, basis, num_before, num_after)
+        variant_terms = _get_first_order_terms(variant)
+        assert np.allclose(reference_terms, variant_terms, rtol=1e-9, atol=0) == same
 
 
 def test_steane_swap_distance_two() -> None:
@@ -504,19 +501,19 @@ def test_steane_swap_distance_two() -> None:
     a further noisy step before or after the window changes the first-order terms of the excesses.
     """
     code = codes.SurfaceCode(2)
-    model = circuits.DepolarizingNoiseModel(1e-3)
-    reference = get_steane_swap_consumer(code, model)
-    with pytest.raises(AssertionError):
-        _assert_decodes_single_faults(reference)
-    first_order_terms = [_get_excess_terms(reference, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
+    reference = get_steane_swap_consumer(code, _WINDOW_NOISE)
+    dem = decoders.DetectorErrorModelArrays(reference.block_preparation + reference.circuit)
+    decoder = reference.decoder
+    assert isinstance(decoder, decoders.BatchObservableDecoder)
+    predictions = decoder.decode_observables_batch(dem.detector_flip_matrix.T.toarray())
+    assert not np.array_equal(predictions, dem.observable_flip_matrix.T.toarray())
+
+    reference_terms = _get_first_order_terms(reference)
     for num_before, num_after in [(3, 2), (2, 3)]:
-        preparation, circuit, qubits, bases = consumers._get_steane_swap_window(
-            code, model, Pauli.Z, num_before, num_after
+        variant_terms = _get_first_order_terms(
+            _get_window_variant(code, Pauli.Z, num_before, num_after)
         )
-        decoder = consumers._SteaneSwapDecoder(code, bases)
-        variant = Consumer(preparation, circuit, decoder, block_qubits=qubits)
-        variant_terms = [_get_excess_terms(variant, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
-        assert not np.allclose(first_order_terms, variant_terms, rtol=1e-9, atol=0)
+        assert not np.allclose(reference_terms, variant_terms, rtol=1e-9, atol=0)
 
 
 def test_steane_swap_symmetry() -> None:
@@ -1183,6 +1180,29 @@ def _assert_decodes_single_faults(consumer: Consumer, decoder: object = None) ->
     # also decode one shot, of a mechanism that flips an observable
     row = np.flatnonzero(observables.any(axis=1))[0]
     assert np.array_equal(decoder.decode_observables(detectors[row]), observables[row])
+
+
+def _get_window_variant(
+    code: codes.CSSCode, basis: PauliXZ, num_before: int, num_after: int
+) -> Consumer:
+    """A Steane-swap consumer with given numbers of noisy steps before and after the entry step.
+
+    The noise is ``_WINDOW_NOISE``, and the decoder is the default decoder of such a window.
+    """
+    preparation, circuit, qubits, bases = consumers._get_steane_swap_window(
+        code, _WINDOW_NOISE, basis, num_before, num_after
+    )
+    decoder = consumers._SteaneSwapDecoder(code, bases)
+    return Consumer(preparation, circuit, decoder, block_qubits=qubits)
+
+
+def _get_first_order_terms(consumer: Consumer) -> np.ndarray:
+    """First-order terms of the excesses of a consumer, for X and then Z block errors.
+
+    Row 0 is for X-type block errors and row 1 for Z-type ones, with an entry for each weight that
+    ``_get_excess_terms`` covers.
+    """
+    return np.array([_get_excess_terms(consumer, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)])
 
 
 def _get_excess_terms(consumer: Consumer, pauli: PauliXZ) -> np.ndarray:
