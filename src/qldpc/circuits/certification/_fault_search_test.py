@@ -207,16 +207,16 @@ def test_the_walk_lists_each_class_codeword_once_in_lexicographic_order(
 
     The flags of the classes are dense, or sparse, each with one or two bits of up to ten, so that
     the walk has few candidates and forbids classes at several depths.  The 15 classes of every
-    nonzero flag of four bits have class codewords with several classes with the bit that the walk
-    chooses at their root, which a walk that ignores forbidden classes lists twice, and sets of six
-    classes whose flags sum to zero but have rank four, which a walk that skips its last test of
+    nonzero flag of four bits have class codewords with several classes that have the bit that the
+    walk chooses at their root, which a walk that ignores forbidden classes lists twice, and sets of
+    six classes whose flags sum to zero but have rank four, which a walk that skips its last test of
     independence lists.  In the other cases, the walk's array has two rows.  So a full array makes
     it return the class codewords of earlier roots before it finishes a root, and then move those of
     the root to the start of the array, and it makes several passes over a root with more than two
     class codewords.  Each case is listed by a walk that pauses after each probe of work, as on
     threads, and resumes, and then by the lister on one thread.  The paused walk may return a
-    bounded number of batches, and the lister runs on a thread of its own with a timeout, so that a
-    listing that does not end fails rather than hangs.
+    bounded number of batches and class codewords, and both listings run on a thread of their own
+    with a timeout, so that a listing that does not end fails rather than hangs.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(list(range(1, 16)), 1, 6, _fault_search._MAX_ROOT_CODEWORDS)]
@@ -234,16 +234,30 @@ def test_the_walk_lists_each_class_codeword_once_in_lexicographic_order(
             walk = _fault_search._SharedFlagWalk(
                 lister._class_rows, lister._bit_index, lister._class_map, fault_weight
             )
-            rows: list[tuple[int, ...]] = []
-            for num_batches, batch in enumerate(walk.list_range(0, lister._num_start_classes, 1)):
-                rows.extend(tuple(row) for row in batch.tolist())
-                assert num_batches < 10**5 and len(rows) <= len(expected)
-            assert rows == expected
+            listed = distance_conftest.run_on_a_thread(
+                functools.partial(_list_paused, walk, lister._num_start_classes, len(expected)),
+                timeout=_COMPILE_TIMEOUT,
+            )
+            assert listed == expected
             listed = distance_conftest.run_on_a_thread(
                 functools.partial(_take_class_tuples, lister, fault_weight, len(expected) + 1),
                 timeout=_COMPILE_TIMEOUT,
             )
             assert listed == expected
+
+
+def _list_paused(
+    walk: _fault_search._SharedFlagWalk, num_roots: int, max_rows: int
+) -> list[tuple[int, ...]]:
+    """List the first roots with a walk that pauses after each probe of work, and resumes.
+
+    The walk may return at most ``10**5`` batches and ``max_rows`` class codewords.
+    """
+    rows: list[tuple[int, ...]] = []
+    for num_batches, batch in enumerate(walk.list_range(0, num_roots, 1)):
+        rows.extend(tuple(row) for row in batch.tolist())
+        assert num_batches < 10**5 and len(rows) <= max_rows
+    return rows
 
 
 def _class_lister(flags: Sequence[int], num_starts: int) -> _fault_search.FaultLister:
@@ -261,7 +275,7 @@ def _list_class_tuples(
 
 
 @pytest.mark.parametrize("collide", [False, True])
-def test_a_class_codeword_closed_from_two_states_is_listed_once(
+def test_a_class_codeword_found_at_two_states_is_listed_once(
     collide: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The walk by shared flags lists a class codeword once, also with members and hashes shared.
@@ -774,10 +788,11 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
         assert {"another pass on a thread", "paused within a pass"} <= events
     assert ("listed alone" in events) == (split_probes == 1)
 
-    # Check each fault on its own, and stop at the fifth, after the class codewords of the first
-    # root, so that the calling thread closes the listing while threads list: they cannot finish,
-    # since they hold the empty batches of their calls of one probe each, and the calling thread
-    # takes no more of them.
+    # Check each fault on its own, and stop at the fifth, the last class codeword of the second
+    # root, so that the calling thread closes the listing while threads list.  They cannot finish:
+    # the five roots after it take at least two calls of one probe each, and so at least ten
+    # batches, more than the at most eight that the threads may hold while the calling thread takes
+    # no more (see ``iterate_in_order``).
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 1)
     events.clear()
@@ -1076,8 +1091,9 @@ def test_sorting_a_full_array_of_class_codewords_takes_about_as_much_memory_agai
 
     This is the memory that ``_MAX_ROOT_CODEWORDS`` and the docstring of ``memory_limit`` in
     ``fault_propagation.py`` state for each thread that lists: an array of ``2**20`` rows of
-    ``8 m`` bytes, and as much again and 16 MiB more to sort it.  tracemalloc traces only
-    allocations by Python, so the test sorts with the Python version of the compiled function.
+    ``8 m`` bytes, and as much again and 16 MiB more to sort it.  tracemalloc does not see the
+    allocations of compiled code, so the test sorts with the Python version of the compiled
+    function.
     """
     sort_rows = getattr(_fault_search._sort_rows, "py_func", _fault_search._sort_rows)
     num_rows = 2**14

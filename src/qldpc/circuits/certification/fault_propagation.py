@@ -110,7 +110,7 @@ def certify_bounded_fault_propagation(
             the syndromes of the faults that it lists, a positive integer.  A smaller limit can make
             the search slower, but never changes the result.  Beyond this limit, each thread that
             lists faults can take up to about ``16 m + 16`` MiB at fault weight ``m``, and a few
-            bytes for each distinct value of the flags.  Default: ``2**30`` (1 GiB).
+            bytes for each error mechanism.  Default: ``2**30`` (1 GiB).
         method: The exact search of residual weights: ``"brouwer_zimmermann"``, its alias
             ``"information_sets"``, or ``"connected_cluster"`` (see
             :class:`~qldpc.codes.distance.CosetLeaderSearch`); ``"auto"`` takes
