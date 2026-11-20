@@ -40,8 +40,24 @@ from ._connected_cluster.coset import (
 )
 from ._cosets import xor_selected, xor_selected_rows
 from ._tuning import get_tuning
-from .core import DistanceMethod, _validate_distance_method
 from .min_weight_bounds import MinWeightBound
+
+CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
+"""The methods of exact searches of coset leaders, such as those of :class:`CosetLeaderSearch`.
+
+- ``"auto"`` (the default): a choice of the methods below.  It takes ``"brouwer_zimmermann"``,
+  whose lower bounds are often higher.  The choice can depend on the version of qLDPC.
+- ``"brouwer_zimmermann"``: searches the cosets of binary codes by information sets (see the
+  `Brouwer-Zimmermann guide
+  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
+- ``"connected_cluster"``: makes generators of the stabilizer group sparser, and grows errors from
+  the syndrome through them, so it can be fast only if those generators are sparse (see the
+  `connected-cluster guide
+  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
+  It weighs errors by CSS weight only on CSS states.  For a syndrome whose errors all weigh more
+  than a positive maximum weight, the lower bound that it gives is that maximum weight plus one,
+  whereas ``"brouwer_zimmermann"`` often proves a higher one.
+"""
 
 ####################################################################################################
 # coset-leader minimum-weight bounds
@@ -99,24 +115,17 @@ class CosetLeaderSearch:
             independent commuting stabilizers on ``n`` qubits.
         css_weight: True to weigh an error by its CSS weight, or False (the default) to weigh it by
             its physical weight.
-        method: ``"brouwer_zimmermann"`` (the default), with alias ``"information_sets"``, searches
-            the cosets of binary codes by information sets (see the `Brouwer-Zimmermann guide
-            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_),
-            and so does ``"auto"``.  ``"connected_cluster"`` makes generators of the stabilizer
-            group sparser, and grows errors from the syndrome through them, so it can be fast only
-            if those generators are sparse (see the `connected-cluster guide
-            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
-            It weighs errors by CSS weight only on CSS states.  For a class without an error within
-            a positive maximum weight, its lower bound is that maximum weight plus one, whereas the
-            Brouwer-Zimmermann method often proves a higher one.
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, or ``"connected_cluster"``
+            (see :data:`CosetMethod`).  ``"connected_cluster"`` weighs errors by CSS weight only on
+            CSS states.
 
     Raises:
         TypeError: If ``stabilizers`` is not array-like, as when a code is given instead of a
             matrix.
         ValueError: If the stabilizers are not a binary matrix with ``2 n`` columns, or are not
             ``n`` independent commuting stabilizers, as when they define a code that encodes
-            qubits; if the method is unknown or ``"brute_force"``; or if the connected-cluster
-            method would weigh errors on a state that is not CSS by their CSS weight.
+            qubits; if the method is unknown; or if the connected-cluster method would weigh errors
+            on a state that is not CSS by their CSS weight.
     """
 
     def __init__(
@@ -124,7 +133,7 @@ class CosetLeaderSearch:
         stabilizers: npt.ArrayLike,
         *,
         css_weight: bool = False,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: CosetMethod = "auto",
     ) -> None:
         # Check the arguments, and keep those that the properties return.
         coset_search_method = _get_coset_search_method(method)
@@ -477,27 +486,15 @@ class CosetLeaderSearch:
 
 
 def _get_coset_search_method(
-    method: DistanceMethod,
+    method: CosetMethod,
 ) -> Literal["brouwer_zimmermann", "connected_cluster"]:
-    """Validate a distance method that has coset searches, and return the method that they use.
-
-    ``"auto"`` chooses the Brouwer-Zimmermann method, whose coset searches often prove higher
-    lower bounds on the weights of coset leaders.
-    """
-    coset_methods = [name for name in get_args(DistanceMethod) if name != "brute_force"]
-    try:
-        canonical = _validate_distance_method(method)
-    except ValueError:
+    """Validate a coset method, and return the method that the coset searches use."""
+    if not isinstance(method, str) or method not in get_args(CosetMethod):
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from"
-            f" {', '.join(map(repr, coset_methods))}."
-        ) from None
-    if canonical == "brute_force":
-        raise ValueError(
-            "The 'brute_force' distance method has no coset-leader search: use one of"
-            f" {', '.join(map(repr, coset_methods))}."
+            f"Unknown coset method {method!r}; choose from"
+            f" {', '.join(map(repr, get_args(CosetMethod)))}."
         )
-    return "brouwer_zimmermann" if canonical == "auto" else canonical
+    return "brouwer_zimmermann" if method == "auto" else method
 
 
 def _as_state_stabilizers(stabilizers: npt.ArrayLike) -> npt.NDArray[np.uint8]:

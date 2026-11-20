@@ -9,7 +9,7 @@ import functools
 import itertools
 import math
 from dataclasses import replace
-from typing import Any, cast, get_args
+from typing import Any, cast
 from unittest import mock
 
 import galois
@@ -65,9 +65,6 @@ def test_known_codes(method: lc.LogicalCountMethod) -> None:
         counter = lc.CSSLogicalCounter(checks_x, checks_z)
         assert counter.count_logical_ops(count_pauli=True, method=method) == expected
         assert counter.count_logical_ops(method=method).count_pauli is None
-    assert lc.count_logical_ops_css(
-        steane.matrix_x, steane.matrix_z, method="information_sets"
-    ) == Counts(3, 7, 7, None)
 
 
 def test_counts_are_equal_exactly_when_their_classes_and_fields_are() -> None:
@@ -324,7 +321,7 @@ def test_counters_remember_the_distance_of_each_method() -> None:
     expected = counter.count_logical_ops(count_pauli=True)
     with mock.patch.object(lc, "_get_distance", wraps=lc._get_distance) as search:
         assert counter.count_logical_ops(count_pauli=True) == expected
-        assert counter.count_logical_ops(method="information_sets") == replace(
+        assert counter.count_logical_ops(method="brouwer_zimmermann") == replace(
             expected, count_pauli=None
         )
         assert search.call_count == 0
@@ -513,9 +510,6 @@ def test_macwilliams_counts_match_enumeration() -> None:
         if counter.is_self_dual:
             expected = Counts(distance, counts_x[distance], counts_z[distance], full)
             assert counter.count_logical_ops(method="macwilliams", count_pauli=True) == expected
-    assert lc.count_logical_ops_css(
-        steane.matrix_x, steane.matrix_z, method="weight_enumerator"
-    ) == Counts(3, 7, 7, None)
 
 
 def test_macwilliams_counts_of_wide_codes() -> None:
@@ -737,15 +731,11 @@ def test_invalid_inputs() -> None:
     with pytest.raises(ValueError, match="Unknown logical-count method"):
         counter.count_logical_ops(method=distance_method)
     for method in ("brouwer_zimmermann", "macwilliams", "brute_force"):
-        assert lc._validate_logical_count_method(method) == method
-    assert lc._validate_logical_count_method("information_sets") == "brouwer_zimmermann"
-    assert lc._validate_logical_count_method("weight_enumerator") == "macwilliams"
-    with pytest.raises(ValueError, match="Unknown logical-count method"):
-        lc._validate_logical_count_method(invalid_method)
-    # The types of method names agree with the table that validates them.
-    assert set(get_args(lc.LogicalCountMethod)) == set(lc._LOGICAL_COUNT_METHODS)
-    canonical_methods = set(lc._LOGICAL_COUNT_METHODS.values())
-    assert set(get_args(lc._CanonicalLogicalCountMethod)) == canonical_methods
+        assert lc._get_logical_count_method(method) == method
+    assert lc._get_logical_count_method("auto") == "brouwer_zimmermann"
+    for unknown in (invalid_method, "information_sets", "weight_enumerator"):
+        with pytest.raises(ValueError, match="Unknown logical-count method"):
+            lc._get_logical_count_method(cast(Any, unknown))
     for weight in (-1, 3):
         with pytest.raises(ValueError, match="weight must be between"):
             counter.count_logical_ops(weight)

@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import math
-from typing import Any
+from typing import Any, cast
 
 import galois
 import numpy as np
@@ -298,9 +298,9 @@ def test_invalid_arguments() -> None:
 def test_methods_of_the_coset_search() -> None:
     """The connected-cluster search gives the exact histogram of a state that is not CSS.
 
-    On this state, it cannot weigh errors by CSS weight, but the default search, here under its
-    alias ``"information_sets"``, can.  The brute-force method has no search of residual weights,
-    and is rejected before the circuit is read.
+    On this state, it cannot weigh errors by CSS weight, but the default search, ``"auto"``, can.
+    A method that has no search of residual weights, such as ``"brute_force"``, is rejected before
+    the circuit is read.
     """
     circuit = _build_circuit(_NON_CSS_LAYERS, _NON_CSS_MECHANISMS)
     _, distribution = _brute_force(_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, False, 1, None)
@@ -310,11 +310,11 @@ def test_methods_of_the_coset_search() -> None:
     assert np.allclose(histogram.get_residual_weight_distribution(), distribution, rtol=1e-9)
 
     options: dict[str, Any] = {"output_qubits": range(3), "css_weight": True}
-    estimate_residual_weight_histogram(circuit, 1, method="information_sets", **options)
+    estimate_residual_weight_histogram(circuit, 1, method="auto", **options)
     with pytest.raises(ValueError, match="only on CSS states"):
         estimate_residual_weight_histogram(circuit, 1, method="connected_cluster", **options)
-    with pytest.raises(ValueError, match="no search of residual weights"):
-        estimate_residual_weight_histogram(stim.Circuit("M 0"), 1, method="brute_force")
+    with pytest.raises(ValueError, match="Unknown coset method"):
+        estimate_residual_weight_histogram(stim.Circuit("M 0"), 1, method=cast(Any, "brute_force"))
 
 
 def test_validate_indices() -> None:

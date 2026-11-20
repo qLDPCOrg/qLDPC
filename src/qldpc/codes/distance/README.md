@@ -21,14 +21,14 @@ Each cell of the table below says whether a problem takes a method, and how it r
 | Distance | one thread | threads | threads | not by design | threads |
 | Coset weight of a vector | one thread | threads | threads | not by design | threads |
 | Coset leaders | not by design | threads | threads | not by design | threads |
-| Logical counts | one thread | one thread | not by design | one thread | not yet |
+| Logical counts | one thread | one thread | not by design | one thread | one thread |
 
 - **Distance** is the minimum weight of a nontrivial word: the functions of `core.py`, the `get_distance_exact` methods of the code classes, and `get_fault_distance` in `src/qldpc/circuits/certification/fault_distance.py`.
   `connected_cluster` needs parity checks, so `get_distance_from_generators` does not take it.
 - **Coset weight of a vector** is the minimum distance between a vector and a word of a binary classical code, which `ClassicalCode.get_distance_exact(vector=...)` in `src/qldpc/codes/common.py` finds by a distance search.
 - **Coset leaders** are the lightest Pauli errors with a given syndrome on a stabilizer state: `CosetLeaderSearch` in `coset_leaders.py`.
 - **Logical counts** are the numbers of logical operators of a given weight in a CSS code: `CSSLogicalCounter` in `logical_counts.py`.
-  A count by `brouwer_zimmermann` that finds its default weight runs a distance search, which can use threads.
+  A count by `brouwer_zimmermann` or `auto` that finds its default weight runs a distance search, which can use threads.
 
 The cells that are empty, or on one thread only:
 
@@ -36,7 +36,7 @@ The cells that are empty, or on one thread only:
 - Counts by `connected_cluster`: the search finds one word of each weight limit and prunes the others, rather than enumerating them, and a count above the distance must also count words whose supports the checks do not connect.
 - `macwilliams` for distances and coset problems: it needs a CSS stabilizer code whose X and Z checks have rank at most 63, and has no form for cosets; counts already give the distance that it finds.
 - Brute force on threads: it serves small codes and tests, and `auto` takes it only for at most `auto_brute_force_max_words` packed words, about a millisecond.
-- Not yet: counts, single coset queries, and the MacWilliams method on threads; and `auto` for counts.
+- Not yet: counts, single coset queries, and the MacWilliams method on threads.
 
 Where the code, guide, and tests of each supported cell live:
 
@@ -49,7 +49,7 @@ Where the code, guide, and tests of each supported cell live:
 | Coset weight of a vector, every method | `src/qldpc/codes/common.py` | the comments in the vector branch of `ClassicalCode.get_distance_exact` | `src/qldpc/codes/common_test.py` |
 | Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | Sections 3.9 and 3.10 of `brouwer_zimmermann.md`, and Section 4.5 of `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
 | Coset leaders, `connected_cluster` | `_connected_cluster/coset.py` | Sections 3.8, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/coset_test.py` and `coset_leaders_test.py` |
-| Logical counts, `brute_force` and `brouwer_zimmermann` | `logical_counts.py` and `_counting/scan.py` | Section 3.11 of `brouwer_zimmermann.md` | `_counting/scan_test.py` and `logical_counts_test.py` |
+| Logical counts, `brute_force`, `brouwer_zimmermann`, and `auto` | `logical_counts.py` and `_counting/scan.py` | Section 3.11 of `brouwer_zimmermann.md` | `_counting/scan_test.py` and `logical_counts_test.py` |
 | Logical counts, `macwilliams` | `logical_counts.py` and `_counting/macwilliams.py` | "The MacWilliams method" in Section 3.11 of `brouwer_zimmermann.md` | `_counting/macwilliams_test.py` and `logical_counts_test.py` |
 
 `_grid_test.py` checks the first table against the methods that each problem takes, and runs every supported cell, in each of its modes, on small instances against brute force.
@@ -61,7 +61,7 @@ A new problem, method, or mode adds its cells to both tables, and to `_grid_test
 
 - `get_distance_from_generators`, `get_distance_from_checks`, `get_distance_css`, `get_distance_pauli`, `DistanceMethod`, and `NoDistance`, whose only member `NoDistance.NAN` is also exported as `NO_DISTANCE`, from `core.py`.
 - `CSSLogicalCounter`, `CSSLogicalCounts`, `count_logical_ops_css`, `LogicalCountMethod`, and `compile_search_setup`, from `logical_counts.py`.
-- `CosetLeaderSearch`, from `coset_leaders.py`, and `MinWeightBound`, its bound for one syndrome, from `min_weight_bounds.py`.
+- `CosetLeaderSearch` and `CosetMethod`, from `coset_leaders.py`, and `MinWeightBound`, its bound for one syndrome, from `min_weight_bounds.py`.
 
 `qldpc.codes` re-exports only `NoDistance`, `NO_DISTANCE`, and `DistanceMethod`, which the code classes take or return.
 The documentation cites the other names at `qldpc.codes.distance`.
@@ -96,7 +96,6 @@ The documentation cites the other names at `qldpc.codes.distance`.
   `_brute_force.py` holds exhaustive enumeration.
 - `_counting/` holds the word scan of the counts, the local Clifford gates of deformed counters, and the MacWilliams method.
 - `_information_sets/` holds the families of information sets and their certificates, which the Brouwer-Zimmermann searches and the counts share.
-  The method name `"information_sets"` is an alias of `"brouwer_zimmermann"`, for distances and counts alike.
 - `_cosets.py` holds the parts that the coset searches of both methods share.
 - `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see "Searching one sector of a CSS code").
 - `_tuning.py` holds the settings of the searches.
@@ -108,8 +107,8 @@ The documentation cites the other names at `qldpc.codes.distance`.
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; where `logical_counts.py` and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name, and where `get_distance` validates it; and the `brute_force` flag that `logical_counts.py` passes to `_counting/scan.py` |
-| The automatic choice of a method (`method="auto"`): which searches take which method, and when a connected-cluster search switches to the BZ method | `core.py`, where the distance functions dispatch on the method; `_auto.py`, which estimates and compares the costs; and `_get_coset_search_method` of `coset_leaders.py`, where coset searches take BZ |
+| A method, or the validation of method names | the method type of each problem and its validator: `DistanceMethod` in `core.py`, `CosetMethod` in `coset_leaders.py`, and `LogicalCountMethod` in `logical_counts.py`; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; where `logical_counts.py` and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name, and where `get_distance` validates it; and the `brute_force` flag that `logical_counts.py` passes to `_counting/scan.py` |
+| The automatic choice of a method (`method="auto"`): which searches take which method, and when a connected-cluster search switches to the BZ method | `core.py`, where the distance functions dispatch on the method; `_auto.py`, which estimates and compares the costs; `_get_coset_search_method` of `coset_leaders.py`, where coset searches take BZ; and `_get_logical_count_method` of `logical_counts.py`, where counts take BZ |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The coset-leader search, which `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` use, and how its queries split into coset searches | `coset_leaders.py` |
 | The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
@@ -144,7 +143,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 
 From the top:
 
-1. `logical_counts.py`, which takes `NoDistance` from `core.py`, and `coset_leaders.py`, which takes `DistanceMethod` from it.
+1. `coset_leaders.py`, and `logical_counts.py`, which takes `NoDistance` from `core.py`.
 2. `core.py`.
 3. `_auto.py`, the automatic choice of a method.
 4. The methods `_brouwer_zimmermann/`, `_connected_cluster/`, `_counting/`, and `_brute_force.py`.
@@ -211,10 +210,10 @@ Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qu
 
 ## Choosing a method
 
-`method="auto"` is the default of the distance functions, of `get_distance` and `get_distance_exact` of the code classes, and of `get_fault_distance`.
+Each problem's method type has its own `"auto"`, which chooses among that problem's methods: the coset searches of `CosetLeaderSearch` take the BZ method for it (`_get_coset_search_method` of `coset_leaders.py`), and so do counts (`_get_logical_count_method` of `logical_counts.py`).
+For distances, `method="auto"` is the default of the distance functions, of `get_distance` and `get_distance_exact` of the code classes, and of `get_fault_distance`.
 It chooses a method for each search, in `_search_css`, `_search_checks`, and `_search_generators` of `core.py`.
 A code class that searches other codes, as `HGPCode` searches its seed codes, passes the method down, so each of those searches chooses too.
-The coset searches of `CosetLeaderSearch` take the BZ method for `"auto"` (`_get_coset_search_method` of `coset_leaders.py`).
 The rule aims to avoid a method that is very slow on a search, not to find the fastest one, and it decides from the shapes of the sectors and from the progress of the searches, without fitted thresholds.
 
 1. Brute force runs if `is_cheap_to_enumerate` finds that it examines at most `auto_brute_force_max_words` packed 64-bit integers.

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import numpy as np
 import pytest
 import stim
 
@@ -61,5 +62,7 @@ def test_fault_distance_errors() -> None:
     circuit = stim.Circuit("H 0\nM 0\nDETECTOR rec[-1]")
     with pytest.raises(ValueError):
         circuits.get_fault_distance(circuit)
-    with pytest.raises(ValueError, match="Unknown distance method"):
-        circuits.get_fault_distance(circuit, method=cast(Any, "other"))
+    # A one-element array of a method's name compares equal to it, but is not a name.
+    for unknown in ("other", np.array(["auto"])):
+        with pytest.raises(ValueError, match="Unknown distance method"):
+            circuits.get_fault_distance(circuit, method=cast(Any, unknown))

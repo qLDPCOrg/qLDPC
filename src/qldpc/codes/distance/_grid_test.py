@@ -12,7 +12,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -29,7 +29,7 @@ from qldpc.codes.distance import (
     get_distance_pauli,
 )
 
-from . import _threads, _tuning, core, logical_counts
+from . import _threads, _tuning, core, coset_leaders, logical_counts
 from .conftest import (
     assert_exact_answers,
     enumerate_logical_ops,
@@ -75,7 +75,11 @@ _CELLS = [
 def test_the_grid_lists_every_problem_and_the_methods_that_it_takes() -> None:
     """The table has a column for each method, and each problem takes the methods of its cells."""
     assert set(_GRID) == set(_ACCEPTS) == set(_CHECKS)
-    methods = {*core._DISTANCE_METHODS.values(), *logical_counts._LOGICAL_COUNT_METHODS.values()}
+    methods = {
+        *get_args(core.DistanceMethod),
+        *get_args(coset_leaders.CosetMethod),
+        *get_args(logical_counts.LogicalCountMethod),
+    }
     for problem, row in _GRID.items():
         assert set(row) == methods
         assert set(row.values()) <= {*_MODES, "not yet", "not by design"}
@@ -234,8 +238,9 @@ def _check_counts(method: Any, rng: np.random.Generator, threads: bool) -> None:
     code = get_random_css_code(rng, 7, 2, 2)
     counts_x, counts_z, distance, full = enumerate_logical_ops(code)
 
-    # A count by brouwer_zimmermann at its default weight runs a distance search, which can use
-    # threads (see "The grid" in the README), so the default-weight count runs on one thread here.
+    # A count by brouwer_zimmermann or auto at its default weight runs a distance search, which can
+    # use threads (see "The grid" in the README), so the default-weight count runs on one thread
+    # here.
     count_pauli = method != "macwilliams" or code.is_self_dual
     with _tuning.use_tuning(num_threads=1):
         counts = count_logical_ops_css(
