@@ -366,8 +366,8 @@ def _get_fixed_parities_by_simulation(
 
     Fixed parities are as the comment in get_state_stabilizers defines them.  The circuit must be
     noiseless and reset every qubit first, and the simulator must have run it.  The requested
-    qubits, state_qubits, must be distinct and nonnegative.  get_state_stabilizers ensures all of
-    this.  Returns the circuit's detectors that some random outcome flips, and the reduced row
+    qubits, state_qubits, must be distinct qubits of the circuit.  get_state_stabilizers ensures all
+    of this.  Returns the circuit's detectors that some random outcome flips, and the reduced row
     echelon form of the fixed parities whose detectors are among them.
     """
     num_qubits = circuit.num_qubits
@@ -451,9 +451,9 @@ def _get_fixed_parities_by_simulation(
 
 
 def _without_observables(circuit: stim.Circuit) -> stim.Circuit:
-    """A circuit without the OBSERVABLE_INCLUDE instructions of a given one, even in REPEAT blocks.
+    """A given circuit without its OBSERVABLE_INCLUDE instructions, also in REPEAT blocks.
 
-    If the given circuit has no observables, this is the given circuit itself, not a copy.
+    If it has no observables, this returns the given circuit itself, not a copy.
     """
     if not circuit.num_observables:
         return circuit

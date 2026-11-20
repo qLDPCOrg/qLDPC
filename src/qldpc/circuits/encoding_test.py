@@ -262,7 +262,7 @@ def test_state_stabilizers_match_flows() -> None:
 
     Fixed parities are as the comment in get_state_stabilizers defines them.  The reference,
     _get_fixed_parities_by_flows, finds them from stim.Circuit.flow_generators instead.  Fixed
-    parities carry no signs; test_state_stabilizer_signs tests the signs of the stabilizers.  The
+    parities carry no signs; test_state_stabilizer_signs tests the signs of the stabilizers.  This
     test also checks that simulation returns the fixed parities in reduced row echelon form, which
     get_state_stabilizers relies on.
     """
@@ -525,8 +525,9 @@ def _repeats_target(instruction: stim.CircuitInstruction) -> bool:
 def _uses_qubit_after_pauli_observable(circuit: stim.Circuit) -> bool:
     """Whether a gate, reset, or measurement acts on a qubit after a Pauli observable on that qubit.
 
-    A Pauli observable is an observable with a Pauli target.  The circuit must be flat and
-    noiseless.  MPAD acts on no qubit, although Stim stores its results as qubit targets.
+    A Pauli observable is an OBSERVABLE_INCLUDE instruction with a Pauli target.  The circuit must
+    be flat and noiseless.  MPAD acts on no qubit, although Stim stores its results as qubit
+    targets.
     """
     observed: set[int] = set()
     uses = False
