@@ -160,39 +160,22 @@ Only a fault that [contains a heavy primitive fault](#a-violating-fault-contains
 The search orders the kept primitive faults that have nonzero flags with the heavy ones first, lists the members of each class in this order, and orders the classes by their first members.
 Then a class that contains a heavy primitive fault, a **start class**, comes before every class that does not, and its heavy members come before its light ones.
 The code calls the heavy primitive faults the **start members**.
-So a fault of fault weight `m ≥ 3` contains a heavy primitive fault only if its class codeword starts with a start class, and the search builds only the prefixes that start with a start class.
+So a fault of fault weight `m ≥ 3` contains a heavy primitive fault only if its class codeword starts with a start class, and the search lists only the class codewords that start with a start class.
 For each class codeword, it chooses one primitive fault from each class in turn.
 While all the primitive faults that it has chosen are light, it skips the rest of the current class as soon as every primitive fault that it could still choose, in this class or in a later class of the codeword, is light, since then no fault that completes the current choice contains a heavy primitive fault.
 For fault weight two, it chooses two primitive faults from a start class in order, the first of them heavy.
 This lists each irreducible accepted fault that contains a heavy primitive fault once, and lists nothing else.
 
-The search looks up the closing class in the **closing map of single classes**, a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash, where linear means that the hash of a sum of flags is the sum of their hashes.
-Different flags can share a hash, so the search compares the flags of every class that it finds with the sum of the prefix flags.
-Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing the last `s` classes `c_{m-s+1} < ... < c_m` together, as a **closing set** of `s` classes, for some `s` from 2 to `m - 2`.
-A closing class is a closing set of one class, and a **closing pair** is a closing set of two.
-Each class of a closing set removes about one factor of the number of classes from the search time, at the cost of a table whose size grows by about that factor.
-The search can keep a table of all sets of `s` classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its sets.
-It keeps a table only if it has at most `2^31` sets and fits within the memory limit, and the table of syndromes gets what is left of the limit; `FaultLister` in `_fault_search.py` says which tables it builds.
-For each choice of independent classes `c_1, ..., c_{m-s}`, the search looks up the sets `c_{m-s+1} < ... < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-s}`, and keeps those that come after `c_{m-s}` and whose flags sum to exactly that sum.
-Of these, it keeps only the sets whose classes other than the last, `c_{m-s+1}, ..., c_{m-1}`, keep the prefix `c_1, ..., c_{m-1}` independent.
-That `c_1, ..., c_{m-s}` are independent is not enough, since the flags of a class of the set could be the sum of the flags of some classes before it, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
-With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class found by a lookup of single classes.
-Conversely, the search finds every class codeword that starts with a start class this way, since its first `m - 1` classes are independent, and so are its first `m - s`, and the flags of its last `s` classes sum to those of its first `m - s`.
-The classes have distinct flags, so a lookup finds at most one closing set for each choice of its classes other than the last, and so at most `C(q, s - 1)` class codewords for `q` classes.
-The search with single classes, which loops over `c_{m-s+1}, ..., c_{m-1}` and looks up the closing class of each prefix, lists the class codewords in lexicographic order.
-So does the search with closing sets of `s` classes: it chooses `c_1, ..., c_{m-s}` in lexicographic order, and the table keeps the sets with each hash in lexicographic order.
-So the search lists the same class codewords in the same order for every `s`, and the faults are listed in the same order for every choice of tables.
-We call this walk over the choices of `c_1, ..., c_{m-s}` the **walk by closing sets**.
-The search lists the class codewords of each start class either by this walk or by the [walk by shared flags](#listing-class-codewords-by-shared-flags), which lists the same class codewords in the same order.
+The search lists the class codewords that start with each start class by the [walk by shared flags](#listing-class-codewords-by-shared-flags), in lexicographic order, and lists the start classes in order, so it lists all its class codewords in lexicographic order.
 
 Many primitive faults can share their flags, which is why the search works with classes.
-Its tests of independence, its lookups of closing sets, and its tables of closing sets work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
+Its tests of independence and its lookups of closing classes work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
 
 ### Listing class codewords by shared flags
 
-The walk by closing sets chooses every independent set of the classes `c_1 < ... < c_{m-s}` with `c_1` a start class: about `S q^{m-s-1} / (m-s-1)!` sets for `S` start classes and `q` classes.
-When each flag bit is set by few classes, nearly none of these sets closes a class codeword, and listing them all is out of reach for fault weights of four or five on circuits with tens of thousands of classes.
-The **walk by shared flags** visits far fewer sets.
+There are about `S q^{m-2} / (m-2)!` independent prefixes that start with a start class, for `S` start classes and `q` classes.
+When each flag bit is set by few classes, nearly none of them has a closing class, and choosing them all is out of reach for fault weights of four or five on circuits with tens of thousands of classes.
+The **walk by shared flags** visits far fewer sets of classes.
 It adds to the classes chosen so far only a class that shares a flag bit with the sum of their flags, as the depth-first search of [connected_cluster.md](../../codes/distance/connected_cluster.md#33-the-depth-first-search) does for the codewords of a sparse code.
 In its terms, the variables are the classes and the checks are the flag bits, and a class codeword is a set of variables whose flags sum to zero and none of whose proper nonempty subsets has flags that sum to zero.
 
@@ -255,20 +238,18 @@ It is not `x'`, which is available at `A'`, and it is not `z'`, since the walk r
 So `u` is not in `C`, a contradiction, and the walk records no class codeword twice.
 
 **Order.**
-The walk by shared flags lists a root in one or more **passes**, each a walk of the states from the root.
+The walk lists a root in one or more **passes**, each a walk of the states from the root.
 A pass records class codewords in an array of a fixed number `R ≥ 2` of rows, outside the memory limit.
 It writes each class codeword that it records as a row of its classes in increasing order, and sorts the rows of the pass in lexicographic order once the pass is done.
 Only then does the search **release** them, passing them on to be expanded into faults.
-The walk gives a root up only in its first pass, before any of its class codewords are released, and the search then discards the rows recorded for it, and the walk by closing sets lists the whole root, in lexicographic order.
 A root with more class codewords than fit in the array takes several passes, each releasing the next of them in lexicographic order, as the next paragraph shows.
-The search lists the roots in order, and the root is the first class of each of its class codewords, so whichever walk lists each root, the search lists the same class codewords in the same order as the walk by closing sets alone, the lexicographic order.
+The search lists the roots in order, and the root is the first class of each of its class codewords, so the search lists its class codewords in lexicographic order.
 The expansion into faults, the table of syndromes, the faults skipped, the batches sent to the oracle, and so the result depend on the listing only through this sequence of class codewords, since the calling thread computes them from it alone (see [threads](#listing-class-codewords-on-threads)).
-So they are the same with either walk.
 
 **Roots with many class codewords.**
 If the class codewords of a pass fill the array, the walk sorts them, keeps the first `⌊R/2⌋` of them in lexicographic order, and from then on records only class codewords that come before the first one dropped, its **ceiling**, which it lowers each time the array fills again.
 A later pass over a root also has a **floor**, the last class codeword released by the pass before, and records only class codewords after it.
-At each moment of a pass, the array holds exactly the class codewords that the pass has recorded so far between the floor and the ceiling: a class codeword enters only if it lies between them, and filling the array drops exactly those at or after the new ceiling.
+At each moment of a pass, the array holds exactly the class codewords that the pass has recorded so far between the floor and the ceiling: a class codeword enters only if it lies between them, and filling the array drops exactly those at or after the new ceiling, since the pass records no class codeword twice, so the rows of the array are distinct.
 A pass records each class codeword of the root once, so when it is done, the array holds every class codeword of the root between the floor and the ceiling, and the search releases them in order.
 If the pass dropped none, these are all the class codewords of the root after the floor, and the root is done.
 Otherwise the last one released becomes the new floor, and the walk makes another pass, which lists the class codewords after it.
@@ -276,22 +257,11 @@ Each pass that drops class codewords releases at least `⌊R/2⌋` of them, so a
 Sorting a full array takes about as much memory again, which is also outside the memory limit (see `_MAX_ROOT_CODEWORDS` in `_fault_search.py`).
 
 **The probes.**
-To find the classes `z` with flags `σ(A) + f(x)`, the walk probes the closing map of single classes with the hash of these flags, as the walk by closing sets does.
+To find the classes `z` with flags `σ(A) + f(x)`, the walk probes the **map of classes by hash**, a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash, where linear means that the hash of a sum of flags is the sum of their hashes.
+So the walk gets the hash of `σ(A) + f(x)` by adding that of `f(x)` to that of `σ(A)`, which it keeps for each state.
 A class with these flags has this hash, so a probe that finds no class with this hash rules out a record.
 Otherwise, the walk checks every class with this hash, since different flags can share a hash: it compares their flags in full, never relying on the hash alone, and checks whether each class with these flags is available, and whether `A ∪ {x}` is independent.
 These are the checks of the definition, applied only when a probe finds a class, so the walk records the same class codewords, while most candidates cost only a probe.
-
-**Which walk lists a root.**
-The walk by shared flags costs little when the candidates are few, and can cost more than the walk by closing sets when many classes share each bit, or when that walk uses closing sets of two or more classes.
-The walk by shared flags is charged `64` for the root and for each reduction of the flags of a candidate, whether the candidate becomes a state, is found dependent, or completes a class codeword, and one each for each bit of the sum of the flags that it examines to choose a bit and for each candidate that it tries, including those that it skips as chosen or forbidden.
-These charges are assumed costs in **probes** of a closing map (`_PROBES_PER_STATE` in `_fault_search.py`), the unit in which the search counts the work of both walks, and each lookup of the walk by closing sets costs `16` probes (`_PROBES_PER_LOOKUP`).
-The **budget** of a root `r` is `16` probes for each of the at most `C(q - 1 - r, k - 1)` lookups that the walk by closing sets makes for it, for `q` classes and `k` classes chosen before each lookup.
-In its first pass over a root, the walk by shared flags gives the root up to the walk by closing sets once its work for the root exceeds the budget, or before it starts if the budget is less than 64 probes, the charge for the root.
-By these estimates, a root given up costs at most about twice as much as with the cheaper walk.
-A root that is not given up takes `w` passes, at most `1 + n/⌊R/2⌋` for `n` class codewords, each costing as much as its first, which is at most about the budget.
-So it can cost up to about `w` budgets, which the bound of about twice does not cover.
-The closing maps of three or four classes wait for the estimated lookups of the walk by closing sets for every root, whichever walk lists it, so the search builds them as if the walk by closing sets listed every root, or sooner, since the estimates also count dependent choices of classes (see `_LOOKUPS_PER_CLOSING_SET`).
-So the budgets do not depend on which walk lists the roots, and compare against a walk by closing sets with at least the closing maps that it would build if it listed every root.
 
 ### Skipping faults whose syndromes are listed
 
@@ -337,8 +307,10 @@ If the search finds no violation, steps 1 to 3 show that no violating accepted f
 
 ### Listing class codewords on threads
 
-A listing of class codewords counts its work in probes, at the costs that [which walk lists a root](#listing-class-codewords-by-shared-flags) states.
-A listing is **costly** if, once the calling thread, listing alone, has done `2^18` probes of work for each thread, the work of `2^14` lookups of the walk by closing sets, at least as much work for each thread is estimated to be left, as described below.
+A listing of class codewords counts its work in **probes** of the [map of classes by hash](#listing-class-codewords-by-shared-flags).
+The walk by shared flags is charged `64` probes for the root and for each reduction of the flags of a candidate, whether the candidate becomes a state, is found dependent, or completes a class codeword, and one each for each bit of the sum of the flags that it examines to choose a bit and for each candidate that it tries, including those that it skips as chosen or forbidden (`_PROBES_PER_STATE` in `_fault_search.py`).
+These charges estimate the time of the walk; they decide only when a listing moves to threads and when a thread pauses, never what the walk lists.
+A listing is **costly** if, once the calling thread, listing alone, has done `2^18` probes of work for each thread, at least as much work for each thread is estimated to be left, as described below.
 A costly listing runs on `SearchTuning.num_threads` threads, as the oracle's searches do.
 [Threads](../../codes/distance/README.md#threads) in the README of the distance package gives the default of that number.
 Only listing class codewords moves to threads, since it takes most of the lister's time: in trials, four fifths or more whenever the lister took over half a second.
@@ -346,26 +318,25 @@ The calling thread expands the class codewords into faults in the order in which
 So the search looks up and skips the same faults, keeps the same table of syndromes, and sends the oracle the same syndromes in the same batches as on one thread, and its result does not depend on the number of threads.
 
 The search lists the class codewords [root by root](#listing-class-codewords-by-shared-flags), so its **work items** are the roots.
-Each pass over a root by the walk by shared flags, and the walk by closing sets of a root given up, starts with only the root chosen and no class forbidden, so the listing of a root, its work, and its class codewords depend only on the root.
+Each pass over a root starts with only the root chosen and no class forbidden, and a pass after the first depends only on the class codewords of the root that earlier passes released, so the listing of a root, its work, and its class codewords depend only on the root.
 So the listings of consecutive ranges of roots list the class codewords in the serial order, and the work of all the ranges adds up to that of a single thread.
-The search estimates the work of each root by its budget, the estimated work of the walk by closing sets for it.
-A root given up costs at most about twice its budget, and a root with `w` passes up to about `w` budgets.
+The search **weighs** each root `r` by `C(q - 1 - r, m - 2)`, for `q` classes and fault weight `m`: the number of choices of the classes of a class codeword with root `r` other than the root and the last (see `_get_root_weights`).
+The candidates of every state of the walk come after `r`, so the work of a root falls about as fast with `r` if the classes that share each flag bit are spread over the order of the classes.
 A root is never split between threads, so a listing with fewer start classes than threads, or with one root much costlier than the others, runs on fewer threads for part of its time.
 The calling thread also lists the first root alone, however costly it is, before any thread starts.
 
 The calling thread first lists the first roots alone, in ranges of 1, 2, 4, and more roots, until it has done `2^18` probes of work for each thread.
-If the work left, estimated as its work times the ratio of the budgets of the other roots to those of its own, is less than `2^18` probes for each thread, it lists the other roots alone too.
+If the work left, estimated as its work times the ratio of the weights of the other roots to those of its own, is less than `2^18` probes for each thread, it lists the other roots alone too.
 Otherwise the listing is costly, and the other roots move to threads.
 Threads cost, from their start until the calling thread takes their last class codewords, about as much as `2^17` probes of work for each thread, so small listings never start them.
-On `n` threads, `iterate_in_order` in `qldpc/codes/distance/_threads.py` splits the roots that move to threads into ranges, each of the fewest roots whose budgets reach `1 / (32 t)` of those of all these roots, for `t = min(n - 1, number of these roots)` threads.
+On `n` threads, `iterate_in_order` in `qldpc/codes/distance/_threads.py` splits the roots that move to threads into ranges, each of the fewest roots whose weights reach `1 / (32 t)` of those of all these roots, for `t = min(n - 1, number of these roots)` threads.
 The threads claim the ranges in order, and the calling thread takes the class codewords of each range in turn, as its thread lists them.
 A thread hands them to the calling thread in batches of at most `2^10` class codewords, so that the batches that `iterate_in_order` holds take bounded memory.
-Each call of either walk on a thread returns after about `2^20` probes of work, so that the thread checks often whether to stop.
+Each call of the walk on a thread returns after about `2^20` probes of work, also within a pass over a root, whose state the walk keeps for its next call, so that the thread checks often whether to stop.
 
 The expansion is that of a single thread, since it gets the same class codewords in the serial order, and how they are split into batches of class codewords does not change it.
 Batches of class codewords split only between class codewords; the expansion starts each class codeword with no remembered choices, and keeps its table of syndromes and its batch of faults from one class codeword to the next, within a batch of class codewords and across batches.
 So it pauses at the same faults, where its batch of faults is full or its table of syndromes should grow.
-The [closing maps](#listing-each-irreducible-accepted-fault-once) of three or four classes wait for the estimated lookups of the walk by closing sets for every root, which do not depend on the threads, so the search builds the closing maps of a single thread.
 The threads can list class codewords after the first violation, which the calling thread never expands.
 An exception on a thread, such as a `MemoryError`, can be raised before the calling thread reaches a violation that one thread would have found first.
 
@@ -380,16 +351,14 @@ Changes to the listing must keep these requirements.
 - **Expand class codewords only on the calling thread, in the serial order.**
   The table of syndromes, the remembered choices of `_expand_class_tuples`, and the batches of faults depend on the order of the faults, and [skipping faults](#skipping-faults-whose-syndromes-are-listed) relies on the table holding the syndrome of each earlier fault.
   Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks the faults of one thread.
-  In `_fault_search_test.py`, `test_listing_on_threads_checks_the_faults_of_one_thread` compares listings on 2, 3, and 8 threads with one thread, with either walk or both, also with roots given up after pausing in them, roots walked several times, tables of syndromes that fill up, violations that stop a listing, and listings that the calling thread starts alone.
+  In `_fault_search_test.py`, `test_listing_on_threads_checks_the_faults_of_one_thread` compares listings on 2, 3, and 8 threads with one thread, also with pauses within passes over roots, roots walked several times, tables of syndromes that fill up, violations that stop a listing, and listings that the calling thread starts alone.
   `test_listing_on_threads_keeps_the_order_whichever_range_ends_first` lists a later range before the first, after the calling thread has listed roots alone.
 - **Split the listing only between roots, and start each pass over a root with only the root chosen and no class forbidden.**
-  The passes over a root, and its choice of walk, must stay a function of the root, also when a thread pauses within a root.
-  `test_listing_on_threads_checks_the_faults_of_one_thread` checks that the work of the threads adds up to that of one thread, and `test_roots_far_from_their_budgets_take_the_intended_walk` that each root's budget counts only its own work.
-  `test_closing_maps_wait_for_the_estimated_lookups_of_every_root` checks that a closing map that waits for lookups is built as on one thread, and `test_only_costly_listings_move_to_threads` checks when a listing starts threads.
-- **Keep `_list_by_shared_flags` and `_list_by_closing_sets` writing only to the arrays of their walk, and `_expand_class_tuples` only to the arrays of the calling thread**, since all three run without the global interpreter lock while threads list.
-  The threads read the rows of the classes, the index of their flag bits, the closing maps, and the budgets of the roots, which the calling thread builds before the listing starts, and changes only after every thread has returned.
-  `test_listing_on_threads_checks_the_faults_of_one_thread` runs the threads with the rows of the classes and of the primitive faults, the members of the classes, the index of their flag bits, the closing maps, and the budgets of the roots read-only, so that numba rejects a write to them in any branch of compiled code, and checks that they do not change.
-  The budgets are read-only for every listing, as that test checks.
+  The passes over a root must stay a function of the root, also when a thread pauses within a root.
+  `test_listing_on_threads_checks_the_faults_of_one_thread` checks that the work of the threads adds up to that of one thread, and `test_only_costly_listings_move_to_threads` checks when a listing starts threads.
+- **Keep `_list_by_shared_flags` writing only to the arrays of its walk, and `_expand_class_tuples` only to the arrays of the calling thread**, since both run without the global interpreter lock while threads list.
+  The threads read the rows of the classes, the index of their flag bits, and the map of classes by hash, which the lister builds once and never changes.
+  `test_listing_on_threads_checks_the_faults_of_one_thread` runs the threads with the rows of the classes and of the primitive faults, the members of the classes, the index of their flag bits, and the map of classes by hash read-only, so that numba rejects a write to them in any branch of compiled code, and checks that they do not change.
   Review checks the writes that the read-only marking misses, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway, and those on paths that the tests do not run.
 - **Stop the threads whenever a listing ends, also by an exception.**
   `find_first` closes the batches of class tuples that it takes, and `iterate_in_order` then stops the threads and waits for them; `test_listing_on_threads_stops_its_threads_when_an_exception_is_raised` checks this, and the tests of `iterate_in_order` in `qldpc/codes/distance/_threads_test.py` check its order, its cap on held batches of class codewords (`64 t` on `t` threads that list, and one more for the range that the calling thread reads), and how it stops.

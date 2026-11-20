@@ -13,8 +13,7 @@ them, without editing qLDPC, and restores them on exit:
   by their place in the search: threshold-1 checks of single zero-flag mechanisms (made through
   ``_check_fault``), threshold-1 classification of flagged mechanisms, and batches at threshold
   m >= 2, whose submitted rows are counted.
-* ``FaultLister.__init__`` records whether the closing map of pairs of classes fit
-  (``_should_build_closing_pairs``) and the room of the table of syndromes (``_max_syndromes``), and
+* ``FaultLister.__init__`` records the room of the table of syndromes (``_max_syndromes``), and
   ``FaultLister.find_first`` times each fault weight and reports a progress record after it.
 
 With ``shadow=True``, every outermost query is also answered by a connected-cluster
@@ -60,7 +59,7 @@ class Instrumentation:
         classification: Threshold-1 classification queries of flagged mechanisms, and their time.
         batches: For each threshold m, the batch calls, submitted rows, and oracle time.
         weights: Per-weight records of ``find_first``: m, T_m, rows, oracle time, cumulative T.
-        lister: ``closing_pairs_fit`` and ``max_syndromes`` of the fault lister.
+        lister: ``max_syndromes`` of the fault lister.
         shadow: Totals of the CC oracle by threshold, its setup time, and the method that
             ``method="auto"`` takes for these queries, with ``shadow=True``.
     """
@@ -105,7 +104,6 @@ class Instrumentation:
             "classification": self.classification,
             "batches": {str(m): value for m, value in sorted(self.batches.items())},
             "per_weight": self.weights,
-            "closing_pairs_fit": self.lister.get("closing_pairs_fit"),
             "max_syndromes": self.lister.get("max_syndromes"),
             "shadow": self.shadow if self.shadow_enabled else None,
         }
@@ -135,10 +133,7 @@ class Instrumentation:
 
         def lister_init(lister: Any, *args: Any, **kwargs: Any) -> None:
             original_init(lister, *args, **kwargs)
-            instrumentation.lister = {
-                "closing_pairs_fit": bool(lister._should_build_closing_pairs),
-                "max_syndromes": int(lister._max_syndromes),
-            }
+            instrumentation.lister = {"max_syndromes": int(lister._max_syndromes)}
 
         def find_first(lister: Any, fault_weight: int, *args: Any, **kwargs: Any) -> Any:
             instrumentation._weight_rows = 0

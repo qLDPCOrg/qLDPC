@@ -11,7 +11,6 @@ the guide's sections by title.
 from __future__ import annotations
 
 import contextlib
-import math
 import threading
 from collections.abc import Callable, Collection, Generator, Iterator, Sequence
 from typing import NamedTuple
@@ -31,28 +30,6 @@ from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBou
 from qldpc.codes.distance._threads import get_num_threads, iterate_in_order
 from qldpc.codes.distance._tuning import get_tuning
 
-# The peak memory, in bytes per set, of building a closing map of sets of two or more classes (see
-# ``FaultLister``), apart from 4 bytes for each class of a set.  The finished map takes 8 bytes per
-# set for its hash, 4 for each class, and at most 32 for the slots of its hash map.  While its
-# closing table is built, before the slots, each set takes at most 8 more for a bucket count, so the
-# peak is 40 bytes plus 4 for each class: 48 for a pair.  This leaves out the extra memory of merge
-# sorting a bucket (a range of the table whose keys share their top bits) of more than 32 sets that
-# is out of order (see ``_sort_bucket``), and the arrays into which each listing thread lists class
-# codewords (see ``_ClosingSetWalk`` and ``_SharedFlagWalk``).
-_BYTES_PER_SET = 40
-
-# The largest number of classes in a closing set (see ``FaultLister``).  Each class that a closing
-# set adds removes about one factor of the number of classes from the time of listing class
-# codewords, at the cost of another factor in the size of its closing map.
-_MAX_CLOSING_SIZE = 4
-
-# A closing map of sets of more than two classes is built only once the walk by closing sets (see
-# ``FaultLister``) is estimated to make at least this many lookups for each set of the map, for all
-# the roots of the last listing of class codewords that ran to its end, so that building the map
-# takes time of the order of that walk.  Only that walk uses the map.  A map is wasted if the next
-# fault weight finds a violation at once, which costs about one or two such listings.
-_LOOKUPS_PER_CLOSING_SET = 1
-
 # The number of choices of members of a class tuple whose syndromes ``_expand_class_tuples``
 # remembers, to skip the faults that complete a later choice with a remembered syndrome.
 _MAX_REMEMBERED_CHOICES = 2**12
@@ -65,26 +42,23 @@ _INITIAL_BATCH_SIZE = 2**6
 # The largest number of faults in a batch.
 _BATCH_SIZE = 2**12
 
-# The number of class codewords (see ``FaultLister``) after which ``_list_by_closing_sets``
-# returns, and after which ``_list_by_shared_flags`` returns once it has finished a pass over a
-# root, to be resumed by their next calls.  A thread hands on its class codewords in batches
-# of at most this many, so that the batches that ``iterate_in_order`` holds take bounded memory.
+# The number of class codewords (see ``FaultLister``) after which ``_list_by_shared_flags`` returns
+# once it has finished a pass over a root, to be resumed by its next call.  A thread hands on its
+# class codewords in batches of at most this many, so that the batches that ``iterate_in_order``
+# holds take bounded memory.
 _CODEWORD_BATCH_SIZE = 2**10
 
-# The work, in probes (see ``_PROBES_PER_STATE``), after which ``_list_by_closing_sets`` and
-# ``_list_by_shared_flags`` also return on threads, so that a thread checks often whether to stop
-# (see "Threads" in ``fault_propagation.md``).
+# The work, in probes (see ``_PROBES_PER_STATE``), after which ``_list_by_shared_flags`` also
+# returns on threads, so that a thread checks often whether to stop (see "Threads" in
+# ``fault_propagation.md``).
 _PROBES_PER_CALL = 2**20
 
-# The walk by shared flags is charged this much for the root and for each reduction of the flags of
-# a candidate, and one each for each bit of the summed flags that it examines to choose a bit and
-# for each candidate that it tries, as "Listing class codewords by shared flags" in
-# ``fault_propagation.md`` states.  The work of a listing is in probes of a closing map.
+# The walk by shared flags counts its work in probes of the map of classes by hash (see
+# ``FaultLister``).  It is charged this much for the root and for each reduction of the flags of a
+# candidate, and one each for each bit of the summed flags that it examines to choose a bit and for
+# each candidate that it tries, as "Listing class codewords on threads" in ``fault_propagation.md``
+# states.
 _PROBES_PER_STATE = 64
-
-# A lookup of the walk by closing sets, which reduces the flags of a class and probes a closing map
-# that may not fit in a cache, costs about this many probes.
-_PROBES_PER_LOOKUP = 16
 
 # The number of rows of the array into which the walk by shared flags lists the class codewords of
 # a pass over a root, which takes at most ``8 m`` MiB for fault weight ``m``.  Sorting a full array
@@ -287,7 +261,7 @@ class FaultLister:
     fault must have nonzero flags, and the first ``num_starts`` are the start members.  The search
     passes its heavy primitive faults first, as the start members.  "Listing each irreducible
     accepted fault once" in ``fault_propagation.md`` defines flag classes, start classes, class
-    codewords, and closing sets, and proves that each such fault is listed once.
+    codewords, and closing classes, and proves that each such fault is listed once.
     The classes are numbered in the order of their first members.  A class tuple is a row of classes
     from which the lister expands faults: a start class twice for fault weight two, and a class
     codeword that starts with a start class for larger fault weights.
@@ -298,30 +272,14 @@ class FaultLister:
     of primitive faults is the sum of their rows.
 
     For fault weights of three or more, the lister lists the class codewords of each start class,
-    the root, in the order of the roots.  It lists each root by one of two walks, which list the
-    same class codewords in the same order ("Listing class codewords by shared flags" in
-    ``fault_propagation.md``).  The walk by shared flags (``_list_by_shared_flags``) adds only
-    classes that share a flag bit with the sum of the flags of the classes chosen so far, and looks
-    up the last class of each class codeword in the closing map of single classes.  The walk by
-    closing sets (``_list_by_closing_sets``) chooses every independent set of classes that comes
-    before a closing set, and looks up the closing sets.  The walk by shared flags lists a root in
-    one or more passes over it, and gives the root up to the walk by closing sets once its work in
-    its first pass exceeds the estimated work of the walk by closing sets for the root (see
-    ``_get_root_lookups``).  By these estimates, a root given up costs at most about twice as much
-    as with the cheaper walk.  A listing counts its work in probes (see ``_PROBES_PER_STATE``).
-
-    A closing map of a size has two parts: a closing table, which lists the sets of that many
-    classes sorted by the hash of their summed flags, and a hash map from each hash to its first
-    entry in the table.  At fault weight three, the walk by closing sets uses the closing map of
-    single classes.  At larger fault weights, it uses the closing map of pairs if it fits within the
-    memory limit and has at most 2**31 pairs, and otherwise that of single classes.  The table of
-    syndromes of listed faults (see ``find_first``) grows within the rest of the memory limit, up
-    to 2**31 syndromes.  With the map of pairs, a fault weight ``m`` may use a closing map of up to
-    ``min(m - 2, _MAX_CLOSING_SIZE)`` classes instead: one that was built for an earlier fault
-    weight, or one that is built now because the walk by closing sets is estimated to make enough
-    lookups for the roots of the last listing of class codewords that ran to its end (see
-    ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can give up the room for it and still
-    grow to the same largest size (see ``_take_table_room``).
+    the root, in the order of the roots, by the walk by shared flags (``_list_by_shared_flags``).
+    The walk adds only classes that share a flag bit with the sum of the flags of the classes chosen
+    so far, and finds the last class of each class codeword in the map of classes by hash: the
+    classes sorted stably by the hash of their flags, with a hash map from each hash to its first
+    entry ("Listing class codewords by shared flags" in ``fault_propagation.md``).  It lists the
+    class codewords of each root in lexicographic order, in one or more passes over the root.  The
+    table of syndromes of listed faults (see ``find_first``) grows within the memory limit, up to
+    2**31 syndromes.
 
     On several threads, a costly listing of class codewords moves to threads, while the calling
     thread expands the class codewords into faults in the serial order, that of a listing on a
@@ -334,10 +292,9 @@ class FaultLister:
         syndromes: The syndrome of each primitive fault, packed into an integer.
         representatives: For each primitive fault, a Pauli error with its syndrome, packed as in
             ``CosetLeaderSearch``.  Lighter Pauli errors let ``find_first`` skip more faults.
-        memory_limit: The approximate number of bytes for the closing maps of two or more classes
-            and the table of syndromes.  The closing map of pairs has first claim, since it saves
-            more time.  The arrays into which each thread lists class codewords are extra (see
-            ``_MAX_ROOT_CODEWORDS``).
+        memory_limit: The approximate number of bytes for the table of syndromes.  The map of
+            classes by hash, the index of their flag bits, and the arrays into which each thread
+            lists class codewords are extra (see ``_MAX_ROOT_CODEWORDS``).
         num_threads: The number of threads of a costly listing, counting the calling thread; with
             fewer than two, the calling thread lists alone.
 
@@ -357,10 +314,10 @@ class FaultLister:
         num_threads: int = 1,
     ) -> None:
         # Group the primitive faults into classes by their flags, each with its members in order,
-        # and order the classes by their first members, so that the start classes come first.  Both
-        # walks need the flags of the classes to be nonzero, which is checked here, and pairwise
-        # distinct, which grouping ensures ("Listing class codewords by shared flags" in
-        # ``fault_propagation.md``).
+        # and order the classes by their first members, so that the start classes come first.  The
+        # walk by shared flags needs the flags of the classes to be nonzero, which is checked here,
+        # and pairwise distinct, which grouping ensures ("Listing class codewords by shared flags"
+        # in ``fault_propagation.md``).
         if not all(flags):
             raise ValueError("Every primitive fault of a fault lister must have nonzero flags")
         member_lists_by_flags: dict[int, list[int]] = {}
@@ -376,11 +333,13 @@ class FaultLister:
         )
 
         # Build the rows of the classes and of the primitive faults, as the class docstring
-        # describes, and the index of the walk by shared flags from each flag bit to its classes.
+        # describes, and the walk's index from each flag bit to its classes and map of classes by
+        # hash.
         class_flags = [flags[members[0]] for members in member_lists]
         flag_words = _to_words(class_flags, _get_num_words_for_values(class_flags))
         self._class_rows = np.hstack([_hash_words(flag_words)[:, None], flag_words])
         self._bit_index = _get_bit_index(flag_words)
+        self._class_map = _get_class_map(self._class_rows[:, 0])
         # The syndromes, and the X and Z parts of the representatives, take a word for every 64
         # output qubits, as the batches of ``CosetLeaderSearch`` need.
         mask = (1 << num_qubits) - 1
@@ -401,19 +360,11 @@ class FaultLister:
         self._num_starts = num_starts
         self._num_threads = num_threads
 
-        # Split the memory limit, and start with no closing maps, which are built when first
-        # needed, and an empty table of syndromes.
-        self._should_build_closing_pairs, self._max_syndromes = _split_memory_limit(
-            num_classes=len(member_lists),
-            num_syndrome_words=self._num_syndrome_words,
-            memory_limit=memory_limit,
-        )
-        self._closing_maps: dict[
-            int, tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]
-        ] = {}
-        # The estimated lookups of the walk by closing sets in the last listing that ran to its end,
-        # as if it listed every root.
-        self._closing_lookups = 0
+        # Start with an empty table of syndromes.  Each syndrome takes a row of its hash and its
+        # words, and two slots, and the table has room for at most 2**31 syndromes, so that its
+        # slots have at most 2**32 entries, as ``_find_syndrome_slot`` needs.
+        syndrome_bytes = 8 * (self._num_syndrome_words + 3)
+        self._max_syndromes = min(memory_limit // syndrome_bytes, 2**31)
         self._syndrome_rows, self._syndrome_slots = _get_empty_syndrome_table(
             self._num_syndrome_words
         )
@@ -541,47 +492,26 @@ class FaultLister:
             yield np.repeat(np.flatnonzero(class_sizes > 1), 2).reshape(-1, 2)
             return
 
-        # List the class codewords of each root by the walk by shared flags, or give it up to the
-        # walk by closing sets once the walk by shared flags has done the estimated work of the walk
-        # by closing sets for the root, its budget.  The threads read the budgets, so mark them
-        # read-only.  Closing maps of more classes wait for the estimated lookups of the walk by
-        # closing sets for every root, as if it listed them all.  On one thread, list every root
-        # with one ``_SharedFlagWalk``.
-        closing_map = self._get_closing_map(fault_weight)
-        if 1 not in self._closing_maps:
-            self._closing_maps[1] = _get_closing_map(self._class_rows[:, 0], 1)
-        root_lookups = _get_root_lookups(
-            len(self._class_rows),
-            self._num_start_classes,
-            fault_weight - closing_map[1].shape[1],
-        )
-        root_budgets = np.minimum(root_lookups * _PROBES_PER_LOOKUP, 2.0**62).astype(np.int64)
-        root_budgets.flags.writeable = False
-
+        # List the class codewords of each root by the walk by shared flags.  On one thread, list
+        # every root with one walk.
         def make_walk() -> _SharedFlagWalk:
-            """A walk of the roots, which gives roots up to its own walk by closing sets."""
-            return _SharedFlagWalk(
-                self._class_rows,
-                self._bit_index,
-                self._closing_maps[1],
-                root_budgets,
-                _ClosingSetWalk(self._class_rows, closing_map, fault_weight),
-                fault_weight,
-            )
+            """A walk of the roots by shared flags."""
+            return _SharedFlagWalk(self._class_rows, self._bit_index, self._class_map, fault_weight)
 
         walk = make_walk()
         num_roots = self._num_start_classes
         if self._num_threads < 2:
             yield from walk.list_range(0, num_roots)
-            self._closing_lookups = int(root_lookups.sum())
             return
 
         # On several threads, the work items are the roots.  List the first roots alone, in ranges
         # of 1, 2, 4, and more roots, until the work shows that the listing is costly (see "Threads"
-        # in ``fault_propagation.md``).  If the work left, estimated in proportion to the
-        # estimated lookups of the walk by closing sets for the roots, is less than
-        # ``_SPLIT_PROBES_PER_THREAD`` for each thread, list the rest alone too.
-        cumulative_weights = np.cumsum(root_lookups)
+        # in ``fault_propagation.md``).  If the work left, estimated in proportion to the weights of
+        # the roots (see ``_get_root_weights``), is less than ``_SPLIT_PROBES_PER_THREAD`` for each
+        # thread, list the rest alone too.
+        cumulative_weights = np.cumsum(
+            _get_root_weights(len(self._class_rows), num_roots, fault_weight)
+        )
         split_work = self._num_threads * _SPLIT_PROBES_PER_THREAD
         num_listed, num_next = 0, 1
         while num_listed < num_roots and walk.work < split_work:
@@ -594,8 +524,8 @@ class FaultLister:
             yield from walk.list_range(num_listed, num_roots)
             num_listed = num_roots
 
-        # List the other roots on threads, each with its own ``_SharedFlagWalk``, and yield their
-        # class codewords in the order of the roots, while the threads list later roots.
+        # List the other roots on threads, each with its own walk, and yield their class codewords
+        # in the order of the roots, while the threads list later roots.
 
         def start_walk(
             stop: threading.Event,
@@ -623,133 +553,27 @@ class FaultLister:
                 start_walk,
                 cumulative_weights=cumulative_weights[num_listed:] - listed_weight,
             )
-        self._closing_lookups = int(root_lookups.sum())
-
-    def _get_closing_map(
-        self, fault_weight: int
-    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
-        """The closing map for a fault weight of three or more, as the class docstring describes."""
-        hashes = self._class_rows[:, 0]
-        size = 1 if fault_weight == 3 or not self._should_build_closing_pairs else 2
-        while 2 <= size < min(fault_weight - 2, _MAX_CLOSING_SIZE):
-            # Build the next map if the walk by closing sets is estimated to make enough lookups for
-            # the roots of the last listing, and if the table of syndromes can give up the room for
-            # it without changing the largest size it can reach.
-            if size + 1 not in self._closing_maps:
-                num_sets = math.comb(len(hashes), size + 1)
-                max_syndromes = _take_table_room(
-                    num_sets * (_BYTES_PER_SET + 4 * (size + 1)),
-                    self._max_syndromes,
-                    len(self._syndrome_rows),
-                    self._num_syndrome_words,
-                )
-                if (
-                    self._closing_lookups < num_sets * _LOOKUPS_PER_CLOSING_SET
-                    or max_syndromes < 0
-                    or num_sets > 2**31
-                ):
-                    break
-                self._closing_maps[size + 1] = _get_closing_map(hashes, size + 1)
-                self._max_syndromes = max_syndromes
-            size += 1
-        if size not in self._closing_maps:
-            self._closing_maps[size] = _get_closing_map(hashes, size)
-        return self._closing_maps[size]
-
-
-class _ClosingSetWalk:
-    """A walk by closing sets on one thread, with the arrays of ``_list_by_closing_sets``.
-
-    ``class_rows`` are the rows of the classes of a ``FaultLister``, and ``closing_map`` its closing
-    map for the fault weight.  A walk lists the class codewords of roots, one root at a time, and
-    counts its lookups over all of them.
-    """
-
-    def __init__(
-        self,
-        class_rows: npt.NDArray[np.uint64],
-        closing_map: tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]],
-        fault_weight: int,
-    ) -> None:
-        self._class_rows = class_rows
-        self._closing_map = closing_map
-
-        # Make an array of ``_CODEWORD_BATCH_SIZE`` rows plus as many as one lookup can add, as
-        # ``_list_by_closing_sets`` needs, and the state of the walk.  The basis has room for the
-        # chosen classes and every closing class but the last.
-        closing_size = closing_map[1].shape[1]
-        num_chosen = fault_weight - closing_size
-        num_classes, num_words = class_rows.shape
-        max_lookup_codewords = math.comb(num_classes, closing_size - 1)
-        self._codewords = np.empty(
-            (_CODEWORD_BATCH_SIZE + max_lookup_codewords, fault_weight), dtype=np.int64
-        )
-        self._next_classes = np.zeros(num_chosen, dtype=np.int64)
-        self._chosen_row_sums = np.zeros((num_chosen + 1, num_words), dtype=np.uint64)
-        self._basis = np.zeros((fault_weight - 1, num_words - 1), dtype=np.uint64)
-        self._pivots = np.zeros(fault_weight - 1, dtype=np.int64)
-        self._walk_state = np.zeros(3, dtype=np.int64)
-
-    @property
-    def num_lookups(self) -> int:
-        """The number of lookups of closing sets that the walk has made for all of its roots."""
-        return int(self._walk_state[1])
-
-    def list_root(self, root: int, lookups_per_call: int) -> Iterator[npt.NDArray[np.int64]]:
-        """Yield the class codewords whose first class is ``root``, in lexicographic order.
-
-        Each batch is a view of an array that the next batch overwrites.  A call of
-        ``_list_by_closing_sets`` makes at most ``lookups_per_call`` lookups, so that a batch can be
-        empty.
-        """
-        # Start the walk as it is when it has just chosen the root, and will choose the class after
-        # it next (see ``_list_by_closing_sets``).
-        walk_state = self._walk_state
-        self._pivots[0] = _reduce_flags(
-            self._class_rows[root, 1:], self._basis[:0], self._pivots, self._basis[0]
-        )
-        self._chosen_row_sums[1] = self._class_rows[root]
-        self._next_classes[:2] = root + 1, root + 1
-        walk_state[0] = 1
-        while walk_state[0] > 0:
-            walk_state[2] = walk_state[1] + lookups_per_call
-            num_codewords = _list_by_closing_sets(
-                self._class_rows,
-                *self._closing_map,
-                self._next_classes,
-                self._chosen_row_sums,
-                self._basis,
-                self._pivots,
-                walk_state,
-                self._codewords,
-            )
-            yield self._codewords[:num_codewords]
 
 
 class _SharedFlagWalk:
     """A walk by shared flags on one thread, with the arrays of ``_list_by_shared_flags``.
 
     ``class_rows`` are the rows of the classes of a ``FaultLister``, ``bit_index`` the index from
-    each flag bit to its classes (see ``_get_bit_index``), and ``single_map`` the closing map of
-    single classes.  ``root_budgets`` holds the work, in probes, after which the first pass over
-    each root gives the root up to ``closing_walk``, a walk by closing sets.  A walk lists ranges of
-    roots, one range at a time, and counts its work over all of them.
+    each flag bit to its classes (see ``_get_bit_index``), and ``class_map`` the map of classes by
+    hash (see ``_get_class_map``).  A walk lists ranges of roots, one range at a time, and counts
+    its work over all of them.
     """
 
     def __init__(
         self,
         class_rows: npt.NDArray[np.uint64],
         bit_index: tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]],
-        single_map: tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]],
-        root_budgets: npt.NDArray[np.int64],
-        closing_walk: _ClosingSetWalk,
+        class_map: tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64], npt.NDArray[np.int64]],
         fault_weight: int,
     ) -> None:
         self._class_rows = class_rows
         self._bit_index = bit_index
-        self._single_map = single_map
-        self._root_budgets = root_budgets
-        self._closing_walk = closing_walk
+        self._class_map = class_map
 
         # Make the arrays of ``_list_by_shared_flags``, with a level for each chosen class but the
         # last two of a class codeword, and its state.  The array of class codewords takes memory
@@ -763,16 +587,13 @@ class _SharedFlagWalk:
         self._unavailable = np.zeros(num_classes, dtype=np.bool_)
         self._marks = np.empty(num_classes, dtype=np.int64)
         self._bounds = np.zeros((2, fault_weight), dtype=np.int64)
-        self._walk_state = np.zeros(12, dtype=np.int64)
+        self._walk_state = np.zeros(10, dtype=np.int64)
         self._codewords = np.empty((_MAX_ROOT_CODEWORDS, fault_weight), dtype=np.int64)
 
     @property
     def work(self) -> int:
-        """The work of the walk for all of its roots, in probes.
-
-        This counts each lookup of the walk by closing sets as ``_PROBES_PER_LOOKUP`` probes.
-        """
-        return int(self._walk_state[4]) + _PROBES_PER_LOOKUP * self._closing_walk.num_lookups
+        """The work of the walk for all of its roots, in probes."""
+        return int(self._walk_state[4])
 
     def list_range(
         self, start: int, end: int, probes_per_call: int = 1 << 62
@@ -781,25 +602,22 @@ class _SharedFlagWalk:
 
         The class codewords of each root come in lexicographic order.  Each batch is a view of an
         array that a later batch can overwrite.  A call of ``_list_by_shared_flags`` returns once
-        it has done ``probes_per_call`` work, and a call of ``_list_by_closing_sets`` once it has
-        made the lookups of that work, at least one, so that a batch can be empty.
+        it has done ``probes_per_call`` work, so that a batch can be empty.
         """
         walk_state = self._walk_state
         walk_state[0], walk_state[1], walk_state[2] = start, end, -1
-        walk_state[7:] = 0
-        lookups_per_call = max(1, probes_per_call // _PROBES_PER_LOOKUP)
+        walk_state[6:] = 0
         bit_offsets, bit_classes = self._bit_index
-        closing_keys, closing_sets, closing_slots = self._single_map
+        map_keys, map_classes, map_slots = self._class_map
         while walk_state[0] < end:
             walk_state[5] = min(int(walk_state[4]) + probes_per_call, 1 << 62)
             num_codewords = _list_by_shared_flags(
                 self._class_rows,
                 bit_offsets,
                 bit_classes,
-                closing_keys,
-                closing_sets,
-                closing_slots,
-                self._root_budgets,
+                map_keys,
+                map_classes,
+                map_slots,
                 _PROBES_PER_STATE,
                 _CODEWORD_BATCH_SIZE,
                 self._levels,
@@ -814,27 +632,26 @@ class _SharedFlagWalk:
             )
             yield self._codewords[:num_codewords]
 
-            # List a root that the walk gave up by closing sets.
-            if walk_state[9]:
-                root = int(walk_state[0])
-                yield from self._closing_walk.list_root(root, lookups_per_call)
-                walk_state[0], walk_state[9] = root + 1, 0
 
-
-def _get_root_lookups(
-    num_classes: int, num_start_classes: int, num_chosen: int
+def _get_root_weights(
+    num_classes: int, num_roots: int, fault_weight: int
 ) -> npt.NDArray[np.float64]:
-    """Estimate the lookups of the walk by closing sets for each root.
+    """Weigh the roots of a listing of class codewords by an estimate of the work of each.
 
-    The walk chooses ``k = num_chosen`` classes, at least two, before each lookup, the first of them
-    the root ``c1``, so it makes at most ``C(q - 1 - c1, k - 1)`` lookups for ``q`` classes.  This
-    is the product of the factors ``(q - 1 - c1 - j) / (k - 1 - j)``, in floats, which do not
-    overflow.  Once ``q - 1 - c1 < k - 1``, a factor is zero, and clamping the negative factors at
-    zero keeps the product zero rather than negative.
+    The weights decide only how the roots are split between threads, never what is listed.  A
+    class codeword of fault weight ``m`` whose root is ``r`` has its other ``m - 1`` classes after
+    ``r``, and the last of them is fixed by the others.  So each root is weighed by
+    ``C(q - 1 - r, m - 2)``, for ``q`` classes, the number of choices of its classes but the root
+    and the last.  The candidates of every state of the walk by shared flags come after ``r``, so
+    its work for ``r`` falls about as fast with ``r`` as long as the classes that share each flag
+    bit are spread over the order of the classes.  The weight is the product of the factors
+    ``(q - 1 - r - j) / (m - 2 - j)``, in floats, which do not overflow.  Once
+    ``q - 1 - r < m - 2``, a factor is zero, and clamping the negative factors at zero keeps the
+    product zero rather than negative.
     """
-    remaining = num_classes - 1 - np.arange(num_start_classes, dtype=np.float64)
-    factors = (remaining[:, None] - np.arange(num_chosen - 1)) / (
-        num_chosen - 1 - np.arange(num_chosen - 1)
+    remaining = num_classes - 1 - np.arange(num_roots, dtype=np.float64)
+    factors = (remaining[:, None] - np.arange(fault_weight - 2)) / (
+        fault_weight - 2 - np.arange(fault_weight - 2)
     )
     return np.prod(np.maximum(factors, 0.0), axis=1)
 
@@ -871,213 +688,18 @@ def _get_bit_index(
     return offsets, classes
 
 
-def _split_memory_limit(
-    num_classes: int, num_syndrome_words: int, memory_limit: int
-) -> tuple[bool, int]:
-    """Split a memory limit between the closing map of pairs and the table of syndromes.
-
-    Return whether to build the closing map of the pairs of ``num_classes`` classes, and how many
-    syndromes of ``num_syndrome_words`` words the rest of the limit has room for, at most 2**31.
-    ``_table_should_grow`` takes this number as ``max_syndromes``.
-    """
-    # The closing map of pairs takes ``_BYTES_PER_SET`` bytes, and 4 for each class, per pair.  It
-    # is built only if it fits and has at most 2**31 pairs, so that its hash map has at most 2**32
-    # slots, as slot numbers of 32 bits allow (see ``_find_syndrome_slot``).  The table of
-    # syndromes has room for at most 2**31 syndromes for the same reason.
-    num_pairs = num_classes * (num_classes - 1) // 2
-    pair_bytes = num_pairs * (_BYTES_PER_SET + 8)
-    should_build_pairs = pair_bytes <= memory_limit and num_pairs <= 2**31
-    free_bytes = memory_limit - pair_bytes if should_build_pairs else memory_limit
-    max_syndromes = free_bytes // _get_syndrome_bytes(num_syndrome_words)
-    return should_build_pairs, min(max_syndromes, 2**31)
-
-
-def _take_table_room(
-    num_bytes: int, max_syndromes: int, num_rows: int, num_syndrome_words: int
-) -> int:
-    """Take room for a number of bytes from a table of syndromes, if it still reaches the same size.
-
-    The table has room for ``max_syndromes`` syndromes of ``num_syndrome_words`` words, and has
-    ``num_rows`` rows.  Return how many syndromes it has room for after giving up the bytes.  Return
-    -1 instead if it would then have room for fewer than its rows.  Also return -1 if an empty
-    table, which starts with ``_INITIAL_SYNDROME_TABLE_SIZE`` rows, could then not grow to as many
-    rows as before (see ``_get_largest_table_size``), since it would take fewer syndromes.  The
-    table grew from that size by the same doublings, so it also still grows as far as before, and
-    so does each table after a violation empties it.
-    """
-    num_syndromes = -(-num_bytes // _get_syndrome_bytes(num_syndrome_words))
-    rest = max_syndromes - num_syndromes
-    largest_size = _get_largest_table_size(_INITIAL_SYNDROME_TABLE_SIZE, max_syndromes)
-    if (
-        rest < num_rows
-        or _get_largest_table_size(_INITIAL_SYNDROME_TABLE_SIZE, rest) < largest_size
-    ):
-        return -1
-    return rest
-
-
-def _get_largest_table_size(num_rows: int, max_syndromes: int) -> int:
-    """The number of rows to which a table of syndromes with this many rows can grow.
-
-    It doubles as long as ``_table_should_grow`` allows, with as many syndromes as rows.
-    """
-    while _table_should_grow(num_rows, num_rows, max_syndromes):
-        num_rows *= 2
-    return num_rows
-
-
-def _get_syndrome_bytes(num_syndrome_words: int) -> int:
-    """The bytes that a syndrome of this many words takes in a table of syndromes.
-
-    Each syndrome takes a row of its hash and its words, and two slots.
-    """
-    return 8 * (num_syndrome_words + 3)
-
-
-def _get_closing_map(
-    hashes: npt.NDArray[np.uint64], size: int
-) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
-    """Build a closing map of the sets of ``size`` classes.
-
-    ``hashes`` holds the hash of the flags of each class.  Return the keys of the closing table, the
-    hashes of the summed flags of its sets in increasing order, its sets of classes (see
-    ``_get_closing_table``), and the slots of its hash map (see ``_get_key_slots``).
-    """
-    keys, sets = _get_closing_table(hashes, size)
-    return keys, sets, _get_key_slots(keys)
-
-
-@always_compiled
-def _get_closing_table(
-    hashes: npt.NDArray[np.uint64], size: int
-) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32]]:
-    """Build the table that finds closing sets of ``size`` classes.
-
-    The table lists the sets of ``size`` classes, each in increasing order, sorted by the hash of
-    their summed flags.  The sets are listed in lexicographic order and sorted stably, so the sets
-    with each hash stay in that order.  Return the sorted hashes and the sets.
-    """
-    num_classes = len(hashes)
-    num_sets = _get_num_sets(num_classes, size)
-
-    # Use 2**bucket_bits buckets, the largest power of two that is at most the number of sets (and
-    # at least two), indexed by the top bits of each key.
-    bucket_bits = 1
-    while 2 << bucket_bits <= num_sets:
-        bucket_bits += 1
-    shift = np.uint64(64 - bucket_bits)
-
-    # Count the sets in each bucket, and turn the counts into the start of each bucket.
-    bucket_starts = np.zeros((1 << bucket_bits) + 1, dtype=np.int64)
-    keys = np.empty(0, dtype=np.uint64)
-    sets = np.empty((0, size), dtype=np.int32)
-    _place_sets(hashes, size, shift, bucket_starts, keys, sets, False)
-    for bucket in range(1 << bucket_bits):
-        bucket_starts[bucket + 1] += bucket_starts[bucket]
-
-    # Fill the buckets in the order of the sets, which moves each start to the end of its bucket.
-    keys = np.empty(num_sets, dtype=np.uint64)
-    sets = np.empty((num_sets, size), dtype=np.int32)
-    _place_sets(hashes, size, shift, bucket_starts, keys, sets, True)
-
-    # Sort each bucket stably (see ``_sort_bucket``).
-    for bucket in range(1 << bucket_bits):
-        start = bucket_starts[bucket - 1] if bucket else 0
-        if bucket_starts[bucket] - start > 1:
-            _sort_bucket(keys, sets, start, bucket_starts[bucket])
-    return keys, sets
-
-
-@always_compiled
-def _place_sets(
+def _get_class_map(
     hashes: npt.NDArray[np.uint64],
-    size: int,
-    shift: np.uint64,
-    bucket_starts: npt.NDArray[np.int64],
-    keys: npt.NDArray[np.uint64],
-    sets: npt.NDArray[np.int32],
-    fill: bool,
-) -> None:
-    """Count, or place, the sets of ``size`` classes in the buckets of a closing table.
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """Build the map of classes by hash (see ``FaultLister``).
 
-    The sets are visited in lexicographic order, and the key of a set is the sum of the hashes of
-    its classes, whose top bits pick its bucket.  Without ``fill``, add one to
-    ``bucket_starts[b + 1]`` for each set in bucket ``b``.  With ``fill``, ``bucket_starts[b]`` is
-    the next free entry of bucket ``b``: place the set there, and move the entry on.
+    ``hashes`` holds the hash of the flags of each class.  Return the hashes in increasing order,
+    the classes in the same order, those with each hash in increasing order, and the slots of a hash
+    map from each hash to its first entry (see ``_get_key_slots``).
     """
-    num_classes = len(hashes)
-
-    # Single classes and pairs, the sizes that most listings use, take a faster loop of their own.
-    # For single classes, the inner loop runs only for ``second == first``.
-    if size <= 2:
-        for first in range(num_classes):
-            for second in range(first + size - 1, num_classes if size == 2 else first + 1):
-                key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
-                entry = _place_set(key, shift, bucket_starts, keys, fill)
-                if fill:
-                    sets[entry, 0] = first
-                    sets[entry, size - 1] = second
-        return
-
-    # Larger sets step through the sets of classes in lexicographic order.
-    classes = np.arange(size)
-    for _ in range(_get_num_sets(num_classes, size)):
-        key = np.uint64(0)
-        for index in range(size):
-            key ^= hashes[classes[index]]
-        entry = _place_set(key, shift, bucket_starts, keys, fill)
-        if fill:
-            for index in range(size):
-                sets[entry, index] = classes[index]
-        _advance_set(classes, num_classes)
-
-
-@always_compiled(inline=True)
-def _place_set(
-    key: np.uint64,
-    shift: np.uint64,
-    bucket_starts: npt.NDArray[np.int64],
-    keys: npt.NDArray[np.uint64],
-    fill: bool,
-) -> np.int64:
-    """Count, or place, the key of one set as ``_place_sets`` describes, and return its entry.
-
-    The entry is -1 when counting.
-    """
-    bucket = np.int64(key >> shift)
-    if not fill:
-        bucket_starts[bucket + 1] += 1
-        return np.int64(-1)
-    entry = bucket_starts[bucket]
-    bucket_starts[bucket] = entry + 1
-    keys[entry] = key
-    return entry
-
-
-@always_compiled
-def _get_num_sets(num_classes: int, size: int) -> int:
-    """The number of sets of ``size`` classes out of ``num_classes``, the binomial coefficient."""
-    if size > num_classes:
-        return 0
-    num_sets = 1
-    for index in range(size):
-        num_sets = num_sets * (num_classes - index) // (index + 1)
-    return num_sets
-
-
-@always_compiled(inline=True)
-def _advance_set(classes: npt.NDArray[np.int64], num_classes: int) -> None:
-    """Replace one or more increasing classes by the next set of as many in lexicographic order.
-
-    The last set, which ends with the last class, has no next set, and becomes an invalid set.
-    """
-    size = len(classes)
-    position = size - 1
-    while position > 0 and classes[position] == num_classes - size + position:
-        position -= 1
-    classes[position] += 1
-    for later in range(position + 1, size):
-        classes[later] = classes[later - 1] + 1
+    classes = np.argsort(hashes, kind="stable")
+    keys = hashes[classes]
+    return keys, classes, _get_key_slots(keys)
 
 
 def _get_empty_syndrome_table(
@@ -1145,47 +767,14 @@ def _hash_bytes(
     return hashes
 
 
-@always_compiled
-def _sort_bucket(
-    keys: npt.NDArray[np.uint64], sets: npt.NDArray[np.int32], start: int, stop: int
-) -> None:
-    """Sort a bucket, the entries from ``start`` to ``stop`` of a closing table, stably by key.
-
-    A bucket of at most 32 entries, or one in order, such as a bucket of many sets with one hash, is
-    sorted by insertion, which takes linear time on entries in order.  A larger bucket out of order
-    is merge sorted, which takes memory in proportion to its size but avoids the quadratic time of
-    insertion.
-    """
-    if stop - start > 32 and np.any(keys[start + 1 : stop] < keys[start : stop - 1]):
-        order = start + np.argsort(keys[start:stop], kind="mergesort")
-        keys[start:stop] = keys[order]
-        sets[start:stop] = sets[order]
-        return
-    for inserted in range(start + 1, stop):
-        entry = inserted
-        while entry > start and keys[entry - 1] > keys[entry]:
-            keys[entry - 1], keys[entry] = keys[entry], keys[entry - 1]
-            for column in range(sets.shape[1]):
-                sets[entry - 1, column], sets[entry, column] = (
-                    sets[entry, column],
-                    sets[entry - 1, column],
-                )
-            entry -= 1
-
-
-####################################################################################################
-# compiled listing
-
-
 @always_compiled(nogil=True)
 def _list_by_shared_flags(
     class_rows: npt.NDArray[np.uint64],
     bit_offsets: npt.NDArray[np.int64],
     bit_classes: npt.NDArray[np.int64],
-    closing_keys: npt.NDArray[np.uint64],
-    closing_sets: npt.NDArray[np.int32],
-    closing_slots: npt.NDArray[np.int64],
-    root_budgets: npt.NDArray[np.int64],
+    map_keys: npt.NDArray[np.uint64],
+    map_classes: npt.NDArray[np.int64],
+    map_slots: npt.NDArray[np.int64],
     state_cost: int,
     batch_size: int,
     levels: npt.NDArray[np.int64],
@@ -1201,81 +790,74 @@ def _list_by_shared_flags(
     """List the class codewords of roots by shared flags into an array, and return their number.
 
     ``class_rows`` holds the row of each class (see ``FaultLister``), ``bit_offsets`` and
-    ``bit_classes`` index the classes by their flag bits (see ``_get_bit_index``), and
-    ``closing_keys``, ``closing_sets``, and ``closing_slots`` are the closing map of single classes
-    from ``_get_closing_map``.  The classes must have nonzero and pairwise distinct flags, as those
-    of ``FaultLister`` do.  For each root in turn, the listing lists the class codewords of
-    ``m = codewords.shape[1]`` classes whose first class is the root, as "Listing class codewords by
-    shared flags" in ``fault_propagation.md`` describes.  Each class codeword is a row of classes in
-    increasing order.  The listing makes one or more passes over each root.  The array, of at
-    least two rows, holds the class codewords of one pass, which the listing sorts in lexicographic
-    order once the pass is done.  If they fill the array, the listing keeps the first half of them
-    in lexicographic order, and makes another pass for the others, as "Roots with many class
+    ``bit_classes`` index the classes by their flag bits (see ``_get_bit_index``), and ``map_keys``,
+    ``map_classes``, and ``map_slots`` are the map of classes by hash from ``_get_class_map``.  The
+    classes must have nonzero and pairwise distinct flags, as those of ``FaultLister`` do.  For each
+    root in turn, the listing lists the class codewords of ``m = codewords.shape[1]`` classes whose
+    first class is the root, as "Listing class codewords by shared flags" in
+    ``fault_propagation.md`` describes.  Each class codeword is a row of classes in increasing
+    order.  The listing makes one or more passes over each root.  The array, of at least two rows,
+    holds the class codewords of one pass, which the listing sorts in lexicographic order once the
+    pass is done.  If they fill the array, the listing keeps the first half of them in
+    lexicographic order, and makes another pass for the others, as "Roots with many class
     codewords" in ``fault_propagation.md`` describes.
 
     The listing is charged ``state_cost`` for the root and for each reduction of the flags of a
     candidate, and one each for each bit that it examines to choose a bit and for each candidate
-    that it tries.  Its work is in probes.  The first pass over a root gives the root up, and lists
-    none of its class codewords, if ``root_budgets[root]`` is less than ``state_cost``, or once its
-    work for the root exceeds ``root_budgets[root]``.
+    that it tries.  Its work is in probes.
 
-    The depth is the index, among the chosen classes, of the last one chosen.  The listing keeps
-    its state between calls in the other arrays.  Column ``d`` of ``levels`` holds the class chosen
-    at depth ``d``, the entry of ``bit_classes`` of its next candidate and the entry after its last,
-    and the number of marks when it was chosen.  Row ``d`` of ``chosen_row_sums`` is the sum of the
-    rows of the classes chosen up to depth ``d``, and row ``d`` of ``basis`` and entry ``d`` of
-    ``pivots`` hold the reduced flags of the class chosen at depth ``d``, as in ``_reduce_flags``.
-    ``unavailable`` is true for the chosen and the forbidden classes, and ``marks`` lists the
-    forbidden classes in the order in which they were forbidden.  ``bounds`` holds the floor, the
-    last class codeword released by an earlier pass over the root, and the ceiling, the first
-    class codeword dropped in this pass.  ``walk_state`` holds (0) the root, (1) the end of the
-    roots, (2) the depth, -1 between passes, (3) the number of marks, (4) the work so far, (5) the
-    work at which to pause, (6) the work when the root started, (7) the number of rows that the last
-    call returned, (8) the number of rows of the unfinished pass, which follow them, (9) 1 if the
-    listing gave the root up, (10) 1 if an earlier pass released class codewords of the root, so
-    that the floor holds, and (11) 1 if this pass has dropped class codewords, so that the ceiling
-    holds.  The state starts with entry 0 at the first root, entry 1 at the end of the roots, entry
-    2 at -1, ``unavailable`` false, and the other entries of ``walk_state`` zero, apart from entries
-    4 and 5.
+    The listing keeps its state between calls in the other arrays.  The depth is the index, among
+    the chosen classes, of the last one chosen, and the chosen classes are the state ``A`` of the
+    guide.  Column ``d`` of ``levels`` holds the class chosen at depth ``d``, the entry of
+    ``bit_classes`` of its next candidate and the entry after its last, and the number of marks when
+    it was chosen.  Row ``d`` of ``chosen_row_sums`` is the sum of the rows of the classes chosen up
+    to depth ``d``, and row ``d`` of ``basis`` and entry ``d`` of ``pivots`` hold the reduced flags
+    of the class chosen at depth ``d``, as in ``_reduce_flags``.  ``marks`` lists, in the order in
+    which they were forbidden, the classes of ``F(A)`` and, if ``|A| < m - 2``, the candidates of
+    ``A`` that the listing has tried, which are forbidden in the states of later candidates.
+    ``unavailable`` is true for the classes of ``marks`` and of ``A``.  ``bounds`` holds
+    the floor, the last class codeword released by an earlier pass over the root, and the ceiling,
+    the first class codeword dropped in this pass.  ``walk_state`` holds (0) the root, (1) the end
+    of the roots, (2) the depth, -1 between passes, (3) the number of marks, (4) the work so far,
+    (5) the work at which to pause, (6) the number of rows that the last call returned, (7) the
+    number of rows of the unfinished pass, which follow them, (8) 1 if an earlier pass released
+    class codewords of the root, so that the floor holds, and (9) 1 if this pass has dropped class
+    codewords, so that the ceiling holds.  The state starts with entry 0 at the first root, entry 1
+    at the end of the roots, entry 2 at -1, ``unavailable`` false, and the other entries of
+    ``walk_state`` zero, apart from entries 4 and 5.
 
     The listing returns once no root before the end is left, once it has listed at least
     ``batch_size`` class codewords and finished a pass, once its work reaches the work at which to
-    pause, once the array is full and holds rows of earlier passes, or once it gives a root up,
-    which it then leaves in ``walk_state``.  It returns the rows of the passes that it has finished,
-    and its next call moves the rows of an unfinished pass to the start of the array.  Threads run
-    this without the global interpreter lock, each with its own state and arrays (see "Threads" in
-    ``fault_propagation.md``).
+    pause, or once the array is full and holds rows of earlier passes.  It returns the rows of the
+    passes that it has finished, and its next call moves the rows of an unfinished pass to the
+    start of the array.  Threads run this without the global interpreter lock, each with its own
+    state and arrays (see "Threads" in ``fault_propagation.md``).
     """
     # Column 0 of the class rows holds the hash of the flags, and the other columns the flags.  The
-    # closing keys serve as rows of one column, as in ``_list_by_closing_sets``.
+    # keys of the map of classes serve as rows of one column, a hash and no syndrome words, so that
+    # ``_find_syndrome_slot`` compares the keys alone (see ``_get_key_slots``).  Make these arrays
+    # once, rather than for each probe, which would slow the listing.
     num_words = class_rows.shape[1]
     fault_weight = codewords.shape[1]
     last_depth = fault_weight - 3
     reduced = np.empty(num_words - 1, dtype=np.uint64)
     row = np.empty(fault_weight, dtype=np.int64)
-    key_rows = closing_keys.reshape((len(closing_keys), 1))
-    no_words = closing_keys[:0]
+    key_rows = map_keys.reshape((len(map_keys), 1))
+    no_words = map_keys[:0]
 
     # Move the rows of an unfinished pass to the start of the array.
     root, end_root, depth, num_marks = walk_state[0], walk_state[1], walk_state[2], walk_state[3]
-    work, max_work, root_work = walk_state[4], walk_state[5], walk_state[6]
-    num_pending, has_floor, has_ceiling = walk_state[8], walk_state[10], walk_state[11]
+    work, max_work, num_pending = walk_state[4], walk_state[5], walk_state[7]
+    has_floor, has_ceiling = walk_state[8], walk_state[9]
     for index in range(num_pending):
-        codewords[index] = codewords[walk_state[7] + index]
+        codewords[index] = codewords[walk_state[6] + index]
     num_ready = 0
-    gave_up = 0
     while work < max_work:
         # Start the next pass, if a root is left and the batch is not done, by choosing the root
-        # and the bit whose candidates come next.  Give the root up at once if its budget is below
-        # a state, and in its first pass once its work exceeds its budget.
+        # and the bit whose candidates come next.
         if depth < 0:
             if root >= end_root or num_ready >= batch_size:
                 break
-            if not has_floor:
-                if root_budgets[root] < state_cost:
-                    gave_up = 1
-                    break
-                root_work = work
             depth, num_marks = 0, 0
             unavailable[root] = True
             levels[0, 0], levels[3, 0] = root, 0
@@ -1286,9 +868,6 @@ def _list_by_shared_flags(
             chosen_row_sums[0] = class_rows[root]
             pivots[0] = _reduce_flags(class_rows[root, 1:], basis[:0], pivots, basis[0])
             continue
-        if not has_floor and work - root_work > root_budgets[root]:
-            gave_up = 1
-            break
 
         # Once every candidate after a chosen class is tried, allow the classes forbidden since it
         # was chosen again, and forbid it in the candidates after it, or, for the root, allow it
@@ -1336,7 +915,7 @@ def _list_by_shared_flags(
         if unavailable[candidate]:
             continue
 
-        # With all classes but the last chosen, probe the closing map with the hash of the summed
+        # With all classes but the last chosen, probe the map of classes with the hash of the summed
         # flags, and check every class with this hash.  Record a class codeword for a class that
         # has exactly these flags, since different flags can share a hash, comes after the root, is
         # neither chosen nor forbidden, and closes chosen classes that the candidate keeps
@@ -1345,9 +924,9 @@ def _list_by_shared_flags(
         # recorded.
         if depth == last_depth:
             key = chosen_row_sums[depth, 0] ^ class_rows[candidate, 0]
-            entry = closing_slots[_find_syndrome_slot(key, no_words, key_rows, closing_slots)]
-            while entry >= 0 and entry < len(closing_keys) and closing_keys[entry] == key:
-                closing_class = closing_sets[entry, 0]
+            entry = map_slots[_find_syndrome_slot(key, no_words, key_rows, map_slots)]
+            while entry >= 0 and entry < len(map_keys) and map_keys[entry] == key:
+                closing_class = map_classes[entry]
                 entry += 1
                 closes = closing_class > root and not unavailable[closing_class]
                 for word in range(1, num_words):
@@ -1396,21 +975,13 @@ def _list_by_shared_flags(
         )
         work += num_bits
 
-    # After giving a root up, allow every class again, and drop the class codewords of the root.
-    if gave_up:
-        for index in range(num_marks):
-            unavailable[marks[index]] = False
-        for level in range(depth + 1):
-            unavailable[levels[0, level]] = False
-        depth, num_marks, num_pending, has_ceiling = -1, 0, 0, 0
     walk_state[0], walk_state[2], walk_state[3], walk_state[4] = root, depth, num_marks, work
     walk_state[6], walk_state[7], walk_state[8], walk_state[9] = (
-        root_work,
         num_ready,
         num_pending,
-        gave_up,
+        has_floor,
+        has_ceiling,
     )
-    walk_state[10], walk_state[11] = has_floor, has_ceiling
     return num_ready
 
 
@@ -1455,136 +1026,6 @@ def _sort_rows(rows: npt.NDArray[np.int64]) -> None:
     for column in range(rows.shape[1] - 1, -1, -1):
         order = np.argsort(rows[:, column].copy(), kind="mergesort")
         rows[:] = rows[order]
-
-
-@always_compiled(nogil=True)
-def _list_by_closing_sets(
-    class_rows: npt.NDArray[np.uint64],
-    closing_keys: npt.NDArray[np.uint64],
-    closing_sets: npt.NDArray[np.int32],
-    closing_slots: npt.NDArray[np.int64],
-    next_classes: npt.NDArray[np.int64],
-    chosen_row_sums: npt.NDArray[np.uint64],
-    basis: npt.NDArray[np.uint64],
-    pivots: npt.NDArray[np.int64],
-    walk_state: npt.NDArray[np.int64],
-    codewords: npt.NDArray[np.int64],
-) -> int:
-    """List the class codewords of a root by closing sets into an array, and return their number.
-
-    ``class_rows`` holds the row of each class (see ``FaultLister``), and ``closing_keys``,
-    ``closing_sets``, and ``closing_slots`` are a closing map of the sets of ``s`` classes from
-    ``_get_closing_map``.  The listing chooses independent classes after the root, and looks up the
-    closing sets of each choice, as "Listing each irreducible accepted fault once" in
-    ``fault_propagation.md`` describes.  Each class codeword is a row of classes in increasing
-    order.
-
-    The level is the index, among the chosen classes, of the class being chosen.  The listing keeps
-    its state between calls in ``next_classes`` (at each level, the class after the chosen one),
-    ``chosen_row_sums`` (row ``i`` is the sum of the class rows of the classes chosen at the first
-    ``i`` levels), ``basis`` and ``pivots`` (the reduced flags of the chosen classes, as in
-    ``_reduce_flags``, in their first ``len(next_classes)`` rows), and ``walk_state``.  This holds
-    the level of the next choice, the number of lookups made so far, and a number of lookups at
-    which to pause.  The state starts as the state just after choosing the root at level 0 (see
-    ``_ClosingSetWalk.list_root``), and the walk sets the level to 0 once it has listed every class
-    codeword of the root.  The other ``s - 1`` rows of ``basis`` and ``pivots`` hold the closing
-    classes being checked.
-
-    The listing pauses once at most ``C(num_classes, s - 1)`` rows of the array are free, since one
-    lookup adds at most that many class codewords (see "Listing each irreducible accepted fault
-    once"), or once it has made the lookups at which to pause.  Threads run this without the global
-    interpreter lock, each with its own state and array (see "Threads" in
-    ``fault_propagation.md``).
-    """
-    # Column 0 of the class rows holds the hash of the flags, and the other columns the flags.
-    num_classes, num_words = class_rows.shape
-    num_closing = closing_sets.shape[1]
-    num_chosen = len(next_classes)
-    max_lookup_codewords = _get_num_sets(num_classes, num_closing - 1)
-    reduced = np.empty(num_words - 1, dtype=np.uint64)
-
-    # The closing keys serve as rows of one column, a hash and no syndrome words, so that
-    # ``_find_syndrome_slot`` compares the keys alone (see ``_get_key_slots``).  Make these arrays
-    # once, rather than for each lookup, which would slow the listing.
-    key_rows = closing_keys.reshape((len(closing_keys), 1))
-    no_words = closing_keys[:0]
-
-    num_codewords = 0
-    current_level, num_lookups, max_lookups = walk_state[0], walk_state[1], walk_state[2]
-    while (
-        current_level > 0
-        and num_codewords < len(codewords) - max_lookup_codewords
-        and num_lookups < max_lookups
-    ):
-        # Choose the next candidate class at this level, or go back a level if there is none.
-        chosen_class = next_classes[current_level]
-        if chosen_class >= num_classes:
-            current_level -= 1
-            continue
-        next_classes[current_level] = chosen_class + 1
-
-        # The chosen classes must stay independent.  Then choose a later class at the next level,
-        # unless all ``num_chosen`` classes are chosen.
-        pivot = _reduce_flags(class_rows[chosen_class, 1:], basis[:current_level], pivots, reduced)
-        if pivot < 0:
-            continue
-        basis[current_level] = reduced
-        pivots[current_level] = pivot
-        for word in range(num_words):
-            chosen_row_sums[current_level + 1, word] = (
-                chosen_row_sums[current_level, word] ^ class_rows[chosen_class, word]
-            )
-        if current_level + 1 < num_chosen:
-            current_level += 1
-            next_classes[current_level] = chosen_class + 1
-            continue
-
-        # Look up the closing sets by the hash of their summed flags, which equals the hash of the
-        # flags of the chosen classes.  Record a class codeword for each entry with this hash whose
-        # classes come after the last chosen class, whose flags sum to exactly those of the chosen
-        # classes, since different flags can share a hash, and whose classes other than the last
-        # keep the chosen classes independent.
-        num_lookups += 1
-        key = chosen_row_sums[num_chosen, 0]
-        table_entry = closing_slots[_find_syndrome_slot(key, no_words, key_rows, closing_slots)]
-        while (
-            table_entry >= 0
-            and table_entry < len(closing_keys)
-            and closing_keys[table_entry] == key
-        ):
-            table_entry += 1
-            if closing_sets[table_entry - 1, 0] <= chosen_class:
-                continue
-            closing_classes = closing_sets[table_entry - 1]
-            closes = True
-            for word in range(1, num_words):
-                remainder = chosen_row_sums[num_chosen, word]
-                for closing_class in closing_classes:
-                    remainder ^= class_rows[closing_class, word]
-                closes = closes and not remainder
-            if not closes:
-                continue
-            for index in range(num_closing - 1):
-                pivot = _reduce_flags(
-                    class_rows[closing_classes[index], 1:],
-                    basis[: num_chosen + index],
-                    pivots,
-                    reduced,
-                )
-                if pivot < 0:
-                    closes = False
-                    break
-                basis[num_chosen + index] = reduced
-                pivots[num_chosen + index] = pivot
-            if not closes:
-                continue
-            for index in range(num_chosen):
-                codewords[num_codewords, index] = next_classes[index] - 1
-            for index in range(num_closing):
-                codewords[num_codewords, num_chosen + index] = closing_classes[index]
-            num_codewords += 1
-    walk_state[0], walk_state[1] = current_level, num_lookups
-    return num_codewords
 
 
 @always_compiled(nogil=True)
