@@ -230,11 +230,10 @@ def get_state_stabilizers(
     # string P on the requested qubits for which the outcome of measuring P after the circuit,
     # combined with the outcomes of the detectors in D, is deterministic.  Simulation finds them
     # about 15 times faster than stim.Circuit.flow_generators on a circuit of about 8000 qubits and
-    # measurements, since flows track every measurement.  It returns some detectors, and the reduced
-    # row echelon form of the fixed parities whose D is among them, in the column order
-    # [D | X part of P | Z part of P].  Each detector that it leaves out is deterministic on its
-    # own, so its column would be the pivot of a row with no Pauli string and zero in every other
-    # row, and leaving it out changes no row with a Pauli string.
+    # measurements, since flows track every measurement.  _get_fixed_parities_by_simulation returns
+    # some detectors, and the reduced row echelon form of the fixed parities whose D is among them,
+    # in the column order [D | X part of P | Z part of P].  Each detector that it leaves out is
+    # deterministic on its own, so leaving it out changes no row with a Pauli string.
     detectors, rows = _get_fixed_parities_by_simulation(circuit, simulator, state_qubits)
     num_detectors = len(detectors)
     on_detectors = np.any(rows[:, :num_detectors], axis=1)
