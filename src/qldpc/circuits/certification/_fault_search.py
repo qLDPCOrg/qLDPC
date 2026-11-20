@@ -127,8 +127,8 @@ def find_smallest_violation(
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.
 
     ``flags`` and ``syndromes`` hold, for each primitive fault in DEM order, its flags or its
-    syndrome packed into an integer.  ``max_weight``, if not None, limits the fault weight.
-    ``stabilizers``, ``css_weight``, and ``method`` configure the oracle of the search, a
+    syndrome packed into an integer.  ``max_weight``, a positive integer or None, limits the fault
+    weight.  ``stabilizers``, ``css_weight``, and ``method`` configure the oracle of the search, a
     ``CosetLeaderSearch``.
     """
     # Keep the first primitive fault of each distinct nonzero signature (see "Duplicate and zero
@@ -138,14 +138,17 @@ def find_smallest_violation(
         if any(signature):
             signatures.setdefault(signature, index)
 
-    # Check faults only up to fault weight rank(P) + 1, for the matrix P of the flags (see
-    # "Irreducible accepted faults have fault weight at most rank(P) + 1").
-    # Repeated flags do not change the rank, so each value enters the matrix once.
+    # Repeated flags do not change the rank of the matrix P of the flags, so each value enters it
+    # once.  Faults are checked only up to fault weight min(max_weight, rank(P) + 1), so with
+    # ``max_weight`` the rank is computed only up to ``max_weight - 1`` (see "Irreducible accepted
+    # faults have fault weight at most rank(P) + 1").  The limit is also at most ``len(flag_rows)``,
+    # which bounds the rank, so that compiled code receives a 64-bit integer.
     distinct_flags = list(dict.fromkeys(flag for flag, _ in signatures))
-    flag_rank = get_rank_packed(
-        _to_words(distinct_flags, _get_num_words_for_values(distinct_flags))
-    )
-    max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
+    flag_rows = _to_words(distinct_flags, _get_num_words_for_values(distinct_flags))
+    if max_weight is None:
+        max_fault_weight = get_rank_packed(flag_rows) + 1
+    else:
+        max_fault_weight = get_rank_packed(flag_rows, min(max_weight - 1, len(flag_rows))) + 1
 
     oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
     return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
@@ -176,11 +179,17 @@ def _search_irreducible_faults(
 
     # Split the other primitive faults into heavy and light ones.  A fault that contains no heavy
     # primitive fault satisfies the bound (see "A violating fault contains a heavy primitive
-    # fault"), so the search stops if none is heavy.
+    # fault"), so the search stops if none is heavy.  Heaviness depends only on the syndrome, and
+    # any error with the syndrome serves as a representative (see "Checking one fault"), so the
+    # search queries the oracle once for each distinct syndrome.
+    bounds_by_syndrome = {
+        distinct_syndrome: oracle.get_min_weight_bound(distinct_syndrome, 1)
+        for distinct_syndrome in dict.fromkeys(syndrome for _, syndrome, _ in flagged)
+    }
     heavy: list[tuple[int, int, int, int]] = []
     light: list[tuple[int, int, int, int]] = []
     for flag, syndrome, index in flagged:
-        bound = oracle.get_min_weight_bound(syndrome, 1)
+        bound = bounds_by_syndrome[syndrome]
         primitive = (flag, syndrome, index, bound.representative)
         (light if bound.within_max_weight else heavy).append(primitive)
     if not heavy:

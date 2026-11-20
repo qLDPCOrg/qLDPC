@@ -40,6 +40,9 @@ if TYPE_CHECKING:
     from numba.core.typing.context import BaseContext as TypingContext
     from numba.core.typing.templates import Signature
 
+# The default ``max_rank`` of ``row_reduce_packed`` and ``get_rank_packed``, which no rank reaches.
+_NO_RANK_LIMIT = 2**63 - 1
+
 ####################################################################################################
 # linear algebra of unpacked binary matrices
 
@@ -137,23 +140,30 @@ def unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.ui
 
 @always_compiled
 def row_reduce_packed(
-    rows: npt.NDArray[np.uint64], labels: npt.NDArray[np.uint64], columns: npt.NDArray[np.int64]
+    rows: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    columns: npt.NDArray[np.int64],
+    max_rank: int = _NO_RANK_LIMIT,
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
     """Row-reduce packed rows over the given columns, transforming packed labels in parallel.
 
-    This is ``row_reduce_binary`` on packed rows, without its checks and defaults: every column must
-    be in range, and ``labels`` must have one row per row of ``rows``, with no words if there are no
-    labels.  The inputs are not modified.  Returns the reduced rows and labels, and the pivot
-    columns.  Rows after the pivot rows vanish on the given columns, so if the columns are
-    ``0, 1, ..., width - 1`` in order, ``reduced[: len(pivots)]`` is the reduced row echelon form
-    without zero rows.
+    This is ``row_reduce_binary`` on packed rows, without its checks or its defaults for ``labels``
+    and ``columns``: every column must be in range, and ``labels`` must have one row per row of
+    ``rows``, with no words if there are no labels.  The inputs are not modified.  Returns the
+    reduced rows and labels, and the pivot columns.  Rows after the pivot rows vanish on the given
+    columns, so if the columns are ``0, 1, ..., width - 1`` in order, ``reduced[: len(pivots)]`` is
+    the reduced row echelon form without zero rows.
+
+    ``max_rank``, which must be nonnegative, caps the number of pivots; by default there is no cap.
+    The pivots found are the first ones of the full reduction.  A reduction that the cap stops
+    promises only these pivots, not its rows or labels.
     """
     words, tags = rows.copy(), labels.copy()
     num_rows = len(words)
-    pivots = np.empty(min(num_rows, len(columns)), dtype=np.int64)
+    pivots = np.empty(min(num_rows, len(columns), max_rank), dtype=np.int64)
     rank = 0
     for column in columns:
-        if rank == num_rows:
+        if rank == len(pivots):
             break
         word = column // 64
         bit = np.uint64(1) << np.uint64(column % 64)
@@ -226,10 +236,14 @@ def multiply_packed(
 
 
 @always_compiled
-def get_rank_packed(rows: npt.NDArray[np.uint64]) -> int:
-    """Return the rank of packed rows over GF(2)."""
+def get_rank_packed(rows: npt.NDArray[np.uint64], max_rank: int = _NO_RANK_LIMIT) -> int:
+    """Return the rank of packed rows over GF(2), or ``max_rank`` if that is smaller.
+
+    ``max_rank`` must be nonnegative.  The function stops row-reducing once it finds that many
+    pivots, so a small ``max_rank`` saves time.
+    """
     labels = np.empty((len(rows), 0), dtype=np.uint64)
-    _, _, pivots = row_reduce_packed(rows, labels, np.arange(64 * rows.shape[1]))
+    _, _, pivots = row_reduce_packed(rows, labels, np.arange(64 * rows.shape[1]), max_rank)
     return len(pivots)
 
 

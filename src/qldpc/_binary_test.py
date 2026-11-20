@@ -130,6 +130,19 @@ def test_get_inverse() -> None:
         binary.get_inverse(matrix[:-1])
 
 
+def test_rank_and_row_reduction_stop_at_max_rank() -> None:
+    """A rank is capped at ``max_rank``, and a reduction that it stops finds the first pivots."""
+    matrix = np.random.default_rng(6).integers(0, 2, (6, 70), dtype=np.uint8)
+    matrix[-1] = matrix[0] ^ matrix[1]
+    rank = np.linalg.matrix_rank(galois.GF2(matrix))
+    packed, labels, columns = binary.pack_bits(matrix), np.empty((6, 0), np.uint64), np.arange(70)
+    _, _, pivots = binary.row_reduce_packed(packed, labels, columns)
+    for max_rank in (0, 2, rank, rank + 1):
+        assert binary.get_rank_packed(packed, max_rank) == min(rank, max_rank)
+        _, _, first_pivots = binary.row_reduce_packed(packed, labels, columns, max_rank)
+        np.testing.assert_array_equal(first_pivots, pivots[:max_rank])
+
+
 ####################################################################################################
 # packed rows as Python integers
 

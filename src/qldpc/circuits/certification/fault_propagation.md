@@ -80,6 +80,7 @@ The null vectors of `P[:, F]`, padded with zeros at the other error mechanisms, 
 So a nonzero fault `F` is an irreducible accepted fault exactly when the all-ones vector spans the null space of `P[:, F]`.
 By rank-nullity, an irreducible accepted fault `F` has `|F| = rank(P[:, F]) + 1 ≤ rank(P) + 1`.
 So, since [irreducible accepted faults suffice](#irreducible-accepted-faults-suffice), no fault of fault weight above `min(K, rank(P) + 1)` needs checking.
+For a finite `K`, the search computes the rank only up to `K - 1`, since every rank of at least `K - 1` gives `min(K, rank(P) + 1) = K`.
 
 ### Duplicate and zero signatures can be dropped
 
