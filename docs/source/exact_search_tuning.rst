@@ -26,7 +26,8 @@ Start from a symptom
        To make ``"auto"`` stay longer with a connected-cluster search, lower :attr:`~SearchTuning.connected_cluster_state_evaluations`, and to make it switch to the Brouwer-Zimmermann method sooner, raise that field.
        Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`__ in the guide to the distance package).
        Raise :attr:`~SearchTuning.auto_probe_work` to let the short Brouwer-Zimmermann search that ``"auto"`` runs before it decides, its probe, finish more searches, or find a lighter word for the connected-cluster search to stop at, at a higher fixed cost.
-       Lower :attr:`~SearchTuning.auto_brute_force_max_words` if ``"auto"`` enumerates every word for too long.
+       Raise :attr:`~SearchTuning.auto_brute_force_max_words` if ``"auto"`` takes the Brouwer-Zimmermann method for a classical code of high relative distance whose words it could enumerate faster.
+       Lower it if ``"auto"`` enumerates every word for too long.
    * - A hard distance search spends its time in its last, costliest layers
      - Raise :attr:`~SearchTuning.completion_bound_max_cost_percent` or lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` to use completion tables in more layers.
        For a basis too large for its tables, raise :attr:`~SearchTuning.completion_bound_max_table_bytes` or lower :attr:`~SearchTuning.completion_bound_block_bits`.

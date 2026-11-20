@@ -168,7 +168,9 @@ The coset searches of `CosetLeaderSearch` take the BZ method for `"auto"` (`_get
 The rule aims to avoid a method that is very slow on a search, not to find the fastest one, and it decides from the shapes of the sectors and from the progress of the searches, without fitted thresholds.
 
 1. Brute force runs if `is_cheap_to_enumerate` finds that it examines at most `auto_brute_force_max_words` packed 64-bit integers.
-   Unlike that of the other methods, its cost is known before it runs.
+   Brute force runs on one thread, whatever `num_threads` is, at under a nanosecond per integer, so unlike that of the other methods its cost is known before it runs.
+   The default, `2**20`, is about a millisecond of enumeration, the fixed cost of a BZ search of a small code.
+   On larger spaces, a BZ search is usually faster (see "Refining the choice").
 2. Otherwise, a search of binary words that excludes no nonzero word, as for a classical code, takes the BZ method, and so does every search of a function that takes generators, since it has no checks.
    A connected-cluster search can be much slower than BZ on classical codes whose checks are only moderately sparse.
 3. Every other search, as of a quantum code or of the faults of a circuit, runs `search_by_cost` in `_auto.py`.
@@ -213,6 +215,7 @@ These two overestimates push the choice in opposite directions, so a refinement 
 The known ways for the rule to lose are these:
 
 - A classical code whose checks are sparse enough for a connected-cluster search to be much faster takes BZ.
+- A classical code of high relative distance whose space exceeds `auto_brute_force_max_words` takes BZ, which can be slower than enumerating it, as on a BCH code of length 127 and dimension 29, on which BZ takes about 1.4 times as long on one thread.
 - A quantum code on which BZ is much faster pays for the connected-cluster search up to the switch, the probe, and the setup of a BZ search that starts again, since the switch discards the probe.
 - A quantum code on which the connected-cluster search would win switches to BZ if the estimates make BZ look cheaper than it is, as when a basis has columns that its information sets cannot cover evenly.
 - A search with a cutoff near the distance may never switch (see above).
