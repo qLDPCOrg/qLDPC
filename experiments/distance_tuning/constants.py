@@ -9,9 +9,9 @@ a table of these costs beside the field that gates each step, in seconds and in 
 field (``in units``), to compare with the default of the field.  A second table gives, by field,
 each cost rounded as ``round_to_grid`` does (``derived``) beside the default.  The script then
 measures the coefficients of the cost model of completion tables on the searches of
-``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which together can take hours.  It
-prints each coefficient, under ``measured``, beside its default.  The functions of this script say
-how it measures each cost.  The script sets no value.
+``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which together take about three
+hours.  It prints each coefficient, under ``measured``, beside its default.  The functions of this
+script say how it measures each cost.  The script sets no value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
@@ -63,12 +63,17 @@ LARGE_LAYER = 10**7
 LARGE_LIMIT = 10**4
 
 # The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop after
-# setup.  Linear programs are off in BZ searches that run layers, so that layer times exclude the
-# planning that ``trace.py`` repeats.  Traces that stop after setup keep the default of linear
-# programs.  Connected-cluster searches ask for automorphisms before their first weight limit, so
-# that each of their traces measures that step.
-TRACES: list[tuple[str, str, dict[str, int], bool]] = [
-    (name, workload, {"lp_minimum_work": _tuning.MAX_VALUE}, False)
+# setup.  Linear programs, including those over orbits, are off in BZ searches that run layers, so
+# that layer times exclude the planning that ``trace.py`` repeats.  Traces that stop after setup
+# keep the default of linear programs.  Connected-cluster searches ask for automorphisms before
+# their first weight limit, so that each of their traces measures that step.
+TRACES: list[tuple[str, str, dict[str, int | bool], bool]] = [
+    (
+        name,
+        workload,
+        {"lp_minimum_work": _tuning.MAX_VALUE, "automorphism_orbit_bounds": False},
+        False,
+    )
     for name, workload in (
         ("qt7", "distance/qt7/X"),
         ("lp13s5", "distance/lp13s5/X"),
@@ -79,7 +84,11 @@ TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (
         "classical-128",
         "distance/classical:128:80:6/-",
-        {"lp_minimum_work": _tuning.MAX_VALUE, "partition_work_ratio": 0},
+        {
+            "lp_minimum_work": _tuning.MAX_VALUE,
+            "automorphism_orbit_bounds": False,
+            "partition_work_ratio": 0,
+        },
         False,
     ),
     (
@@ -108,8 +117,9 @@ LINEAR_PROGRAMS = (
 )
 
 # The cost data set, on which the script measures the coefficients of the cost model of completion
-# tables, and how many times it traces each search under each tuning.
-COST_DATA_SET = ("distance/bb288/X", "distance/pp232/X", "distance/pp170/X", "distance/pp276/X")
+# tables, and how many times it traces each search under each tuning.  Its searches build tables of
+# 28 to 113 MiB, and each of their traces with tables disabled ends within about 20 minutes.
+COST_DATA_SET = ("distance/pp232/X", "distance/pp170/X", "distance/qt7/X")
 COST_MODEL_REPEATS = 3
 
 # The tunings of the traces of the cost data set.
@@ -447,7 +457,7 @@ def get_partition_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
     It divides the seconds of each run by ``tried_unit``, the sum of ``b**2 * r**2 * N`` over the
     coverages ``b`` that the run tried, since partitioning skips a coverage at which no family could
-    replace the best so far (Section 4.4 of ``brouwer_zimmermann.md``).  The seconds leave out
+    replace the best so far (Section 4.4 of ``brouwer_zimmermann_code.md``).  The seconds leave out
     building a competing family of automorphism images, which ``get_automorphism_seconds`` counts.
     """
     runs = [

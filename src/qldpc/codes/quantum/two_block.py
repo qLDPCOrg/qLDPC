@@ -7,8 +7,9 @@ from __future__ import annotations
 import collections
 import functools
 import itertools
+import keyword
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 import galois
 import networkx as nx
@@ -95,7 +96,7 @@ class GALACode(CSSCode):
 
     If the group is abelian and its elements lift to permutation matrices, translating every block
     of qudits by the same group element maps the checks of each type onto themselves, so
-    GALACode.get_known_qudit_automorphism_group includes these translations.
+    GALACode.get_known_permutation_automorphism_group includes these translations.
 
     The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 
@@ -241,7 +242,7 @@ class GALACode(CSSCode):
             [[generators[(col - row) % size] for col in range(size)] for row in range(size)]
         )
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Translations of every block of qudits, or None (see _get_abelian_block_translations)."""
         return _get_abelian_block_translations(self.group, self.num_blocks)
 
@@ -289,7 +290,7 @@ class MBCode(TBCode):
     checks, and preserves the weights of operators.
 
     Translating both blocks of qudits by the same monomial ``x^i y^j z^k ...`` maps the checks of
-    each type onto themselves, so MBCode.get_known_qudit_automorphism_group includes these
+    each type onto themselves, so MBCode.get_known_permutation_automorphism_group includes these
     translations.
     """
 
@@ -313,8 +314,21 @@ class MBCode(TBCode):
         """Construct a multivariate bicycle code."""
         # identify the symbols used to denote cyclic group generators
         symbols = poly_a.free_symbols | poly_b.free_symbols
+        keys = set(orders) if isinstance(orders, dict) else set()
+        names = _symbol_names(symbols, keys)
+        if isinstance(orders, dict) and (missing := symbols - keys):
+            missing_names = ", ".join(_symbol_names(missing, keys))
+            raise ValueError(
+                f"No cyclic group order was given for the symbols {missing_names}.  Give an order"
+                f" for every symbol in the polynomials, as in {_orders_example(names)}."
+            )
         if len(orders) < len(symbols):
-            raise ValueError(f"Provided {len(symbols)} symbols, but only {len(orders)} orders.")
+            given = "1 cyclic group order was" if len(orders) == 1 else f"{len(orders)} orders were"
+            raise ValueError(
+                f"The polynomials use the symbols {', '.join(names)}, but only {given} given."
+                f"  Give one cyclic group order for each symbol, as in"
+                f" {_orders_example(names)}."
+            )
 
         # identify cyclic group orders with symbols in the polynomials
         if isinstance(orders, dict):
@@ -492,7 +506,7 @@ class MBCode(TBCode):
             + subgraphs_XL[::2]
         )
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
         """Translations of both blocks of qudits by the generators of the group of this code.
 
         The qudits of each block, and the checks of each type, are indexed by group elements.
@@ -584,10 +598,29 @@ class BBCode(MBCode):
     ) -> None:
         """Construct a bivariate bicycle code."""
         symbols = poly_a.free_symbols | poly_b.free_symbols
-        if len(orders) != 2 or len(symbols) != 2:
+        names = _symbol_names(symbols)
+        if len(symbols) != 2:
+            # MBCode adds a placeholder generator for each order that no symbol uses
+            if (
+                len(symbols) < 2
+                and len(orders) == 2
+                and not (isinstance(orders, dict) and symbols - orders.keys())
+            ):
+                advice = "use MBCode with the same arguments instead"
+            elif not symbols:
+                advice = "use MBCode instead, with at least one cyclic group order"
+            else:
+                advice = "use MBCode instead, with one cyclic group order for each symbol"
             raise ValueError(
-                "BBCodes should have exactly two cyclic group orders and two symbols, not "
-                f"{len(orders)} orders and {len(symbols)} symbols."
+                "The polynomials of a BBCode must together use exactly two symbols, but they use"
+                f" {', '.join(names) or 'no symbols'}.  For these polynomials, {advice}."
+            )
+        if len(orders) != 2:
+            raise ValueError(
+                "A BBCode takes exactly two cyclic group orders, one for each of the symbols"
+                f" {', '.join(names)}, but {len(orders)} {'was' if len(orders) == 1 else 'were'}"
+                f" given.  Give two orders, as in"
+                f" {_orders_example(names)}."
             )
         super().__init__(orders, poly_a, poly_b, field)
 
@@ -850,7 +883,7 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
 
     These permutations preserve a code whose checks they permute, as when the parity check matrices
     are arrays of lifts of elements of an abelian group algebra, as in a quasi-cyclic code.  Such a
-    code can return them from ``_get_qudit_automorphisms``.
+    code can return them from ``_get_permutation_automorphisms``.
     """
     block_size = len(group.lift(group.identity))
     offsets = block_size * np.arange(num_blocks)[:, None]
@@ -896,3 +929,30 @@ def _get_abelian_block_translations(
         if not is_permutation:
             return None
     return _get_block_translations(group, num_blocks)
+
+
+def _symbol_names(symbols: Iterable[sympy.Basic], others: Iterable[sympy.Basic] = ()) -> list[str]:
+    """Sorted names of symbols for error messages, as they would be written in Python code.
+
+    A symbol is named by its plain name if that name is a Python identifier that no other symbol
+    among these or the others shares, and otherwise by its full representation, such as
+    Symbol('x', positive=True).
+    """
+    symbols = set(symbols)
+    counts = collections.Counter(str(symbol) for symbol in symbols | set(others))
+    return sorted(
+        str(symbol)
+        if str(symbol).isidentifier()
+        and not keyword.iskeyword(str(symbol))
+        and counts[str(symbol)] == 1
+        else sympy.srepr(symbol)
+        for symbol in symbols
+    )
+
+
+def _orders_example(names: Sequence[str]) -> str:
+    """An example dictionary of cyclic group orders for symbols with the given names."""
+    orders = [
+        f"R_{name}" if name.isidentifier() else f"R_{index}" for index, name in enumerate(names)
+    ]
+    return "{" + ", ".join(f"{name}: {order}" for name, order in zip(names, orders)) + "}"

@@ -3,7 +3,7 @@
 """Sparser checks with the span of given checks, and light sums of checks to add to them.
 
 ``get_sparser_rows`` makes checks sparser for the coset searches of ``coset.py`` and for the
-distance searches of subsystem codes in ``qldpc.codes.distance.core`` (Sections 3.8 and 3.9 of
+distance searches of subsystem codes in ``qldpc.codes.distance.distances`` (Sections 3.8 and 3.9 of
 ``connected_cluster.md``).  ``get_light_pair_sums`` finds light sums of pairs of rows, which the
 distance searches of ``search.py`` add as redundant checks and known words (Section 3.4).
 """
@@ -12,9 +12,15 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-import scipy.sparse
 
-from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
+from qldpc._binary import (
+    pack_bits,
+    popcount_word,
+    row_reduce_packed,
+    trailing_zeros_word,
+    unpack_bits,
+)
+from qldpc._compilation import always_compiled
 
 from .._binary import multiply_binary
 from .._cosets import get_unit_syndrome_words
@@ -45,30 +51,27 @@ def get_sparser_rows(
     if not len(rows):
         return rows, transform
 
-    # Each round adds the rows of a reduction that are lighter than the heaviest current row.
-    # Row-reducing the transposed candidates, sorted stably by weight, keeps each candidate that is
-    # independent of those before it, and since the current rows come first among candidates of
-    # equal weight, a round that does not lower the total weight keeps them.
+    # Each round row-reduces the matrix in a random order of its columns (see _take_lighter_rows).
+    # The rounds work on rows packed as _pack_parts packs them, so a column of the matrix is a bit
+    # at its position in the packed rows.
     rng = np.random.default_rng(_SPARSIFYING_SEED)
+    packed_matrix, positions = _pack_parts(matrix, symplectic=symplectic)
+    packed_rows, _ = _pack_parts(rows, symplectic=symplectic)
     weights = get_row_weights(rows, symplectic=symplectic)
     rounds_unchanged = 0
     for _ in range(max_rounds):
-        reduced, _, _ = row_reduce_binary(matrix, columns=rng.permutation(matrix.shape[1]))
-        reduced_weights = get_row_weights(reduced, symplectic=symplectic)
-        light = reduced_weights < weights.max()
         previous_total = weights.sum()
-        if np.any(light):
-            candidates = np.vstack([rows, reduced[light]])
-            candidate_weights = np.concatenate([weights, reduced_weights[light]])
-            order = np.argsort(candidate_weights, kind="stable")
-            _, _, pivots = row_reduce_binary(np.ascontiguousarray(candidates[order].T))
-            rows, weights = candidates[order[pivots]], candidate_weights[order[pivots]]
+        columns = positions[rng.permutation(matrix.shape[1])]
+        packed_rows, weights = _take_lighter_rows(
+            packed_matrix, columns, packed_rows, weights, symplectic
+        )
         rounds_unchanged = rounds_unchanged + 1 if weights.sum() == previous_total else 0
         if rounds_unchanged >= rounds_without_improvement:
             break
 
     # Add rows to each other where that helps, and find the transform: ``matrix`` times the
     # transpose of ``get_unit_syndrome_words(matrix)`` is the identity, so the rows times it are T.
+    rows = _unpack_parts(packed_rows, matrix.shape[1], symplectic=symplectic)
     rows, _ = _sparsify(rows, symplectic=symplectic)
     return rows, multiply_binary(rows, get_unit_syndrome_words(matrix).T)
 
@@ -89,20 +92,27 @@ def get_light_pair_sums(
     # The sum of rows i and j acts on the variables of either row, less those on which the two
     # rows have equal values: it weighs w_i + w_j - s_ij - e_ij, where s_ij counts the variables
     # that the rows share, and e_ij those with equal values, which are all of them for binary rows.
-    # Count s_ij + e_ij by products of indicator matrices.  Rows that share no variable sum to a row
-    # heavier than the heavier of the two, so only pairs that share one can give a light sum.
+    # Rows that share no variable sum to a row heavier than the heavier of the two, so only pairs
+    # that share one can give a light sum.  List the nonzero entries of the rows by row and by
+    # variable, with the values 1, 2, and 3 for X, Z, and Y in symplectic rows, and count
+    # s_ij + e_ij from these lists.
     weights = get_row_weights(rows, symplectic=symplectic)
+    values = rows
     if symplectic:
         num_variables = rows.shape[1] // 2
-        part_x, part_z = rows[:, :num_variables], rows[:, num_variables:]
-        overlaps = _count_overlaps(part_x | part_z)
-        for values in (part_x & (1 - part_z), part_z & (1 - part_x), part_x & part_z):
-            overlaps = overlaps + _count_overlaps(values)
-    else:
-        overlaps = 2 * _count_overlaps(rows)
-    counts = scipy.sparse.triu(overlaps, k=1).tocoo()
-    first, second = counts.row.astype(np.int64), counts.col.astype(np.int64)
-    sum_weights = weights[first] + weights[second] - counts.data
+        values = rows[:, :num_variables] + 2 * rows[:, num_variables:]
+    entry_rows, entry_variables = np.nonzero(values)
+    entry_values = values[entry_rows, entry_variables]
+    by_variable = np.argsort(entry_variables, kind="stable")
+    first, second, counts = _count_shared_entries(
+        np.searchsorted(entry_rows, np.arange(len(rows) + 1)),
+        entry_variables.astype(np.int64),
+        entry_values.astype(np.int64),
+        np.searchsorted(entry_variables[by_variable], np.arange(values.shape[1] + 1)),
+        entry_rows[by_variable].astype(np.int64),
+        entry_values[by_variable].astype(np.int64),
+    )
+    sum_weights = weights[first] + weights[second] - counts
     light = (sum_weights > 0) & (sum_weights <= np.maximum(weights[first], weights[second]))
     first, second, sum_weights = first[light], second[light], sum_weights[light]
 
@@ -132,10 +142,57 @@ def get_row_weights(rows: npt.NDArray[np.uint8], *, symplectic: bool) -> npt.NDA
     return (rows[:, :half] | rows[:, half:]).sum(axis=1, dtype=np.int64)
 
 
-def _count_overlaps(matrix: npt.NDArray[np.uint8]) -> scipy.sparse.csr_array:
-    """The number of columns in which both of each pair of rows of a binary matrix are one."""
-    sparse = scipy.sparse.csr_array(matrix, dtype=np.int64)
-    return sparse @ sparse.T
+@always_compiled
+def _count_shared_entries(
+    row_starts: npt.NDArray[np.int64],
+    row_variables: npt.NDArray[np.int64],
+    row_values: npt.NDArray[np.int64],
+    variable_starts: npt.NDArray[np.int64],
+    variable_rows: npt.NDArray[np.int64],
+    variable_values: npt.NDArray[np.int64],
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """Count, for the rows ``i < j`` of each pair that share a variable, ``s_ij + e_ij``.
+
+    Here ``s_ij`` counts the variables on which both rows are nonzero, and ``e_ij`` those on which
+    they have equal nonzero values.  Row ``i`` has the values ``row_values[k]`` on the variables
+    ``row_variables[k]``, for ``k`` from ``row_starts[i]`` to ``row_starts[i + 1]``, and variable
+    ``v`` lists its rows and values in the same way, from ``variable_starts``.
+
+    Returns:
+        The rows ``i`` and ``j`` of each such pair, and its count.
+    """
+    # Bound the number of pairs by the pairs of rows on each variable, and by the pairs of all rows.
+    num_rows = len(row_starts) - 1
+    max_pairs = 0
+    for variable in range(len(variable_starts) - 1):
+        degree = variable_starts[variable + 1] - variable_starts[variable]
+        max_pairs += degree * (degree - 1) // 2
+    max_pairs = min(max_pairs, num_rows * (num_rows - 1) // 2)
+    first = np.empty(max_pairs, dtype=np.int64)
+    second = np.empty(max_pairs, dtype=np.int64)
+    counts = np.empty(max_pairs, dtype=np.int64)
+
+    # Accumulate the counts of each row with the later rows that it meets, then list them.
+    totals = np.zeros(num_rows, dtype=np.int64)
+    met = np.empty(num_rows, dtype=np.int64)
+    num_pairs = 0
+    for row in range(num_rows):
+        num_met = 0
+        for entry in range(row_starts[row], row_starts[row + 1]):
+            variable = row_variables[entry]
+            for other_entry in range(variable_starts[variable], variable_starts[variable + 1]):
+                other = variable_rows[other_entry]
+                if other > row:
+                    if totals[other] == 0:
+                        met[num_met] = other
+                        num_met += 1
+                    totals[other] += 1 + (variable_values[other_entry] == row_values[entry])
+        for index in range(num_met):
+            other = met[index]
+            first[num_pairs], second[num_pairs], counts[num_pairs] = row, other, totals[other]
+            num_pairs += 1
+            totals[other] = 0
+    return first[:num_pairs], second[:num_pairs], counts[:num_pairs]
 
 
 def _sparsify(
@@ -149,36 +206,160 @@ def _sparsify(
     Returns:
         The rows, and the invertible transform ``T`` for which the rows are ``T @ matrix % 2``.
     """
-    # Pack the X and Z parts of symplectic rows, or binary rows with zero Z parts, so that a weight
-    # counts the nonzero qubits or entries.
-    num_rows, width = matrix.shape
-    num_variables = width // 2 if symplectic else width
-    part_x = pack_bits(np.ascontiguousarray(matrix[:, :num_variables]))
-    part_z = (
-        pack_bits(np.ascontiguousarray(matrix[:, num_variables:]))
-        if symplectic
-        else np.zeros_like(part_x)
-    )
-    transform = np.eye(num_rows, dtype=np.uint8)
-    weights = np.bitwise_count(part_x | part_z).sum(axis=1, dtype=np.int64)
+    rows, _ = _pack_parts(matrix, symplectic=symplectic)
+    transform = np.eye(len(matrix), dtype=np.uint8)
+    _add_rows_while_lighter(rows, transform, symplectic)
+    return _unpack_parts(rows, matrix.shape[1], symplectic=symplectic), transform
 
-    # Replace each row by its lightest sum with another row, while that lowers its weight.  A row
-    # added to itself would vanish, so that sum takes the weight of the row, which never wins.
+
+def _pack_parts(
+    matrix: npt.NDArray[np.uint8], *, symplectic: bool
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+    """Pack binary rows, or the X and Z parts of symplectic rows one after the other.
+
+    Each part is packed as ``pack_bits`` packs a row, so that word ``k`` of the X part and word
+    ``k`` of the Z part hold the same qubits.
+
+    Returns:
+        The packed rows, and the position of the bit of each column of the matrix in them.
+    """
+    if not symplectic:
+        return pack_bits(np.ascontiguousarray(matrix)), np.arange(matrix.shape[1], dtype=np.int64)
+    num_variables = matrix.shape[1] // 2
+    part_x = pack_bits(np.ascontiguousarray(matrix[:, :num_variables]))
+    part_z = pack_bits(np.ascontiguousarray(matrix[:, num_variables:]))
+    variables = np.arange(num_variables, dtype=np.int64)
+    positions = np.concatenate([variables, 64 * part_x.shape[1] + variables])
+    return np.hstack([part_x, part_z]), positions
+
+
+def _unpack_parts(
+    rows: npt.NDArray[np.uint64], width: int, *, symplectic: bool
+) -> npt.NDArray[np.uint8]:
+    """Unpack rows of ``width`` columns that ``_pack_parts`` packed."""
+    if not symplectic:
+        return unpack_bits(rows, width)
+    num_words = rows.shape[1] // 2
+    num_variables = width // 2
+    return np.hstack(
+        [
+            unpack_bits(np.ascontiguousarray(rows[:, :num_words]), num_variables),
+            unpack_bits(np.ascontiguousarray(rows[:, num_words:]), num_variables),
+        ]
+    )
+
+
+@always_compiled
+def _get_packed_weights(rows: npt.NDArray[np.uint64], symplectic: bool) -> npt.NDArray[np.int64]:
+    """The weights of rows packed by ``_pack_parts``, as ``get_row_weights`` counts them."""
+    num_words = rows.shape[1] // 2 if symplectic else rows.shape[1]
+    weights = np.zeros(len(rows), dtype=np.int64)
+    for row in range(len(rows)):
+        for word in range(num_words):
+            value = rows[row, word]
+            if symplectic:
+                value |= rows[row, num_words + word]
+            weights[row] += popcount_word(value)
+    return weights
+
+
+@always_compiled
+def _add_rows_while_lighter(
+    rows: npt.NDArray[np.uint64], transform: npt.NDArray[np.uint8], symplectic: bool
+) -> None:
+    """Make rows packed by ``_pack_parts`` sparser in place, as ``_sparsify`` describes.
+
+    Each row added to a row is also added to the same row of ``transform``.
+    """
+    num_rows, num_words = rows.shape
+    part_words = num_words // 2 if symplectic else num_words
+    weights = _get_packed_weights(rows, symplectic)
+
+    # Replace each row by its first lightest sum with another row, while that lowers its weight.
     improved = True
     while improved:
         improved = False
         for row in range(num_rows):
-            sums_x, sums_z = part_x ^ part_x[row], part_z ^ part_z[row]
-            sum_weights = np.bitwise_count(sums_x | sums_z).sum(axis=1, dtype=np.int64)
-            sum_weights[row] = weights[row]
-            other = int(np.argmin(sum_weights))
-            if sum_weights[other] < weights[row]:
-                part_x[row], part_z[row] = sums_x[other], sums_z[other]
-                transform[row] ^= transform[other]
-                weights[row] = sum_weights[other]
+            best_weight, best_other = weights[row], -1
+            for other in range(num_rows):
+                if other == row:
+                    continue
+                weight = np.int64(0)
+                for word in range(part_words):
+                    value = rows[row, word] ^ rows[other, word]
+                    if symplectic:
+                        value |= rows[row, part_words + word] ^ rows[other, part_words + word]
+                    weight += popcount_word(value)
+                if weight < best_weight:
+                    best_weight, best_other = weight, other
+            if best_other >= 0:
+                rows[row] ^= rows[best_other]
+                transform[row] ^= transform[best_other]
+                weights[row] = best_weight
                 improved = True
 
-    parts = [unpack_bits(part_x, num_variables)]
-    if symplectic:
-        parts.append(unpack_bits(part_z, num_variables))
-    return np.hstack(parts), transform
+
+@always_compiled
+def _take_lighter_rows(
+    matrix: npt.NDArray[np.uint64],
+    columns: npt.NDArray[np.int64],
+    rows: npt.NDArray[np.uint64],
+    weights: npt.NDArray[np.int64],
+    symplectic: bool,
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+    """Run one round of ``get_sparser_rows`` on independent rows, packed by ``_pack_parts``.
+
+    The round row-reduces ``matrix``, whose rows span the same space, over ``columns``, which give
+    the positions of the bits of its columns in a random order.  It sorts the current rows and the
+    rows of the reduction lighter than the heaviest current row stably by weight, the current rows
+    first, and keeps each that is independent of those before it, so a round that does not lower
+    the total weight keeps the current rows.
+
+    Returns:
+        The rows that the round keeps, and their weights.
+    """
+    reduced, _, _ = row_reduce_packed(matrix, np.zeros((len(matrix), 0), dtype=np.uint64), columns)
+    reduced_weights = _get_packed_weights(reduced, symplectic)
+    light = np.flatnonzero(reduced_weights < weights.max())
+    if not len(light):
+        return rows, weights
+
+    # Sort the candidates by weight, with ties in their order, and keep the independent ones.
+    candidates = np.vstack((rows, reduced[light]))
+    candidate_weights = np.concatenate((weights, reduced_weights[light]))
+    num_candidates = len(candidates)
+    order = np.argsort(candidate_weights * num_candidates + np.arange(num_candidates))
+    kept = order[_get_leading_independent_rows(candidates[order], len(rows))]
+    return candidates[kept], candidate_weights[kept]
+
+
+@always_compiled
+def _get_leading_independent_rows(rows: npt.NDArray[np.uint64], rank: int) -> npt.NDArray[np.int64]:
+    """The indices of the packed rows that are independent of the rows before them.
+
+    The rows span a space of dimension ``rank``, so the indices end at the ``rank``-th such row.
+    """
+    # Reduce each row by the kept rows in order.  Each kept row has a pivot, its lowest set bit, on
+    # which the rows kept after it are zero, so the reduction clears every pivot, and leaves a row
+    # that vanishes exactly if it depends on the kept rows.
+    basis = np.empty((rank, rows.shape[1]), dtype=np.uint64)
+    pivot_words = np.empty(rank, dtype=np.int64)
+    pivot_bits = np.empty(rank, dtype=np.uint64)
+    kept = np.empty(rank, dtype=np.int64)
+    num_kept = 0
+    for index in range(len(rows)):
+        if num_kept == rank:
+            break
+        row = rows[index].copy()
+        for basis_index in range(num_kept):
+            if row[pivot_words[basis_index]] & pivot_bits[basis_index]:
+                row ^= basis[basis_index]
+        for word in range(len(row)):
+            if row[word]:
+                basis[num_kept] = row
+                pivot_words[num_kept] = word
+                pivot_bits[num_kept] = np.uint64(1) << np.uint64(trailing_zeros_word(row[word]))
+                kept[num_kept] = index
+                num_kept += 1
+                break
+    return kept[:num_kept]

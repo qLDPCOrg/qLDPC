@@ -10,6 +10,10 @@ weight ``U`` in a distance search, ``t + 1`` in a count of the words of weight `
 bound that proves a word heavier than the maximum weight in a coset query, and a limit that falls
 as lighter words turn up in a search for a minimum weight.  Sections 3.9 and 3.10 of
 ``brouwer_zimmermann.md`` derive the bound and the limits.
+
+Threads read shared tables at once (Sections 3.9, "Tables and lookups", and 5 of that guide).
+Compiled functions here, such as ``get_completion_bound``, also run within nogil calls of threaded
+searches, so they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations
@@ -211,11 +215,9 @@ def get_completion_bound(
     # Bytes from the tables add up in int64, which no number of blocks can overflow.
     bound = np.int64(0)
     for block in range(len(offsets) - 1):
-        start = block * block_bits
-        # Mask each value by the size of its own table, so that ones of the prefix past the last
+        # Take each value within the size of its own table, so that ones of the prefix past the last
         # tail column with a one never index another table.
-        mask = np.uint64(offsets[block + 1] - offsets[block] - 1)
-        value = (prefix[start // 64] >> np.uint64(start % 64)) & mask
+        value = _get_block_value(prefix, block * block_bits, offsets[block + 1] - offsets[block])
         bound += np.int64(tables[base + offsets[block] + np.int64(value)])
         if bound >= limit:
             break
@@ -363,10 +365,9 @@ def _fill_tables(
         bits = 0
         while (1 << bits) < size:
             bits += 1
-        mask = np.uint64(size - 1)
         values = np.empty(num_rows, dtype=np.int64)
         for row in range(num_rows):
-            values[row] = np.int64((rows[row, start // 64] >> np.uint64(start % 64)) & mask)
+            values[row] = np.int64(_get_block_value(rows[row], start, size))
 
         # No pair is farther than ``bits`` from a value, so ``bits + 1`` stands for infinity.
         distances = np.full(size, bits + 1, dtype=np.uint8)
@@ -421,16 +422,25 @@ def _count_skipped_samples(
         # Add the least weights of the prefix plus a pair on each block of columns.
         bound = np.int64(0)
         for start in range(0, num_bits, block_bits):
-            mask = (np.uint64(1) << np.uint64(min(block_bits, num_bits - start))) - np.uint64(1)
-            shift = np.uint64(start % 64)
-            value = (prefix[start // 64] >> shift) & mask
+            size = 1 << min(block_bits, num_bits - start)
+            value = _get_block_value(prefix, start, size)
             least = np.int64(block_bits)
             for row in range(first, num_rows - 1):
-                partial = value ^ ((rows[row, start // 64] >> shift) & mask)
+                partial = value ^ _get_block_value(rows[row], start, size)
                 for other in range(row + 1, num_rows):
-                    distance = popcount_word(partial ^ ((rows[other, start // 64] >> shift) & mask))
+                    distance = popcount_word(partial ^ _get_block_value(rows[other], start, size))
                     least = min(least, distance)
             bound += least
         if bound >= limit:
             num_skipped += 1
     return num_skipped
+
+
+@always_compiled(inline=True)
+def _get_block_value(words: npt.NDArray[np.uint64], start: int, size: int) -> np.uint64:
+    """The value of a packed row on the block of columns from column ``start`` on.
+
+    The block takes ``size`` values, a power of two, and lies within the word that holds column
+    ``start``, as each block of completion tables does.
+    """
+    return (words[start // 64] >> np.uint64(start % 64)) & np.uint64(size - 1)

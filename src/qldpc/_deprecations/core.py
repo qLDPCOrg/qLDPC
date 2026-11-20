@@ -22,8 +22,8 @@ Registry targets are lazy "module:attribute" strings, and this module imports no
 at import time, so that every module can import it without an import cycle.  Deprecated methods are
 defined at the bottom of this module, and attached to their classes by install_deprecated_methods,
 which qldpc/__init__.py calls once the subpackages that define those classes are imported.
-Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
-raising defunct(...).
+Deprecated arguments and modes are handled where they are accepted, by calling a helper here, such
+as warn_deprecated or as_integer_cutoff, or by raising defunct(...).
 
 A future change, which makes the same call silently behave differently (rather than fail with an
 error, as deprecated usage eventually does), is likewise handled where its keyword is accepted: a
@@ -42,7 +42,7 @@ import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Any, Literal, SupportsIndex, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import stim
 
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
     from qldpc.abstract.groups import NestedSequence
-    from qldpc.codes import CSSCode, DistanceMethod, NoDistance, QuditCode
+    from qldpc.codes import CSSCode, DistanceMethod, QuditCode
     from qldpc.decoders import DeferredErrorDecoderInput
     from qldpc.decoders.dems import ErrorMechanism
     from qldpc.objects import PauliXZLike, TannerGraph
@@ -114,12 +114,12 @@ ALIASES: dict[str, dict[str, str]] = {
         "QCCode": "qldpc.codes.quantum:MBCode",
         "code_capacity": "qldpc.codes._code_capacity",
         "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
-        "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
+        "validate_distance_method": "qldpc.codes.distance.distances:_validate_distance_method",
     },
     "qldpc.codes.distance": {
         "DistanceBackend": "qldpc.codes:DistanceBackend",
         "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
-        "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
+        "validate_distance_method": "qldpc.codes.distance.distances:_validate_distance_method",
     },
     "qldpc.codes.monte_carlo": {
         "OneOrManyFloats": "qldpc._deprecations.core:OneOrManyFloats",
@@ -232,10 +232,16 @@ ALIASES: dict[str, dict[str, str]] = {
 SILENT_ALIASES: dict[str, dict[str, str]] = {
     "qldpc.codes": {
         "get_distance_classical": "qldpc._deprecations.core:get_distance_classical",
+        "get_distance_css_brouwer_zimmermann": (
+            "qldpc._deprecations.core:get_distance_css_brouwer_zimmermann"
+        ),
         "get_distance_quantum": "qldpc._deprecations.core:get_distance_quantum",
     },
     "qldpc.codes.distance": {
         "get_distance_classical": "qldpc._deprecations.core:get_distance_classical",
+        "get_distance_css_brouwer_zimmermann": (
+            "qldpc._deprecations.core:get_distance_css_brouwer_zimmermann"
+        ),
         "get_distance_quantum": "qldpc._deprecations.core:get_distance_quantum",
     },
     "qldpc.decoders": {
@@ -337,6 +343,35 @@ def warn_future_change(message: str, *, stacklevel: int) -> None:
     warnings.warn(message, FutureWarning, stacklevel=stacklevel + 1)
 
 
+def as_integer_cutoff(cutoff: int) -> int:
+    """The cutoff of a distance search, warning about a float or a bool and making it an integer.
+
+    Released versions took a float cutoff, and compared it only with integer weights.  So a float
+    acts as its floor, clamped to [-1, ``_tuning.MAX_VALUE``], and a bool as its integer.  A cutoff
+    of -1 never stops a search early, and every upper bound meets ``MAX_VALUE``.  NaN acts as -1.
+    Any other cutoff passes unchanged, for the distance functions to accept or reject.
+    """
+    import numpy as np
+
+    from qldpc.codes.distance import _tuning
+
+    # Only floats and bools get a deprecation period.  Other types that released versions took,
+    # such as Fraction and Decimal, are not plausible cutoffs, so the functions of
+    # qldpc.codes.distance reject them at once.
+    if not isinstance(cutoff, (float, np.floating, bool, np.bool_)):
+        return cutoff
+    # Floor and clip in a long double, which holds every NumPy float and MAX_VALUE exactly.  A
+    # narrower type, such as float16, would overflow at MAX_VALUE.
+    value = np.longdouble(cutoff)
+    integer = -1 if np.isnan(value) else int(np.clip(np.floor(value), -1, _tuning.MAX_VALUE))
+    warn_deprecated(
+        f"A cutoff of {cutoff!r}, which is not an integer, is deprecated, and will raise an error in"
+        " a future release; pass an integer instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    return integer
+
+
 def defunct(message: str) -> ValueError:
     """Return the error that a defunct method or argument raises when it is used."""
     return ValueError(message)
@@ -385,13 +420,14 @@ def get_distance_classical(
     cutoff: int = 1,
     block_size: int | None = None,
     method: DistanceMethod = "auto",
-    max_weight: SupportsIndex | None = None,
-) -> int | Literal[NoDistance.NAN]:
+) -> int:
     """Deprecated: the distance of a classical linear binary code, from its generator matrix.
 
-    This function was formerly qldpc.codes.get_distance_classical.
+    This function was formerly qldpc.codes.get_distance_classical.  Unlike
+    get_distance_from_generators, it gives a code without nonzero words its length as its distance.
     """
-    from qldpc.codes.distance import get_distance_from_generators
+    from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
+    from qldpc.codes.distance._binary import as_binary_matrix
 
     warn_deprecated(
         "get_distance_classical is deprecated; use"
@@ -399,9 +435,64 @@ def get_distance_classical(
         stacklevel=get_external_caller_stacklevel(),
     )
     with _use_block_size(block_size):
-        return get_distance_from_generators(
-            generators, cutoff=cutoff, method=method, max_weight=max_weight
+        distance = get_distance_from_generators(
+            generators, cutoff=as_integer_cutoff(cutoff), method=method
         )
+    if distance is NO_DISTANCE:
+        return as_binary_matrix(generators, "generators").shape[1]
+    return distance
+
+
+def get_distance_css_brouwer_zimmermann(
+    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+    *,
+    cutoff: int,
+    block_size: int | None = None,
+    upper_bound: int | None = None,
+) -> int:
+    """Deprecated: the smallest distance of sectors of a CSS code, given as binary words.
+
+    This function was formerly qldpc.codes.get_distance_css_brouwer_zimmermann.  Each sector, a
+    pair of logical operators and stabilizers as binary words, has the distance that
+    get_distance_quantum gives with ``homogeneous=True``.  The result is the smallest distance of
+    the sectors, or ``upper_bound``, the weight of a known logical operator, if that is smaller.  A
+    result at most ``cutoff`` can be an upper bound on the distance.
+    """
+    from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
+    from qldpc.codes.distance._binary import as_binary_matrix_pair
+
+    warn_deprecated(
+        "get_distance_css_brouwer_zimmermann is deprecated; use"
+        " qldpc.codes.distance.get_distance_from_generators(logical_ops, stabilizers) for each"
+        " sector instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    # As before, check every sector before searching any.
+    matrices = [
+        as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
+        for logical_ops, stabilizers in sectors
+    ]
+    cutoff = as_integer_cutoff(cutoff)
+    best = upper_bound
+    with _use_block_size(block_size):
+        for logical_matrix, stabilizer_matrix in matrices:
+            # Stop at a bound of at most the cutoff, or of zero, which no sector can beat.
+            if best is not None and best <= max(cutoff, 0):
+                break
+            # A limit of best - 1 gives min(distance, best), and saves searching heavier words.
+            distance = get_distance_from_generators(
+                logical_matrix,
+                stabilizer_matrix,
+                cutoff=cutoff,
+                method="brouwer_zimmermann",
+                max_weight=None if best is None else best - 1,
+            )
+            if distance is NO_DISTANCE:
+                distance = 0 if len(logical_matrix) else logical_matrix.shape[1]
+            best = distance if best is None else min(best, distance)
+    if best is None:
+        raise ValueError("get_distance_css_brouwer_zimmermann needs a sector or an upper bound")
+    return best
 
 
 def get_distance_quantum(
@@ -412,14 +503,15 @@ def get_distance_quantum(
     block_size: int | None = None,
     homogeneous: bool = False,
     method: DistanceMethod = "auto",
-    max_weight: SupportsIndex | None = None,
-) -> int | Literal[NoDistance.NAN]:
+) -> int:
     """Deprecated: the distance of a binary quantum code from its logical operators and stabilizers.
 
     This function was formerly qldpc.codes.get_distance_quantum.  Its rows are symplectic unless
-    ``homogeneous`` is True.
+    ``homogeneous`` is True.  Unlike get_distance_from_generators, it gives a code without
+    nontrivial logical operators distance zero if some logical operators are given, and its number
+    of qubits otherwise.
     """
-    from qldpc.codes.distance import get_distance_from_generators
+    from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
     from qldpc.codes.distance._binary import as_binary_matrix_pair
 
     warn_deprecated(
@@ -432,15 +524,20 @@ def get_distance_quantum(
         # Check the rows here, so that errors name the arguments of this function.  This also
         # rejects None as the stabilizers, which get_distance_from_generators would read as no
         # excluded rows.
-        as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
-        return get_distance_from_generators(
-            logical_ops,
-            stabilizers,
-            symplectic=not homogeneous,
-            cutoff=cutoff,
-            method=method,
-            max_weight=max_weight,
+        logical_matrix, stabilizer_matrix = as_binary_matrix_pair(
+            logical_ops, stabilizers, ("logical_ops", "stabilizers")
         )
+        distance = get_distance_from_generators(
+            logical_matrix,
+            stabilizer_matrix,
+            symplectic=not homogeneous,
+            cutoff=as_integer_cutoff(cutoff),
+            method=method,
+        )
+    if distance is NO_DISTANCE:
+        num_qubits = logical_matrix.shape[1] if homogeneous else logical_matrix.shape[1] // 2
+        return 0 if len(logical_matrix) else num_qubits
+    return distance
 
 
 def get_primitive_central_idempotents(
@@ -493,13 +590,13 @@ def get_primitive_central_idempotents(
 def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager[object]:
     """Warn about a deprecated block_size argument, if given, and return a context that applies it.
 
-    Within the context, the active tuning has the batch exponents that block_size gave before it was
+    Within the context, the active tuning has the exponents that block_size gave before it was
     deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
-    information sets took at most it.  As before, any integer, including a bool, is accepted, and an
-    exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive
-    enumeration.  This function warns when it is called, not when its context is entered, since a
-    warning from inside a ``contextlib`` context manager would point to ``contextlib`` rather than
-    to the caller.
+    information sets took at most it as the exponent of their chunks.  As before, any integer,
+    including a bool, is accepted, and an exponent outside the range of the fields is clamped to it,
+    which changes no batch of exhaustive enumeration.  This function warns when it is called, not
+    when its context is entered, since a warning from inside a ``contextlib`` context manager would
+    point to ``contextlib`` rather than to the caller.
     """
     if block_size is None:
         return contextlib.nullcontext()
@@ -514,9 +611,7 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
     exponent = max(0, min(operator.index(block_size), 62))
     return _tuning.use_tuning(
         enumeration_batch_exponent=exponent,
-        information_set_batch_exponent=min(
-            exponent, _tuning.get_tuning().information_set_batch_exponent
-        ),
+        search_chunk_exponent=min(exponent, _tuning.get_tuning().search_chunk_exponent),
     )
 
 
@@ -526,7 +621,7 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
 
 def install_deprecated_methods() -> None:
     """Attach deprecated methods to their classes."""
-    from qldpc.abstract import GroupRing, SmallGroup, TrivialGroup
+    from qldpc.abstract import Group, GroupRing, SmallGroup, TrivialGroup
     from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
     from qldpc.decoders.dems import DetectorErrorModelArrays
@@ -552,6 +647,16 @@ def install_deprecated_methods() -> None:
             stacklevel=get_external_caller_stacklevel(),
         )
         return self.shortened(bits)
+
+    @_deprecated_method(ClassicalCode)
+    def get_automorphism_group(self: ClassicalCode, *, with_magma: bool = False) -> Group:
+        """Deprecated alias for ClassicalCode.get_permutation_automorphism_group."""
+        warn_deprecated(
+            "ClassicalCode.get_automorphism_group is DEPRECATED; use"
+            " ClassicalCode.get_permutation_automorphism_group instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        return self.get_permutation_automorphism_group(with_magma=with_magma)
 
     @_deprecated_method(QuditCode)
     def get_dual_subsystem_code(self: QuditCode) -> QuditCode:

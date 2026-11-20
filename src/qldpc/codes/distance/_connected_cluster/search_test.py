@@ -8,8 +8,9 @@ import dataclasses
 import inspect
 import itertools
 import math
+import threading
 import unittest.mock
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import numpy as np
@@ -18,16 +19,27 @@ import pytest
 from sympy.abc import x, y
 
 from qldpc import codes
-from qldpc._binary import get_independent_rows, get_kernel
+from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc.objects import PAULIS_XZ, Pauli
 
-from .. import _tuning
-from ..conftest import get_golay_checks, get_span
-from ..core import get_distance_css, get_distance_pauli
+from ...conftest import Tune
+from .. import _threads, _tuning
+from ..conftest import (
+    THREAD_TIMEOUT,
+    check_shared_arrays_on_threads,
+    get_golay_checks,
+    get_span,
+)
+from ..distances import get_distance_css
 from . import search as cs
 from .sparse_checks import get_light_pair_sums, get_row_weights
 
+####################################################################################################
+# problems and helpers
+
+
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
+
 
 # The [[276, 98, 14]] pair-partition code qc_276_98_14 of arXiv:2607.14091, with its exponents
 # normalized so that their first row and column are zero.
@@ -37,6 +49,8 @@ EXPONENTS_X_276 = [
     [0, 7, 20, 11, 3, 12, 2, 22, 14, 19, 13, 6],
     [0, 19, 17, 4, 2, 21, 12, 10, 18, 3, 11, 9],
 ]
+
+
 EXPONENTS_Z_276 = [
     [0, 11, 18, 6, 13, 1, 0, 11, 18, 6, 13, 1],
     [0, 12, 7, 22, 19, 10, 7, 10, 12, 19, 0, 22],
@@ -92,6 +106,15 @@ def get_search(*problem: npt.ArrayLike, **options: Any) -> cs.SupportSearch:
     options.setdefault("stabilizer_overlap_cuts", _tuning.DEFAULT_TUNING.stabilizer_overlap_cuts)
     options.setdefault("pair_sum_checks", _tuning.DEFAULT_TUNING.pair_sum_checks)
     return cs.SupportSearch(*problem, **options)
+
+
+# The signature of the compiled search, which tests that replace it read before they do.
+KERNEL_SIGNATURE = inspect.signature(cs._search_supports)
+
+
+def get_kernel_arguments(args: tuple[Any, ...]) -> dict[str, Any]:
+    """The arguments of a call of ``_search_supports``, by name."""
+    return dict(KERNEL_SIGNATURE.bind(*args).arguments)
 
 
 def get_known_words(problem: Problem, symplectic: bool, pair_sums: bool) -> npt.NDArray[np.uint8]:
@@ -195,6 +218,7 @@ PROBLEMS: dict[str, Problem] = {
     "reed-muller-X": get_sectors(codes.QuantumReedMullerCode(1, 4))[0],
 }
 
+
 # The checks have the words {0, 1, 2} and {3, 4}, and their sum, so the lightest word, {3, 4}, has
 # the greater least variable.
 PROBLEMS["components"] = (
@@ -202,12 +226,14 @@ PROBLEMS["components"] = (
     np.zeros((0, 5), dtype=np.uint8),
 )
 
+
 # Variables 0 and 1 are in all 43 checks, and every other variable in one, so the distance is 2, and
 # the scale lcm(1, ..., 43) of the weights of checks exceeds 2**63, which the search caps.
 PROBLEMS["capped-scale"] = (
     np.hstack([np.ones((43, 2), dtype=np.uint8), np.eye(43, dtype=np.uint8)]),
     np.zeros((0, 45), dtype=np.uint8),
 )
+
 
 # Nested states restrict their subtrees, and could allow more variables in total than there are
 # variables, so the search makes more room for them than it starts with.
@@ -242,6 +268,8 @@ PROBLEMS["empty-restriction"] = (
     ),
     np.zeros((0, 10), dtype=np.uint8),
 )
+
+
 PROBLEMS["nested-restrictions"] = (
     np.array(
         [
@@ -257,6 +285,7 @@ PROBLEMS["nested-restrictions"] = (
     ),
     np.zeros((0, 9), dtype=np.uint8),
 )
+
 
 # The problems that tests compare with an enumeration of their words.
 SEARCHED_PROBLEMS = [name for name in PROBLEMS if name not in ("steane-X", "toric-X")]
@@ -274,6 +303,7 @@ EIGHT_QUBIT_CODE = codes.QuditCode.from_strings(
     ["XXXXXXXX", "ZZZZZZZZ", "IXIXYZYZ", "IXZYIXZY", "IYXZXZIY"]
 )
 
+
 # Small codes, whose qubits a test mixes with single-qubit Cliffords.  The Bacon-Shor code is a
 # subsystem code.
 SMALL_QUBIT_CODES = [
@@ -283,6 +313,7 @@ SMALL_QUBIT_CODES = [
     codes.QuditCode(codes.BaconShorCode(3).matrix, is_subsystem_code=True),
     EIGHT_QUBIT_CODE,
 ]
+
 
 # Codes that are not CSS: the five-qubit code, the Bacon-Shor code with Hadamards on some of its
 # qubits, which is a subsystem code, and the [[8, 3, 3]] code.
@@ -295,6 +326,10 @@ QUBIT_PROBLEMS = {
     ),
     "eight-qubit": get_qubit_problem(EIGHT_QUBIT_CODE),
 }
+
+
+####################################################################################################
+# search entry points
 
 
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])
@@ -356,6 +391,21 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(
         assert witness is None or (min(witness) == root and is_witness(problem, witness))
 
 
+def get_ranked_cut_problem() -> tuple[
+    npt.NDArray[np.uint8], npt.NDArray[np.uint8], npt.NDArray[np.int_]
+]:
+    """Checks, excluded rows, and an automorphism whose ranks change which roots the cuts let in.
+
+    See ``test_overlap_cuts_follow_the_ranks_of_symmetries``.
+    """
+    checks = np.array([[0, 0, 0, 0, 1, 0, 0, 0], [1, 1, 1, 1, 0, 1, 1, 1]], dtype=np.uint8)
+    excluded = np.array(
+        [[0, 0, 1, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0]],
+        dtype=np.uint8,
+    )
+    return checks, excluded, np.array([5, 2, 3, 1, 4, 7, 6, 0])
+
+
 def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
     """With symmetries, the cuts leave out the variable of each word that ranks lowest.
 
@@ -364,12 +414,7 @@ def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
     in a lightest witness that passes every cut under these ranks (Sections 3.4 and 3.5 of
     ``connected_cluster.md``).  Under cuts by index, another root would find one.
     """
-    automorphism = np.array([5, 2, 3, 1, 4, 7, 6, 0])
-    checks = np.array([[0, 0, 0, 0, 1, 0, 0, 0], [1, 1, 1, 1, 0, 1, 1, 1]], dtype=np.uint8)
-    excluded = np.array(
-        [[0, 0, 1, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0]],
-        dtype=np.uint8,
-    )
+    checks, excluded, automorphism = get_ranked_cut_problem()
     num_variables = len(automorphism)
     orbits = np.arange(num_variables)
     for variable in range(num_variables):
@@ -395,8 +440,11 @@ def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
         } & set(roots)
     assert expected["ranks"] and expected["ranks"] != expected["indices"]
 
-    for root in roots:
+    # The cuts follow the ranks also in a search that cut by index at an earlier weight limit.
+    for root, earlier_limit in itertools.product(roots, [False, True]):
         search = get_search(checks, excluded)
+        if earlier_limit:
+            assert search.find_witness(distance - 1) is None
         search._use_automorphisms(automorphism[None])
         search._roots = np.array([root])
         witness = search.find_witness(distance)
@@ -432,11 +480,9 @@ def test_overlap_cuts_keep_the_distances_of_random_codes(pytestconfig: pytest.Co
         assert 2 * expected > max(np.sum(code.matrix_x.view(np.ndarray), axis=1, dtype=int))
         assert 2 * expected > max(np.sum(code.matrix_z.view(np.ndarray), axis=1, dtype=int))
         for cuts, pair_sums in itertools.product((True, False), repeat=2):
-            with _tuning.use_tuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums):
-                distance = get_distance_css(
-                    code.matrix_x, code.matrix_z, method="connected_cluster"
-                )
-                assert distance == expected
+            tuning = _tuning.SearchTuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums)
+            distance = cs.get_distance_connected_cluster(get_sectors(code), cutoff=0, tuning=tuning)
+            assert distance == expected
 
 
 def test_odd_excluded_words_cut_their_lowest_ranked_variable_too() -> None:
@@ -463,22 +509,24 @@ def test_odd_excluded_words_cut_their_lowest_ranked_variable_too() -> None:
     assert witness is not None and is_witness((checks, excluded), witness)
 
 
-def test_vector_distances_from_classical_codes_are_cut_by_their_generators(
+def test_cosets_of_classical_codes_are_cut_by_their_generators(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The distance of a vector from a classical code agrees with brute force, with or without cuts.
+    """The distance of a coset of a classical code agrees with brute force, with or without cuts.
 
     The pair sums of Section 3.4 of ``connected_cluster.md`` keep the distance too.
 
-    The search excludes the rows of the generator matrix of the code, which are known words, here of
-    weights 2 and 3, so its cuts act exactly when the switch is on (Section 3.4 of
-    ``connected_cluster.md``).
+    For a code with checks ``H`` and generator matrix ``G``, and a vector ``v``, the words of the
+    checks ``[H | Hv]`` are the code words with a zero appended, and the vectors of the coset of
+    ``v`` with a one appended.  The search excludes ``[G | 0]``, so its witnesses are the vectors of
+    the coset.  The rows of ``G`` are known words, here of weights 2 and 3, so the cuts act exactly
+    when the switch is on (Section 3.4 of ``connected_cluster.md``).
     """
     num_cuts_per_search: list[int] = []
     search_supports = cs._search_supports
     signature = inspect.signature(search_supports)
 
-    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
         num_cuts_per_search.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
         return search_supports(*args, **kwargs)
 
@@ -486,17 +534,24 @@ def test_vector_distances_from_classical_codes_are_cut_by_their_generators(
     weights = set()
     for seed in (2, 7):
         code = codes.ClassicalCode.random(6, 3, seed=seed)
+        matrix = code.matrix.view(np.ndarray).astype(np.uint8)
         generator = code.generator.view(np.ndarray).astype(np.uint8)
         weights |= set(np.sum(generator, axis=1).tolist())
-        code_words = get_span(generator)
+        excluded = np.hstack([generator, np.zeros((len(generator), 1), dtype=np.uint8)])
         for vector in range(2**6):
-            bits = [vector >> index & 1 for index in range(6)]
-            expected = min((vector ^ word).bit_count() for word in code_words)
+            bits = np.array([vector >> index & 1 for index in range(6)], dtype=np.uint8)
+            checks = np.hstack([matrix, (matrix @ bits % 2)[:, None]]).astype(np.uint8)
+            expected = get_brute_force_distance((checks, excluded))
             for cuts, pair_sums in itertools.product((True, False), repeat=2):
                 num_cuts_per_search.clear()
-                with _tuning.use_tuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums):
-                    distance = code.get_distance_exact(vector=bits, method="connected_cluster")
+                tuning = _tuning.SearchTuning(
+                    stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums
+                )
+                distance = cs.get_distance_connected_cluster(
+                    [(checks, excluded)], cutoff=0, tuning=tuning
+                )
                 assert distance == expected
+                assert num_cuts_per_search
                 assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_search)
     assert {2, 3} <= weights
 
@@ -524,6 +579,53 @@ def test_query_overlap_words_cut_queries_but_not_witnesses() -> None:
     assert query_symbols(search) == [2]
 
 
+def test_queries_cut_under_the_current_ranks_and_only_read_the_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Queries cut under the ranks of symmetries learned late, and tabulate no cuts themselves.
+
+    The checks are the Z-type checks of the rotated surface code of distance 3, whose X-type checks
+    are the excluded rows and the query words, and the symmetry is its turn by half a circle.  A
+    search that tabulated the cuts of its queries before it learns the symmetry answers every query
+    as a search that learns it first, with a vector within the limit exactly if there is one.  The
+    ranks of the symmetry move the variables that some cuts leave out, so that if the first search
+    kept its earlier cuts, it would return other vectors for some syndromes, such as the support
+    {3} rather than {2, 4} for the syndrome 0010.  After ``use_query_overlap_words``, and after the
+    symmetry, queries tabulate no cuts.
+    """
+    tabulated: list[object] = []
+    get_overlap_cuts = cs._get_overlap_cuts
+
+    def record(*args: Any) -> Any:
+        tabulated.append(args)
+        return get_overlap_cuts(*args)
+
+    monkeypatch.setattr(cs, "_get_overlap_cuts", record)
+    code = codes.SurfaceCode(3)
+    checks = code.matrix_z.view(np.ndarray).astype(np.uint8)
+    words = code.matrix_x.view(np.ndarray).astype(np.uint8)
+    turn = np.arange(9)[::-1].copy()
+    early = get_search(checks, words)
+    early.use_query_overlap_words(words)
+    early._use_automorphisms(turn[None])
+    late = get_search(checks, words)
+    late._use_automorphisms(turn[None])
+    late.use_query_overlap_words(words)
+    num_tabulated = len(tabulated)
+
+    vectors = np.array(list(itertools.product([0, 1], repeat=9)), dtype=np.uint8)
+    for syndrome in itertools.product([0, 1], repeat=len(checks)):
+        weights = vectors[np.all(vectors @ checks.T % 2 == syndrome, axis=1)].sum(axis=1)
+        answers = [search.find_vector_with_syndrome(syndrome, 2) for search in (early, late)]
+        symbols = [None if answer is None else answer.tolist() for answer in answers]
+        assert symbols[0] == symbols[1]
+        assert (answers[0] is None) == (weights.min() > 2)
+        if answers[0] is not None:
+            vector = get_vector(answers[0], 9, False)
+            assert np.array_equal(checks @ vector % 2, syndrome) and vector.sum() <= 2
+    assert len(tabulated) == num_tabulated
+
+
 def test_query_overlap_words_must_satisfy_the_checks_and_need_the_switch() -> None:
     """Query words must be a binary matrix as wide as the checks, and satisfy them.
 
@@ -548,11 +650,14 @@ def test_query_overlap_words_must_satisfy_the_checks_and_need_the_switch() -> No
     assert query_symbols(search) == [0, 1]
 
 
-def test_each_support_is_visited_once_above_its_least_variable() -> None:
+@pytest.mark.parametrize("num_threads", [1, 8])
+def test_each_support_is_visited_once_above_its_least_variable(
+    num_threads: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With every word excluded, a search visits the supports that grow from each root once.
 
     The overlap cuts are off, since the excluded words would cut some of these supports, and so are
-    the sums of pairs of checks, which would add the check {0, 3}.
+    the sums of pairs of checks, which would add the check {0, 3}.  On threads, every limit splits.
     """
     # The checks {0, 1, 2} and {1, 2, 3} have the words {0, 1, 3}, {0, 2, 3}, and {1, 2}.  At limit
     # 4, root 0 visits {0}, {0, 1}, {0, 1, 2}, {0, 1, 3}, {0, 2}, and {0, 2, 3}, since its branch on
@@ -560,14 +665,21 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
     # only themselves.  At limit 2, {0, 1} and {0, 2} leave a check unsatisfied, so they would need
     # a third variable.
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
+    calls = record_thread_counts(monkeypatch)
     num_states = {}
     for max_weight in (2, 4):
         search = get_search(
-            checks, get_kernel(checks), stabilizer_overlap_cuts=False, pair_sum_checks=False
+            checks,
+            get_kernel(checks),
+            stabilizer_overlap_cuts=False,
+            pair_sum_checks=False,
+            num_threads=num_threads,
+            split_minimum_states=-1,
         )
         assert search.find_witness(max_weight) is None
         num_states[max_weight] = search.num_states
     assert num_states == {2: 5, 4: 6 + 2 + 1 + 1}
+    assert bool(calls) == (num_threads > 1)
 
 
 def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
@@ -591,7 +703,7 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
     """The search from the root of an orbit uses no variable of an earlier orbit."""
     code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     order = np.random.default_rng(0).permutation(len(code))
-    automorphisms = np.argsort(order)[code._get_qudit_automorphisms()[:, order]]
+    automorphisms = np.argsort(order)[code._get_permutation_automorphisms()[:, order]]
     problem = (get_sectors(code)[0][0][:, order], get_sectors(code)[0][1][:, order])
 
     # The orbits under translations are the two blocks of 36 qubits, which the shuffle interleaves.
@@ -692,7 +804,9 @@ def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
 def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     """Pruning rules out witnesses of weight up to 8 in a [[276, 98, 14]] code in few states."""
     code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
-    search = get_search(*get_sectors(code)[0], get_automorphisms=code._get_qudit_automorphisms)
+    search = get_search(
+        *get_sectors(code)[0], get_automorphisms=code._get_permutation_automorphisms
+    )
     assert search.find_witness(8) is None
 
     # The bound on the states fails if states stop forbidding variables for their subtrees (Section
@@ -718,7 +832,8 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     # only the root, since the variables of lower rank are blocked.  {1} leaves checks 0, 2, and 3
     # unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a
     # check with no available variable.  If the search without the restriction stopped pruning by Y,
-    # it would also visit a child of {1}, and the equality would fail.
+    # it would also visit a child of {1}, and the equality would fail.  The counts rely on ties
+    # going to the first check, so a change of the tie-break needs a new instance.
     checks = np.array(
         [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
     )
@@ -731,43 +846,6 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     assert num_states[False] == num_states[True] + 1
 
 
-def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() -> None:
-    """Switching the restriction off also turns it off at the starting state of a syndrome query."""
-    # The query of syndrome 1101 at limit W = 2 starts with checks 0, 1, and 3 unsatisfied.
-    # Variable 2, in checks 0 and 3, has overlap 2, and variables 0 and 1 have overlap 1, so the
-    # checks weigh 1/2, 1, and 1/2, and Y = 2.  Since 1 + Y > W, the restriction allows only the
-    # variables that repair at least Y - 1 = 1: variable 1, of check 1, and variable 2, which
-    # repairs checks 0 and 3 (Section 3.4 of connected_cluster.md).  Each check then has one allowed
-    # variable, so the search branches on check 0, the first, and enters {2}.  Its child {1, 2}
-    # leaves check 2 unsatisfied with no room left, so b1 skips it.  Without the restriction, check
-    # 1 is the first check with the fewest available variables, one, so the search branches only to
-    # {1}.  That state leaves three checks unsatisfied, and the one more variable that the limit
-    # allows flips at most two, so b1 skips it.  The counts rely on ties going to the first check,
-    # so a change of the tie-break needs a new instance.  The search adds no sums of pairs of
-    # checks, which would change the counts.
-    checks = np.array([[1, 0, 1, 0], [0, 1, 0, 0], [1, 1, 0, 1], [0, 0, 1, 0]], dtype=np.uint8)
-    search = get_search(checks, np.zeros((0, 4), dtype=np.uint8), pair_sum_checks=False)
-    packed = cs.pack_bits(np.array([[1, 1, 0, 1]], dtype=np.uint8))[0]
-    num_states = {}
-    for restrict_viable_symbols in (True, False):
-        support, num_states[restrict_viable_symbols] = cs._search_supports(
-            search._check_starts,
-            search._check_symbols,
-            search._symbol_masks,
-            search._test_columns,
-            np.array([-1], dtype=np.int64),
-            search._ranks,
-            search._inverse_overlaps,
-            2,
-            packed,
-            True,
-            restrict_viable_symbols,
-            *search._cuts,
-        )
-        assert not len(support)
-    assert num_states == {True: 1, False: 0}
-
-
 @pytest.mark.parametrize(
     "switch", ["restrict_viable_symbols", "stabilizer_overlap_cuts", "pair_sum_checks"]
 )
@@ -775,33 +853,32 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
 def test_connected_cluster_distance_searches_read_the_switches_of_their_tuning(
     monkeypatch: pytest.MonkeyPatch, switch: str, expected: bool
 ) -> None:
-    """Distance searches pass the switches of their tuning to ``SupportSearch``."""
+    """Distance searches pass the switches of their tuning to ``SupportSearch``.
+
+    Without a tuning, they read the active one.
+    """
     changes = {switch: expected}
-    settings: list[tuple[bool, bool]] = []
+    settings: list[bool] = []
     initialize = cs.SupportSearch.__init__
     signature = inspect.signature(initialize)
 
     def record(*args: Any, **kwargs: Any) -> None:
-        arguments = signature.bind(*args, **kwargs).arguments
-        settings.append((arguments["symplectic"], arguments[switch]))
+        settings.append(signature.bind(*args, **kwargs).arguments[switch])
         initialize(*args, **kwargs)
 
-    # get_distance_css searches through core._search_css, and get_distance_pauli, whose searches are
-    # symplectic, through core._search_checks.
     monkeypatch.setattr(cs.SupportSearch, "__init__", record)
-    steane = codes.SteaneCode()
+    sectors = get_sectors(codes.SteaneCode())
     with _tuning.use_tuning(**changes):
-        get_distance_css(steane.matrix_x, steane.matrix_z, method="connected_cluster")
-        get_distance_pauli(codes.FiveQubitCode().matrix, method="connected_cluster")
-    assert set(settings) == {(False, expected), (True, expected)}
+        cs.get_distance_connected_cluster(sectors, cutoff=0)
+    assert settings and set(settings) == {expected}
 
     # Searches built with a tuning use it, whatever the active tuning, and the function that builds
     # them passes its tuning on.
     settings.clear()
     tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, **changes)
     with _tuning.use_tuning(**{switch: not expected}):
-        cs.get_distance_connected_cluster(get_sectors(steane), cutoff=0, tuning=tuning)
-    assert set(settings) == {(False, expected)}
+        cs.get_distance_connected_cluster(sectors, cutoff=0, tuning=tuning)
+    assert settings and set(settings) == {expected}
 
 
 def test_pair_sums_of_checks_save_states() -> None:
@@ -882,6 +959,35 @@ def test_wrong_automorphisms_are_rejected() -> None:
         search.find_witness(3)
 
 
+@pytest.mark.parametrize("symplectic", [False, True])
+def test_automorphisms_must_keep_the_row_space_of_the_excluded_rows(symplectic: bool) -> None:
+    """A permutation that keeps the words but not the row space of the excluded rows is rejected.
+
+    Every permutation of the variables keeps the words of the check 111, or of the Pauli XXX.  The
+    swap of variables 0 and 1 keeps the excluded row 110, or Z0 Z1, but the swap of 1 and 2 does
+    not.  Accepting the second swap would let the search skip variable 2 as a root, which is sound
+    only for permutations that keep the excluded rows too, so it could give a wrong distance
+    (Section 3.5 of ``connected_cluster.md``).  A symplectic problem moves the X and Z parts of each
+    qubit together.
+    """
+    if symplectic:
+        problem = (
+            np.array([[1, 1, 1, 0, 0, 0]], dtype=np.uint8),
+            np.array([[0, 0, 0, 1, 1, 0]], dtype=np.uint8),
+        )
+    else:
+        problem = (np.array([[1, 1, 1]], dtype=np.uint8), np.array([[1, 1, 0]], dtype=np.uint8))
+    keeps, moves = np.array([[1, 0, 2]]), np.array([[0, 2, 1]])
+    witness = get_search(
+        *problem, symplectic=symplectic, get_automorphisms=lambda: keeps
+    ).find_witness(2)
+    assert witness is not None
+    assert (is_symplectic_witness if symplectic else is_witness)(problem, witness)
+    search = get_search(*problem, symplectic=symplectic, get_automorphisms=lambda: moves)
+    with pytest.raises(ValueError, match="not an automorphism"):
+        search.find_witness(2)
+
+
 def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     """A witness of weight 3 in one sector stops the search of the other, of distance 7, at 3."""
     sectors = get_sectors(codes.TetrahedralCode())
@@ -939,23 +1045,15 @@ def test_stepped_searches_advance_the_sector_with_the_lowest_lower_bound(
     search.advance()
     assert len(limits) == num_limits
 
-    # Sectors without witnesses, and a known bound within the cutoff, leave nothing to search.
-    trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
-    for search in (
-        cs.ConnectedClusterSearch([trivial], cutoff=0),
-        cs.ConnectedClusterSearch(sectors, cutoff=3, upper_bound=3),
-    ):
-        assert search.finished and search.result == 3
-        search.advance()
-    assert len(limits) == num_limits
-
 
 def test_the_logical_test_reads_every_block() -> None:
     """The logical test finds a witness that fails only tests past the first block of 64."""
     problem = PROBLEMS["steane-X"]
     search = get_search(*problem)
     zeros = np.zeros((search.num_variables, 1), dtype=np.uint64)
-    search._test_columns = np.hstack([zeros, search._test_columns])
+    search._check_tables = search._check_tables._replace(
+        test_columns=np.hstack([zeros, search._check_tables.test_columns])
+    )
     witness = search.find_witness(3)
     assert witness is not None and is_witness(problem, witness)
 
@@ -1168,28 +1266,40 @@ def test_stepped_searches_report_their_progress_and_take_caps() -> None:
     search.advance()
     assert search.finished and search.result == 6
 
-    # A cap within the cutoff ends the search at once.
-    search = cs.ConnectedClusterSearch([sector], cutoff=5)
-    search.update_upper_bound(5)
-    assert search.finished and search.result == 5 and search.num_states == 0
-
 
 def test_the_growth_of_states_skips_a_change_of_roots() -> None:
     """The growth compares only limits from the same number of roots, which automorphisms reduce.
 
-    The search asks for the cyclic shifts before limit 4, which then searches from fewer roots.
+    The search asks for the cyclic shifts once it has visited as many states as a search without
+    them visits through limit 3.  Since the states grow from limit to limit, it asks before limit 4,
+    which then searches from fewer roots.
     """
-    shifts = np.roll(np.arange(23), 1)[None]
-    tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, automorphism_minimum_states=100)
-    search = cs.ConnectedClusterSearch(
-        [get_golay_problem()], cutoff=0, get_automorphisms=lambda: shifts, tuning=tuning
+    plain = cs.ConnectedClusterSearch(
+        [get_golay_problem()], cutoff=0, tuning=_tuning.DEFAULT_TUNING
     )
-    states, growths = [], []
+    for _ in range(3):
+        plain.advance()
+    shifts = np.roll(np.arange(23), 1)[None]
+    states: list[int] = []
+    growths: list[float | None] = []
+    asked: list[int] = []
+
+    def get_automorphisms() -> npt.NDArray[np.int_]:
+        asked.append(len(states))
+        return shifts
+
+    tuning = dataclasses.replace(
+        _tuning.DEFAULT_TUNING, automorphism_minimum_states=plain.num_states
+    )
+    search = cs.ConnectedClusterSearch(
+        [get_golay_problem()], cutoff=0, get_automorphisms=get_automorphisms, tuning=tuning
+    )
     for _ in range(5):
         num_states = search.num_states
         search.advance()
         states.append(search.num_states - num_states)
         growths.append(search.get_growth(0))
+    assert asked == [3]
     assert growths[2] == growths[3] == pytest.approx(states[2] / states[1])
     assert growths[4] == pytest.approx(np.sqrt(states[2] / states[1] * states[4] / states[3]))
 
@@ -1242,6 +1352,22 @@ def test_degenerate_checks() -> None:
     steane_code = codes.SteaneCode()
     witness = get_search(steane_code.matrix_z, steane_code.matrix_x).find_witness(3)
     assert witness is not None and is_witness((checks, excluded), witness)
+
+
+def test_distinct_rows_are_found_as_numpy_finds_them(pytestconfig: pytest.Config) -> None:
+    """``_get_unique_rows`` gives the first copies and positions of ``np.unique``, in its order.
+
+    Widths around a multiple of 8 test the packing of rows into bytes.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for width in [1, 7, 8, 9, 70]:
+        matrix = rng.integers(2, size=(12, width), dtype=np.uint8)
+        matrix[5] = matrix[0]
+        _, first_rows, positions = np.unique(matrix, axis=0, return_index=True, return_inverse=True)
+        assert [array.tolist() for array in cs._get_unique_rows(matrix)] == [
+            first_rows.tolist(),
+            positions.ravel().tolist(),
+        ]
 
 
 def get_vector(
@@ -1311,83 +1437,6 @@ def test_syndrome_queries_match_enumeration(name: str, pair_sums: bool) -> None:
     assert search.num_states == 0
 
 
-def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
-    """A failed syndrome query leaves no syndrome, restriction, or block to later roots."""
-    checks = np.array(
-        [
-            [1, 1, 1, 1, 1, 1],
-            [0, 0, 1, 0, 0, 0],
-            [1, 1, 0, 1, 0, 0],
-            [1, 0, 0, 0, 1, 0],
-            [1, 0, 0, 0, 0, 0],
-        ],
-        dtype=np.uint8,
-    )
-    search = get_search(checks, np.zeros((0, checks.shape[1])), pair_sum_checks=False)
-
-    def search_from(roots: list[int], syndrome: tuple[int, ...]) -> list[int]:
-        support, _ = cs._search_supports(
-            search._check_starts,
-            search._check_symbols,
-            search._symbol_masks,
-            search._test_columns,
-            np.array(roots, dtype=np.int64),
-            search._ranks,
-            search._inverse_overlaps,
-            2,
-            cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
-            True,
-            True,
-            *search._cuts,
-        )
-        return sorted(support.tolist())
-
-    # The syndrome query of 01001 restricts its empty state, and finds nothing within the limit.
-    syndrome = (0, 1, 0, 0, 1)
-    assert search.find_vector_with_syndrome(syndrome, 2) is None
-    no_syndrome = (0,) * len(checks)
-    roots = list(range(checks.shape[1]))
-    expected = search_from(roots, no_syndrome)
-    assert expected
-    assert search_from([-1, *roots], syndrome) == expected
-    for root in roots:
-        assert search_from([-1, root], syndrome) == search_from([root], no_syndrome)
-
-
-@pytest.mark.parametrize("name", ["nested-restrictions", "five-qubit-state"])
-def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
-    """Memoizing changes neither the support that a query returns nor its number of states."""
-    checks, symplectic = SYNDROME_PROBLEMS[name]
-    search = get_search(
-        checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic, pair_sum_checks=False
-    )
-    for bits in itertools.product([0, 1], repeat=len(search._checks)):
-        if not any(bits):
-            continue
-        packed = cs.pack_bits(np.array([bits], dtype=np.uint8))[0]
-        for roots, max_weight in itertools.product([[-1], [0, -1]], range(1, 4)):
-            results = [
-                cs._search_supports(
-                    search._check_starts,
-                    search._check_symbols,
-                    search._symbol_masks,
-                    search._test_columns,
-                    np.array(roots, dtype=np.int64),
-                    search._ranks,
-                    search._inverse_overlaps,
-                    max_weight,
-                    packed,
-                    memoize,
-                    True,
-                    *search._cuts,
-                )
-                for memoize in (False, True)
-            ]
-            # Stale memos, such as those of a search from root 0, would likely change the count.
-            assert results[0][0].tolist() == results[1][0].tolist()
-            assert results[0][1] == results[1][1]
-
-
 def test_invalid_syndrome_queries_are_rejected() -> None:
     """A syndrome needs a binary entry for each check, and a weight limit is at least zero."""
     search = get_search(*PROBLEMS["steane-X"])
@@ -1417,3 +1466,882 @@ def test_invalid_problems_are_rejected() -> None:
         get_search(
             np.ones((1, 3), dtype=np.uint8), np.ones((0, 3), dtype=np.uint8), symplectic=True
         )
+
+
+####################################################################################################
+# weight limits on threads
+
+
+def record_thread_counts(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Record the number of threads of each call of ``run_work_items``, which still runs."""
+    calls: list[int] = []
+    run_work_items = _threads.run_work_items
+
+    def record(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
+        calls.append(num_threads)
+        run_work_items(num_items, num_threads, *args, **kwargs)
+
+    monkeypatch.setattr(_threads, "run_work_items", record)
+    return calls
+
+
+def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record where the witness of each limit on threads comes from, in wrappers that still run.
+
+    The witness is in the first work item, a middle one, or the last, or above the frontier, after
+    every item.  A limit without a witness records nothing.  The wrappers number the item of each
+    claim, which holds one item.
+    """
+    # The positions, the items of the current limit whose searches found a witness, and whether a
+    # search above the frontier found one.
+    positions: list[str] = []
+    found_items: list[int] = []
+    above: list[bool] = []
+    next_item = threading.local()
+    run_work_items = _threads.run_work_items
+    search_supports = cs._search_supports
+    signature = inspect.signature(search_supports)
+
+    def run_numbered(
+        num_items: int,
+        num_threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **kwargs: Any,
+    ) -> None:
+        # Each claim numbers its item, on the thread that searches it.
+        def start_numbered(stop: threading.Event) -> Callable[[int, int], None]:
+            run_range = start_worker(stop)
+
+            def run_numbered_range(start: int, end: int) -> None:
+                next_item.index = start
+                try:
+                    run_range(start, end)
+                finally:
+                    del next_item.index
+
+            return run_numbered_range
+
+        # Run the limit, and record the position of the first item that found a witness, or else
+        # whether the witness came from above the frontier.
+        found_items.clear()
+        run_work_items(num_items, num_threads, start_numbered, **kwargs)
+        if found_items:
+            first = min(found_items)
+            positions.append(
+                "first" if first == 0 else "last" if first == num_items - 1 else "middle"
+            )
+        elif above:
+            positions.append("above")
+        above.clear()
+
+    # A search of an item records whether it found a witness, and so does a search above the
+    # frontier, which has no item.
+    def search_numbered(*args: Any, **kwargs: Any) -> Any:
+        result = search_supports(*args, **kwargs)
+        item = getattr(next_item, "index", None)
+        if item is not None:
+            if len(result[0]):
+                found_items.append(item)
+        elif signature.bind(*args, **kwargs).arguments["frontier_depth"] and len(result[0]):
+            above.append(True)
+        return result
+
+    monkeypatch.setattr(_threads, "run_work_items", run_numbered)
+    monkeypatch.setattr(cs, "_search_supports", search_numbered)
+    return positions
+
+
+def get_threaded_cases() -> Iterator[
+    tuple[Problem, bool, Callable[[], npt.NDArray[np.int_]] | None]
+]:
+    """Problems, whether each is symplectic, and how to get automorphisms, for threaded searches.
+
+    The searches of these problems split some weight limits into items so that the first witness
+    is in the first item, a middle one, or the last, or comes after every item, above the frontier
+    at which the items start.  Other limits have no witness.
+    """
+    for problem in PROBLEMS.values():
+        yield problem, False, None
+    for problem in QUBIT_PROBLEMS.values():
+        yield problem, True, None
+    # The Golay code has one root under its cyclic shifts, and 23 without them.
+    yield get_golay_problem(), False, None
+    yield get_golay_problem(), False, lambda: np.roll(np.arange(23), -1)[None]
+    # Only the last root is a witness, and on up to three threads, its 100 roots are the items.
+    checks = np.hstack([np.eye(99, dtype=np.uint8), np.zeros((99, 1), dtype=np.uint8)])
+    yield (checks, np.zeros((0, 100), dtype=np.uint8)), False, None
+
+
+def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In chunks and on threads, each weight limit finds the witness and states of one call.
+
+    The limits run past the distance, with the restriction to viable symbols and the overlap cuts
+    both on or both off (Section 3.11 of ``connected_cluster.md``).  Chunks of one state resume the
+    search after every state, on one thread and on threads.  The threads run with every array of
+    the search read-only.  The first witness of some limit is in each of the positions that
+    ``get_threaded_cases`` names, in a case with at least as many roots as the 8 threads.  So a
+    witness above the frontier shows that the frontier deepens to more items than one per thread.
+    """
+    calls = record_thread_counts(monkeypatch)
+    positions = record_witness_positions(monkeypatch)
+    # The roots and paths of the work items, which _search_on_threads makes for the threads, are not
+    # reached from the search, so they stay writeable (Section 5 of connected_cluster.md).
+    checked = check_shared_arrays_on_threads(monkeypatch, lambda *_, **__: [search])
+    many_root_positions: set[str] = set()
+    for (problem, symplectic, get_automorphisms), switch in itertools.product(
+        get_threaded_cases(), [True, False]
+    ):
+        num_positions = len(positions)
+        results = []
+        for num_threads, chunk_states in [
+            (1, cs.MAX_VALUE),
+            (3, cs.MAX_VALUE),
+            (8, cs.MAX_VALUE),
+            (1, 1),
+            (8, 1),
+        ]:
+            search = get_search(
+                *problem,
+                symplectic=symplectic,
+                get_automorphisms=get_automorphisms,
+                restrict_viable_symbols=switch,
+                stabilizer_overlap_cuts=switch,
+                num_threads=num_threads,
+                split_minimum_states=-1,
+                chunk_states=chunk_states,
+            )
+            results.append(
+                [
+                    (None if witness is None else witness.tolist(), search.num_states)
+                    for witness in map(search.find_witness, range(1, 8))
+                ]
+            )
+        assert all(result == results[0] for result in results)
+        # Without automorphisms, every variable is a root.
+        num_variables = problem[0].shape[1] // 2 if symplectic else problem[0].shape[1]
+        if get_automorphisms is None and num_variables >= 8:
+            many_root_positions.update(positions[num_positions:])
+    assert set(calls) == {3, 8}
+    assert len(checked) == len(calls) and min(checked) > 0
+    assert many_root_positions == {"first", "middle", "last", "above"}
+
+
+def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each limit cuts with the tables of its current ranks, which it tabulates before its threads.
+
+    A wrapper of ``_get_overlap_cuts`` records the ranks and the tables of each tabulation, and a
+    wrapper of ``_search_supports`` checks that each call gets the latest of them, the same objects,
+    and so never tables of ranks from before a symmetry.  The searches of two problems learn their
+    symmetries at a later limit, and tabulate their cuts again at the start of that limit:
+
+    - The problem of ``test_overlap_cuts_follow_the_ranks_of_symmetries`` learns its permutation at
+      its third limit, at which the new tables give the witness of a search that learns it first,
+      [0, 5], where the tables of its ranks by index would give [0, 1].  With a threshold of one
+      state, this relies on the search predicting no states for its first two limits.
+    - The Golay code learns its cyclic shifts once it has visited as many states as a search without
+      them visits through its third limit, a number of states that its first limit does not reach.
+      It runs on four threads, with a split gate that splits every limit, and with
+      ``ITEMS_PER_THREAD`` set to one.  Its first limit then runs on threads under the tables of its
+      ranks by index, since its 23 roots are enough items.  Its last limit, which has a witness,
+      runs on threads under the tables that it tabulated again with the shifts.  It finds the
+      witnesses, and visits the states, of one thread.
+
+    A limit tabulates its cuts before it calls ``_search_on_threads``, so no tabulation can happen
+    while threads run.  The test checks this as well.
+    """
+    events: list[str] = []
+    tabulations: list[tuple[npt.NDArray[np.int64], tuple[npt.NDArray[np.int64], ...]]] = []
+    get_overlap_cuts = cs._get_overlap_cuts
+    search_supports = cs._search_supports
+    run_work_items = _threads.run_work_items
+
+    def record_cuts(words: Any, ranks: npt.NDArray[np.int64], symplectic: bool) -> Any:
+        events.append("cuts")
+        tables = get_overlap_cuts(words, ranks, symplectic)
+        tabulations.append((ranks, tables))
+        return tables
+
+    def check_cuts(*args: Any) -> Any:
+        ranks, tables = tabulations[-1]
+        # Argument 7 is the ranks, and the last six are the tables of the cuts.
+        assert args[7] is ranks
+        assert all(passed is table for passed, table in zip(args[-6:], tables, strict=True))
+        return search_supports(*args)
+
+    def record_threads(*args: Any, **kwargs: Any) -> None:
+        events.append("start")
+        run_work_items(*args, **kwargs)
+        events.append("end")
+
+    monkeypatch.setattr(cs, "_get_overlap_cuts", record_cuts)
+    monkeypatch.setattr(cs, "_search_supports", check_cuts)
+    monkeypatch.setattr(_threads, "run_work_items", record_threads)
+
+    # The 8-variable problem learns its permutation at its first limit, or at its third.
+    checks, excluded, automorphism = get_ranked_cut_problem()
+    witnesses = []
+    for minimum_states in (0, 1):
+        search = get_search(
+            checks,
+            excluded,
+            get_automorphisms=lambda: automorphism[None],
+            automorphism_minimum_states=minimum_states,
+        )
+        witnesses.append([search.find_witness(max_weight) for max_weight in (1, 2, 3)])
+    assert len(tabulations) == 3
+    symbols = [[None if w is None else w.tolist() for w in limits] for limits in witnesses]
+    assert symbols[1] == [None, [0, 1], [0, 5]] and symbols[0][2] == [0, 5]
+
+    # The Golay code learns its shifts at a limit after its first, on one thread and on four, which
+    # split its limits into items of one per thread.
+    plain = get_search(*get_golay_problem())
+    for max_weight in (1, 2, 3):
+        plain.find_witness(max_weight)
+    monkeypatch.setattr(_threads, "ITEMS_PER_THREAD", 1)
+    results = []
+    for num_threads in (1, 4):
+        events.clear()
+        search = get_search(
+            *get_golay_problem(),
+            get_automorphisms=lambda: np.roll(np.arange(23), -1)[None],
+            automorphism_minimum_states=plain.num_states,
+            num_threads=num_threads,
+            split_minimum_states=-1,
+        )
+        golay_witnesses = [search.find_witness(max_weight) for max_weight in range(1, 8)]
+        results.append(
+            ([None if w is None else w.tolist() for w in golay_witnesses], search.num_states)
+        )
+        assert events.count("cuts") == 2
+    assert results[0] == results[1] and results[0][0][-1] is not None
+    starts = [index for index, event in enumerate(events) if event == "start"]
+    cuts = [index for index, event in enumerate(events) if event == "cuts"]
+    assert cuts[0] < starts[0] < cuts[1] < starts[-1]
+    assert all(events[start + 1] == "end" for start in starts)
+
+
+@pytest.mark.parametrize("cutoff", [0, 6])
+def test_distance_searches_on_threads_take_the_steps_of_one_thread(
+    cutoff: int, tune: Tune, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A distance search on threads takes the limits, and counts the states, of one thread.
+
+    At exponent 0, every limit on eight threads that is predicted to visit more than two states
+    splits, into many items.  A cutoff makes the search exit at its first limit, which visits
+    states; on eight threads, the frontier passes of that limit find the witness.  Except at that
+    limit on eight threads, the searches of the limits run in chunks of
+    ``2**search_chunk_exponent`` states, here one, and some stop early (Section 3.6 of
+    ``connected_cluster.md``).
+    """
+    tune(search_chunk_exponent=0)
+    calls = record_thread_counts(monkeypatch)
+    search_supports = cs._search_supports
+    # The budget of each call of a limit, and whether it stopped early.
+    chunks: list[tuple[int, bool]] = []
+
+    def record_chunks(*args: Any) -> tuple[npt.NDArray[np.int64], ...]:
+        result = search_supports(*args)
+        arguments = get_kernel_arguments(args)
+        if len(arguments["roots"]) and not arguments["frontier_depth"]:
+            chunks.append((arguments["max_states"], bool(len(result[3]))))
+        return result
+
+    monkeypatch.setattr(cs, "_search_supports", record_chunks)
+    sectors = get_sectors(codes.ToricCode(4))
+    steps: list[list[Any]] = []
+    for num_threads in (1, 8):
+        tune(num_threads=num_threads)
+        chunks.clear()
+        search = cs.ConnectedClusterSearch(sectors, cutoff=cutoff)
+        steps.append([])
+        while not search.finished:
+            limit = search.next_limit
+            search.advance()
+            steps[-1].append((limit, search.num_states))
+        steps[-1].append(search.result)
+        if num_threads == 1 or not cutoff:
+            assert {budget for budget, _ in chunks} == {1}
+            assert any(stopped for _, stopped in chunks)
+    assert steps[0] == steps[1]
+    assert calls and set(calls) == {8}
+    assert (steps[0][-1] == 4) if cutoff == 0 else (4 <= steps[0][-1] <= cutoff)
+
+
+def test_the_frontier_deepens_to_about_a_chunk_of_states_for_each_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The frontier of a limit on threads deepens to the predicted number of chunks of states.
+
+    The Golay code has one root under its cyclic shifts.  With chunks of one state, its last three
+    limits on two threads predict more than 40 chunks, so their frontiers deepen to at least
+    ``_MAX_ITEMS`` items, here 40.  With chunks without a limit, every frontier stops once it has
+    ``ITEMS_PER_THREAD`` items for each thread, here one, which takes fewer than 40 items (Section
+    3.11 of ``connected_cluster.md``).
+    """
+    calls = record_thread_counts(monkeypatch)
+    num_items: list[int] = []
+    run_work_items = _threads.run_work_items
+
+    def record_items(count: int, *args: Any, **kwargs: Any) -> None:
+        num_items.append(count)
+        run_work_items(count, *args, **kwargs)
+
+    monkeypatch.setattr(_threads, "run_work_items", record_items)
+    monkeypatch.setattr(_threads, "ITEMS_PER_THREAD", 1)
+    monkeypatch.setattr(cs, "_MAX_ITEMS", 40)
+    items = []
+    for chunk_states in (1, cs.MAX_VALUE):
+        num_items.clear()
+        search = get_search(
+            *get_golay_problem(),
+            get_automorphisms=lambda: np.roll(np.arange(23), -1)[None],
+            num_threads=2,
+            split_minimum_states=-1,
+            chunk_states=chunk_states,
+        )
+        for max_weight in range(1, 8):
+            if max_weight >= 5:
+                assert search._predict_states(max_weight) > 40
+            search.find_witness(max_weight)
+        items.append(list(num_items))
+    assert len(items[0]) >= 3 and min(items[0][-3:]) >= 40
+    assert items[1] and max(items[1]) < 40
+    assert calls
+
+
+def test_limits_split_across_threads_only_if_costly(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune
+) -> None:
+    """A limit runs on threads only if it is predicted to visit more states than its split gate.
+
+    The gate is ``(num_threads << search_chunk_exponent) >> connected_cluster_split_shift`` states.
+    The second and last limit of this search is predicted to visit far fewer states than the gate of
+    two threads at the default exponent and shift, and more than the gate at exponent 0, which is
+    zero, or at the default exponent and the largest shift, which is zero too.
+    """
+    calls = record_thread_counts(monkeypatch)
+    problem = PROBLEMS["toric-X"]
+    tune(num_threads=2)
+    for exponent, shift, splits in [(15, 2, False), (0, 2, True), (15, 62, True)]:
+        calls.clear()
+        with _tuning.use_tuning(
+            search_chunk_exponent=exponent, connected_cluster_split_shift=shift
+        ):
+            assert cs.get_distance_connected_cluster([problem], cutoff=0) == 4
+        assert (bool(calls) and set(calls) == {2}) if splits else not calls
+    calls.clear()
+    tune(num_threads=1, search_chunk_exponent=0)
+    assert cs.get_distance_connected_cluster([problem], cutoff=0) == 4
+    assert not calls
+
+
+def test_an_error_in_a_thread_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An error in the search of an item reaches the caller once every thread has returned."""
+    search_supports = cs._search_supports
+    signature = inspect.signature(search_supports)
+
+    def fail_items(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
+        arguments = signature.bind(*args, **kwargs).arguments
+        if arguments["frontier_depth"] == 0 and len(arguments["roots"]):
+            raise RuntimeError("failed item")
+        return search_supports(*args, **kwargs)
+
+    # With 100 roots and two threads, the roots are the items, whatever the limit.
+    monkeypatch.setattr(cs, "_search_supports", fail_items)
+    problem = (np.zeros((0, 100), dtype=np.uint8), np.zeros((0, 100), dtype=np.uint8))
+    search = get_search(*problem, num_threads=2, split_minimum_states=-1)
+    num_threads = threading.active_count()
+    with pytest.raises(RuntimeError, match="failed item"):
+        search.find_witness(1)
+    assert threading.active_count() == num_threads
+
+
+def get_ring_problem(num_ring: int) -> Problem:
+    """A problem whose variable 0 is a witness alone, followed by a ring of variables.
+
+    The checks of the ring are its edges, so its only nonzero word is all of it, and a search from
+    one of its variables visits many arcs of the ring below that weight.
+    """
+    checks = np.zeros((num_ring, num_ring + 1), dtype=np.uint8)
+    for index in range(num_ring):
+        checks[index, 1 + index] = checks[index, 1 + (index + 1) % num_ring] = 1
+    return checks, np.zeros((0, num_ring + 1), dtype=np.uint8)
+
+
+@pytest.mark.parametrize("later_first", [True, False])
+def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
+    later_first: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A witness of a later item never displaces that of an earlier item, whichever ends first.
+
+    Every symbol of this problem is a witness, so each of its 100 roots is an item with a witness.
+    On two threads, item 0 runs either after a later item has run, or while a later item that has
+    started searching waits for it.
+    """
+    later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
+    run_work_items = _threads.run_work_items
+    search_supports = cs._search_supports
+    signature = inspect.signature(search_supports)
+
+    def gated_run(
+        num_items: int,
+        num_threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **kwargs: Any,
+    ) -> None:
+        def gated_start(stop: threading.Event) -> Callable[[int, int], None]:
+            run_range = start_worker(stop)
+
+            def gated_range(start: int, end: int) -> None:
+                if start == 0:
+                    assert (later_ran if later_first else later_started).wait(
+                        timeout=THREAD_TIMEOUT
+                    )
+                run_range(start, end)
+                (later_ran if start else first_ran).set()
+
+            return gated_range
+
+        run_work_items(num_items, num_threads, gated_start, **kwargs)
+
+    def gated_search(*args: Any, **kwargs: Any) -> Any:
+        roots = signature.bind(*args, **kwargs).arguments["roots"]
+        if not later_first and len(roots) and roots[0] != 0:
+            later_started.set()
+            assert first_ran.wait(timeout=THREAD_TIMEOUT)
+        return search_supports(*args, **kwargs)
+
+    problem = (np.zeros((0, 100), dtype=np.uint8), np.zeros((0, 100), dtype=np.uint8))
+    serial = get_search(*problem)
+    expected = serial.find_witness(1)
+    monkeypatch.setattr(_threads, "run_work_items", gated_run)
+    monkeypatch.setattr(cs, "_search_supports", gated_search)
+    search = get_search(*problem, num_threads=2, split_minimum_states=-1)
+    witness = search.find_witness(1)
+    assert later_ran.is_set() and first_ran.is_set()
+    assert witness is not None and expected is not None
+    assert witness.tolist() == expected.tolist() and search.num_states == serial.num_states
+
+
+@pytest.mark.parametrize("ends_by", ["witness", "error"])
+def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_limit(
+    ends_by: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A thread searches no further chunk of an item once an earlier item ends the limit.
+
+    Variable 0 of this problem is a witness alone, and the search from a variable of its ring is
+    long (see ``get_ring_problem``).  Under the rotations of the ring, the roots are 0 and 1, which
+    are the items on two threads, and the limit runs in chunks of one state.  The search of item 0
+    finds that witness, or raises an error, while the other thread searches the first chunk of item
+    1.  After the witness, that thread searches no further chunk of item 1, though it had more to
+    search; after the error, the stop event ends it.
+    """
+    later_started, first_ran = threading.Event(), threading.Event()
+    stops: list[threading.Event] = []
+    ranges: list[tuple[int, int]] = []
+    later_calls: list[tuple[int, bool]] = []
+    run_work_items = _threads.run_work_items
+    search_supports = cs._search_supports
+
+    def gated_run(
+        num_items: int,
+        num_threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **kwargs: Any,
+    ) -> None:
+        def gated_start(stop: threading.Event) -> Callable[[int, int], None]:
+            stops.append(stop)
+            run_range = start_worker(stop)
+
+            def gated_range(start: int, end: int) -> None:
+                ranges.append((start, end))
+                if start == 0:
+                    assert later_started.wait(timeout=THREAD_TIMEOUT)
+                try:
+                    run_range(start, end)
+                finally:
+                    if start == 0:
+                        first_ran.set()
+
+            return gated_range
+
+        run_work_items(num_items, num_threads, gated_start, **kwargs)
+
+    def gated_search(*args: Any) -> Any:
+        arguments = get_kernel_arguments(args)
+        roots, frontier_depth = arguments["roots"], arguments["frontier_depth"]
+        if frontier_depth == 0 and len(roots):
+            if roots[0] == 0 and ends_by == "error":
+                raise RuntimeError("failed item 0")
+            if roots[0] != 0:
+                later_started.set()
+                assert (first_ran if ends_by == "witness" else stops[0]).wait(
+                    timeout=THREAD_TIMEOUT
+                )
+                result = search_supports(*args)
+                later_calls.append((int(roots[0]), bool(len(result[3]))))
+                return result
+        return search_supports(*args)
+
+    monkeypatch.setattr(_threads, "run_work_items", gated_run)
+    monkeypatch.setattr(cs, "_search_supports", gated_search)
+    monkeypatch.setattr(_threads, "ITEMS_PER_THREAD", 0)
+    monkeypatch.setattr(cs, "_MAX_ITEMS", 0)
+    rotation = np.array([[0, *range(2, 31), 1]])
+    search = get_search(
+        *get_ring_problem(30),
+        get_automorphisms=lambda: rotation,
+        num_threads=2,
+        split_minimum_states=-1,
+        chunk_states=1,
+    )
+    if ends_by == "witness":
+        witness = search.find_witness(8)
+        assert witness is not None and witness.tolist() == [0]
+    else:
+        with pytest.raises(RuntimeError, match="failed item 0"):
+            search.find_witness(8)
+
+    # The other thread searched one chunk of item 1, which had more to search.
+    assert search._roots.tolist() == [0, 1] and ranges and first_ran.is_set()
+    assert later_calls == [(1, True)]
+
+
+@pytest.mark.parametrize("num_threads", [1, 2])
+def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
+    num_threads: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A keyboard interrupt on the calling thread ends a limit within a chunk on each thread.
+
+    Python raises an interrupt that arrives during a compiled call once the call returns, as the
+    wrapper of ``_search_supports`` here raises one after a call of the calling thread that stops
+    with more to search.  On two threads, the other thread starts only once the calling thread has,
+    and the interrupt waits until the other thread has searched a chunk.  Most roots of the toric
+    code are items whose searches at this limit, which has no witness, span several chunks of one
+    state.  So the search ends before the limit does, and the other thread starts at most one chunk
+    once the interrupt has set the stop event of the threads.
+    """
+    problem = get_sectors(codes.ToricCode(6))[0]
+    serial = get_search(*problem)
+    assert serial.find_witness(5) is None
+    stops: list[threading.Event] = []
+    main_started, other_started = threading.Event(), threading.Event()
+    run_work_items = _threads.run_work_items
+    search_supports = cs._search_supports
+    # The states that each call counted, and whether it started after the stop event was set.
+    calls: list[tuple[int, bool]] = []
+
+    def record_stops(
+        num_items: int,
+        num_threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **kwargs: Any,
+    ) -> None:
+        def start(stop: threading.Event) -> Callable[[int, int], None]:
+            stops.append(stop)
+            return start_worker(stop)
+
+        run_work_items(num_items, num_threads, start, **kwargs)
+
+    def interrupt(*args: Any) -> Any:
+        on_main = threading.current_thread() is threading.main_thread()
+        searches_items = len(get_kernel_arguments(args)["roots"]) > 0
+        if searches_items:
+            if on_main:
+                main_started.set()
+            else:
+                assert main_started.wait(timeout=THREAD_TIMEOUT)
+        after = any(stop.is_set() for stop in stops)
+        result = search_supports(*args)
+        if searches_items:
+            calls.append((int(np.sum(result[1])), after))
+            if not on_main:
+                other_started.set()
+            elif len(result[3]) and not after:
+                assert num_threads == 1 or other_started.wait(timeout=THREAD_TIMEOUT)
+                raise KeyboardInterrupt
+        return result
+
+    monkeypatch.setattr(_threads, "ITEMS_PER_THREAD", 0)
+    monkeypatch.setattr(cs, "_MAX_ITEMS", 0)
+    monkeypatch.setattr(_threads, "run_work_items", record_stops)
+    monkeypatch.setattr(cs, "_search_supports", interrupt)
+    search = get_search(*problem, num_threads=num_threads, split_minimum_states=-1, chunk_states=1)
+    with pytest.raises(KeyboardInterrupt):
+        search.find_witness(5)
+    assert max(states for states, _ in calls) <= 1
+    assert sum(after for _, after in calls) <= num_threads - 1
+    assert sum(states for states, _ in calls) < serial.num_states
+
+
+####################################################################################################
+# native search
+
+
+def run_search_supports(
+    search: cs.SupportSearch,
+    roots: npt.ArrayLike,
+    max_weight: int,
+    start_syndrome: npt.NDArray[np.uint64] | None = None,
+    *,
+    resume: npt.NDArray[np.int64] = cs._NO_PATH,
+    ends: npt.NDArray[np.int64] = cs._NO_PATH,
+    max_states: int = cs.MAX_VALUE,
+    fixed_words: tuple[int, ...] | None = None,
+    memoize: bool = False,
+    restrict_viable_symbols: bool = True,
+) -> tuple[npt.NDArray[np.int64], ...]:
+    """Run ``_search_supports`` with the tables of a search, from whole roots.
+
+    The overlap cuts are those of the rows of ``excluded`` under the current ranks.  The starting
+    syndrome is zero unless given, and ``fixed_words`` selects the version for its number of words
+    unless given.
+    """
+    roots = np.asarray(roots, dtype=np.int64)
+    if start_syndrome is None:
+        start_syndrome = np.zeros(search._check_tables.symbol_masks.shape[1], dtype=np.uint64)
+    if fixed_words is None:
+        fixed_words = cs._get_fixed_words(len(start_syndrome))
+    return cs._search_supports(
+        *search._check_tables,
+        roots,
+        np.empty((len(roots), 0), dtype=np.int64),
+        0,
+        search._ranks,
+        search._inverse_overlaps,
+        max_weight,
+        resume,
+        ends,
+        max_states,
+        start_syndrome,
+        fixed_words,
+        memoize,
+        restrict_viable_symbols,
+        *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
+    )
+
+
+def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() -> None:
+    """Switching the restriction off also turns it off at the starting state of a syndrome query."""
+    # The query of syndrome 1101 at limit W = 2 starts with checks 0, 1, and 3 unsatisfied.
+    # Variable 2, in checks 0 and 3, has overlap 2, and variables 0 and 1 have overlap 1, so the
+    # checks weigh 1/2, 1, and 1/2, and Y = 2.  Since 1 + Y > W, the restriction allows only the
+    # variables that repair at least Y - 1 = 1: variable 1, of check 1, and variable 2, which
+    # repairs checks 0 and 3 (Section 3.4 of connected_cluster.md).  Each check then has one allowed
+    # variable, so the search branches on check 0, the first, and enters {2}.  Its child {1, 2}
+    # leaves check 2 unsatisfied with no room left, so b1 skips it.  Without the restriction, check
+    # 1 is the first check with the fewest available variables, one, so the search branches only to
+    # {1}.  That state leaves three checks unsatisfied, and the one more variable that the limit
+    # allows flips at most two, so b1 skips it.  The counts rely on ties going to the first check,
+    # so a change of the tie-break needs a new instance.  The search adds no sums of pairs of
+    # checks, which would change the counts.
+    checks = np.array([[1, 0, 1, 0], [0, 1, 0, 0], [1, 1, 0, 1], [0, 0, 1, 0]], dtype=np.uint8)
+    search = get_search(checks, np.zeros((0, 4), dtype=np.uint8), pair_sum_checks=False)
+    packed = pack_bits(np.array([[1, 1, 0, 1]], dtype=np.uint8))[0]
+    num_states = {}
+    for restrict_viable_symbols in (True, False):
+        support, item_states, *_ = run_search_supports(
+            search, [-1], 2, packed, memoize=True, restrict_viable_symbols=restrict_viable_symbols
+        )
+        assert not len(support)
+        num_states[restrict_viable_symbols] = int(np.sum(item_states))
+    assert num_states == {True: 1, False: 0}
+
+
+@pytest.mark.parametrize("symplectic", [False, True])
+def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
+    monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config, symplectic: bool
+) -> None:
+    """The version of the search for two-word syndromes and the general version search alike.
+
+    They find the same witnesses and vectors with a syndrome, and visit the same states.  The
+    problems have 70 checks, and the searches add no sums of pairs of checks, so the syndromes have
+    two words.  With ``_MAX_FIXED_WORDS`` set to one, these syndromes are wider than it, so they
+    take the general version.  The limits at and below the distance run on one thread and on three.
+    On three threads, they also run the frontier passes and the items of each version.  The queries
+    run on one thread.  On one thread, every call of the compiled search returns the same with
+    either version.
+    """
+    # A small number of words gets a version of its own, and a large one the general version.
+    assert cs._get_fixed_words(1) == (0,)
+    assert cs._get_fixed_words(4 * cs._MAX_FIXED_WORDS) == ()
+
+    # Variables 0 and 1 are in every check of a block, and every other variable in one, so the
+    # lightest nonzero words act on variables 0 and 1 alone, and weigh 2.  The binary problem has a
+    # block of 70 checks, and the symplectic problem a block of 35 X-type checks and one of 35
+    # Z-type checks.
+    def get_block(num_checks: int) -> npt.NDArray[np.uint8]:
+        """Checks that each hold variables 0 and 1, and one variable of their own."""
+        ones = np.ones((num_checks, 2), dtype=np.uint8)
+        return np.hstack([ones, np.eye(num_checks, dtype=np.uint8)])
+
+    distance = 2
+    if symplectic:
+        block = get_block(35)
+        checks = np.block([[block, np.zeros_like(block)], [np.zeros_like(block), block]])
+    else:
+        checks = get_block(70)
+    problem = (checks, np.zeros((0, checks.shape[1]), dtype=np.uint8))
+    width = checks.shape[1]
+    num_variables = width // 2 if symplectic else width
+    products = np.roll(checks, num_variables, axis=1) if symplectic else checks
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    syndromes = [
+        products @ get_vector(rng.choice(width, 2, replace=False), width, False) % 2
+        for _ in range(3)
+    ]
+
+    # Record what each call of the compiled search returns, and the length of its fixed_words, which
+    # is zero for the general version.
+    calls: list[tuple[int, list[int], list[int]]] = []
+    search_supports = cs._search_supports
+
+    def record(*args: Any) -> tuple[npt.NDArray[np.int64], ...]:
+        result = search_supports(*args)
+        fixed_words = get_kernel_arguments(args)["fixed_words"]
+        calls.append((len(fixed_words), result[0].tolist(), result[1].tolist()))
+        return result
+
+    monkeypatch.setattr(cs, "_search_supports", record)
+    results = []
+    for max_fixed_words, expected_length in [(cs._MAX_FIXED_WORDS, 2), (1, 0)]:
+        monkeypatch.setattr(cs, "_MAX_FIXED_WORDS", max_fixed_words)
+        for num_threads in (1, 3):
+            calls.clear()
+            search = get_search(
+                *problem,
+                symplectic=symplectic,
+                pair_sum_checks=False,
+                num_threads=num_threads,
+                split_minimum_states=-1,
+            )
+            no_witness, witness = map(search.find_witness, (distance - 1, distance))
+            assert no_witness is None and witness is not None and len(witness) == distance
+            vectors = []
+            for syndrome in syndromes:
+                symbols = search.find_vector_with_syndrome(syndrome, 2)
+                assert symbols is not None and len(symbols) <= 2
+                vector = get_vector(symbols, width, symplectic)
+                assert np.array_equal(products @ vector % 2, syndrome)
+                vectors.append(symbols.tolist())
+            assert {length for length, _, _ in calls} == {expected_length}
+            # Threads may or may not run the items after a witness, in any order.
+            returned = [call[1:] for call in calls] if num_threads == 1 else None
+            results.append((returned, witness.tolist(), search.num_states, vectors))
+    assert results[0] == results[2] and results[1] == results[3]
+    assert results[0][1:] == results[1][1:]
+
+
+def test_a_wrong_number_of_fixed_words_is_rejected() -> None:
+    """A version for a number of words of a syndrome is never run on syndromes of other widths.
+
+    Steane's checks have syndromes of one word, and the X sector of the distance-13 surface code
+    syndromes of two, which are given too many and too few fixed words.
+    """
+    surface = codes.SurfaceCode(13)
+    surface_x = (np.asarray(surface.matrix_z, np.uint8), np.asarray(surface.matrix_x, np.uint8))
+    for problem, fixed_words in [(PROBLEMS["steane-X"], (0, 0)), (surface_x, (0,))]:
+        search = get_search(*problem)
+        assert len(fixed_words) != search._check_tables.symbol_masks.shape[1]
+        with pytest.raises(ValueError, match="fixed_words"):
+            run_search_supports(search, search._roots, 3, fixed_words=fixed_words)
+
+
+@pytest.mark.parametrize(("max_weight", "root"), [(5, 0), (6, 1)])
+def test_a_split_call_finds_the_witness_and_counts_the_states_of_one(
+    max_weight: int, root: int
+) -> None:
+    """Two calls of a split, in DFS order, find the witness and count the states of the call.
+
+    Each call searches one item, as a split requires.  A search from a root of the X sector of the
+    toric code of distance 6 runs in chunks of one state, at a limit below the distance, or at the
+    distance, from a root whose splits give the witness to either call.  At each stop, for each
+    state of the path that it returns, and each branch above its entry in the path and below its
+    end, the call that goes on is split there, as ``_search_supports`` describes.
+    """
+    search = get_search(*get_sectors(codes.ToricCode(6))[0])
+    roots = search._roots[root : root + 1]
+
+    def call(resume: npt.NDArray[np.int64], ends: npt.NDArray[np.int64], max_states: int) -> Any:
+        """The witness and count of a search from the root, and the path and ends it returns."""
+        support, item_states, _, path, path_ends = run_search_supports(
+            search, roots, max_weight, resume=resume, ends=ends, max_states=max_states
+        )
+        return support.tolist(), int(item_states[0]), path, path_ends
+
+    # The number of splits in which the first call has the witness, in which only the second does,
+    # and in which neither does.
+    witnesses_found = [0, 0, 0]
+    _, _, resume, ends = call(cs._NO_PATH, cs._NO_PATH, 1)
+    while len(resume):
+        witness, states, _, _ = call(resume, ends, cs.MAX_VALUE)
+        for depth in range(len(resume)):
+            for branch in range(resume[depth] + 1, ends[depth]):
+                first_ends = np.concatenate([resume[:depth] + 1, [branch], ends[depth + 1 :]])
+                first_witness, first_states, _, _ = call(resume, first_ends, cs.MAX_VALUE)
+                second_witness, second_states, _, _ = call(
+                    np.append(resume[:depth], branch), ends[: depth + 1], cs.MAX_VALUE
+                )
+                witnesses_found[0 if first_witness else 1 if second_witness else 2] += 1
+                if first_witness:
+                    assert (first_witness, first_states) == (witness, states)
+                else:
+                    assert (second_witness, first_states + second_states) == (witness, states)
+        _, _, resume, ends = call(resume, ends, 1)
+    assert witnesses_found[2] if max_weight < 6 else witnesses_found[0] and witnesses_found[1]
+
+
+def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
+    """A failed syndrome query leaves no syndrome, restriction, or block to later roots."""
+    checks = np.array(
+        [
+            [1, 1, 1, 1, 1, 1],
+            [0, 0, 1, 0, 0, 0],
+            [1, 1, 0, 1, 0, 0],
+            [1, 0, 0, 0, 1, 0],
+            [1, 0, 0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    search = get_search(checks, np.zeros((0, checks.shape[1])), pair_sum_checks=False)
+
+    def search_from(roots: list[int], syndrome: tuple[int, ...]) -> list[int]:
+        packed = pack_bits(np.array([syndrome], dtype=np.uint8))[0]
+        support, *_ = run_search_supports(search, roots, 2, packed, memoize=True)
+        return sorted(support.tolist())
+
+    # The syndrome query of 01001 restricts its empty state, and finds nothing within the limit.
+    syndrome = (0, 1, 0, 0, 1)
+    assert search.find_vector_with_syndrome(syndrome, 2) is None
+    no_syndrome = (0,) * len(checks)
+    roots = list(range(checks.shape[1]))
+    expected = search_from(roots, no_syndrome)
+    assert expected
+    assert search_from([-1, *roots], syndrome) == expected
+    for root in roots:
+        assert search_from([-1, root], syndrome) == search_from([root], no_syndrome)
+
+
+@pytest.mark.parametrize("name", ["nested-restrictions", "five-qubit-state"])
+def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
+    """Memoizing changes neither the support that a query returns nor its number of states."""
+    checks, symplectic = SYNDROME_PROBLEMS[name]
+    search = get_search(
+        checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic, pair_sum_checks=False
+    )
+    for bits in itertools.product([0, 1], repeat=len(search._checks)):
+        if not any(bits):
+            continue
+        packed = pack_bits(np.array([bits], dtype=np.uint8))[0]
+        for roots, max_weight in itertools.product([[-1], [0, -1]], range(1, 4)):
+            results = [
+                run_search_supports(search, roots, max_weight, packed, memoize=memoize)
+                for memoize in (False, True)
+            ]
+            # Stale memos, such as those of a search from root 0, would likely change the count.
+            assert results[0][0].tolist() == results[1][0].tolist()
+            assert np.array_equal(results[0][1], results[1][1])

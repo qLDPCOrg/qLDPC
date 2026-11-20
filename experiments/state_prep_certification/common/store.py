@@ -2,8 +2,8 @@
 
 """The JSONL result store of a label, and the archive that carries it back from the node.
 
-Each task runner appends one final row per run to ``runs.jsonl`` with ``append_row``: one write of a
-whole line under an exclusive ``flock``, followed by a flush and an fsync.  A runner that dies in
+Each task runner appends one final row per task to ``runs.jsonl`` with ``append_row``: one write of
+a whole line under an exclusive ``flock``, followed by a flush and an fsync.  A runner that dies in
 the middle of a write can leave an incomplete last line.  The next append, under the same lock,
 moves that fragment to ``recovered.txt`` and truncates the file to its last complete line before it
 writes, so that a new row never joins a fragment.  ``read_rows`` ignores an incomplete last line and

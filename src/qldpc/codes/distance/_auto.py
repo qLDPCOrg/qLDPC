@@ -2,13 +2,16 @@
 
 """The parts of ``method="auto"`` that compare the costs of exact distance searches.
 
-``core.py`` chooses a method for each search.  It enumerates every word if ``is_cheap_to_enumerate``
-says that this is cheap.  Otherwise, it takes the Brouwer-Zimmermann (BZ) method for a search given
-by generators, or for one that excludes no nonzero word, as for a classical code.  Other searches,
-as of a quantum code or of the faults of a circuit, run ``search_by_cost``: a connected-cluster
-search that switches to a BZ search once that is predicted to cost less.  The section "Choosing a
-method" of ``README.md`` in ``src/qldpc/codes/distance/`` explains the rule, why it keeps results
-exact, and its estimates.
+``distances.py`` chooses a method for each search.  It enumerates every word if
+``is_cheap_to_enumerate`` says that this is cheap.  Otherwise, it takes the Brouwer-Zimmermann (BZ)
+method for a search given by generators, or for a search of binary words that excludes no nonzero
+word, as for a classical code.  Other searches, as of a quantum code or of the faults of a circuit,
+run ``search_by_cost``: a connected-cluster search that switches to a BZ search once that is
+predicted to cost less.  The section "Choosing a method" of ``README.md`` in
+``src/qldpc/codes/distance/`` explains the rule, why it keeps results exact, and its estimates.
+Both searches can run on several threads, so the rule decides only from results that are the same on
+any number of threads, as Section 5 of the guide of each method, ``brouwer_zimmermann_code.md`` or
+``connected_cluster.md``, requires.
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 import numpy.typing as npt
+
+from qldpc._binary import get_num_words
 
 from ._brouwer_zimmermann.distance import (
     BrouwerZimmermannSearch,
@@ -38,7 +43,7 @@ def is_cheap_to_enumerate(dimensions: Sequence[int], width: int, tuning: SearchT
     packs each word of ``width`` bits into ``ceil(width / 64)`` integers of 64 bits.
     """
     num_words = sum(1 << dimension for dimension in dimensions)
-    return num_words * -(-width // 64) <= tuning.auto_brute_force_max_words
+    return num_words * get_num_words(width) <= tuning.auto_brute_force_max_words
 
 
 ####################################################################################################
@@ -57,7 +62,7 @@ class BrouwerZimmermannProblem:
             ``symplectic_to_hamming``, and one otherwise.
         weight_divisor: A proven divisor of the weights of BZ words.  Certificates round up to its
             multiples (Section 3.2 of ``brouwer_zimmermann.md``).  It equals ``weight_scale`` for
-            the problems that ``core.py`` builds.
+            the problems that ``distances.py`` builds.
         get_automorphisms: A function that returns automorphisms of the coordinates of the BZ
             words, or None, as ``get_distance_brouwer_zimmermann`` takes it.
     """
@@ -197,7 +202,9 @@ def _probe(
     """A BZ search of the sectors, advanced by whole layers within ``auto_probe_work``.
 
     The probe skips the costlier stages of setup: families of overlapping and partitioned
-    information sets, and so the certificates from linear programs, which only those take.
+    information sets, and so the linear programs of Section 3.1 of ``brouwer_zimmermann.md``, which
+    only those take.  A probe that gets automorphisms may still solve the program over orbits of
+    Section 3.7 of ``brouwer_zimmermann.md``.
     """
     scale = problem.weight_scale
     search = BrouwerZimmermannSearch(
@@ -229,22 +236,24 @@ def _should_switch(
     """Whether the connected-cluster search is predicted to cost more than a BZ search.
 
     The level of the next weight limit is the weight that the limit certifies, one weight divisor
-    above it.  The search switches only while its growth exceeds BZ's at that level.  It then
-    switches if its spent and projected work to certify that level, or to reach the probe's bound,
-    exceeds BZ's.  To reach the bound, the projection also counts half of the states predicted for
-    the next limit's search at the weight limit ``probe_bound``.
+    above it.  The search switches only once the search of the next limit has a growth.  It then
+    switches if its spent and projected work to certify that level exceeds BZ's.  Otherwise, while
+    its growth exceeds BZ's at that level, it switches if its spent and projected work to reach the
+    probe's bound exceeds BZ's.  To reach the bound, the projection also counts half of the states
+    predicted for the next limit's search at the weight limit ``probe_bound``.  ``search_by_cost``
+    calls it only while its connected-cluster search, which the probe's bound caps, is unfinished,
+    so the bound exceeds the next limit.
     """
     index, max_weight = clusters.next_limit
+    assert probe_bound > max_weight
     growth = clusters.get_growth(index)
-    level = max_weight + clusters.searches[index].weight_divisor
-    if growth is None or growth <= costs.get_growth(index, level):
+    if growth is None:
         return False
+    level = max_weight + clusters.searches[index].weight_divisor
     spent = clusters.num_states * state_cost
     if spent + _project_states(clusters, level) * state_cost > costs.get_work(level):
         return True
-    # A bound within the next limit leaves only the level to compare.  search_by_cost never calls
-    # this function then, since its connected-cluster search, capped by the bound, has finished.
-    if probe_bound <= max_weight:
+    if growth <= costs.get_growth(index, level):
         return False
     projected = _project_states(clusters, probe_bound)
     projected += clusters.predict_states(index, probe_bound) / 2

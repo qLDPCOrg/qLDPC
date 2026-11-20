@@ -35,12 +35,12 @@ error of weight 1; q flag classes, the flagged mechanisms grouped by equal flags
 classes, those with a heavy member; Pi, E, and Phi by weight, as ``counting.py`` defines them; and
 U, the sum over 1 <= m <= K of C(N_0, m).
 
-The count and ground-truth arms take the DEM from an untimed certification with
-``max_weight=1``, and their measured call is the counting itself, so that the runner's limit
-applies to it.  Before timing, every run except those of ``applications.ARMS`` certifies C-goto
-and E-chen with both methods, untimed, and a run of ``brute_bz`` also runs the baseline on C-goto.
-A run of ``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in under ``repeats.below_s`` gets
-``repeats.count`` more runs (``repeat_tasks``).
+The count and ground-truth arms take the DEM from an untimed certification with ``max_weight=1``,
+and their measured call is the counting itself, so that the runner's limit applies to it.  The
+runner retries any run whose measured call compiled (``common/runner.py``).  No run warms up before
+timing, apart from ``ground_truth``, which first compiles galois's arithmetic, untimed
+(``counting._compile_galois``).  A run of ``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in
+under ``repeats.below_s`` gets ``repeats.count`` more runs (``repeat_tasks``).
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ from experiments.state_prep_certification.certification import baseline, countin
 from experiments.state_prep_certification.common import runner
 from qldpc import circuits as qldpc_circuits
 from qldpc import math as qldpc_math
-from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod
+from qldpc.codes.distance import CosetLeaderSearch, CosetMethod
 
 NAME = "certification"
 EXTRA_WHEELS: list[str] = []
@@ -90,7 +90,7 @@ ARMS: tuple[str, ...] = (
     "prune",
     "prune_sensitivity",
 )
-METHODS: dict[str, DistanceMethod] = {
+METHODS: dict[str, CosetMethod] = {
     "cert_bz": "brouwer_zimmermann",
     "cert_cc": "connected_cluster",
 }
@@ -113,9 +113,6 @@ REPEATED_ARMS = ("cert_bz", "cert_cc", "brute_bz")
 # The circuits of the ``smoke`` subset.
 SMOKE_FAMILIES = ("C-goto", "E-chen")
 SMOKE_PREFIX = "aft.steane."
-
-# The circuits that every run certifies before timing.
-WARM_UP_CIRCUITS = ("cgoto", "echen")
 
 
 def prepare(label_dir: pathlib.Path) -> None:
@@ -270,7 +267,7 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
 
     A task's ``post_delay_s``, which only the acceptance tests set, delays the description of a
     certificate by that many seconds, within the post-processing allowance.  The tasks of
-    ``applications.ARMS`` run in ``applications.run``, without warm-up.
+    ``applications.ARMS`` run in ``applications.run``.
     """
     from experiments.state_prep_certification.certification import applications
 
@@ -278,14 +275,13 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     if task["arm"] in applications.ARMS:
         return applications.run(task, entry)
     noisy = _noisy_input(entry)
-    _warm_up()
     arm = task["arm"]
     options = certify_options(entry)
     max_weight = options["max_weight"]
     fields: dict[str, Any] = {"id": entry["id"], "family": entry["family"], "K": max_weight}
 
     if arm in METHODS or arm == "shadow":
-        method: DistanceMethod = METHODS.get(arm, "brouwer_zimmermann")
+        method: CosetMethod = METHODS.get(arm, "brouwer_zimmermann")
         calls_file = None
         if arm == "shadow":
             (label_dir / "oracle_calls").mkdir(exist_ok=True)
@@ -325,7 +321,6 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
         return _describe(certificate)
 
     if arm == "brute_bz":
-        _warm_up_baseline()
         brute = baseline.BruteForce(progress=runner.send_partial, clock=runner.elapsed)
         with brute.install():
             certificate = runner.timed(
@@ -379,6 +374,8 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     elif arm == "count_listing":
         fields |= runner.timed(_listing, reduced, stabilizers, reference.css_weight, weight_limit)
     else:
+        # the ground truth uses galois's GF(2) arithmetic, which this compiles first
+        counting._compile_galois()
         fields |= runner.timed(counting.brute_force, reduced, stabilizers, max_weight)
     return fields
 
@@ -432,7 +429,10 @@ def _listing(
         "q": len(classes.flags),
         "q_h": classes.num_start,
         "h": sum(heavy),
-        "threshold_one_queries": {"zero_flag": reduced.num_zero_flag, "flagged": len(flagged)},
+        "threshold_one_queries": {
+            "zero_flag": reduced.num_zero_flag,
+            "flagged": len({reduced.syndromes[i] for i in flagged}),
+        },
     }
 
     # the class parameters go first as a partial result, so that a run killed while listing keeps
@@ -483,27 +483,3 @@ def _noisy_input(entry: dict[str, Any]) -> stim.Circuit:
     """The circuit's frozen noiseless input, with the noise of ``circuits.json``."""
     circuit = stim.Circuit((INPUTS / f"{entry['id']}.stim").read_text())
     return noisy_circuit(circuit, entry["options"]["noise"])
-
-
-def _warm_up() -> None:
-    """Certify C-goto and E-chen with both methods and their own options, untimed.
-
-    C-goto's search ends at weight 2, and E-chen's reaches weight 3, so that the code paths of
-    weights 3 and more are compiled before timing too.
-    """
-    for circuit_id in WARM_UP_CIRCUITS:
-        entry = _entry(circuit_id)
-        noisy = _noisy_input(entry)
-        for method in METHODS.values():
-            qldpc_circuits.certify_bounded_fault_propagation(
-                noisy, method=method, **certify_options(entry)
-            )
-
-
-def _warm_up_baseline() -> None:
-    """Run the brute-force baseline on C-goto, untimed, which compiles its enumeration."""
-    entry = _entry("cgoto")
-    with baseline.BruteForce().install():
-        qldpc_circuits.certify_bounded_fault_propagation(
-            _noisy_input(entry), method="brouwer_zimmermann", **certify_options(entry)
-        )

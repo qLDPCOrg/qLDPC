@@ -62,7 +62,7 @@ from .distance._binary import (
     infer_field,
     multiply_binary,
 )
-from .distance.core import _validate_distance_method
+from .distance.distances import _get_coset_weight, _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -253,16 +253,21 @@ class AbstractCode(abc.ABC):
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
         """Are the two codes equivalent?
 
-        Do they have the same parity checks?
+        Two codes are equivalent if they are over the same field, and the rows of their parity check
+        matrices span the same space, even if their parity checks differ.  Codes that differ by a
+        permutation of their (qu)dits, which the literature also calls equivalent, need not be
+        equivalent in this sense.
         """
         return code_a.field is code_b.field and np.array_equal(
             code_a.canonicalized.matrix, code_b.canonicalized.matrix
         )
 
     def is_equiv_to(self, other: AbstractCode) -> bool:
-        """Are the two codes equivalent?
+        """Is this code equivalent to another, as the equiv method of its class decides?
 
-        Do they have the same parity checks?
+        By default, two codes are equivalent if they are over the same field, and the rows of their
+        parity check matrices span the same space, even if their parity checks differ (see
+        AbstractCode.equiv).
         """
         return self.equiv(self, other)
 
@@ -557,26 +562,31 @@ class ClassicalCode(AbstractCode):
 
         The cost of this computation generally grows exponentially with the size of the code.  The
         computed code distance is remembered for later calls unless cutoff is greater than 1.
-        Vector distances are never remembered.
+        Vector distances are never remembered.  The Brouwer-Zimmermann and connected-cluster
+        searches of the distance of a binary code can use the known bit permutations that preserve
+        it (see :meth:`get_known_permutation_automorphism_group`) to search less.
 
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, and no result is remembered.
+                Deprecated: a float or a bool warns, and acts as its floor or its integer; pass an
+                integer instead.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`), also used for vector distances.
                 Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on distance,
+            while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
+        cutoff = _deprecations.as_integer_cutoff(cutoff)  # DEPRECATED: see qldpc._deprecations
         method = _validate_distance_method(method)
         self._reject_nonbinary_connected_cluster(method)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
@@ -585,12 +595,22 @@ class ClassicalCode(AbstractCode):
         # we do not know the exact distance, so compute it
         distance: int | Literal[NoDistance.NAN]
         if vector is None and method == "connected_cluster":
-            distance = get_distance_from_checks(self.matrix, cutoff=cutoff, method=method)
+            distance = get_distance_from_checks(
+                self.matrix,
+                cutoff=cutoff,
+                method=method,
+                automorphisms=lambda: self._known_permutation_automorphisms,
+            )
             if cutoff <= 1:
                 self._distance = int(distance)
 
         elif self.field is galois.GF2 and vector is None:
-            distance = get_distance_from_generators(self.generator, cutoff=cutoff, method=method)
+            distance = get_distance_from_generators(
+                self.generator,
+                cutoff=cutoff,
+                method=method,
+                automorphisms=lambda: self._known_permutation_automorphisms,
+            )
             if cutoff <= 1:
                 self._distance = int(distance)
 
@@ -604,34 +624,20 @@ class ClassicalCode(AbstractCode):
                 self._distance = int(distance)
 
         else:
+            # The distance of the vector from the code is the least weight of its coset.  It is zero
+            # for a code word.  Otherwise a search of the coset finds it for a binary code, and an
+            # enumeration of the code words for any other field.  The search of the coset needs a
+            # vector with a nonzero syndrome.
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
-            if self.field is galois.GF2 and method == "connected_cluster":
-                # The vector itself is within the cutoff, or bounds the weight of its coset.
-                weight = int(np.count_nonzero(vector))
-                if weight <= cutoff:
-                    return weight
-                # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the
-                # coset of the vector, with b appended, and the words with b = 0 are the code
-                # words, which the search excludes.  So the coset weighs one less than the search
-                # finds, and the cutoff is one more.  The vector with b appended weighs weight + 1,
-                # so the search need not look beyond weight.
-                matrix = self.matrix.view(np.ndarray)
-                checks = np.hstack([matrix, (matrix @ vector.view(np.ndarray))[:, None] % 2])
-                code_words = np.hstack(
-                    [self.generator.view(np.ndarray), np.zeros((len(self.generator), 1), int)]
-                )
-                found = get_distance_from_checks(
-                    checks, code_words, cutoff=cutoff + 1, method=method, max_weight=weight
-                )
-                return int(found) - 1
             if self.field is galois.GF2:
-                # The vector is one logical operator modulo the code, so search its coset.
-                return int(
-                    get_distance_from_generators(
-                        [vector], self.generator, cutoff=cutoff, method=method
-                    )
+                return _get_coset_weight(
+                    self.matrix.view(np.ndarray).astype(np.uint8),
+                    self.generator.view(np.ndarray).astype(np.uint8),
+                    vector.view(np.ndarray).astype(np.uint8),
+                    cutoff=cutoff,
+                    method=method,
                 )
             distance = int(np.count_nonzero(vector))
             for word in self.iter_words(skip_zero=True):
@@ -823,40 +829,58 @@ class ClassicalCode(AbstractCode):
         code._name = name
         return code
 
-    def get_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
-        """Get the automorphism group of this code.
+    def get_permutation_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
+        """Get the permutation automorphism group of this code.
 
-        The automorphism group of a classical linear code is the group of permutations of bits that
-        preserve the code space.
+        The permutation automorphism group of a classical linear code is the group of permutations
+        of bits that preserve the code space.  For a binary code, it is the automorphism group of
+        the code.  For a nonbinary code, it is a subgroup of the automorphism group, which also
+        contains maps that multiply bits by nonzero field elements.
 
         This computation may run GAP, install GAP packages, access GroupNames.org, or prompt on
         standard input, or with ``with_magma=True`` prompt for MAGMA output on standard input; see
         help(qldpc.abstract.Group.from_name).
         """
-        matrix_str = self.canonicalized.matrix_as_string()
+        matrix = self.canonicalized.matrix.view(np.ndarray)
+
+        def get_matrix_str(elements: Sequence[str]) -> str:
+            """The parity check matrix, with each entry v written as elements[v]."""
+            rows = ("[" + ",".join(elements[value] for value in row) + "]" for row in matrix)
+            return "[" + ",".join(rows) + "]"
+
+        # GAP and MAGMA read integers by conventions that differ from those of galois outside prime
+        # fields, so write the elements of other fields as these systems do
         if with_magma:
-            rows, cols = self.canonicalized.matrix.shape
-            magma_matrix = f"Matrix(GF({self.field.order}), {rows}, {cols}, {matrix_str})"
-            magma_group = f"AutomorphismGroup(LinearCode({magma_matrix}));"
+            definition, field_name, elements = _codes.get_magma_field(self.field)
+            magma_matrix = f"Matrix({field_name}, {len(matrix)}, {matrix.shape[1]}, "
+            magma_matrix += get_matrix_str(elements) + ")"
+            # MAGMA's AutomorphismGroup of a nonbinary code is its monomial automorphism group,
+            # which acts on n * (q - 1) points, so ask for its PermutationGroup, on n points
+            magma_group = f"{definition}PermutationGroup(LinearCode({magma_matrix}));"
             return abstract.Group.from_name(magma_group, from_magma=True)
 
         warning = (
-            "Attempting to compute an automorphism group with GAP, which may take a long time."
-            "  If this calculation takes too long, try computing the automorphism group with MAGMA"
-            ' by passing the argument "with_magma=True" to the method that needs to compute the'
-            " automorphism group."
+            "Attempting to compute a permutation automorphism group with GAP, which may take a long"
+            " time.  If this calculation takes too long, try computing the group with MAGMA by"
+            ' passing the argument "with_magma=True" to the method that needs to compute the group.'
         )
 
-        code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
+        gap_elements = (
+            [str(value) for value in range(self.field.order)]
+            if self.field.degree == 1
+            else _codes.get_gap_field_elements(self.field)
+        )
+        code_str = f"CheckMatCode({get_matrix_str(gap_elements)}, GF({self.field.order}))"
 
         def get_group(gap_function: str) -> abstract.Group:
-            """Compute the automorphism group of this code with a GAP/GUAVA function."""
+            """Compute the permutation automorphism group of this code with a GAP/GUAVA function."""
             return abstract.Group.from_name(
                 f"{gap_function}({code_str})", warning_to_raise_if_calling_gap=warning
             )
 
-        # For a binary code, try GAP/GUAVA's AutomorphismGroup method, and fall back to its
-        # PermutationAutomorphismGroup method if GAP fails to compute that group.
+        # For a binary code, the automorphism group is the permutation automorphism group, so try
+        # GAP/GUAVA's AutomorphismGroup method, which handles only binary codes, and fall back to
+        # its PermutationAutomorphismGroup method if GAP fails to compute that group.
         if self.field is galois.GF2:
             try:
                 return get_group("AutomorphismGroup")
@@ -870,17 +894,50 @@ class ClassicalCode(AbstractCode):
         An automorphism of an ``m × n`` parity check matrix ``H`` is a permutation ``p`` of the
         ``m`` checks and ``n`` bits (in that order) that leaves ``H`` invariant, in the sense that
         ``H[p_checks][:, p_bits] == H`` for ``p_checks = p.array_form[:m]`` and
-        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the automorphism group of a code
-        (see :meth:`get_automorphism_group`), the automorphism group of a parity check matrix
-        depends on the choice of parity checks.  Its members are symmetries of this code, which
-        :class:`~qldpc.codes.quantum.balanced_product.BPCode` uses to construct balanced product
-        codes.  Computing this group requires the optional ``pybliss`` package, which can be
+        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the permutation automorphism
+        group of a code (see :meth:`get_permutation_automorphism_group`), the automorphism group of
+        a parity check matrix depends on the choice of parity checks.  The bit permutations of its
+        members are permutation automorphisms of this code, and
+        :class:`~qldpc.codes.quantum.balanced_product.BPCode` uses its members to construct balanced
+        product codes.  Computing this group requires the optional ``pybliss`` package, which can be
         installed with ``pip install 'qldpc[bliss]'``.
         """
         generators = _bliss.get_matrix_automorphism_generators(self.matrix)
         size = sum(self.matrix.shape)
         return abstract.Group(
             *[abstract.GroupMember(perm) for perm in generators or [list(range(size))]]
+        )
+
+    def get_known_permutation_automorphism_group(self) -> abstract.Group:
+        """Get a group of bit permutations that preserve this code.
+
+        The group is generated by the bit permutations that this code knows:
+
+        - with the optional pybliss package (``pip install 'qldpc[bliss]'``), the bit permutations
+          of the automorphisms of the parity check matrix (see
+          :meth:`get_matrix_automorphism_group`); and
+        - permutations that the construction of this code provides, if any, such as the cyclic
+          shifts of a cyclic code.
+
+        Each of these permutations maps the row space of the parity check matrix onto itself, so it
+        preserves the code.  For binary codes, the Brouwer-Zimmermann and connected-cluster
+        searches of exact distances can use the same permutations to search less.
+
+        The group can be a proper subgroup of the permutation automorphism group of the code, which
+        :meth:`get_permutation_automorphism_group` computes with GAP or MAGMA.  Bliss finds only
+        permutations that map the parity checks onto themselves, so it can miss permutations of the
+        construction, and the group can depend on the parity checks and on whether pybliss is
+        installed.
+
+        Returns:
+            A group of permutations of the bits ``range(len(self))``, in which a member p maps bit
+            j to bit ``p(j)``.  The group is trivial if this code knows no permutations.
+        """
+        generators = self._known_permutation_automorphisms
+        if generators is None:
+            return abstract.Group(abstract.GroupMember(list(range(len(self)))))
+        return abstract.Group(
+            *[abstract.GroupMember(generator.tolist()) for generator in generators]
         )
 
     @staticmethod
@@ -1062,6 +1119,47 @@ class ClassicalCode(AbstractCode):
             len(self),
             max_error_rate,
             min_error_weight,
+        )
+
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of a group of bit permutations that preserve this code, if known.
+
+        Subclasses whose construction comes with such a group return an array of its generators.
+        Row ``i`` of the array maps bit ``j`` to bit ``row[j]``.  Each generator maps the row space
+        of the parity check matrix onto itself.  Together with the permutations that bliss finds
+        (see ``_known_permutation_automorphisms``), these generators generate the group of
+        :meth:`get_known_permutation_automorphism_group`.  Exact distance searches of binary codes
+        can use the same permutations to search less.
+        """
+        return None
+
+    @functools.cached_property
+    def _known_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of a group of bit permutations that preserve this code, or None.
+
+        With the optional pybliss package, bliss finds the automorphisms of the parity check matrix,
+        each of which permutes the checks and the bits and leaves the matrix unchanged.  So its bit
+        permutation maps the row space of the parity check matrix onto itself.
+
+        The result holds these bit permutations, followed by the generators from
+        ``_get_permutation_automorphisms``, without repeats or the identity, in an array whose row
+        ``i`` maps bit ``j`` to bit ``row[j]``.  The result is None if there are no generators.
+
+        Raises:
+            ValueError: If a generator from ``_get_permutation_automorphisms`` does not map the row
+                space of the parity check matrix onto itself.
+        """
+        found = []
+        if _bliss.is_installed():
+            matrix = self.matrix.view(np.ndarray).astype(int)
+            if bliss_generators := _bliss.get_matrix_automorphism_generators(matrix):
+                found.append(np.array(bliss_generators, dtype=int)[:, len(matrix) :] - len(matrix))
+        return _combine_automorphisms(
+            found,
+            self._get_permutation_automorphisms(),
+            self.matrix,
+            len(self),
+            f"{type(self).__name__}._get_permutation_automorphisms",
         )
 
     def _sample_failure_and_discard_counts(
@@ -1502,7 +1600,9 @@ class QuditCode(AbstractCode):
         get_distance).
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
-        always be True for a non-CSS code.
+        always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1756,7 +1856,9 @@ class QuditCode(AbstractCode):
         generators of a canonical generating set, and the Pauli.X generators are the remainder.
 
         The symplectic argument is provided for compatibility with CSSCode.get_stabilizer_ops, and
-        must always be True for a non-CSS code.
+        must always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1806,11 +1908,14 @@ class QuditCode(AbstractCode):
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
-        logical Pauli operators computed by QuditCode.get_logical_ops.  If ``recompute is True``,
-        recompute these operators rather than returning cached values.
+        logical Pauli operators computed by QuditCode.get_logical_ops.  If passed a Pauli, return
+        only the operators of that type.  If ``recompute is True``, recompute these operators rather
+        than returning cached values.
 
         The symplectic argument is provided for compatibility with CSSCode.get_gauge_ops, and must
-        always be True for a non-CSS code.
+        always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1843,7 +1948,9 @@ class QuditCode(AbstractCode):
         stabilizers, and Pauli.Z those dual to the X-type stabilizers.
 
         The symplectic argument is provided for compatibility with CSSCode.get_destabilizer_ops, and
-        must always be True for a non-CSS code.
+        must always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -2025,19 +2132,22 @@ class QuditCode(AbstractCode):
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, and no result is remembered.
+                Deprecated: a float or a bool warns, and acts as its floor or its integer; pass an
+                integer instead.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Nonbinary calculations use
                 exhaustive enumeration, and reject ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on distance,
+            while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
+        cutoff = _deprecations.as_integer_cutoff(cutoff)  # DEPRECATED: see qldpc._deprecations
         method = _validate_distance_method(method)
         self._reject_nonbinary_connected_cluster(method)
         if (known_distance := self.get_distance_if_known()) is not None:
@@ -2050,7 +2160,7 @@ class QuditCode(AbstractCode):
                 self.matrix,
                 cutoff=cutoff,
                 method=method,
-                automorphisms=lambda: self._found_qudit_automorphisms,
+                automorphisms=lambda: self._known_permutation_automorphisms,
             )
 
         else:
@@ -2202,7 +2312,7 @@ class QuditCode(AbstractCode):
         self._distance_bound = min(best_bound, bound)
         return self._distance_bound
 
-    def get_known_qudit_automorphism_group(self) -> abstract.Group:
+    def get_known_permutation_automorphism_group(self) -> abstract.Group:
         """Get a group of qudit permutations that preserve this code.
 
         The group is generated by the qudit permutations that this code knows:
@@ -2230,7 +2340,7 @@ class QuditCode(AbstractCode):
             A group of permutations of the qudits ``range(len(self))``, in which a member p maps
             qudit j to qudit ``p(j)``.  The group is trivial if this code knows no permutations.
         """
-        generators = self._found_qudit_automorphisms
+        generators = self._known_permutation_automorphisms
         if generators is None:
             return abstract.Group(abstract.GroupMember(list(range(len(self)))))
         return abstract.Group(
@@ -2758,27 +2868,29 @@ class QuditCode(AbstractCode):
 
         return outer, inner
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of a group of qudit permutations that preserve this code, if known.
 
         Subclasses whose construction comes with such a group return an array of its generators.
         Row ``i`` of the array maps qudit ``j`` to qudit ``row[j]``.  Each generator maps the row
         space of the parity check matrix onto itself.  For a CSS code, a generator does so if it
-        maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  The
-        Brouwer-Zimmermann and connected-cluster searches of exact distances use these generators
-        together with those that bliss finds (see ``_found_qudit_automorphisms``).
+        maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  Together with
+        the permutations that bliss finds (see ``_known_permutation_automorphisms``), these
+        generators generate the group of :meth:`get_known_permutation_automorphism_group`.  Exact
+        distance searches of binary codes can use the same permutations to search less.
         """
         return None
 
-    def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
-        """Sets of checks, whose Tanner graphs bliss searches for automorphisms of this code.
+    def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+        """Sets of checks, whose Tanner graphs bliss searches for permutation automorphisms.
 
         By default, the only matrix is the parity check matrix.  Bliss finds only qudit permutations
-        that map the rows of a matrix onto themselves.  An automorphism of this code maps the row
-        space of the parity check matrix onto itself, but it can map parity checks to other words of
-        that space, and then bliss cannot find it among the parity checks.  A subclass can let bliss
-        find such automorphisms by adding a set of checks that the structure of the code determines,
-        rather than a choice of basis, such as the canonical local checks of a QTCode.
+        that map the rows of a matrix onto themselves.  A permutation automorphism of this code maps
+        the row space of the parity check matrix onto itself, but it can map parity checks to other
+        words of that space, and then bliss cannot find it among the parity checks.  A subclass can
+        let bliss find such permutation automorphisms by adding a set of checks that the structure
+        of the code determines, rather than a choice of basis, such as the canonical local checks of
+        a QTCode.
 
         Each matrix must meet two requirements:
 
@@ -2788,56 +2900,76 @@ class QuditCode(AbstractCode):
           permutation that maps these rows onto themselves then maps the row space onto itself, so
           it preserves this code.
 
-        ``_found_qudit_automorphisms`` relies on these requirements: it verifies the permutations of
-        ``_get_qudit_automorphisms``, but not those that bliss finds.  Bliss searches each matrix,
-        so return few.
+        ``_known_permutation_automorphisms`` checks each qudit permutation that bliss finds in a
+        matrix other than the parity check matrix, as it checks the permutations of
+        ``_get_permutation_automorphisms``, and raises a ValueError if one does not map the row
+        space of the parity check matrix onto itself.  Bliss searches each matrix, so return few.
         """
         return (self.matrix,)
 
     @functools.cached_property
-    def _found_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _known_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of a group of qudit permutations that preserve this code, or None.
 
         With the optional pybliss package, bliss searches each matrix of checks from
-        ``_get_automorphism_search_matrices``, which by default is the parity check matrix of this
-        code.  It finds the automorphisms of the Tanner graph of the matrix, whose edges are colored
-        by the Pauli operators of the checks.  Each automorphism permutes the checks and the qudits,
-        and leaves the matrix unchanged.  So its qudit permutation maps the row space of the matrix,
-        which is the row space of the parity check matrix, onto itself.
+        ``_get_permutation_automorphism_search_matrices``, which by default is the parity check
+        matrix of this code.  It finds the automorphisms of the Tanner graph of the matrix, whose
+        edges are colored by the Pauli operators of the checks.  Each automorphism permutes the
+        checks and the qudits, and leaves the matrix unchanged.  So its qudit permutation maps the
+        row space of the matrix onto itself, which for the parity check matrix means that it
+        preserves this code.  The permutations that bliss finds in other matrices are checked
+        against the parity check matrix.
 
         The result holds these qudit permutations, followed by the generators from
-        ``_get_qudit_automorphisms``, without repeats or the identity, in an array whose row ``i``
-        maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no generators.
+        ``_get_permutation_automorphisms``, without repeats or the identity, in an array whose row
+        ``i`` maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no generators.
 
         Raises:
-            ValueError: If a generator from ``_get_qudit_automorphisms`` does not map the row space
-                of the parity check matrix onto itself.
+            ValueError: If a generator from ``_get_permutation_automorphisms``, or a permutation
+                that bliss finds in a matrix other than the parity check matrix, does not map the
+                row space of the parity check matrix onto itself.
         """
-        generators = np.empty((0, len(self)), dtype=int)
+        # check permutations against the parity check matrix, computing its rank at most once
+        get_rank = functools.cache(lambda: _get_rank(self.matrix))
+
+        found = []
         if _bliss.is_installed():
-            for search_matrix in self._get_automorphism_search_matrices():
+            for search_matrix in self._get_permutation_automorphism_search_matrices():
                 # value each entry by its Pauli operator, x + q z for the field order q, so that the
                 # values of X, Z, and Y on qubits are 1, 2, and 3
                 matrix = search_matrix.view(np.ndarray).astype(int)
                 paulis = matrix[:, : len(self)] + self.field.order * matrix[:, len(self) :]
-                if bliss_generators := _bliss.get_matrix_automorphism_generators(paulis):
-                    qudit_generators = np.array(bliss_generators, dtype=int)[:, len(paulis) :]
-                    generators = np.vstack([generators, qudit_generators - len(paulis)])
 
-        # verify the permutations of the construction, which bliss does not provide
-        if (construction_generators := self._get_qudit_automorphisms()) is not None:
-            for generator in construction_generators:
-                if not _preserves_row_space(self.matrix, np.asarray(generator), len(self)):
-                    raise ValueError(
-                        f"A qudit permutation from {type(self).__name__}._get_qudit_automorphisms is"
-                        " not an automorphism of the code"
-                    )
-            generators = np.vstack([generators, construction_generators]).astype(int)
+                # find the automorphisms of the Tanner graph, and keep their qudit permutations,
+                # which bliss numbers after the checks
+                bliss_generators = _bliss.get_matrix_automorphism_generators(paulis)
+                if not bliss_generators:
+                    continue
+                qudit_generators = np.array(bliss_generators, dtype=int)[:, len(paulis) :]
+                qudit_generators -= len(paulis)
 
-        # drop the identity and repeated generators, keeping the others in order
-        generators = generators[np.any(generators != np.arange(len(self)), axis=1)]
-        indices = np.sort(np.unique(generators, axis=0, return_index=True)[1])
-        return generators[indices] if len(indices) else None
+                # Permutations found in another matrix preserve the code only if that matrix spans
+                # the row space of the parity check matrix, so check them.  Matrices are compared by
+                # value, since a subclass can return the parity check matrix at any position.
+                if not np.array_equal(search_matrix, self.matrix):
+                    for generator in qudit_generators:
+                        if not _preserves_row_space(self.matrix, generator, len(self), get_rank()):
+                            raise ValueError(
+                                "A qudit permutation that bliss found in a matrix from"
+                                f" {type(self).__name__}."
+                                "_get_permutation_automorphism_search_matrices is not an"
+                                " automorphism of the code, so the rows of that matrix do not span"
+                                " the row space of the parity check matrix"
+                            )
+                found.append(qudit_generators)
+        return _combine_automorphisms(
+            found,
+            self._get_permutation_automorphisms(),
+            self.matrix,
+            len(self),
+            f"{type(self).__name__}._get_permutation_automorphisms",
+            get_rank,
+        )
 
     def _sample_failure_and_discard_counts(
         self,
@@ -3206,7 +3338,9 @@ class CSSCode(QuditCode):
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
         """Are the two codes equivalent?
 
-        Do they have the same parity checks?
+        Two CSS codes are equivalent if they are over the same field, the rows of their X-type
+        parity check matrices span the same space, and so do the rows of their Z-type parity check
+        matrices.  Other codes are equivalent as AbstractCode.equiv decides.
         """
         if isinstance(code_a, CSSCode) and isinstance(code_b, CSSCode):
             return ClassicalCode.equiv(code_a.code_x, code_b.code_x) and ClassicalCode.equiv(
@@ -3577,6 +3711,9 @@ class CSSCode(QuditCode):
 
         If ``canonicalized is True``, guarantee that the stabilizer matrix is canonicalized (i.e.,
         row-reduced) such that its rows are a minimal generating set for the stabilizer group.
+
+        If passed a Pauli (Pauli.X or Pauli.Z), return only the generators of that type, with
+        ``len(self)`` columns by default, or ``2 * len(self)`` if ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if self._stabilizer_ops is None and self.is_subsystem_code:
@@ -3620,7 +3757,9 @@ class CSSCode(QuditCode):
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
-        logical Pauli operators computed by CSSCode.get_logical_ops.
+        logical Pauli operators computed by CSSCode.get_logical_ops.  If passed a Pauli, return only
+        the operators of that type, with ``len(self)`` columns by default, or ``2 * len(self)`` if
+        ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         gauge_ops = QuditCode.get_gauge_ops(self, pauli, recompute=recompute)
@@ -3634,6 +3773,8 @@ class CSSCode(QuditCode):
         """The destabilizers of this code.
 
         See help(qldpc.codes.QuditCode.get_destabilizer_ops) for an explanation of destabilizers.
+        If passed a Pauli, return only the destabilizers of that type, with ``len(self)`` columns by
+        default, or ``2 * len(self)`` if ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         destabilizer_ops = QuditCode.get_destabilizer_ops(self, pauli)
@@ -3745,8 +3886,8 @@ class CSSCode(QuditCode):
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
         operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
         distance instead, if the code is binary.  The cost of this computation generally grows
-        exponentially with the size of the code.  Computed distances are remembered for later calls
-        unless cutoff is greater than 1.
+        exponentially with the size of the code.  A distance that a search computes is remembered
+        for later calls unless cutoff is greater than 1.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3754,8 +3895,8 @@ class CSSCode(QuditCode):
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, and no result is remembered.
+                Deprecated: a float or a bool warns, and acts as its floor or its integer; pass an
+                integer instead.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Closed forms that search classical
                 codes, such as those of hypergraph product codes, search them with the same method.
@@ -3763,12 +3904,15 @@ class CSSCode(QuditCode):
                 ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on distance,
+            while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
+        cutoff = _deprecations.as_integer_cutoff(cutoff)  # DEPRECATED: see qldpc._deprecations
         method = _validate_distance_method(method)
         self._reject_nonbinary_connected_cluster(method)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -4434,10 +4578,10 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
-        Brouwer-Zimmermann and connected-cluster searches use the automorphisms of this code.
-        ``upper_bound``, if given, is the weight of a known logical operator of the other type,
-        which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
-        below ``cutoff`` can be an upper bound.
+        Brouwer-Zimmermann and connected-cluster searches can use the permutation automorphisms that
+        this code knows.  ``upper_bound``, if given, is the weight of a known logical operator of
+        the other type, which ends the search if it is at most ``cutoff``, and otherwise limits it.
+        A result at or below ``cutoff`` can be an upper bound.
         """
         if upper_bound is not None and upper_bound <= cutoff:
             return upper_bound
@@ -4448,7 +4592,7 @@ class CSSCode(QuditCode):
             cutoff=cutoff,
             method=method,
             max_weight=None if upper_bound is None else upper_bound - 1,
-            automorphisms=lambda: self._found_qudit_automorphisms,
+            automorphisms=lambda: self._known_permutation_automorphisms,
         )
 
     def _get_distance_exact(
@@ -4578,13 +4722,17 @@ def _permute_qudits(
 
 
 def _preserves_row_space(
-    matrix: galois.FieldArray, permutation: npt.NDArray[np.int_], num_qudits: int
+    matrix: galois.FieldArray,
+    permutation: npt.NDArray[np.int_],
+    num_qudits: int,
+    rank: int | None = None,
 ) -> bool:
     """Does a permutation of the qudits map the row space of a matrix onto itself?
 
     The rows of the matrix are blocks of num_qudits columns each, which the permutation permutes
     alike.  The permutation maps the row space into itself exactly if the permuted rows add nothing
-    to its rank, and then onto itself.
+    to its rank, and then onto itself.  A caller that checks several permutations of one matrix can
+    compute the rank of the matrix once with _get_rank, and pass it.
     """
     if not np.array_equal(np.sort(permutation), np.arange(num_qudits)):
         return False
@@ -4592,12 +4740,17 @@ def _preserves_row_space(
         return True
     permuted = _permute_qudits(matrix, permutation, num_qudits).view(type(matrix))
     stacked = np.vstack([matrix, permuted]).view(type(matrix))
+    return bool(_get_rank(stacked) == (_get_rank(matrix) if rank is None else rank))
+
+
+def _get_rank(matrix: galois.FieldArray) -> int:
+    """The rank of a matrix over a finite field."""
+    if not matrix.size:
+        return 0
     if type(matrix) is galois.GF2:
         # packed binary arithmetic is much faster than galois for binary matrices
-        binary_rows = stacked.view(np.ndarray).astype(np.uint8)
-        rank = get_rank_packed(pack_bits(binary_rows[: len(matrix)]))
-        return bool(get_rank_packed(pack_bits(binary_rows)) == rank)
-    return bool(np.linalg.matrix_rank(stacked) == np.linalg.matrix_rank(matrix))
+        return int(get_rank_packed(pack_bits(matrix.view(np.ndarray).astype(np.uint8))))
+    return int(np.linalg.matrix_rank(matrix))
 
 
 def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
@@ -4677,6 +4830,41 @@ def _require_symplectic(symplectic: bool) -> None:
 
 ####################################################################################################
 # helper methods
+
+
+def _combine_automorphisms(
+    found: Sequence[npt.NDArray[np.int_]],
+    construction_generators: npt.NDArray[np.int_] | None,
+    matrix: galois.FieldArray,
+    num_coordinates: int,
+    source: str,
+    get_rank: Callable[[], int] | None = None,
+) -> npt.NDArray[np.int_] | None:
+    """Combine the permutations that bliss found with those of a construction, verifying the latter.
+
+    The permutations act on ``num_coordinates`` coordinates, and permute each block of that many
+    columns of the matrix alike (see ``_preserves_row_space``).  The result holds the found
+    permutations, then the construction generators, without repeats or the identity, or None if
+    there are none.  Raises a ValueError that names ``source`` if a construction generator does not
+    map the row space of the matrix onto itself.  A caller that may also need the rank of the matrix
+    can pass a cached function that returns it, so that the rank is computed at most once.
+    """
+    generators = np.empty((0, num_coordinates), dtype=int)
+    for permutations in found:
+        generators = np.vstack([generators, permutations])
+
+    # verify the permutations of the construction, which bliss does not provide
+    if construction_generators is not None:
+        rank = get_rank() if get_rank is not None else _get_rank(matrix)
+        for generator in construction_generators:
+            if not _preserves_row_space(matrix, np.asarray(generator), num_coordinates, rank):
+                raise ValueError(f"A permutation from {source} is not an automorphism of the code")
+        generators = np.vstack([generators, construction_generators]).astype(int)
+
+    # drop the identity and repeated generators, keeping the others in order
+    generators = generators[np.any(generators != np.arange(num_coordinates), axis=1)]
+    indices = np.sort(np.unique(generators, axis=0, return_index=True)[1])
+    return generators[indices] if len(indices) else None
 
 
 def _mark_read_only(array: _ArrayT) -> _ArrayT:

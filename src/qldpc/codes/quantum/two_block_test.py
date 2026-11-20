@@ -269,9 +269,29 @@ def test_bivariate_bicycle_codes() -> None:
     assert code.get_node_label(Node(0, is_data=False)) == ("X", 0, 0)
     assert code.get_node_label(Node(len(code) // 2, is_data=False)) == ("Z", 0, 0)
 
-    # codes with more than 2 symbols are unsupported
-    with pytest.raises(ValueError, match="should have exactly two"):
+    # a BBCode needs exactly two symbols and two orders; for fewer symbols, the suggested MBCode
+    # with the same arguments builds the code, which has two blocks of 3 * 3 qubits
+    with pytest.raises(ValueError, match="use MBCode with the same arguments"):
+        codes.BBCode((3, 3), 1 + x, 1 + x**2)
+    assert len(codes.MBCode((3, 3), 1 + x, 1 + x**2)) == 18
+    with pytest.raises(ValueError, match="use MBCode with the same arguments"):
+        codes.BBCode({x: 3, z: 3}, 1 + x, 1 + x**2)
+    assert len(codes.MBCode({x: 3, z: 3}, 1 + x, 1 + x**2)) == 18
+    with pytest.raises(ValueError, match="one cyclic group order for each symbol"):
+        codes.BBCode({y: 3, z: 3}, 1 + x, 1 + x**2)
+    with pytest.raises(ValueError, match="one cyclic group order for each symbol"):
         codes.BBCode({}, x, y + z)
+    with pytest.raises(ValueError, match="one cyclic group order for each symbol"):
+        codes.BBCode((3, 3), x, y + z)
+    assert len(codes.MBCode((3, 3, 3), x, y + z)) == 54
+    with pytest.raises(ValueError, match="one cyclic group order for each symbol"):
+        codes.BBCode({}, x, x**2)
+    with pytest.raises(ValueError, match="at least one cyclic group order"):
+        codes.BBCode({}, sympy.Integer(1), sympy.Integer(1))
+    with pytest.raises(ValueError, match=r"Give two orders, as in \{x: R_x, y: R_y\}"):
+        codes.BBCode((3, 3, 3), x, y)
+    with pytest.raises(ValueError, match="but 1 was given"):
+        codes.BBCode((3,), x, y)
 
     # fail to invert a system of equations
     orders = (3, 3)
@@ -356,9 +376,20 @@ def get_dist_l1(
 def test_multivariate_bicycle_codes() -> None:
     """Multivariate versions of the bicycle codes in arXiv:2308.07915 and arXiv:2311.16980."""
 
-    # not enough orders provided
-    with pytest.raises(ValueError, match=r"Provided .* symbols, but only .* orders"):
+    # each symbol in the polynomials needs a cyclic group order
+    with pytest.raises(
+        ValueError, match=r"Give one cyclic group order for each symbol, as in \{x:"
+    ):
         codes.MBCode([], x, y)
+    with pytest.raises(ValueError, match="No cyclic group order was given for the symbols y"):
+        codes.MBCode({x: 3, sympy.Symbol("z"): 3}, x, y)
+
+    # symbols that share a name are told apart in error messages
+    x_positive = sympy.Symbol("x", positive=True)
+    with pytest.raises(ValueError, match="positive=True"):
+        codes.MBCode({x: 3}, x_positive, x_positive)
+    with pytest.raises(ValueError, match=r"\{Symbol\('x-y'\): R_0\}"):
+        codes.MBCode([], sympy.Symbol("x-y"), sympy.Integer(1))
 
     # add placeholder symbols if necessary
     code = codes.MBCode([2, 1, 3], x, x * y)
@@ -401,7 +432,7 @@ def test_multivariate_bicycle_translations_preserve_checks() -> None:
     One cyclic factor of this code is trivial, so its group has fewer generators than symbols.
     """
     code = codes.MBCode([2, 1, 3], x + 1, x * y + 1)
-    assert_valid_translations(code, code._get_qudit_automorphisms(), group_order=6)
+    assert_valid_translations(code, code._get_permutation_automorphisms(), group_order=6)
 
 
 def test_gala_translations_preserve_checks() -> None:
@@ -411,7 +442,7 @@ def test_gala_translations_preserve_checks() -> None:
     code = codes.GALACode(
         generators_f=[ring.one, xx], generators_g=[xx**2, ring.one], num_active_rows=1
     )
-    translations = code._get_qudit_automorphisms()
+    translations = code._get_permutation_automorphisms()
     assert translations is not None and len(translations) == 1
     assert_valid_translations(code, translations, group_order=3)
 
@@ -437,7 +468,7 @@ def test_abelian_block_translations_of_field_lifts() -> None:
     assert np.array_equal(translations, integer_translations)
     ring = abstract.GroupRing(group)
     code = codes.LPCode(abstract.RingArray.build([[ring.one + ring.generators[0], 1]], ring))
-    code_translations = code._get_qudit_automorphisms()
+    code_translations = code._get_permutation_automorphisms()
     assert code_translations is not None
     assert_valid_translations(code, code_translations, group_order=3)
 

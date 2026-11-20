@@ -40,7 +40,7 @@ from qldpc.circuits.certification.fault_propagation import (
     _get_unmeasured_qubits,
     _is_css_state,
 )
-from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod
+from qldpc.codes.distance import CosetLeaderSearch, CosetMethod
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .consumer_profiles import ConsumerProfile
@@ -315,7 +315,7 @@ def estimate_residual_weight_histogram(
     max_fault_weight: int | None = None,
     max_exact_faults: int = 10**6,
     seed: int | None = None,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: CosetMethod = "auto",
 ) -> ResidualWeightHistogram:
     """Estimate the residual weights of the faults of a noisy Clifford state-preparation circuit.
 
@@ -390,11 +390,10 @@ def estimate_residual_weight_histogram(
         max_exact_faults: Fault weights with at most this many faults (and every smaller fault
             weight) are computed exactly rather than sampled.  Default: ``10**6``.
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
-        method: The exact search of residual weights where the tables do not apply:
-            ``"brouwer_zimmermann"``, its alias ``"information_sets"``, or ``"connected_cluster"``
-            (see :class:`~qldpc.codes.distance.CosetLeaderSearch`); ``"auto"`` takes
-            ``"brouwer_zimmermann"`` here.  With the same ``seed``, the methods give the same
-            histogram.  Default: ``"brouwer_zimmermann"``.
+        method: The exact search of residual weights where the tables do not apply: ``"auto"``
+            (the default), ``"brouwer_zimmermann"``, or ``"connected_cluster"`` (see
+            :data:`~qldpc.codes.distance.CosetMethod`).  With the same ``seed``, the methods give
+            the same histogram.
 
     Returns:
         A ``ResidualWeightHistogram``.
@@ -407,9 +406,9 @@ def estimate_residual_weight_histogram(
             is invalid, if ``pauli`` does not identify X or Z, if the output qubits do not end in
             a definite stabilizer state, if component scoring is requested for a non-CSS state, if
             the circuit has an error instruction with probability one, if Stim cannot convert the
-            circuit to a detector error model, if ``method`` is unknown or ``"brute_force"``, or if
-            ``method`` is ``"connected_cluster"`` and errors on a state that is not CSS are weighed
-            by their CSS weight.
+            circuit to a detector error model, if ``method`` is unknown, or if ``method`` is
+            ``"connected_cluster"`` and errors on a state that is not CSS are weighed by their CSS
+            weight.
     """
     _check_coset_search_method(method)
     max_residual_weight = _check_integer(max_residual_weight, "max_residual_weight", 0)
@@ -518,7 +517,7 @@ def _get_mechanisms(
     css_weight: bool | None,
     pauli: PauliXZ | None,
     max_residual_weight: int,
-    method: DistanceMethod,
+    method: CosetMethod,
 ) -> tuple[_Mechanisms, _ResidualWeightOracle, bool]:
     """Get the error mechanisms of a circuit, and an oracle for the residual weights of syndromes.
 
@@ -928,7 +927,7 @@ class _ResidualWeightSetup:
         pauli: PauliXZ | None,
         max_residual_weight: int,
         *,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: CosetMethod = "auto",
     ) -> None:
         """Choose the stabilizer generators and the residual-weight oracle."""
         num_qubits = stabilizers.shape[1] // 2
@@ -1052,7 +1051,7 @@ class _CosetSearchWeights:
         css_weight: bool,
         max_residual_weight: int,
         *,
-        method: DistanceMethod,
+        method: CosetMethod,
     ) -> None:
         """Prepare the search for the given stabilizer generators, one row per generator."""
         self.max_residual_weight = max_residual_weight

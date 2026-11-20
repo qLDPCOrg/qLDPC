@@ -44,7 +44,9 @@ Where to go next
 * :doc:`Decoders <decoders/index>` explains how to choose a decoder, use it in decoding workflows, or use a decoder of your own.
 * :doc:`Examples <examples/index>` walk from code construction through code-capacity and circuit-level simulations to exact fault-tolerance certificates.
 * :doc:`API reference <autoapi/index>` documents every public class and function.
-* :doc:`Contributing <contributing/index>` explains the development workflow and the standards that a change must satisfy.
+* :doc:`Contributing <contributing/index>` explains how to make a change and the standards that a change must satisfy.
+* :doc:`Reviewing changes <contributing/reviewing>` describes the maintainer workflow for reviewing changes.
+* :doc:`Decisions and recommendations <contributing/decisions>` describes the maintainer workflow for recommending and making decisions.
 
 .. toctree::
    :maxdepth: 2
@@ -62,6 +64,14 @@ Where to go next
    :caption: Contributing
 
    contributing/index
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+   :caption: Maintainer workflow
+
+   contributing/reviewing
+   contributing/decisions
 
 .. toctree::
    :maxdepth: 2

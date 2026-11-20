@@ -2,8 +2,10 @@
 
 """Tables of the Brouwer-Zimmermann coset searches: bounds of steps, stopping steps, and tails.
 
-Sections cited in this module are those of ``brouwer_zimmermann.md``, whose Section 4.1 says how
-the coset searches use these tables.
+Sections cited in this module are those of ``brouwer_zimmermann.md`` and
+``brouwer_zimmermann_code.md``, whose Section 4.1 says how the coset searches use these tables.
+Threads that answer queries at once read them, so a change here must keep the requirements on
+threads under "Keep coset queries reproducible" in Section 5.
 """
 
 from __future__ import annotations
@@ -14,10 +16,9 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits, unpack_bits
+from qldpc._binary import get_num_words, int_to_words, pack_bits, unpack_bits
 from qldpc._compilation import always_compiled
 
-from .._cosets import int_to_words
 from .._information_sets import certificates, completion_bounds
 from . import affine_instance
 
@@ -51,8 +52,8 @@ class CosetSearchTables(NamedTuple):
             embedded words (Section 4.4).  The last set of a disjoint family may be partial.
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family (see ``_get_planning``).
-            Queries write only its cached stopping steps, which callers that share a cached search
-            share.
+            Single queries write only its cached stopping steps, which callers that share a cached
+            search share, and batch queries write those of their own copies (Section 4.1).
         x_mask: Selects the bits of a packed embedded word that form its X part, with one machine
             word for each machine word of the embedded words.  Only searches of Pauli errors by
             CSS weight scan with it, but every search reads it when it weighs the word of a
@@ -146,14 +147,14 @@ def get_coset_tails(
         num_columns = inverse.shape[1]
         rows = unpack_bits(instance.generators.reshape(-1, width), num_columns)
         rows = rows.reshape(num_sets, num_rows, num_columns)
-        tail_width = (num_columns - int(instance.ranks.min()) + 63) // 64
+        tail_width = get_num_words(num_columns - int(instance.ranks.min()))
         tails = np.zeros((num_sets, num_rows, tail_width), dtype=np.uint64)
         inverse_tails = np.zeros((num_sets, len(inverse), tail_width), dtype=np.uint64)
         for set_index, (pivots, rank) in enumerate(
             zip(instance.pivots, instance.ranks, strict=True)
         ):
             columns = np.delete(np.arange(num_columns), pivots[:rank])
-            set_width = (len(columns) + 63) // 64
+            set_width = get_num_words(len(columns))
             tails[set_index, :, :set_width] = pack_bits(rows[set_index][:, columns])
             inverse_tails[set_index, :, :set_width] = pack_bits(inverse[:, columns])
         # The tables of a set have at most one block for each block_bits columns of its tails, and
@@ -209,8 +210,9 @@ def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[in
     if its bound exceeds ``max_weight`` and entry ``[w, j - 1]``, the bound of the step before it,
     does not; otherwise ``certificates.find_stopping_step`` finds the step, which replaces it.  A
     negative ``max_weight`` gives the first step, and the largest native integer, the only
-    ``max_weight`` that no bound exceeds, gives the last.  Threads may share the buffer
-    (Section 4.1).
+    ``max_weight`` that no bound exceeds, gives the last.  Single queries on several threads may
+    share the buffer, since each holds the global interpreter lock (Section 4.1); the batch loop of
+    queries gives each worker its own copy.
 
     Returns:
         ``stop_layer``, ``stop_num_completed``, and the bound of that step.
@@ -247,11 +249,11 @@ def _get_planning(bound_tables: Sequence[npt.NDArray[np.int64]]) -> PlanningBuff
     ``get_search_tables``), and otherwise one for every coset.  Each table has one more row than its
     bounds.  Entry ``[w, j]`` of the bounds is a bound on the words left unvisited once the first
     ``j`` sets have completed layer ``w`` and the others layer ``w - 1``, so column zero holds the
-    bound before the first step of a row.  The bounds never change.  The last row, which only
-    ``get_stopping_step`` reads and writes, holds the layer and the number of completed sets of the
-    stopping step that it returned last, initially the first step ``(0, 1)``.  One array holds the
-    bounds and the cached steps, since each argument of a compiled call adds to the time of every
-    query.
+    bound before the first step of a row.  The bounds never change.  The last row holds the layer
+    and the number of completed sets of the stopping step that ``get_stopping_step`` returned last,
+    initially the first step ``(0, 1)``.  ``get_stopping_step`` reads and writes it, and
+    ``coset._get_own_planning`` resets it in each copy for a worker.  One array holds the bounds and
+    the cached steps, since each argument of a compiled call adds to the time of every query.
     """
     planning = np.zeros(
         (len(bound_tables), len(bound_tables[0]) + 1, bound_tables[0].shape[1]), dtype=np.int64

@@ -7,7 +7,7 @@ information sets.  As in Section 5.1 of Lisoněk and Trummer (References of
 ``brouwer_zimmermann.md``), ``get_information_sets_with_coverage`` finds the most information sets
 that use no column more than ``b`` times, by partitioning ``b`` copies of each column into
 independent sets with Edmonds' matroid partitioning algorithm.  Section 4.4 of
-``brouwer_zimmermann.md`` says which searches use it.
+``brouwer_zimmermann_code.md`` says which searches use it.
 """
 
 from __future__ import annotations
@@ -18,6 +18,10 @@ from collections.abc import Iterator
 import numpy as np
 import numpy.typing as npt
 
+from qldpc._binary import row_ints
+
+from .._binary import get_nonzero_columns
+
 
 def get_information_sets_with_coverage(
     basis: npt.NDArray[np.uint8], max_coverage: int, max_sets: int, *, keep_partial: bool = False
@@ -27,7 +31,7 @@ def get_information_sets_with_coverage(
     With ``keep_partial``, a nonempty partial set, of fewer independent columns than the rows, may
     follow the information sets, and counts toward ``max_sets``.  With coverage one, no other choice
     of as many information sets leaves room for a larger one (Section 4.4 of
-    ``brouwer_zimmermann.md``).
+    ``brouwer_zimmermann_code.md``).
 
     Args:
         basis: A binary matrix with independent rows.
@@ -39,8 +43,8 @@ def get_information_sets_with_coverage(
         The sorted column indices of each set.
     """
     dimension = len(basis)
-    columns = np.flatnonzero(np.any(basis, axis=0)).tolist()
-    vectors = _get_column_ints(basis[:, columns])
+    columns = get_nonzero_columns(basis).tolist()
+    vectors = row_ints(np.ascontiguousarray(basis[:, columns].T))
     # Element ``e`` is a copy of column ``columns[e // max_coverage]``.
     copies = [vector for vector in vectors for _ in range(max_coverage)]
     partition = _Partition(copies)
@@ -54,12 +58,6 @@ def get_information_sets_with_coverage(
         sorted(columns[element // max_coverage] for element in independent.elements)
         for independent in partition.sets
     ]
-
-
-def _get_column_ints(matrix: npt.NDArray[np.uint8]) -> list[int]:
-    """The columns of a binary matrix as integers, with row ``i`` in bit ``i``."""
-    packed = np.packbits(np.asarray(matrix, dtype=np.uint8).T, axis=1, bitorder="little")
-    return [int.from_bytes(column.tobytes(), "little") for column in packed]
 
 
 class _IndependentSet:

@@ -7,6 +7,7 @@ Each experiment is a subdirectory that plugs into shared code at this level:
 | --- | --- | --- |
 | [`certification/`](certification/) | Exact certification of bounded fault propagation in published state preparation circuits: feasibility, listed faults against all accepted fault combinations, smallest counterexamples, and the cost of the two weight oracles | MQT QECC's shipped and synthesized circuits, Goto's and Chen et al.'s circuits, and weakened variants |
 | [`distances/`](distances/) | Exact code distances with qLDPC's extensions of the Brouwer-Zimmermann search on, against the same search configured with only the techniques that some public exact tool shares with it | Codes drawn by a fixed rule with fixed seeds, and named anchors |
+| [`ranking/`](ranking/) | Whether decoder-free scores of certified preparation circuits order them as stratified direct simulation of a fixed consumer does, and at what cost | The certified t = 1 circuits of the certification experiment, with its code files |
 
 The experiments run only qLDPC and its Python dependencies, so that they can run on a Linux node without practical network access.
 The shared workflow builds everything that the node needs into one offline bundle on a workstation, runs each experiment on the node with GNU parallel, and brings one archive back for analysis on the workstation.
@@ -26,21 +27,29 @@ Times measured on a workstation are never used as results.
 A run's label is the experiment's name and the first 12 hexadecimal digits of the SHA-256 of `pins.json`, the experiment's frozen input files, such as its configuration and the data that fix its inputs, and the commit of this tree.
 Any change to them gives a new label, and so a new directory `results/<experiment>/<label>/`, which Git ignores.
 From a bundle, the label also covers the bundle's resolved requirements, so that it fixes the versions of the third-party packages too; the manifest records the installed versions.
-That directory holds the manifest of the machine and software, the task lists, GNU parallel's job logs, `runs.jsonl` with one row per run, the tail of each run's output in `logs/`, and the archive.
+That directory holds the manifest of the machine and software, the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, and the archive.
 
 ### Runs
 
-Each task runs in a fresh process pinned to one core, with the thread variables of numerical libraries set to 1.
-Only the measured process and its descendants are pinned to that core; the runner that watches them, and polls their memory every second, runs on the cores left free.
-The runner times only the measured call, from the moment that the run reports that timing has started.
+Each run of a task is a fresh process pinned to one core, with the thread variables of numerical libraries set to 1.
+Only that process, the measured process, and its descendants are pinned to that core; the runner that watches them, and polls their memory every second, runs on the cores left free.
+The runner times only one call of the task's code, the measured call, from the moment that the run reports that timing has started; the measured call's wall time is T.
 A run is `ok` if the measured call returns within the task's limit, and a `timeout` if its measured time reaches the limit, even if it returned later.
-Process start, imports, and warm-up are capped at 120 s, beyond which the run is an `error`.
+Process start, imports, and any untimed preparation before the measured call are capped at 120 s, beyond which the run is an `error`.
 The runner kills a run above its memory cap as a `memout`, and kills every process of a stopped run at once, then waits up to 30 s for them to exit.
 Work after the measured call, such as describing a counterexample, has its own allowance if the experiment sends its measured result first; running out of it then marks only the row's `post_status`.
+While the measured call runs, the measured process reports to the runner the first compilation that numba announces through its documented events `numba:compile` and `numba:run_pass`.
+The runner discards a run whose measured call compiled, whatever its status, and runs the task once more, in a fresh process that loads the compiled code from numba's disk cache: the retry, which is never discarded.
+A run's T includes loading from the cache any compiled code that its process first reaches in its measured call, and the other first-call work of a fresh process.
+The task's one row is that of its kept run, which records any discarded run in `discarded_run`.
+A row has `compiled_in_timing` set when its run is a retry that compiled too, and only then does its T include a compilation that numba reports; [`common/runner.py`](common/runner.py) says when that happens.
+A row with `compiled_in_timing` set is kept so that it is visible, but its timing enters no analysis; each experiment's `analyze.py` says how it treats such rows.
 
 There is one job slot per physical core, with two cores and 16 GiB of memory left free and as many slots as the memory caps of the runs allow.
 Pass 1 holds every first run in an order shuffled with a fixed seed.
 Pass 2 holds the repeats that each experiment's repeat policy asks for after pass 1, such as two more runs of a fast run.
+
+The ceiling of CPU-hours that an experiment needs approved allows for the runner's retries, as [`common/tasks.py`](common/tasks.py) explains.
 
 ## Workflow
 

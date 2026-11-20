@@ -119,6 +119,28 @@ def test_group_intersection_keywords() -> None:
     )
 
 
+def test_transversal_group_members() -> None:
+    """A member of a transversal automorphism group moves the sectors of each qubit together.
+
+    Point ``k * len(code) + q`` of a member is sector ``k`` of qubit ``q``, so a member maps every
+    sector of a qubit to one qubit, and it moves qubits only if SWAP is among the local gates.
+    """
+    code = codes.ToricCode(2)
+    for local_gates, swaps in [(["H"], False), (["SWAP", "H"], True)]:
+        group = circuits.get_transversal_automorphism_group(code, local_gates)
+        assert group.degree == 2 * len(code)
+        qubit_maps = []
+        for member in group.generate():
+            qubit_map = [member(qubit) % len(code) for qubit in range(len(code))]
+            assert all(
+                member(sector * len(code) + qubit) % len(code) == qubit_map[qubit]
+                for sector in range(2)
+                for qubit in range(len(code))
+            )
+            qubit_maps.append(qubit_map)
+        assert any(qubit_map != list(range(len(code))) for qubit_map in qubit_maps) == swaps
+
+
 def test_finding_circuit(
     pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

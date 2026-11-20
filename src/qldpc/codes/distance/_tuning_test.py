@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import ast
 import collections
-import concurrent.futures
 import contextvars
 import dataclasses
 import inspect
@@ -14,6 +13,7 @@ import math
 import pathlib
 import re
 import sys
+import threading
 from fractions import Fraction
 from typing import Any
 
@@ -26,7 +26,7 @@ from qldpc import _num_threads, codes
 from qldpc._binary import get_kernel
 from qldpc.objects import PAULIS_XZ, Pauli
 
-from . import _tuning, core
+from . import _tuning, distances
 from . import logical_counts as lc
 from ._brouwer_zimmermann import distance as bz
 from ._connected_cluster import search as connected_cluster
@@ -34,6 +34,7 @@ from ._counting import scan
 from ._information_sets import basis_families
 from .conftest import (
     MISSED_SET_CODE,
+    THREAD_TIMEOUT,
     CostlyStages,
     get_binary_matrix,
     get_random_css_code,
@@ -71,12 +72,15 @@ def test_new_threads_start_with_the_default_tuning() -> None:
     exception that the module docstring states.
     """
     inherits = getattr(sys.flags, "thread_inherit_context", False)
-    with (
-        _tuning.use_tuning(max_information_sets=4),
-        concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor,
-    ):
-        worker_tuning = executor.submit(_tuning.get_tuning).result()
-        assert worker_tuning == (_tuning.get_tuning() if inherits else _tuning.DEFAULT_TUNING)
+    worker_tunings: list[_tuning.SearchTuning] = []
+    with _tuning.use_tuning(max_information_sets=4):
+        worker = threading.Thread(
+            target=lambda: worker_tunings.append(_tuning.get_tuning()), daemon=True
+        )
+        worker.start()
+        worker.join(timeout=THREAD_TIMEOUT)
+        assert not worker.is_alive()
+        assert worker_tunings == [_tuning.get_tuning() if inherits else _tuning.DEFAULT_TUNING]
         assert _tuning.get_tuning().max_information_sets == 4
 
 
@@ -107,7 +111,7 @@ def test_tunings_are_validated() -> None:
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
         (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),
         (ValueError, "between 1 and", {"scan_chunk_size": 0}),
-        (ValueError, "between 0 and 62", {"information_set_batch_exponent": 63}),
+        (ValueError, "between 0 and 62", {"search_chunk_exponent": 63}),
         (ValueError, "must be one of", {"completion_bound_block_bits": 12}),
         (TypeError, "must be a real number", {"completion_bound_confidence_z": True}),
         (TypeError, "must be a real number", {"completion_bound_confidence_z": "2"}),
@@ -126,13 +130,15 @@ def test_tunings_are_validated() -> None:
     narrowed: dict[str, dict[str, Any]] = {
         "lp_dual_max_denominator": {"minimum": 1},
         "partition_max_coverage": {"minimum": 1},
+        "max_information_sets": {"maximum": 2**10},
         "completion_bound_block_bits": widths,
         "coset_completion_block_bits": widths,
         "completion_bound_samples": {"minimum": 1, "maximum": 2**12},
         "completion_bound_min_samples": {"minimum": 1},
         "completion_bound_confidence_z": {"maximum": 10.0},
         "enumeration_batch_exponent": {"maximum": 62},
-        "information_set_batch_exponent": {"maximum": 62},
+        "search_chunk_exponent": {"maximum": 62},
+        "connected_cluster_split_shift": {"maximum": 62},
         "num_threads": {"minimum": 1},
         "scan_chunk_size": {"minimum": 1},
         "scan_chunks_per_call": {"minimum": 1},
@@ -161,11 +167,10 @@ def test_tunings_are_validated() -> None:
 def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> None:
     """Exact distances and counts are the same under tunings that take different routes.
 
-    By default, and with every threshold below at ``MAX_VALUE``, the distance searches of this code
-    scan one information set.  With every threshold below at zero, the distance searches take a
-    family of overlapping information sets, whose certificate ends them during setup, and the counts
-    scan families found by matroid partitioning.  No route uses completion tables, which the tests
-    of ``_brouwer_zimmermann/distance_test.py`` force instead.
+    With every threshold below at zero, matroid partitioning finds overlapping information sets for
+    some search, and some search bounds unvisited words by linear programming.  By default, and with
+    every threshold below at ``MAX_VALUE``, neither happens.  No route here uses completion tables;
+    the tests of ``_brouwer_zimmermann/distance_test.py`` force them.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
@@ -178,9 +183,10 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
         "macwilliams_shared_walk_rank": 0,
     }
     reluctant = dict.fromkeys(eager, _tuning.MAX_VALUE)
-    results, partitioned = [], []
+    results, partitioned, solves_programs = [], [], []
     for changes in ({}, eager, reluctant):
         costly_stages.partitioned_families.clear()
+        costly_stages.search_certificates.clear()
         with _tuning.use_tuning(**changes):
             # New codes and counters, since codes and counters remember their distances.
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
@@ -201,8 +207,11 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
                 for family in costly_stages.partitioned_families
             )
         )
+        solves_programs.append(
+            any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
+        )
     assert results[0] == results[1] == results[2]
-    assert partitioned == [False, True, False]
+    assert partitioned == solves_programs == [False, True, False]
 
 
 def test_limits_on_partitioned_coverage_change_routes_but_not_results(
@@ -321,15 +330,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     """Distance searches and counts pass the values of their tuning to the code that uses them.
 
     Tuning keeps results, so recording the arguments of each reader is what shows that a value
-    arrives.  The tuning takes every route, with values that differ from the defaults.  Fields that
-    this test does not follow are read in one of two ways.  Some are read within one function from
-    the tuning that it receives, and their tests in ``_information_sets/completion_bounds_test.py``,
-    ``_information_sets/basis_families_test.py``, and ``_auto_test.py`` change them there.  Among
-    them, ``sector_maps`` is read by ``_search_css``, and ``core_test.py`` switches it.  Others are
-    read once by ``CosetLeaderSearch``, which passes their values down to its coset searches:
-    ``max_css_single_pairs`` and ``max_sparsifying_rounds``.  Tests in ``coset_leaders_test.py``,
-    ``_brouwer_zimmermann/coset_test.py``, and ``_connected_cluster/coset_test.py`` change or record
-    these, and the fields that the oracle passes down to the routes of its BZ searches.  The
+    arrives.  Each field that this test follows differs from its default.  Fields that this test
+    does not follow, such as those of completion tables, are tested where they are read.  The
     connected-cluster distance search of the subsystem code with X-type gauge generator [1, 1, 0]
     and Z-type gauge generators [0, 1, 1] and [1, 0, 0] shows that
     ``max_distance_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` reach
@@ -352,8 +354,13 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(basis_families, "_get_disjoint_sets", "random_column_orders")
     record(basis_families, "get_overlapping_family_policy", "tuning", prefix="overlapping ")
     record(basis_families, "get_partitioned_family", "tuning")
-    record(basis_families.BasisFamily, "get_search_certificate", "lp_max_denominator")
-    record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="core ")
+    record(
+        basis_families.BasisFamily,
+        "get_search_certificate",
+        "lp_minimum_work",
+        "lp_max_denominator",
+    )
+    record(distances, "get_nested_distance_brute_force", "batch_exponent", prefix="distances ")
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
@@ -362,10 +369,12 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "__init__",
         "automorphism_minimum_states",
         "restrict_viable_symbols",
+        "stabilizer_overlap_cuts",
+        "pair_sum_checks",
     )
-    record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
-    record(core, "is_cheap_to_enumerate", "tuning", prefix="auto ")
-    record(core, "search_by_cost", "tuning", prefix="auto ")
+    record(distances, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
+    record(distances, "is_cheap_to_enumerate", "tuning", prefix="auto ")
+    record(distances, "search_by_cost", "tuning", prefix="auto ")
     original_prepare = bz._prepare_sector_search
 
     def prepare(*args: Any, **kwargs: Any) -> Any:
@@ -377,7 +386,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(bz, "_prepare_sector_search", prepare)
 
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
+    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     with _tuning.use_tuning(
+        search_chunk_exponent=5,
+        num_threads=3,
         disjoint_random_column_orders=5,
         overlapping_minimum_work=0,
         overlapping_attempts_per_set=3,
@@ -391,6 +403,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         macwilliams_shared_walk_rank=5,
         automorphism_minimum_states=7,
         restrict_viable_symbols=False,
+        stabilizer_overlap_cuts=False,
+        pair_sum_checks=False,
         max_distance_sparsifying_rounds=4,
         sparsifying_rounds_without_improvement=2,
         auto_brute_force_max_words=0,
@@ -404,34 +418,34 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         counter.count_logical_ops()
         counter.count_logical_ops(method="brute_force")
         lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(method="macwilliams")
-        core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
-        core.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
+        distances.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
+        distances.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
+        # A search that scans layers, rather than finish while it prepares, scans with batches of
+        # 2**search_chunk_exponent supports, on num_threads threads, and passes its tuning to its
+        # certificate and to its choices of completion tables.
+        bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
 
     expected = {
         "random_column_orders": {5},
         "overlapping tuning": {tuning},
         "tuning": {tuning},
+        "lp_minimum_work": {0},
         "lp_max_denominator": {97},
-        "core batch_exponent": {6},
+        "distances batch_exponent": {6},
         "count batch_exponent": {6},
         "shared_walk_rank": {5},
         "chunk_size": {1000, 1001},
         "max_chunks": {3},
         "automorphism_minimum_states": {7},
         "restrict_viable_symbols": {False},
+        "stabilizer_overlap_cuts": {False},
+        "pair_sum_checks": {False},
         "max_rounds": {4},
         "rounds_without_improvement": {2},
         "auto tuning": {tuning},
+        "search": {(1 << 5, 3, tuning)},
     }
     assert {key: set(values) for key, values in seen.items()} == expected
-
-    # A search that scans layers, rather than finish while it prepares, scans with batches of
-    # 2**information_set_batch_exponent supports, on num_threads threads, and passes its tuning to
-    # its choices of completion tables.
-    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    with _tuning.use_tuning(information_set_batch_exponent=5, num_threads=3) as tuning:
-        bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
-    assert seen["search"] and all(search == (1 << 5, 3, tuning) for search in seen["search"])
 
     # Under the default tuning, without QLDPC_NUM_THREADS, a search scans on
     # numba.config.NUMBA_NUM_THREADS threads.

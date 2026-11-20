@@ -27,7 +27,8 @@ def test_scans_of_sets_of_any_rank() -> None:
     no_tables = completion_bounds.NO_TABLES
 
     # The sets have full rank, partial rank, and rank zero.  Scans of the last two read fewer packed
-    # words of the rows than the sets store, and these sets have labels only in their second word.
+    # words of the rows than the sets store, and these sets have labels only in their second word,
+    # while the first set has none.
     for dimension in range(1, 7):
         generators = rng.integers(0, 2**64, (3, dimension, 5), dtype=np.uint64)
         labels = np.zeros((3, dimension, 2), dtype=np.uint64)
@@ -36,16 +37,15 @@ def test_scans_of_sets_of_any_rank() -> None:
         widths = np.array([5, 2, 1], dtype=np.int64)
         label_widths = np.array([0, 2, 2], dtype=np.int64)
         for index, weight in itertools.product(range(3), range(1, dimension + 1)):
+            support = np.zeros(weight, dtype=np.int64)
             arguments = (
                 generators[index],
-                labels[index],
+                np.ascontiguousarray(labels[index, :, : label_widths[index]]),
                 ranks[index],
                 widths[index],
-                label_widths[index],
-                np.zeros(weight, dtype=np.int64),
+                support,
                 np.zeros((weight + 1, 5), dtype=np.uint64),
             )
-            support = arguments[5]
             depth, best, expected = 0, 1000, 1000
             for indices in itertools.combinations(range(dimension), weight):
                 # Update the expected minimum with the current combination of rows.
@@ -127,7 +127,6 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                                 labels,
                                 dimension,
                                 width,
-                                num_label_words,
                                 support,
                                 prefixes,
                                 depth,
@@ -183,7 +182,7 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
     ):
         if rank < num_rows and set_tables is tables:
             continue
-        arguments = (generators, labels, rank, generators.shape[1], 1)
+        arguments = (generators, labels, rank, generators.shape[1])
         table_arguments = (set_tables.tables, set_tables.offsets, set_tables.block_bits)
 
         # Scan the layer.
@@ -339,24 +338,6 @@ def test_coset_layer_scans_reach_their_last_support() -> None:
             assert representative[0] == 0
 
 
-def _get_tail_weights(
-    offset_tail: npt.NDArray[np.uint8], tails: npt.NDArray[np.uint8], rank: int, layer: int
-) -> list[tuple[tuple[int, ...], int]]:
-    """Each support of a layer of a coset basis by tails, in order, with the weight of its word.
-
-    The word of a support has a one on the pivot of each of its rows below ``rank``, and its tail on
-    the other columns.
-    """
-    return [
-        (
-            rows,
-            sum(row < rank for row in rows)
-            + int(np.sum(offset_tail ^ tails[list(rows)].sum(0) % 2)),
-        )
-        for rows in itertools.combinations(range(len(tails)), layer)
-    ]
-
-
 def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -417,10 +398,11 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
 
 @pytest.mark.parametrize("deficiency", [0, 1, 3])
 def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound(
-    deficiency: int, pytestconfig: pytest.Config
+    deficiency: int,
 ) -> None:
     """A tail scan with tables skips completions only if their bound reaches the skip bound."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # A fixed seed, since whether the tables skip anything depends on the rows.
+    rng = np.random.default_rng(0)
     num_rows, num_columns, block_bits = 6, 24, 4
     # A one in the last column makes the tables cover every column.
     tails = (rng.random((num_rows, num_columns)) < 0.25).astype(np.uint8)
@@ -472,11 +454,10 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
     assert total_skipped
 
 
-def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower_it(
-    pytestconfig: pytest.Config,
-) -> None:
+def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower_it() -> None:
     """A tail scan whose skip bound is its best weight skips no completion that can lower it."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # A fixed seed, since whether the tables skip anything depends on the rows.
+    rng = np.random.default_rng(0)
     num_rows, num_columns, block_bits = 6, 24, 4
     tails = (rng.random((num_rows, num_columns)) < 0.25).astype(np.uint8)
     tails[0, -1] = 1
@@ -517,6 +498,24 @@ def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower
     assert total_skipped
 
 
+def _get_tail_weights(
+    offset_tail: npt.NDArray[np.uint8], tails: npt.NDArray[np.uint8], rank: int, layer: int
+) -> list[tuple[tuple[int, ...], int]]:
+    """Each support of a layer of a coset basis by tails, in order, with the weight of its word.
+
+    The word of a support has a one on the pivot of each of its rows below ``rank``, and its tail on
+    the other columns.
+    """
+    return [
+        (
+            rows,
+            sum(row < rank for row in rows)
+            + int(np.sum(offset_tail ^ tails[list(rows)].sum(0) % 2)),
+        )
+        for rows in itertools.combinations(range(len(tails)), layer)
+    ]
+
+
 def _get_completion_bound(
     tails: npt.NDArray[np.uint8],
     support: Sequence[int],
@@ -546,7 +545,6 @@ def _scan_layer(
     labels: npt.NDArray[np.uint64],
     rank: int,
     width: int,
-    label_width: int,
     weight: int,
     batch_size: int,
     table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
@@ -562,7 +560,6 @@ def _scan_layer(
             labels,
             rank,
             width,
-            label_width,
             support,
             prefixes,
             depth,
@@ -580,7 +577,6 @@ def _scan_items_on_threads(
     labels: npt.NDArray[np.uint64],
     rank: int,
     width: int,
-    label_width: int,
     weight: int,
     batch_size: int,
     table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
@@ -607,7 +603,6 @@ def _scan_items_on_threads(
                     labels,
                     rank,
                     width,
-                    label_width,
                     support,
                     prefixes,
                     depth,

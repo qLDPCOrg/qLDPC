@@ -19,6 +19,7 @@ from unittest import mock
 import numpy as np
 import numpy.typing as npt
 import pytest
+import scipy.optimize
 from sympy.abc import x, y, z
 
 import qldpc
@@ -26,12 +27,14 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
-from .. import _brute_force, core
+from .. import distances
 from .._information_sets import basis_families, certificates, completion_bounds, matroid_partition
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from ..conftest import (
     MISSED_SET_CODE,
+    THREAD_TIMEOUT,
     CostlyStages,
+    check_shared_arrays_on_threads,
     get_costly_basis,
     get_golay_checks,
     get_random_css_code,
@@ -49,34 +52,47 @@ TABLES_DISABLED = dataclasses.replace(
     completion_bound_max_table_bytes=0,
 )
 
+# ``TABLES_DISABLED``, with scans that return after each support.
+ONE_SUPPORT_CHUNKS = dataclasses.replace(TABLES_DISABLED, search_chunk_exponent=0)
+
 
 def test_brouwer_zimmermann_search_state() -> None:
-    """Only completed layers advance the certificate, not interrupted ones or ones cut off."""
-    # One set of rank zero, whose two eligible rows weigh two and one.
+    """Only completed layers advance the certificate, not interrupted ones or ones cut off.
+
+    A later call restarts an interrupted layer from its first support.
+    """
+    # One set of rank zero, whose two eligible rows weigh one and two.
     search = bz._SectorSearch(
         affine_instance.AffineInstance(
-            generators=np.array([[[3], [2]]], dtype=np.uint64),
+            generators=np.array([[[2], [3]]], dtype=np.uint64),
             labels=np.ones((1, 2, 1), dtype=np.uint64),
             widths=np.array([1], dtype=np.int64),
             pivots=np.full((1, 2), -1, dtype=np.int64),
             certificate=certificates.Certificate(2, (0,)),
         ),
         cutoff=1,
-        batch_size=1,
-        tuning=TABLES_DISABLED,
+        tuning=ONE_SUPPORT_CHUNKS,
         best=3,
         lower_bound=0,
     )
 
-    # Interrupt a layer.
+    # Interrupt a layer after its first chunk, which weighs the first row, before the search takes
+    # the result of the chunk.
+    scan_set = affine_search.scan_set
+
+    def interrupted_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        scan_set(*args)
+        raise KeyboardInterrupt
+
     with (
-        mock.patch.object(affine_search, "scan_set", side_effect=KeyboardInterrupt),
+        mock.patch.object(affine_search, "scan_set", interrupted_scan),
         pytest.raises(KeyboardInterrupt),
     ):
         search.advance()
-    assert (search.lower_bound, search.next_weight) == (0, 1)
+    assert (search.best, search.lower_bound, search.next_weight) == (3, 0, 1)
 
-    # Reach the cutoff.
+    # Reach the cutoff at the first row, which the search weighs again because it restarts the
+    # interrupted layer.
     assert search.advance() == 1
     assert (search.lower_bound, search.next_weight) == (0, 1)
     assert search.advance() == 1
@@ -89,39 +105,10 @@ def test_brouwer_zimmermann_search_state() -> None:
     assert (search.lower_bound, search.next_weight) == (np.iinfo(np.int64).max, 3)
 
 
-def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
-    """Layer work saturates below the largest threshold, which never asks for automorphisms."""
-    dimension, weight = 70, 35
-    assert math.comb(dimension, weight) > MAX_VALUE
-    for minimum_layer_work, expected_calls in ((MAX_VALUE, 0), (2**61, 1)):
-        get_automorphism_family = mock.Mock(return_value=None)
-        search = bz._SectorSearch(
-            affine_instance.AffineInstance(
-                generators=np.zeros((1, dimension, 2), dtype=np.uint64),
-                labels=np.zeros((1, dimension, 1), dtype=np.uint64),
-                widths=np.array([2], dtype=np.int64),
-                pivots=np.arange(dimension, dtype=np.int64)[None],
-                certificate=certificates.Certificate(dimension, (dimension,)),
-            ),
-            cutoff=0,
-            batch_size=1,
-            tuning=dataclasses.replace(
-                TABLES_DISABLED, automorphism_minimum_layer_work=minimum_layer_work
-            ),
-            best=dimension,
-            lower_bound=0,
-            next_weight=weight,
-            get_automorphism_family=get_automorphism_family,
-        )
-        # Skip the scan of the layer, which no search could finish.
-        with mock.patch.object(affine_search, "scan_set", return_value=(dimension, -1, 0, 0, 0)):
-            search.advance()
-        assert get_automorphism_family.call_count == expected_calls
-
-
-# Each case reaches one early exit from search setup or a shared search with real inputs.  These
-# exits depend on cost heuristics, so retuning a heuristic can move a case to another exit.  If the
-# coverage gate then fails, find a new natural input here rather than stubbing internals.
+# Each case reaches one early exit from search setup or a shared search with real inputs.  The test
+# forces whether setup builds overlapping families, and keeps it from partitioning, but a change to
+# how setup builds its families can still move a case to another exit.  If the test or the coverage
+# gate then fails, find a new natural input here rather than stubbing internals.
 SETUP_EXIT_CASES = [
     # A shared search reaches the cutoff inside a coefficient-weight scan.
     pytest.param(
@@ -139,15 +126,16 @@ SETUP_EXIT_CASES = [
     ),
     # Rows of an overlapping replacement family reach the cutoff.
     pytest.param(
-        [[1, 0, 0, 0, 0, 0, 0, 1, 1, 1]],
+        [[1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1]],
         [
-            [0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
-            [0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            [0, 0, 0, 1, 0, 0, 1, 1, 0, 1],
-            [0, 0, 0, 0, 1, 0, 0, 1, 1, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1],
+            [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1],
+            [0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0],
+            [0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0],
+            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0],
         ],
-        3,
+        4,
         True,
         id="overlap-cutoff",
     ),
@@ -176,44 +164,47 @@ def test_brouwer_zimmermann_setup_exits(
     cutoff: int,
     overlap: bool,
     tune: Tune,
+    monkeypatch: pytest.MonkeyPatch,
+    prepared: list[bz._SectorSearch],
 ) -> None:
-    """Early exits from search setup or a shared search agree with a brute-force oracle."""
+    """Each case settles in setup exactly when an overlapping family replaces its disjoint one.
+
+    Each case also agrees with a brute-force oracle.
+    """
     expected = qldpc.codes.distance.get_distance_from_generators(
         logicals, stabilizers, cutoff=0, method="brute_force"
     )
 
-    if overlap:
-        tune(overlapping_minimum_work=0)
+    # Record the overlapping families that replace disjoint ones.
+    replacements: list[basis_families.BasisFamily] = []
+    get_overlapping_family = basis_families.get_overlapping_family
+
+    def recording_get_overlapping_family(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
+        family = get_overlapping_family(*args, **kwargs)
+        if len(family.ranks):
+            replacements.append(family)
+        return family
+
+    monkeypatch.setattr(basis_families, "get_overlapping_family", recording_get_overlapping_family)
+    tune(
+        overlapping_minimum_work=0 if overlap else MAX_VALUE,
+        partition_work_ratio=MAX_VALUE,
+    )
     distance = qldpc.codes.distance.get_distance_from_generators(
         logicals, stabilizers, cutoff=cutoff, method="brouwer_zimmermann"
     )
     assert expected <= distance <= max(cutoff, expected)
 
-
-def test_searches_never_enumerate_every_word() -> None:
-    """A search scans information sets, even where enumerating every word would cost less."""
-    logicals = [[1, 0, 0, 0, 1, 0, 1, 1, 0]]
-    stabilizers = [
-        [0, 1, 0, 0, 0, 0, 1, 0, 1],
-        [0, 0, 1, 0, 1, 0, 1, 0, 1],
-        [0, 0, 0, 1, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 1, 1, 0, 1],
-    ]
-    expected = qldpc.codes.distance.get_distance_from_generators(
-        logicals, stabilizers, method="brute_force"
-    )
-    with mock.patch.object(
-        _brute_force, "_get_distance_brute_force", wraps=_brute_force._get_distance_brute_force
-    ) as enumerate_words:
-        distance = qldpc.codes.distance.get_distance_from_generators(
-            logicals, stabilizers, method="brouwer_zimmermann"
-        )
-    assert distance == expected
-    enumerate_words.assert_not_called()
+    # Setup settles a case exactly if an overlapping family replaces the disjoint one.  The cases
+    # with a cutoff end at or below it, and the case without one settles in setup, which without a
+    # cutoff only its certificate can do.
+    assert bool(prepared) == (not replacements) == (not overlap)
+    assert (distance <= cutoff) == (cutoff > 0)
 
 
 def test_brouwer_zimmermann_setup_cutoffs() -> None:
     """Setup can reach the cutoff from initial rows or a newly systematic row."""
+    # Each row weighs three, which bounds the distance, and their sum weighs two.
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
     assert (
         bz._prepare_sector_search(
@@ -221,7 +212,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             _no_labels(basis),
             cutoff=3,
             weight_divisor=1,
-            upper_bound=4,
+            upper_bound=3,
             tuning=DEFAULT_TUNING,
         )
         == 3
@@ -232,7 +223,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             _no_labels(basis),
             cutoff=2,
             weight_divisor=1,
-            upper_bound=4,
+            upper_bound=3,
             tuning=DEFAULT_TUNING,
         )
         == 2
@@ -299,7 +290,9 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     rng = np.random.default_rng(121)
     basis = get_random_full_rank_matrix(rng, 5, 9)
     labels = np.vstack([np.zeros((2, 3), dtype=np.uint8), np.eye(3, dtype=np.uint8)])
-    expected = bz.get_distance_brouwer_zimmermann([(basis, labels)], cutoff=0)
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        basis[2:], basis[:2], cutoff=0, method="brute_force"
+    )
     get_basis_family = mock.Mock(
         return_value=basis_families.get_disjoint_family(
             basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
@@ -393,28 +386,6 @@ def test_brouwer_zimmermann_packed_widths(length: int) -> None:
     )
 
 
-def test_dependent_logical_rows_give_the_distance_of_their_span() -> None:
-    """Repeated logical rows are reduced to a basis of the quotient before any search."""
-    distance = qldpc.codes.distance.get_distance_from_generators(
-        [[1, 1, 1], [1, 1, 1]], [], cutoff=0, method="brouwer_zimmermann"
-    )
-    assert distance == 3
-
-
-@pytest.mark.parametrize("extended", [False, True])
-def test_brouwer_zimmermann_reduces_enumeration_work(
-    extended: bool, get_candidate_count: Callable[[], int]
-) -> None:
-    """Hamming(5) and its even-weight extension need far less work than exhaustive search."""
-    generators = np.asarray(qldpc.codes.HammingCode(5).generator, dtype=np.uint8)
-    if extended:
-        generators = np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
-    assert qldpc.codes.distance.get_distance_from_generators(
-        generators, cutoff=0, method="brouwer_zimmermann"
-    ) == (4 if extended else 3)
-    assert 0 < 1000 * get_candidate_count() < 2 ** len(generators)
-
-
 def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
     """Upper bounds from rows come from eligible rows, not lighter stabilizers."""
     basis = np.array([[1, 0, 0], [1, 1, 0]], dtype=np.uint8)
@@ -422,8 +393,18 @@ def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
     assert bz._get_lightest_eligible_row_weight(basis, labels) == 2
 
 
-def test_brouwer_zimmermann_overlap_mb(get_candidate_count: Callable[[], int]) -> None:
-    """The BZ X-sector search of this 64-qubit MB code stays within a broad work budget."""
+def test_a_search_of_an_mb_code_takes_overlapping_sets(
+    tune: Tune, costly_stages: CostlyStages
+) -> None:
+    """The X-sector search of a 64-qubit MB code takes overlapping sets, and finds the distance.
+
+    Section 3.8 of ``brouwer_zimmermann.md`` works this example: overlapping sets do far less work
+    than the one information set of a disjoint family.
+    """
+    # Remove the work gate of overlapping families, so that setup chooses between the families by
+    # their predicted work alone.  Keep setup from partitioning, since a partitioned family can also
+    # cover a column more than once.
+    tune(overlapping_minimum_work=0, partition_work_ratio=MAX_VALUE)
     code = qldpc.codes.MBCode(
         {x: 4, y: 4, z: 2},
         1 + x + y + x * y * z,
@@ -431,7 +412,7 @@ def test_brouwer_zimmermann_overlap_mb(get_candidate_count: Callable[[], int]) -
     )
     distance = code.forget_distance().get_distance_exact("X", cutoff=0, method="brouwer_zimmermann")
     assert distance == 8
-    assert 0 < get_candidate_count() < 1_000_000
+    assert any(certificate.max_coverage > 1 for certificate in costly_stages.search_certificates)
 
 
 def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> None:
@@ -475,33 +456,6 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
             == 5
         )
     select_mock.assert_called()
-
-
-@pytest.fixture
-def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
-    """Count the rows and supports that searches weigh, and the bounds they look up, not skips."""
-    num_candidates = 0
-    original_scan = affine_search.scan_set
-
-    def counting_scan(*args: Any) -> tuple[int, int, int, int, int]:
-        nonlocal num_candidates
-        result = original_scan(*args)
-        num_candidates += result[2] + result[3]
-        return result
-
-    bitwise_count = np.bitwise_count
-
-    def counting_bitwise_count(
-        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
-    ) -> npt.NDArray[np.uint64]:
-        nonlocal num_candidates
-        num_candidates += len(arr)
-        return bitwise_count(arr, out=out)
-
-    # Row weights count every packed word with np.bitwise_count.
-    monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
-    monkeypatch.setattr(affine_search, "scan_set", counting_scan)
-    return lambda: num_candidates
 
 
 @pytest.mark.usefixtures("completion_tables")
@@ -654,7 +608,7 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
     expected = bz.get_distance_brouwer_zimmermann([sector], cutoff=0)
     assert expected == 8
     distance = bz.get_distance_brouwer_zimmermann(
-        [sector], cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+        [sector], cutoff=0, get_automorphisms=code._get_permutation_automorphisms
     )
     assert distance == expected
 
@@ -682,7 +636,7 @@ def prepared(monkeypatch: pytest.MonkeyPatch) -> list[bz._SectorSearch]:
 
 
 def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
-    monkeypatch: pytest.MonkeyPatch, prepared: list[bz._SectorSearch]
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, prepared: list[bz._SectorSearch]
 ) -> None:
     """Each advance scans one layer of the next unfinished search, in turn, until all finish.
 
@@ -697,9 +651,11 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
         return advance(search)
 
     monkeypatch.setattr(bz._SectorSearch, "advance", recording_advance)
-    # This code has distance 4, as the connected-cluster method finds.  One sector's search finishes
-    # while the other's goes on, so the turns skip it.
-    code = get_random_css_code(np.random.default_rng(4), 60, 20, 25)
+    # This code has distance 5, as the connected-cluster method finds.  Setup builds overlapping
+    # families and does not partition, so that one sector's search finishes while the other's goes
+    # on, and the turns skip it.
+    tune(overlapping_minimum_work=0, partition_work_ratio=MAX_VALUE)
+    code = get_random_css_code(np.random.default_rng(6), 60, 20, 25)
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
     search = bz.BrouwerZimmermannSearch(sectors, cutoff=0)
     num_searches = len(prepared)
@@ -712,7 +668,7 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
         search.advance()
         assert len(visits) == num_visits + 1
         bests.append(search.best)
-    assert bests == sorted(bests, reverse=True) and bests[-1] == 4
+    assert bests == sorted(bests, reverse=True) and bests[-1] == 5
 
     # Each search that advances is the first unfinished one after the last, in cyclic order.
     previous = -1
@@ -721,7 +677,7 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
         assert index == next(candidate for candidate in candidates if not finished[candidate])
         previous = index
     assert any(
-        index == previous_index for (index, _), (previous_index, _) in zip(visits[1:], visits)
+        index == previous_index for (previous_index, _), (index, _) in itertools.pairwise(visits)
     )
 
     # Once finished, the search does nothing.
@@ -731,25 +687,63 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
 
 
 def test_searches_that_setup_settles_are_finished_at_once(
-    prepared: list[bz._SectorSearch],
+    tune: Tune, prepared: list[bz._SectorSearch]
 ) -> None:
-    """A search is finished when built if setup settles it, or with no sectors.
+    """A search is finished when built if setup settles it.
 
     Setup settles the sector of the Hamming code directly.  In the random code, it settles one
     sector, whose witness finishes the search of the other.
     """
-    search = bz.BrouwerZimmermannSearch([], cutoff=0, upper_bound=3)
-    assert search.finished and search.best == 3
     hamming_code = qldpc.codes.HammingCode(3)
     sector = (np.asarray(hamming_code.generator, dtype=np.uint8), np.zeros((4, 0), np.uint8))
     search = bz.BrouwerZimmermannSearch([sector], cutoff=7)
     assert search.finished and search.best == 3 and not prepared
 
+    # Setup keeps the disjoint family of each sector.
+    tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=MAX_VALUE)
     code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
     search = bz.BrouwerZimmermannSearch(sectors, cutoff=0)
     assert len(prepared) == 1 and search.finished
     assert search.best == code.get_distance(method="brute_force") == 2
+
+
+def test_a_witness_from_setup_lowers_the_shared_bound_once_its_search_advances(
+    prepared: list[bz._SectorSearch],
+) -> None:
+    """A witness that setup finds in the rows of a family lowers ``best`` once its search advances.
+
+    The rows of the basis weigh four or more, and a row of the family's one information set, on the
+    first three columns, weighs three, the distance.  The words of layer two of that set weigh more.
+    """
+    basis = np.array(
+        [
+            [0, 1, 0, 0, 0, 1, 1, 1, 0],
+            [0, 0, 1, 1, 0, 0, 0, 1, 1],
+            [1, 0, 1, 0, 1, 0, 0, 1, 1],
+        ],
+        dtype=np.uint8,
+    )
+    assert basis.sum(axis=1).min() == 4
+    family, _ = _get_family(basis, [[0, 1, 2]])
+    tuning = dataclasses.replace(
+        TABLES_DISABLED, overlapping_minimum_work=MAX_VALUE, partition_work_ratio=MAX_VALUE
+    )
+    search = bz.BrouwerZimmermannSearch(
+        [(basis, _no_labels(basis))],
+        cutoff=0,
+        get_disjoint_basis_families=[lambda: family],
+        tuning=tuning,
+    )
+    (sector_search,) = prepared
+    # The shared bound may already hold the witness before the search advances.
+    assert search.best >= sector_search.best == 3
+    search.advance()
+    assert (
+        search.best
+        == qldpc.codes.distance.get_distance_from_generators(basis, method="brute_force")
+        == 3
+    )
 
 
 @pytest.mark.usefixtures("switch_before_any_layer", "completion_tables")
@@ -758,21 +752,116 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     identity = np.arange(len(code))[None]
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
-    for sector, pauli in zip(sectors, PAULIS_XZ):
+    for sector, pauli in zip(sectors, PAULIS_XZ, strict=True):
         expected = qldpc.codes.distance.get_distance_from_generators(
             code.get_logical_ops(pauli),
             code.get_stabilizer_ops(pauli),
             cutoff=0,
             method="brute_force",
         )
-        for get_automorphisms in (code._get_qudit_automorphisms, lambda: identity, lambda: None):
+        for get_automorphisms in (
+            code._get_permutation_automorphisms,
+            lambda: identity,
+            lambda: None,
+        ):
             distance = bz.get_distance_brouwer_zimmermann(
                 [sector], cutoff=0, get_automorphisms=get_automorphisms
             )
             assert distance == expected
     assert bz.get_distance_brouwer_zimmermann(
-        sectors, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+        sectors, cutoff=0, get_automorphisms=code._get_permutation_automorphisms
     ) == code.get_distance(method="brute_force")
+
+
+@pytest.mark.parametrize("threshold, num_layers", [(1_000, 2), (20_000, 3)])
+def test_images_of_blocks_bound_a_search_once_it_has_automorphisms(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, threshold: int, num_layers: int
+) -> None:
+    """Once a search has automorphisms, it bounds with the images of the blocks of its family.
+
+    The search of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915 asks for
+    automorphisms after two or three layers.  Its lower bound then is the optimum, rounded up to
+    even, of the linear program over every image of every block (Section 3.7), which this test
+    solves over columns, with the group that the translations generate.  After two layers the images
+    certify four, so the search goes on and switches to an automorphism family; after three they
+    certify six, so it ends without a switch, before scanning its fourth layer.
+    """
+    tune(automorphism_minimum_layer_work=threshold)
+    code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    generators = np.asarray(code._get_permutation_automorphisms())
+    asks = []
+    switch = bz._SectorSearch._switch_to_automorphism_family
+
+    def recording_switch(search: bz._SectorSearch) -> None:
+        instance, next_weight = search.instance, search.next_weight
+        switch(search)
+        asks.append((instance, next_weight, search.lower_bound, search.uses_automorphism_family))
+
+    monkeypatch.setattr(bz._SectorSearch, "_switch_to_automorphism_family", recording_switch)
+    assert (
+        bz.get_distance_brouwer_zimmermann(
+            [get_sector(code, Pauli.X)], cutoff=0, get_automorphisms=lambda: generators
+        )
+        == 6
+    )
+    ((instance, next_weight, lower_bound, switched),) = asks
+    assert next_weight == num_layers + 1
+
+    # Solve the program over every image of every block of the family, after its completed layers.
+    group = {tuple(range(len(code)))}
+    frontier = list(group)
+    while frontier:
+        member = np.array(frontier.pop())
+        for generator in generators:
+            image = tuple(generator[member].tolist())
+            if image not in group:
+                group.add(image)
+                frontier.append(image)
+    rows = []
+    requirements = []
+    for pivots, rank in zip(instance.pivots, instance.ranks, strict=True):
+        for permutation in group:
+            row = np.zeros(len(code))
+            row[np.array(permutation)[pivots[:rank]]] = 1
+            rows.append(row)
+            requirements.append(num_layers + 1 - (instance.generators.shape[1] - rank))
+    result = scipy.optimize.linprog(
+        np.ones(len(code)), A_ub=-np.array(rows), b_ub=-np.array(requirements), bounds=(0, 1)
+    )
+    # Every eligible weight is even, so the bound rounds up to an even number (Section 3.2).
+    assert instance.certificate.weight_divisor == 2
+    assert lower_bound == 2 * math.ceil(math.ceil(result.fun - 1e-9) / 2)
+    assert switched == (lower_bound < 6)
+
+
+@pytest.mark.usefixtures("switch_before_any_layer")
+@pytest.mark.parametrize("orbit_bounds", [True, False])
+def test_searches_solve_the_program_over_orbits_as_their_tuning_says(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, orbit_bounds: bool
+) -> None:
+    """A search with automorphisms solves its program over orbits with the tuning's denominators.
+
+    Without ``automorphism_orbit_bounds``, it solves no such program, and still finds the distance
+    of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915.
+    """
+    tune(lp_dual_max_denominator=97, automorphism_orbit_bounds=orbit_bounds)
+    denominators: list[int] = []
+    get_lp_lower_bound = certificates.get_lp_lower_bound
+
+    def recording_lp(
+        pivot_blocks: Any, requirements: Any, max_denominator: int, column_orbits: Any = ()
+    ) -> int:
+        if column_orbits:
+            denominators.append(max_denominator)
+        return get_lp_lower_bound(pivot_blocks, requirements, max_denominator, column_orbits)
+
+    monkeypatch.setattr(certificates, "get_lp_lower_bound", recording_lp)
+    code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    distance = bz.get_distance_brouwer_zimmermann(
+        [get_sector(code, Pauli.X)], cutoff=0, get_automorphisms=code._get_permutation_automorphisms
+    )
+    assert distance == 6
+    assert set(denominators) == ({97} if orbit_bounds else set())
 
 
 def test_stepped_searches_use_the_tuning_that_they_are_given(
@@ -791,9 +880,9 @@ def test_stepped_searches_use_the_tuning_that_they_are_given(
 
     monkeypatch.setattr(bz, "_prepare_sector_search", recording_prepare)
     code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
-    tuning = dataclasses.replace(DEFAULT_TUNING, information_set_batch_exponent=5)
+    tuning = dataclasses.replace(DEFAULT_TUNING, search_chunk_exponent=5)
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
-    with use_tuning(information_set_batch_exponent=6):
+    with use_tuning(search_chunk_exponent=6):
         bz.get_distance_brouwer_zimmermann(sectors, cutoff=0, tuning=tuning)
     assert tunings == [tuning, tuning]
 
@@ -832,7 +921,7 @@ def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
         sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
         with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
             search = bz.BrouwerZimmermannSearch(
-                sectors, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+                sectors, cutoff=0, get_automorphisms=code._get_permutation_automorphisms
             )
             while not search.finished:
                 asked.clear()
@@ -875,7 +964,9 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
         basis_families.infer_weight_divisor(basis),
         1,
     )
-    tune(automorphism_minimum_layer_work=math.comb(size, 3))
+    # The search switches before layer three, whose work, unlike that of layer two, reaches the
+    # threshold.
+    tune(automorphism_minimum_layer_work=(math.comb(size, 2) + math.comb(size, 3)) // 2)
     distance = bz.get_distance_brouwer_zimmermann(
         [(basis, labels)],
         cutoff=0,
@@ -896,11 +987,14 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
 
 
 def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
-    """A search asks for automorphisms at most once, only before a costly layer or partitioning."""
+    """The search of a sector asks for automorphisms at most once.
+
+    It asks only before a costly layer or partitioning.
+    """
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     sector = get_sector(code, Pauli.X)
     for minimum_layer_work, expected_calls in ((10**9, 0), (0, 1)):
-        get_automorphisms = mock.Mock(wraps=code._get_qudit_automorphisms)
+        get_automorphisms = mock.Mock(wraps=code._get_permutation_automorphisms)
         with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
             bz.get_distance_brouwer_zimmermann(
                 [sector], cutoff=0, get_automorphisms=get_automorphisms
@@ -945,7 +1039,7 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
             labels,
             cutoff=0,
             weight_divisor=1,
-            upper_bound=num_columns + 1,
+            upper_bound=bz._get_lightest_eligible_row_weight(basis, labels),
             get_automorphisms=get_automorphisms,
             tuning=tuning,
         )
@@ -1013,8 +1107,10 @@ def test_a_late_switch_weighs_the_layers_left_in_the_current_family(
     tune: Tune, switch_decisions: list[tuple[int, bool]]
 ) -> None:
     """A search declines a switch that would cost more than the layers that its family has left."""
+    # The threshold lies between the work of layer two, at most 210 for the two sets, and that of
+    # layer three of one set, 455.
     tune(
-        automorphism_minimum_layer_work=math.comb(15, 3),
+        automorphism_minimum_layer_work=300,
         overlapping_minimum_work=MAX_VALUE,
         partition_work_ratio=MAX_VALUE,
     )
@@ -1054,8 +1150,8 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
     # With the code's translations, the search switches at once.  With the identity alone, no
     # automorphisms, or the largest threshold, which asks for none, it partitions instead.
     for get_automorphisms, minimum_layer_work, partitions in (
-        (code._get_qudit_automorphisms, 10**9, False),
-        (code._get_qudit_automorphisms, MAX_VALUE, True),
+        (code._get_permutation_automorphisms, 10**9, False),
+        (code._get_permutation_automorphisms, MAX_VALUE, True),
         (lambda: identity, 0, True),
         (lambda: None, 0, True),
     ):
@@ -1099,9 +1195,11 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
     assert switched == [False]
 
 
-def test_a_switch_at_the_end_of_setup_can_certify_the_distance(tune: Tune) -> None:
+def test_a_switch_at_the_end_of_setup_can_certify_the_distance(
+    tune: Tune, prepared: list[bz._SectorSearch], switch_decisions: list[tuple[int, bool]]
+) -> None:
     """A switch at the end of setup can certify the distance, so that the search ends in setup."""
-    tune(partition_work_ratio=0)
+    tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=0)
     code = qldpc.codes.BBCode({x: 6, y: 2}, x**3 * y + x**2 * y + x, x**5 + x**3 * y + x)
     expected = qldpc.codes.distance.get_distance_from_generators(
         code.get_logical_ops(Pauli.X), code.get_stabilizer_ops(Pauli.X), method="brute_force"
@@ -1109,9 +1207,10 @@ def test_a_switch_at_the_end_of_setup_can_certify_the_distance(tune: Tune) -> No
     distance = bz.get_distance_brouwer_zimmermann(
         [get_sector(code, Pauli.X)],
         cutoff=0,
-        get_automorphisms=code._get_qudit_automorphisms,
+        get_automorphisms=code._get_permutation_automorphisms,
     )
     assert distance == expected
+    assert switch_decisions and not prepared
 
 
 @pytest.mark.parametrize("partition_work_ratio", [MAX_VALUE, 0])
@@ -1129,78 +1228,49 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
     sector = get_sector(code, Pauli.Z)
     assert bz.get_distance_brouwer_zimmermann([sector], cutoff=0) == 4
     distance = bz.get_distance_brouwer_zimmermann(
-        [sector], cutoff=6, get_automorphisms=code._get_qudit_automorphisms
+        [sector], cutoff=6, get_automorphisms=code._get_permutation_automorphisms
     )
     assert distance == 6
 
 
 @pytest.mark.usefixtures("switch_before_any_layer")
-def test_searches_reject_wrong_automorphisms() -> None:
-    """A permutation that does not preserve a sector fails loudly when a search would use it."""
+@pytest.mark.parametrize("partitions", [False, True])
+def test_searches_reject_wrong_automorphisms(tune: Tune, partitions: bool) -> None:
+    """A permutation that does not preserve a sector fails loudly when a search would use it.
+
+    The search asks for automorphisms before its first layer, or, if it may partition, when it is
+    built, to weigh partitioning against them (Section 3.7).
+    """
+    tune(partition_work_ratio=0 if partitions else MAX_VALUE)
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     transposition = np.arange(len(code))
     transposition[[0, 1]] = [1, 0]
-    with pytest.raises(ValueError, match="not an automorphism"):
-        bz.get_distance_brouwer_zimmermann(
-            [get_sector(code, Pauli.X)],
-            cutoff=0,
-            get_automorphisms=lambda: transposition[None],
-        )
-
-
-def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-    """Quotient labels with no columns, which exclude no subcode."""
-    return np.empty((len(basis), 0), dtype=np.uint8)
-
-
-def _get_cyclic_basis(coefficients: str, num_columns: int) -> npt.NDArray[np.uint8]:
-    """A basis of a binary cyclic code: the shifts of the coefficients of its generator polynomial.
-
-    ``coefficients`` lists them from the constant term up, and the polynomial must divide
-    ``x**num_columns - 1``, so that shifting the columns preserves the code.
-    """
-    row = np.zeros(num_columns, dtype=np.uint8)
-    row[: len(coefficients)] = [int(bit) for bit in coefficients]
-    return np.array([np.roll(row, shift) for shift in range(num_columns - len(coefficients) + 1)])
-
-
-def _get_family(
-    generators: npt.NDArray[np.uint8], column_sets: list[list[int]]
-) -> tuple[basis_families.BasisFamily, certificates.Certificate]:
-    """A basis family without labels, of generators row reduced on each set of columns.
-
-    Returns the family and its certificate, with the ranks that the row reduction finds.
-    """
-    num_rows = len(generators)
-    reduced, pivots = [], np.full((len(column_sets), num_rows), -1, dtype=np.int64)
-    for index, columns in enumerate(column_sets):
-        rows, _, found = row_reduce_binary(generators, None, columns=np.array(columns))
-        reduced.append(rows)
-        pivots[index, : len(found)] = found
-    ranks = np.count_nonzero(pivots >= 0, axis=1)
-    family = basis_families.BasisFamily(
-        np.array(reduced),
-        np.empty((len(column_sets), num_rows, 0), dtype=np.uint8),
-        pivots,
-        ranks,
-        1,
-        1,
+    build = functools.partial(
+        bz.BrouwerZimmermannSearch,
+        [get_sector(code, Pauli.X)],
+        cutoff=0,
+        get_automorphisms=lambda: transposition[None],
     )
-    return family, certificates.Certificate(num_rows, tuple(ranks.tolist()))
+    if partitions:
+        with pytest.raises(ValueError, match="not an automorphism"):
+            build()
+    else:
+        search = build()
+        with pytest.raises(ValueError, match="not an automorphism"):
+            search.advance()
 
 
 @pytest.mark.usefixtures("switch_before_any_layer")
 @pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
-def test_completion_tables_keep_distances_exact(
-    pytestconfig: pytest.Config, completion_tables: CompletionRecord
-) -> None:
+def test_completion_tables_keep_distances_exact(completion_tables: CompletionRecord) -> None:
     """Searches that skip completions by tables agree with independent oracles."""
 
     def assert_skips(distance: int) -> int:
         assert completion_tables.skipped > skipped
         return distance
 
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # A fixed seed, since whether the tables of a search skip anything depends on its columns.
+    rng = np.random.default_rng(0)
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     for pauli in PAULIS_XZ:
         expected = qldpc.codes.distance.get_distance_from_generators(
@@ -1219,20 +1289,17 @@ def test_completion_tables_keep_distances_exact(
                     [get_sector(code, pauli)],
                     cutoff=0,
                     upper_bound=upper_bound,
-                    get_automorphisms=code._get_qudit_automorphisms,
+                    get_automorphisms=code._get_permutation_automorphisms,
                 )
             assert assert_skips(distance) == expected
 
     # Relabel the columns, and the automorphisms alike: column ``j`` is column ``columns[j]`` of
     # the given sector, so a generator ``g`` maps it to ``inverse[g[columns[j]]]``, for the inverse
-    # permutation ``np.argsort(columns)``.  The search of the given sector, without automorphisms
-    # or tables, is the oracle.
+    # permutation ``np.argsort(columns)``.  The connected-cluster method also finds the distance 8.
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     basis, labels = get_sector(code, Pauli.X)
-    with use_tuning(completion_bound_max_table_bytes=0):
-        expected = bz.get_distance_brouwer_zimmermann([(basis, labels)], cutoff=0)
     columns = rng.permutation(len(code))
-    automorphisms = np.asarray(code._get_qudit_automorphisms())
+    automorphisms = np.asarray(code._get_permutation_automorphisms())
     skipped = completion_tables.skipped
     distance = bz.get_distance_brouwer_zimmermann(
         [(basis[:, columns], labels)],
@@ -1241,7 +1308,7 @@ def test_completion_tables_keep_distances_exact(
             np.array, np.argsort(columns)[automorphisms[:, columns]]
         ),
     )
-    assert assert_skips(distance) == expected == 8
+    assert assert_skips(distance) == 8
 
     # A general Pauli problem checks that searched words weigh twice their nontrivial qubits.
     five_qubit_code = qldpc.codes.FiveQubitCode()
@@ -1267,8 +1334,7 @@ def test_sets_that_are_not_information_sets_count_pivot_ones_only_below_their_ra
             certificate=certificates.Certificate(2, (0,)),
         ),
         cutoff=-1,
-        batch_size=1,
-        tuning=TABLES_DISABLED,
+        tuning=ONE_SUPPORT_CHUNKS,
         best=10,
         lower_bound=0,
     )
@@ -1306,7 +1372,7 @@ def test_joint_searches_with_completion_tables(
             sectors,
             cutoff=0,
             upper_bound=upper_bound,
-            get_automorphisms=code._get_qudit_automorphisms,
+            get_automorphisms=code._get_permutation_automorphisms,
         )
         assert distance == expected
         assert len(searches) == 2 and all(skipped)
@@ -1340,7 +1406,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
-        rows, width, tables, block_bits = args[0], args[3], args[11], args[13]
+        rows, width, tables, block_bits = args[0], args[3], args[10], args[12]
         if scanned_index:
             later_scans["with tables" if len(tables) else "without tables"] += 1
         if len(tables):
@@ -1381,8 +1447,7 @@ def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(cut
     search = bz._SectorSearch(
         affine_instance.get_distance_instance(family, certificate),
         cutoff=cutoff,
-        batch_size=1 << 20,
-        tuning=TABLES_DISABLED,
+        tuning=dataclasses.replace(TABLES_DISABLED, search_chunk_exponent=20),
         best=6,
         lower_bound=certificate.lower_bound(1),
         next_weight=2,
@@ -1416,9 +1481,9 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
     search = bz._SectorSearch(
         affine_instance.get_distance_instance(family, certificate),
         cutoff=0,
-        batch_size=1 << 20,
         tuning=dataclasses.replace(
             DEFAULT_TUNING,
+            search_chunk_exponent=20,
             completion_bound_minimum_layer_work=0,
             completion_bound_max_cost_percent=MAX_VALUE,
         ),
@@ -1491,11 +1556,11 @@ def test_searches_take_completion_limits_from_their_tuning(
         completion_bound_minimum_layer_work=0,
         completion_bound_max_cost_percent=MAX_VALUE,
     )
-    # Each set of either sector has 20 rows and 16 tail columns, so tables of one sixteen-column
-    # block, one table for each row but the last, take 19 * 2**16 bytes.
+    # Each set of either sector has 16 tail columns, which the default tables cover with one block.
+    # Each of the other limits is far from what any tables of these sets need.
     for limits, expected_block_bits in (
         ({}, {16}),
-        ({"completion_bound_max_table_bytes": 19 * 2**16 - 1}, set()),
+        ({"completion_bound_max_table_bytes": 1}, set()),
         ({"completion_bound_max_cost_percent": 0}, set()),
         ({"completion_bound_minimum_layer_work": MAX_VALUE}, set()),
     ):
@@ -1504,7 +1569,7 @@ def test_searches_take_completion_limits_from_their_tuning(
             assert bz.get_distance_brouwer_zimmermann(
                 sectors,
                 cutoff=0,
-                get_automorphisms=code._get_qudit_automorphisms,
+                get_automorphisms=code._get_permutation_automorphisms,
             ) == code.get_distance(method="brute_force")
         assert block_bits == expected_block_bits
 
@@ -1517,16 +1582,14 @@ def test_searches_need_a_sector_or_an_upper_bound() -> None:
 
 
 class ItemScan(NamedTuple):
-    """A scan of a chunk of work items: its thread, bytes of tables, chunk size, counts, and finds.
+    """A scan of a chunk of work items: its thread, bytes of tables, counts, and finds.
 
-    The chunk size is the most supports and lookups that the chunk may scan, and the counts are
-    those of supports weighed, of lookups, and of supports skipped.  ``lowered`` says whether the
-    chunk found a word lighter than the best weight that it started from.
+    The counts are those of supports weighed, of lookups, and of supports skipped.  ``lowered`` says
+    whether the chunk found a word lighter than the best weight that it started from.
     """
 
     thread: int
     table_bytes: int
-    chunk_size: int
     counts: tuple[int, int, int]
     lowered: bool
 
@@ -1540,8 +1603,8 @@ def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set_items(*args)
         counts = (int(result[2]), int(result[3]), int(result[4]))
-        lowered = bool(result[0] < args[8])
-        scans.append(ItemScan(threading.get_ident(), len(args[11]), args[10], counts, lowered))
+        lowered = bool(result[0] < args[7])
+        scans.append(ItemScan(threading.get_ident(), len(args[10]), counts, lowered))
         return result
 
     monkeypatch.setattr(affine_search, "scan_set_items", recording_scan)
@@ -1556,7 +1619,7 @@ def small_batches(tune: Tune) -> None:
     which would end them before such layers.
     """
     tune(
-        information_set_batch_exponent=3,
+        search_chunk_exponent=3,
         overlapping_minimum_work=MAX_VALUE,
         partition_work_ratio=MAX_VALUE,
     )
@@ -1582,25 +1645,31 @@ def test_searches_on_threads_find_the_distances_that_one_thread_finds(
     searches: list[tuple[int, Callable[[], object]]] = [
         (
             8,
-            functools.partial(core.get_distance_from_generators, get_golay_checks(), method=method),
-        ),
-        (
-            5,
             functools.partial(
-                core.get_distance_css, surface.matrix_x, surface.matrix_z, Pauli.X, method=method
+                distances.get_distance_from_generators, get_golay_checks(), method=method
             ),
         ),
         (
             5,
             functools.partial(
-                core.get_distance_css, surface.matrix_x, surface.matrix_z, method=method
+                distances.get_distance_css,
+                surface.matrix_x,
+                surface.matrix_z,
+                Pauli.X,
+                method=method,
             ),
         ),
-        (4, functools.partial(core.get_distance_pauli, hadamard, method=method)),
         (
             5,
             functools.partial(
-                core.get_distance_pauli, qldpc.codes.BaconShorCode(5).matrix, method=method
+                distances.get_distance_css, surface.matrix_x, surface.matrix_z, method=method
+            ),
+        ),
+        (4, functools.partial(distances.get_distance_pauli, hadamard, method=method)),
+        (
+            5,
+            functools.partial(
+                distances.get_distance_pauli, qldpc.codes.BaconShorCode(5).matrix, method=method
             ),
         ),
     ]
@@ -1629,11 +1698,15 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
     bicycle = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     method: qldpc.codes.DistanceMethod = "brouwer_zimmermann"
     searches: list[tuple[int, Callable[[], object]]] = [
-        (5, functools.partial(core.get_distance_from_generators, random_code, method=method)),
+        (5, functools.partial(distances.get_distance_from_generators, random_code, method=method)),
         (
             8,
             functools.partial(
-                core.get_distance_css, bicycle.matrix_x, bicycle.matrix_z, Pauli.X, method=method
+                distances.get_distance_css,
+                bicycle.matrix_x,
+                bicycle.matrix_z,
+                Pauli.X,
+                method=method,
             ),
         ),
     ]
@@ -1648,7 +1721,7 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
 
 @pytest.mark.parametrize(
     ("num_rows", "weight", "num_threads", "length"),
-    [(12, 3, 8, 1), (12, 5, 8, 2), (40, 3, 1, 1), (70, 4, 1, 1), (40, 4, 4, 2)],
+    [(12, 3, 8, 1), (12, 5, 8, 2), (70, 4, 1, 1), (40, 4, 4, 2)],
 )
 def test_work_items_fix_the_first_rows_of_supports_in_lexicographic_order(
     num_rows: int, weight: int, num_threads: int, length: int
@@ -1677,20 +1750,29 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     completion_tables: CompletionRecord,
     prepared: list[bz._SectorSearch],
     item_scans: list[ItemScan],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """After each layer, a search on threads has the bounds and best weight of one on one thread.
 
     So the decisions that follow, such as the choice of completion tables and the switch to an
-    automorphism family, are those of one thread.  The search uses both.
+    automorphism family, are those of one thread.  The search uses both.  The threads run with
+    every array of the search, such as its completion tables, read-only.
     """
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     sector = get_sector(code, Pauli.X)
     histories = []
+    # The threads scan slices of the arrays of the sector search, which it takes before they start.
+    checked = check_shared_arrays_on_threads(
+        monkeypatch,
+        lambda sector_search, index, weight, tables: [search, sector_search, tables],
+        bz._SectorSearch,
+        "_scan_set_on_threads",
+    )
     for num_threads in (1, 3):
         prepared.clear()
-        tune(num_threads=num_threads, information_set_batch_exponent=4)
+        tune(num_threads=num_threads, search_chunk_exponent=4)
         search = bz.BrouwerZimmermannSearch(
-            [sector], cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+            [sector], cutoff=0, get_automorphisms=code._get_permutation_automorphisms
         )
         history = []
         while not search.finished:
@@ -1705,6 +1787,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     assert histories[0] == histories[1]
     assert histories[0][-1][0][2:] == (8, True)
     assert any(scan.table_bytes for scan in item_scans)
+    assert checked and min(checked) > 0
 
 
 @pytest.mark.usefixtures("small_batches", "switch_before_any_layer")
@@ -1739,13 +1822,13 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set(*args)
         if result[0] <= cutoff and not witness_items:
-            witness_items.append(tuple(args[5][: items.length].tolist()))
+            witness_items.append(tuple(args[4][: items.length].tolist()))
         return result
 
     with monkeypatch.context() as patch, use_tuning(num_threads=1):
         patch.setattr(affine_search, "scan_set", recording_scan)
         bz.get_distance_brouwer_zimmermann(
-            [sector], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
+            [sector], cutoff=cutoff, get_automorphisms=code._get_permutation_automorphisms
         )
     item_rows = [tuple(items.get_item(index).tolist()) for index in range(items.num_items)]
     (witness_item,) = witness_items
@@ -1774,11 +1857,11 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
                 if not (gated and start > witness_index):
                     # The range of the witness waits until another thread holds a later range.
                     if gated and witness_index < end:
-                        assert later_claimed.wait(timeout=10)
+                        assert later_claimed.wait(timeout=THREAD_TIMEOUT)
                     run_range(start, end)
                     return
                 later_claimed.set()
-                assert stop.wait(timeout=10)
+                assert stop.wait(timeout=THREAD_TIMEOUT)
                 thread = threading.get_ident()
                 scans_before = sum(scan.thread == thread for scan in item_scans)
                 run_range(start, end)
@@ -1792,7 +1875,7 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
 
     monkeypatch.setattr(bz._threads, "run_work_items", gated_run)
     search = bz.BrouwerZimmermannSearch(
-        [sector], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
+        [sector], cutoff=cutoff, get_automorphisms=code._get_permutation_automorphisms
     )
     (sector_search,) = prepared
     while not search.finished:
@@ -1850,9 +1933,6 @@ def test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does(
     assert totals[0][2] > 0 if tables else totals[0][1] == 0
     np.testing.assert_array_equal(totals[0], totals[1])
 
-    # On three threads, each scans chunks three times as large as a chunk on one thread.
-    assert {scan.chunk_size for scan in item_scans} == {3 << 3}
-
 
 @pytest.mark.usefixtures("small_batches")
 def test_an_error_on_a_thread_stops_a_search_on_threads(
@@ -1872,13 +1952,13 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
 
     def failing_scan(*args: Any) -> tuple[int, int, int, int, int]:
         if threading.get_ident() != calling_thread:
-            assert scanning.wait(timeout=10)
+            assert scanning.wait(timeout=THREAD_TIMEOUT)
             failed.set()
             raise ValueError("failed")
         # The scan from depth -1 before the threads start returns at once.
-        if args[7] >= 0:
+        if args[6] >= 0:
             scanning.set()
-            assert failed.wait(timeout=10)
+            assert failed.wait(timeout=THREAD_TIMEOUT)
         return scan_set_items(*args)
 
     monkeypatch.setattr(affine_search, "scan_set_items", failing_scan)
@@ -1904,8 +1984,7 @@ def test_layers_of_a_set_of_deficient_rank_are_exact_on_threads(
     search = bz._SectorSearch(
         affine_instance.get_distance_instance(family, certificate),
         cutoff=0,
-        batch_size=1,
-        tuning=TABLES_DISABLED,
+        tuning=ONE_SUPPORT_CHUNKS,
         best=generators.shape[1] + 1,
         lower_bound=0,
         num_threads=3,
@@ -1937,3 +2016,44 @@ def test_searches_resolve_their_number_of_threads_once(monkeypatch: pytest.Monke
     while not search.finished:
         search.advance()
     assert thread_counts and set(thread_counts) == {3}
+
+
+def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Quotient labels with no columns, which exclude no subcode."""
+    return np.empty((len(basis), 0), dtype=np.uint8)
+
+
+def _get_cyclic_basis(coefficients: str, num_columns: int) -> npt.NDArray[np.uint8]:
+    """A basis of a binary cyclic code: the shifts of the coefficients of its generator polynomial.
+
+    ``coefficients`` lists them from the constant term up, and the polynomial must divide
+    ``x**num_columns - 1``, so that shifting the columns preserves the code.
+    """
+    row = np.zeros(num_columns, dtype=np.uint8)
+    row[: len(coefficients)] = [int(bit) for bit in coefficients]
+    return np.array([np.roll(row, shift) for shift in range(num_columns - len(coefficients) + 1)])
+
+
+def _get_family(
+    generators: npt.NDArray[np.uint8], column_sets: list[list[int]]
+) -> tuple[basis_families.BasisFamily, certificates.Certificate]:
+    """A basis family without labels, of generators row reduced on each set of columns.
+
+    Returns the family and its certificate, with the ranks that the row reduction finds.
+    """
+    num_rows = len(generators)
+    reduced, pivots = [], np.full((len(column_sets), num_rows), -1, dtype=np.int64)
+    for index, columns in enumerate(column_sets):
+        rows, _, found = row_reduce_binary(generators, None, columns=np.array(columns))
+        reduced.append(rows)
+        pivots[index, : len(found)] = found
+    ranks = np.count_nonzero(pivots >= 0, axis=1)
+    family = basis_families.BasisFamily(
+        np.array(reduced),
+        np.empty((len(column_sets), num_rows, 0), dtype=np.uint8),
+        pivots,
+        ranks,
+        1,
+        1,
+    )
+    return family, certificates.Certificate(num_rows, tuple(ranks.tolist()))

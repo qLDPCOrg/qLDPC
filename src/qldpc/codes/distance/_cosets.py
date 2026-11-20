@@ -2,8 +2,10 @@
 
 """Parts that the coset searches of ``CosetLeaderSearch`` share.
 
-They are the words with unit syndromes, the packing of binary rows into integers, the sums of the
-rows that a support selects, and the tables of the errors of weight zero or one by syndrome.
+They are the words with unit syndromes, the sums of the rows that a support selects, and the tables
+of the errors of weight zero or one by syndrome.
+Compiled functions here, such as ``xor_selected_rows``, also run within nogil calls of threaded
+searches, so they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from collections.abc import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits, row_reduce_binary, trailing_zeros_word
+from qldpc._binary import row_reduce_binary, trailing_zeros_word
 from qldpc._compilation import always_compiled
 
 
@@ -27,21 +29,6 @@ def get_unit_syndrome_words(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uin
     inverse = np.zeros(checks.shape, dtype=np.uint8)
     inverse[:, pivots] = labels.T
     return inverse
-
-
-def row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
-    """Pack each row of a binary matrix into an integer, with entry ``j`` in bit ``j``."""
-    return tuple(map(words_to_int, pack_bits(matrix)))
-
-
-def words_to_int(row: npt.NDArray[np.uint64]) -> int:
-    """Convert a row of 64-bit words into an integer, with word ``j`` in bits ``64 j`` and up."""
-    return sum(int(word) << (64 * jj) for jj, word in enumerate(row))
-
-
-def int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
-    """Split an integer into ``width`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
-    return np.frombuffer(value.to_bytes(8 * width, "little"), dtype="<u8").astype(np.uint64)
 
 
 def tabulate_singles(

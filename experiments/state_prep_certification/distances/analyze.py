@@ -8,7 +8,11 @@ The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on
 compares the prior arm with the arm with everything on, where T is the median of a timed run's
 repeats, a repeat that did not finish counting as the limit L.  An arm counts as finished if its
 first run finished, even if its repeats did not; ``summary.csv`` records the number of unfinished
-repeats in ``repeats_unfinished``, and a median that is L is in effect a bound.  The cases, in
+repeats in ``repeats_unfinished``, and a median that is L is in effect a bound.  A row with
+``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A repeat with it is left out of
+the median, as a missing repeat is.  A first run with it leaves the arm without T, and its T cell in
+``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged timed runs
+in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The cases, in
 order:
 
 1. **disagreement:** the arms, their repeats, or their counting runs report different distances,
@@ -17,22 +21,26 @@ order:
    or its first timed run has no final row although ``tasks.json`` lists it (or, for R_W, either
    counting run failed or is missing); no ratio.  A repeat without a final row only leaves the
    median with fewer runs, which ``repeats`` in ``summary.csv`` records;
-3. **both finished:** R_T = T_prior / T_on;
-4. **only on finished:** R_T >= L / T_on, a lower bound;
-5. **only prior finished:** R_T <= T_prior / L, an upper bound;
-6. **both timed out:** "both > L", no ratio.
+3. **incomplete timing:** for R_T, the row of either arm's first timed run has
+   ``compiled_in_timing`` set; for R_W, either arm's counting run timed out with
+   ``compiled_in_timing`` set, so that it may have timed out only because it compiled; no ratio;
+4. **both finished:** R_T = T_prior / T_on;
+5. **only on finished:** R_T >= L / T_on, a lower bound;
+6. **only prior finished:** R_T <= T_prior / L, an upper bound;
+7. **both timed out:** "both > L", no ratio.
 
 A value above 1.2 is *faster* (the arm with everything on is faster), below 1/1.2 *slower*, and
 otherwise *similar*; a lower bound is faster if it exceeds 1.2 and *inconclusive* otherwise, and an
 upper bound is slower if it is below 1/1.2 and inconclusive otherwise.  The work ratio
 R_W = W_prior / W_on of the counting runs follows the same cases, with the last partial count of a
-counting run that timed out in place of L, if it reported one, and is not classified; a pair
-without a value for an unfinished run is ``no work``.  The plug-in forwards no partial counts
-until qLDPC's work counters can report them, so a counting run that timed out currently gives no
-W.
+counting run that timed out in place of L, if it reported one, and is not classified; a pair without
+a value for an unfinished run is ``no work``.  A counting run that timed out with
+``compiled_in_timing`` set gives no W bound: ``summary.csv`` marks it in ``count_timeout_compiled``,
+and its W cell in ``anchors.csv`` is "compiled".  The plug-in forwards no partial counts until
+qLDPC's work counters can report them, so a counting run that timed out currently gives no W.
 
 For each family, the table gives the counts of each class of R_T and the median of R_T over the
-codes of cases 3-5, with each bound at its value: marked ">=" if lower bounds are the only bounds,
+codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
 "<=" if upper bounds are, and omitted if there are both.  It gives the median of R_W by the same
 rule, with the number of codes in each median and the number of codes whose R_W is a failure or
 disagreement.  The anchors' row gives counts only; anchors are reported per code and never pooled
@@ -41,8 +49,8 @@ with the families.
 Outputs in ``--out`` (by default ``analysis/`` in the label directory, which is a temporary
 directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``families.csv``,
 ``anchors.csv``, ``distances.pdf`` (two log-log panels, prior against on, by time and work), and
-``figure_notes.json`` (the number of codes that each panel omits, for lack of a value or for a
-disagreement or failure).
+``figure_notes.json`` (the number of codes that each panel omits, for lack of a value, or for a
+disagreement, a failure, or an incomplete timing).
 """
 
 from __future__ import annotations
@@ -174,6 +182,10 @@ def ratio(on: dict[str, Any], prior: dict[str, Any], metric: str) -> dict[str, A
     count_statuses = {on.get("count_status"), prior.get("count_status")}
     if metric == "W" and count_statuses & {"error", "memout", "missing"}:
         return {"case": "failure", "value": None, "bound": None}
+    if metric == "T" and not (on["timing_complete"] and prior["timing_complete"]):
+        return {"case": "incomplete timing", "value": None, "bound": None}
+    if metric == "W" and (on.get("count_timeout_compiled") or prior.get("count_timeout_compiled")):
+        return {"case": "incomplete timing", "value": None, "bound": None}
     if metric == "T":
         on_value, prior_value = on["T"], prior["T"]
         on_done, prior_done = on["status"] == "ok", prior["status"] == "ok"
@@ -210,44 +222,74 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     The status is that of the first run, unless a repeat ended in an error or memout, whose status
     it then takes.  A repeat that timed out counts as the limit, which is larger than every finished
-    value, and is counted in ``repeats_unfinished``.  Repeats that report different distances make
-    the arm's distance a list, which ``ratio`` treats as a disagreement.
+    value, and is counted in ``repeats_unfinished``.  A row with ``compiled_in_timing`` set enters
+    no T and is left out of ``repeats`` and ``repeats_unfinished``: a repeat with it is left out of
+    the median, and a first run with it makes T None and the timing incomplete.  Repeats that report
+    different distances make the arm's distance a list, which ``ratio`` treats as a disagreement.
     """
     if not rows:
-        return {"status": "missing", "T": None, "distance": None, "limit_s": None}
+        return {
+            "status": "missing",
+            "T": None,
+            "timing_complete": False,
+            "distance": None,
+            "limit_s": None,
+        }
     first = rows[0]
     failed = [row["status"] for row in rows[1:] if row["status"] in ("error", "memout")]
     status = failed[0] if failed else first["status"]
-    times = [row["T"] if row["status"] == "ok" else row["limit_s"] for row in rows]
+    compiled = [row for row in rows if row.get("compiled_in_timing")]
+    timing_complete = not first.get("compiled_in_timing")
+    times = [
+        row["T"] if row["status"] == "ok" else row["limit_s"]
+        for row in rows
+        if not row.get("compiled_in_timing")
+    ]
     distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
+    T = None
+    if timing_complete:
+        T = statistics.median(times) if status == "ok" else first["T"]
     return {
         "status": status,
-        "T": statistics.median(times) if status == "ok" else first["T"],
+        "T": T,
+        "timing_complete": timing_complete,
         "distance": distances[0] if len(distances) == 1 else (distances or None),
         "limit_s": first["limit_s"],
-        "repeats": len(rows),
-        "repeats_unfinished": sum(row["status"] != "ok" for row in rows[1:]),
+        "repeats": len(rows) - len(compiled),
+        "repeats_unfinished": sum(
+            row["status"] != "ok" for row in rows[1:] if not row.get("compiled_in_timing")
+        ),
+        "runs_compiled": len(compiled),
     }
 
 
 def _count_summary(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
     """The work W of an arm's counting run, whether it is complete, and the run's status.
 
-    A counting run that timed out gives the last partial count that it reported, if any, as a
-    bound; a counting run that failed gives none.  ``rows`` is None if there is no counting task,
-    and empty if the task has no final row.
+    A counting run that timed out gives the last partial count that it reported, if any, as a bound;
+    a counting run that failed gives none.  A counting run that timed out with
+    ``compiled_in_timing`` set may have timed out only because it compiled, so it gives none either,
+    and sets ``count_timeout_compiled``, which ``ratio`` reads for case 3 of the module docstring.
+    ``rows`` is None if there is no counting task, and empty if the task has no final row.
     """
     if not rows:
         status = None if rows is None else "missing"
-        return {"W": None, "W_complete": None, "count_status": status, "count_distance": None}
+        return {
+            "W": None,
+            "W_complete": None,
+            "count_status": status,
+            "count_timeout_compiled": False,
+            "count_distance": None,
+        }
     row = rows[0]
+    timeout_compiled = row["status"] == "timeout" and bool(row.get("compiled_in_timing"))
     work = row["result"].get("work") if row["status"] == "ok" else None
     partial = [entry["work"] for entry in row.get("partial", []) if "work" in entry]
     if work is not None:
         total = _total_work(work)
         if total is None:
             raise ValueError(f"Unreadable work count of {row['task_key']}: {work!r}")
-    elif row["status"] == "timeout" and partial:
+    elif row["status"] == "timeout" and partial and not timeout_compiled:
         total = _total_work(partial[-1])
     else:
         total = None
@@ -255,6 +297,7 @@ def _count_summary(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
         "W": total,
         "W_complete": row["status"] == "ok" and work is not None,
         "count_status": row["status"],
+        "count_timeout_compiled": timeout_compiled,
         "count_distance": row["result"].get("distance") if row["status"] == "ok" else None,
     }
 
@@ -284,9 +327,11 @@ def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pa
         "T",
         "repeats",
         "repeats_unfinished",
+        "runs_compiled",
         "W",
         "W_complete",
         "count_status",
+        "count_timeout_compiled",
         "distance",
         "count_distance",
         "reference_d",
@@ -336,7 +381,16 @@ def _median(results: list[dict[str, Any]]) -> str:
 
 def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
     """Counts and medians per family, and one row for the anchors."""
-    classes = ["faster", "similar", "slower", "inconclusive", "both > L", "failure", "disagreement"]
+    classes = [
+        "faster",
+        "similar",
+        "slower",
+        "inconclusive",
+        "both > L",
+        "incomplete timing",
+        "failure",
+        "disagreement",
+    ]
     rows = []
     groups: dict[str, list[dict[str, Any]]] = {}
     for pair in pairs:
@@ -394,13 +448,15 @@ def _write_anchors(
                 record = records.get(arm)
                 if record is None:
                     cells += ["n/a", "n/a"]
-                elif record["status"] != "ok":
-                    cells += [
-                        "> L" if record["status"] == "timeout" else record["status"],
-                        record["W"],
-                    ]
                 else:
-                    cells += [f"{record['T']:.3g}", record["W"]]
+                    if record["status"] in ("ok", "timeout") and not record["timing_complete"]:
+                        time_cell = "compiled"
+                    elif record["status"] != "ok":
+                        time_cell = "> L" if record["status"] == "timeout" else record["status"]
+                    else:
+                        time_cell = f"{record['T']:.3g}"
+                    work = "compiled" if record.get("count_timeout_compiled") else record["W"]
+                    cells += [time_cell, work]
             writer.writerow(
                 [
                     entry["name"],
@@ -436,7 +492,11 @@ def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
         for pair in pairs:
             on, prior = pair["on"][metric], pair["prior"][metric]
             case = pair["time" if metric == "T" else "work"]["case"]
-            if on is None or prior is None or case in ("disagreement", "failure"):
+            if (
+                on is None
+                or prior is None
+                or case in ("disagreement", "failure", "incomplete timing")
+            ):
                 omitted[metric] += 1
                 continue
             if metric == "T":

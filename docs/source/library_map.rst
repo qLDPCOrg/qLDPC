@@ -139,11 +139,15 @@ For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_chec
 Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ or, for sparse parity checks, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_, and nonbinary codes use exhaustive enumeration.
 By default, ``method="auto"`` chooses a method for each search: exhaustive enumeration if it is cheap, the Brouwer-Zimmermann search for a classical code, and, for the checks of a quantum code or a circuit, a connected-cluster search that may switch to the Brouwer-Zimmermann search (see :data:`~qldpc.codes.distance.DistanceMethod`).
 All exact methods can take exponential time.
-:meth:`QuditCode.get_known_qudit_automorphism_group <qldpc.codes.common.QuditCode.get_known_qudit_automorphism_group>` returns the qudit permutations that a code knows to preserve it: those of its construction, such as the translations of a ``QTCode``, and, with the optional ``pybliss`` package, those that bliss finds.
-For binary quantum codes, the Brouwer-Zimmermann and connected-cluster searches can use these permutations to search less, and their heuristics decide whether a search asks for them.
-Brouwer-Zimmermann distance searches use as many threads as the environment variable ``QLDPC_NUM_THREADS`` says, or else ``numba.config.NUMBA_NUM_THREADS``, by default one for each CPU that numba counts.
-Callers that run searches in process pools or in their own threads should keep each search on one thread, as with ``QLDPC_NUM_THREADS=1`` set before Python starts.
-The `guide to the distance package <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ says when this variable also sets numba's own thread count.
+:meth:`QuditCode.get_known_permutation_automorphism_group <qldpc.codes.common.QuditCode.get_known_permutation_automorphism_group>` returns the qudit permutations that a code knows to preserve it: those of its construction, such as the translations of a ``QTCode``, and, with the optional ``pybliss`` package, those that bliss finds.
+:meth:`ClassicalCode.get_known_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_known_permutation_automorphism_group>` does the same for bits, such as the cyclic shifts of a ``CyclicCode``.
+For binary classical and quantum codes, the Brouwer-Zimmermann and connected-cluster searches can use these permutations to search less, and their heuristics decide whether a search asks for them.
+Exact distance searches by the Brouwer-Zimmermann and connected-cluster methods use as many threads as the environment variable ``QLDPC_NUM_THREADS`` says, or else ``numba.config.NUMBA_NUM_THREADS``, by default one for each CPU that numba counts.
+So do the costly batch queries of coset-leader searches (:class:`~qldpc.codes.distance.CosetLeaderSearch`), which :func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` and :func:`qldpc.experimental.circuits.estimate_residual_weight_histogram <qldpc.experimental.circuits.benchmarking.residual_weights.estimate_residual_weight_histogram>` run.
+So do the costly fault listings of ``certify_bounded_fault_propagation``.
+Callers that run searches in process pools or in their own threads should keep each search on one thread, as with ``QLDPC_NUM_THREADS=1`` set before Python starts, or with a call of these functions within ``use_tuning(num_threads=1)``, since they build their searches within the call (see :doc:`exact_search_tuning`).
+A :class:`~qldpc.codes.distance.CosetLeaderSearch` takes its number of threads when it is built, so with ``use_tuning``, a search that several workers share must be built within ``use_tuning(num_threads=1)``.
+The `guide to the distance package <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count.
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
@@ -223,7 +227,7 @@ The residual weight of the fault is the smallest weight of that Pauli error afte
 Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
 The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance certificates notebook <examples/logical_error_rates/5_fault_tolerance_certificates>` applies it to a flagged preparation circuit.
-The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: Brouwer-Zimmermann by default, or the connected-cluster search that the exact distances also offer.
+The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: by default ``"auto"``, which takes the Brouwer-Zimmermann search, or the connected-cluster search that the exact distances also offer.
 :class:`qldpc.codes.distance.CosetLeaderSearch <qldpc.codes.distance.coset_leaders.CosetLeaderSearch>` offers both searches: it takes the stabilizers of a state as a binary matrix, and decides for any syndrome whether some Pauli error with that syndrome has at most a given weight.
 For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
 The same notebook illustrates why this circuit property need not equal the code distance.
@@ -281,7 +285,7 @@ Otherwise, qLDPC runs a ``gap`` executable on ``PATH`` in a subprocess.
 If neither backend is available, some functions offer a manual workflow that prints GAP commands, copies them to the system clipboard, and reads GAP's output from standard input.
 When a needed GAP package such as GUAVA or QDistRnd is missing, qLDPC asks on standard input before installing it: with GAP's PackageManager for libgap, or by cloning it with Git into qLDPC's user cache directory for the executable.
 
-Functions that can use GAP include :meth:`ClassicalCode.from_name <qldpc.codes.common.ClassicalCode.from_name>`, :meth:`ClassicalCode.get_automorphism_group <qldpc.codes.common.ClassicalCode.get_automorphism_group>`, :meth:`abstract.Group.from_name <qldpc.abstract.groups.Group.from_name>`, distance bounds with the GAP backend, and transversal-gate searches such as :func:`~qldpc.circuits.transversal.get_transversal_ops`.
+Functions that can use GAP include :meth:`ClassicalCode.from_name <qldpc.codes.common.ClassicalCode.from_name>`, :meth:`ClassicalCode.get_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_permutation_automorphism_group>`, :meth:`abstract.Group.from_name <qldpc.abstract.groups.Group.from_name>`, distance bounds with the GAP backend, and transversal-gate searches such as :func:`~qldpc.circuits.transversal.get_transversal_ops`.
 
 Code and group lookups
 ~~~~~~~~~~~~~~~~~~~~~~

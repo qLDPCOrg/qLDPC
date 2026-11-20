@@ -13,7 +13,7 @@ import random
 import unittest.mock
 import warnings
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any
+from typing import Any, cast
 
 import galois
 import networkx as nx
@@ -26,7 +26,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance import DistanceMethod, get_distance_css
+from qldpc.codes.distance import DistanceMethod, distances, get_distance_css
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 from .conftest import Tune, assert_valid_subgraphs
@@ -122,6 +122,13 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     with pytest.raises(ValueError, match="different fields"):
         code_b = codes.RepetitionCode(2)
         code = codes.ClassicalCode.stack([code_a, code_b])
+
+
+def test_matrix_as_string() -> None:
+    """The parity check matrix as a string lists the galois integers of its entries, row by row."""
+    code = codes.ClassicalCode([[1, 0, 1, 2, 3], [0, 1, 1, 1, 1]], field=4)
+    assert code.matrix_as_string() == "[[1,0,1,2,3],[0,1,1,1,1]]"
+    assert codes.ClassicalCode(np.zeros((0, 2), dtype=int)).matrix_as_string() == "[]"
 
 
 def test_field_array_construction() -> None:
@@ -276,7 +283,7 @@ def test_distance_classical(bits: int = 3) -> None:
 
     # trivial (null) codes have an undefined distance
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
-    random_vector = np.random.randint(2, size=len(trivial_code))
+    random_vector = np.random.default_rng(0).integers(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
     assert trivial_code.get_distance_exact() is codes.NO_DISTANCE
     assert trivial_code.get_distance_bound() is codes.NO_DISTANCE
@@ -330,8 +337,10 @@ def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
     assert np.array_equal(code.matrix, code.graph.to_matrix())
 
 
-def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    """Compute automorphism groups."""
+def test_permutation_automorphism_group(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Compute permutation automorphism groups."""
     code: codes.ClassicalCode = codes.HammingCode(2, field=2)
     automorphisms = "\n(1,2)\n(2,3)\n"
 
@@ -346,7 +355,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         ),
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
-        codes.RepetitionCode(2).get_automorphism_group()
+        codes.RepetitionCode(2).get_permutation_automorphism_group()
 
     # otherwise, check that automorphisms do indeed preserve the code space
     with (  # noqa: PT031 - wraps several calls that warn
@@ -363,7 +372,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
             (codes.HammingCode(2, field=3), "\n()\n(2,4,3)\n(2,3,4)\n"),
         ]:
             with unittest.mock.patch("qldpc.external.gap.get_output", return_value=automorphisms):
-                group = code.get_automorphism_group()
+                group = code.get_permutation_automorphism_group()
                 for member in group.generate():
                     permutation = member.to_matrix().view(code.field)
                     assert not np.any(code.matrix @ permutation @ code.generator.T)
@@ -375,17 +384,39 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
             return "\n(1,2)\n"
 
         with unittest.mock.patch("qldpc.external.gap.get_output", side_effect=get_output):
-            assert codes.HammingCode(2, field=2).get_automorphism_group().order == 2
+            assert codes.HammingCode(2, field=2).get_permutation_automorphism_group().order == 2
 
-    # compute an automorphism group with MAGMA
+        # the elements 2 = x and 3 = x + 1 of GF(4) are written as powers of Z(4), a root of the
+        # Conway polynomial x^2 + x + 1
+        with unittest.mock.patch(
+            "qldpc.external.gap.get_output", return_value="\n(1,2)\n"
+        ) as get_output:
+            codes.HammingCode(2, field=4).get_permutation_automorphism_group()
+        query = "".join("".join(get_output.call_args.args).split())
+        rows = "[Z(4)^0,0*Z(4),Z(4)^0,Z(4)^1,Z(4)^2],[0*Z(4),Z(4)^0,Z(4)^0,Z(4)^0,Z(4)^0]"
+        assert f"PermutationAutomorphismGroup(CheckMatCode([{rows}],GF(4)))" in query
+
+    # compute a permutation automorphism group with MAGMA, asking it for the PermutationGroup of the
+    # code rather than its AutomorphismGroup, whose members also scale nonbinary coordinates
     user_inputs = iter(
         ["Permutation group acting on a set of cardinality 2", "Order = 2", "    (1, 2)", ""]
     )
     monkeypatch.setattr("builtins.input", lambda: next(user_inputs))
     code = codes.RepetitionCode(2)
     group = abstract.CyclicGroup(2)
-    assert code.get_automorphism_group(with_magma=True).equiv(group)
-    capsys.readouterr()  # intercept print statements
+    assert code.get_permutation_automorphism_group(with_magma=True).equiv(group)
+    assert "\nPermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));\n" in capsys.readouterr().out
+
+    # MAGMA maps integers into GF(8) through the prime field, so the query defines GF(8) by the
+    # irreducible polynomial x^3 + x^2 + 1 of the galois field, listing its coefficients constant
+    # first, and writes its elements as polynomials in a root
+    user_inputs = iter(["Permutation group acting on a set of cardinality 3", "Order = 1", ""])
+    field_8 = galois.GF(8, irreducible_poly="x^3 + x^2 + 1")
+    code = codes.ClassicalCode(field_8([[1, 2, 6]]))
+    assert code.get_permutation_automorphism_group(with_magma=True).order == 1
+    field = "F<w>:=ext<GF(2)|Polynomial(GF(2),[1,0,1,1])>;"
+    matrix = "Matrix(F,1,3,[[1,w,w+w^2]])"
+    assert f"\n{field}PermutationGroup(LinearCode({matrix}));\n" in capsys.readouterr().out
 
 
 def test_matrix_automorphism_group() -> None:
@@ -805,13 +836,13 @@ def test_exact_code_distance_method_api() -> None:
     with pytest.raises(ValueError, match="Unknown distance method"):
         classical_code.get_distance(bound=True, method="other")  # type: ignore[arg-type]
 
-    # The "information_sets" alias selects the joint Brouwer-Zimmermann search of a CSS code.
+    # The Brouwer-Zimmermann method selects the joint search of both sectors of a CSS code.
     hgp_code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
     css_code = codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z)
     with unittest.mock.patch.object(
         common, "get_distance_css", wraps=common.get_distance_css
     ) as joint_search:
-        assert css_code.get_distance_exact(method="information_sets") == 3
+        assert css_code.get_distance_exact(method="brouwer_zimmermann") == 3
     joint_search.assert_called_once()
     arguments = (
         inspect.signature(get_distance_css)
@@ -974,19 +1005,19 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
     The bliss search is mocked here, and checked against the real package in its own tests.
     """
     poly_x = sympy.abc.x
-    translations = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)._get_qudit_automorphisms()
+    translations = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)._get_permutation_automorphisms()
     assert translations is not None
 
     # without pybliss, or if bliss finds nothing, codes return the automorphisms of their family
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
     code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
-    assert (found := code._found_qudit_automorphisms) is not None
+    assert (found := code._known_permutation_automorphisms) is not None
     assert np.array_equal(found, translations)
-    assert codes.CSSCode(code.matrix_x, code.matrix_z)._found_qudit_automorphisms is None
+    assert codes.CSSCode(code.matrix_x, code.matrix_z)._known_permutation_automorphisms is None
     monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
     code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
-    assert (found := code._found_qudit_automorphisms) is not None
+    assert (found := code._known_permutation_automorphisms) is not None
     assert np.array_equal(found, translations)
 
     # bliss sees each check as its Pauli operators, with 1, 2, and 3 for X, Z, and Y.  The first
@@ -999,7 +1030,7 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", get_generators)
     five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
-    assert (found := five_qubit_code._found_qudit_automorphisms) is not None
+    assert (found := five_qubit_code._known_permutation_automorphisms) is not None
     assert found.tolist() == [shift]
 
     # The generators that bliss finds come first, followed by those of the code, without repeats or
@@ -1008,7 +1039,7 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
     # of which permutes the checks of this code as it permutes the qudits.
     x, y = sympy.abc.x, sympy.abc.y
     code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
-    bb_translations = code._get_qudit_automorphisms()
+    bb_translations = code._get_permutation_automorphisms()
     assert bb_translations is not None and len(bb_translations) == 2
     num_checks = len(code.matrix)
     product = bb_translations[0][bb_translations[1]]
@@ -1018,7 +1049,7 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
         "get_matrix_automorphism_generators",
         lambda *_: [list(qudits) + list(num_checks + qudits) for qudits in bliss_generators],
     )
-    assert (found := code._found_qudit_automorphisms) is not None
+    assert (found := code._known_permutation_automorphisms) is not None
     assert found.tolist() == [product.tolist(), *bb_translations.tolist()]
 
 
@@ -1031,14 +1062,14 @@ def test_automorphism_search_matrices(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
-    translations = bb_code._get_qudit_automorphisms()
+    translations = bb_code._get_permutation_automorphisms()
     assert translations is not None and len(translations) == 2
     num_checks, num_qudits = bb_code.matrix.shape[0], len(bb_code)
 
     class CodeWithRepeatedChecks(codes.QuditCode):
         """A code that has bliss search its parity checks, and its parity checks repeated twice."""
 
-        def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+        def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
             return (self.matrix, np.vstack([self.matrix, self.matrix]).view(self.field))
 
     searched_matrices: list[npt.NDArray[np.int_]] = []
@@ -1056,29 +1087,60 @@ def test_automorphism_search_matrices(monkeypatch: pytest.MonkeyPatch) -> None:
     matrix = bb_code.matrix.view(np.ndarray)
     paulis = matrix[:, :num_qudits] + 2 * matrix[:, num_qudits:]
 
-    assert (found := codes.QuditCode(bb_code.matrix)._found_qudit_automorphisms) is not None
+    assert (found := codes.QuditCode(bb_code.matrix)._known_permutation_automorphisms) is not None
     assert found.tolist() == translations[:1].tolist()
     assert [searched.tolist() for searched in searched_matrices] == [paulis.tolist()]
 
     searched_matrices.clear()
-    assert (found := CodeWithRepeatedChecks(bb_code.matrix)._found_qudit_automorphisms) is not None
+    assert (
+        found := CodeWithRepeatedChecks(bb_code.matrix)._known_permutation_automorphisms
+    ) is not None
     assert sorted(found.tolist()) == sorted(translations.tolist())
     assert sorted(searched.tolist() for searched in searched_matrices) == sorted(
         [paulis.tolist(), np.vstack([paulis, paulis]).tolist()]
     )
 
 
-def test_known_qudit_automorphism_group(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_automorphism_search_matrices_are_verified(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codes reject a permutation that bliss finds in a set of checks that spans another space.
+
+    The code has the single check Z_0 Z_1 on three qubits, but also has bliss search the check Z_1
+    Z_2.  The mocked bliss search finds the swap of qubits 1 and 2 in the second check, which maps
+    that check onto itself, but not the check of the code.
+    """
+
+    class CodeWithWrongChecks(codes.QuditCode):
+        """A code that has bliss search a check that is not in its row space."""
+
+        def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+            return (self.matrix, self.field([[0, 0, 0, 0, 1, 1]]))
+
+    def search(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
+        """Find the swap of qubits 1 and 2 in the check Z_1 Z_2, and nothing in other checks."""
+        return [[0, 1, 3, 2]] if matrix.tolist() == [[0, 2, 2]] else []
+
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", search)
+    code = CodeWithWrongChecks([[0, 0, 0, 1, 1, 0]])
+    with pytest.raises(
+        ValueError, match=r"CodeWithWrongChecks\._get_permutation_automorphism_search_matrices"
+    ):
+        code.get_known_permutation_automorphism_group()
+
+
+def test_known_permutation_automorphism_group(monkeypatch: pytest.MonkeyPatch) -> None:
     """Codes give the group generated by the qudit permutations that they know, once verified."""
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
 
     # the translations of a bivariate bicycle code over Z_2 x Z_2 generate a group of order 4
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
-    assert bb_code.get_known_qudit_automorphism_group().order == 4
+    assert bb_code.get_known_permutation_automorphism_group().order == 4
 
     # a code that knows no permutations has a trivial group, which acts on its qudits
-    group = codes.CSSCode(bb_code.matrix_x, bb_code.matrix_z).get_known_qudit_automorphism_group()
+    group = codes.CSSCode(
+        bb_code.matrix_x, bb_code.matrix_z
+    ).get_known_permutation_automorphism_group()
     assert group.order == 1
     assert group.identity.array_form == list(range(len(bb_code)))
 
@@ -1087,13 +1149,13 @@ def test_known_qudit_automorphism_group(monkeypatch: pytest.MonkeyPatch) -> None
 
         automorphisms: npt.NDArray[np.int_]
 
-        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
     # every permutation of its qudits preserves a code without parity checks
     code = CodeWithAutomorphisms(np.zeros((0, 6), dtype=int))
     code.automorphisms = np.array([[1, 2, 0]])
-    assert code.get_known_qudit_automorphism_group().order == 3
+    assert code.get_known_permutation_automorphism_group().order == 3
 
     # The permutations of a construction are verified.  The qutrit code with the single X-type check
     # X_0 X_1^2 is preserved by swapping qudits 0 and 1, which maps the check to its square, but not
@@ -1101,7 +1163,7 @@ def test_known_qudit_automorphism_group(monkeypatch: pytest.MonkeyPatch) -> None
     qutrit_check = [[1, 2, 0, 0, 0, 0]]
     code = CodeWithAutomorphisms(qutrit_check, 3)
     code.automorphisms = np.array([[1, 0, 2]])
-    assert code.get_known_qudit_automorphism_group().order == 2
+    assert code.get_known_permutation_automorphism_group().order == 2
     for matrix, field, automorphisms in [
         (qutrit_check, 3, [[0, 2, 1]]),
         (codes.FiveQubitCode().matrix, 2, [[0, 0, 2, 3, 4]]),
@@ -1109,7 +1171,7 @@ def test_known_qudit_automorphism_group(monkeypatch: pytest.MonkeyPatch) -> None
         code = CodeWithAutomorphisms(matrix, field)
         code.automorphisms = np.array(automorphisms)
         with pytest.raises(ValueError, match="not an automorphism"):
-            code.get_known_qudit_automorphism_group()
+            code.get_known_permutation_automorphism_group()
 
     # the permutations of a construction are verified even if bliss finds others
     num_checks = len(codes.FiveQubitCode().matrix)
@@ -1123,7 +1185,7 @@ def test_known_qudit_automorphism_group(monkeypatch: pytest.MonkeyPatch) -> None
     code = CodeWithAutomorphisms(codes.FiveQubitCode().matrix)
     code.automorphisms = np.array([[1, 0, 2, 3, 4]])
     with pytest.raises(ValueError, match="not an automorphism"):
-        code.get_known_qudit_automorphism_group()
+        code.get_known_permutation_automorphism_group()
 
 
 def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
@@ -1140,13 +1202,13 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     class CSSCodeWithAutomorphisms(codes.CSSCode):
         automorphisms: npt.NDArray[np.int_]
 
-        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
     class QuditCodeWithAutomorphisms(codes.QuditCode):
         automorphisms: npt.NDArray[np.int_]
 
-        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
     def get_css_distance(
@@ -1173,7 +1235,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    translations = bb_code._get_qudit_automorphisms()
+    translations = bb_code._get_permutation_automorphisms()
     bacon_shor_matrix = codes.BaconShorCode(4).conjugated(range(0, 16, 2)).matrix
     row_swap = np.arange(16).reshape(4, 4)[[1, 0, 2, 3]].ravel()
     cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
@@ -1225,8 +1287,145 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> No
     shuffle = np.random.default_rng(0).permutation(len(bb_code))
     for matrix in (bb_code.matrix, bb_code.conjugated(range(36, 72)).matrix):
         code = codes.QuditCode(np.hstack([matrix[:, shuffle], matrix[:, len(bb_code) + shuffle]]))
-        assert code._found_qudit_automorphisms is not None
+        assert code._known_permutation_automorphisms is not None
         assert code.get_distance_exact(method="brouwer_zimmermann") == 6
+
+
+def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Classical codes combine the bit automorphisms that bliss finds with those of their class.
+
+    The bliss search is mocked here, and checked against the real package in its own tests.
+    """
+    shift_and_multiplier = codes.BCHCode(15, 7)._get_permutation_automorphisms()
+
+    # without pybliss, or if bliss finds nothing, codes return the automorphisms of their class
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    code = codes.BCHCode(15, 7)
+    assert (found := code._known_permutation_automorphisms) is not None
+    assert np.array_equal(found, shift_and_multiplier)
+    assert code.get_known_permutation_automorphism_group().order == 15 * 4
+    generic_code = codes.ClassicalCode(code.matrix)
+    assert generic_code._known_permutation_automorphisms is None
+    assert generic_code.get_known_permutation_automorphism_group().order == 1
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
+    assert (found := codes.BCHCode(15, 7)._known_permutation_automorphisms) is not None
+    assert np.array_equal(found, shift_and_multiplier)
+
+    # Bliss's permutations act on the checks and then the bits.  Codes keep the bit permutations,
+    # first, followed by those of the class, without repeats or the identity.  The mocked check
+    # permutations differ from the bit permutations, so that a test of the checks would fail.
+    cyclic_code = codes.CyclicCode(7, 1 + sympy.abc.x + sympy.abc.x**3)
+    shift, multiplier = cyclic_code._get_permutation_automorphisms()
+    double_shift = shift[shift]
+    checks = np.arange(7)[::-1]
+
+    def get_generators(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
+        assert np.array_equal(matrix, cyclic_code.matrix)
+        return [[*checks, *(7 + double_shift)], list(range(14)), [*checks, *(7 + shift)]]
+
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", get_generators)
+    assert (found := cyclic_code._known_permutation_automorphisms) is not None
+    assert found.tolist() == [double_shift.tolist(), shift.tolist(), multiplier.tolist()]
+
+    # codes verify the permutations of their class
+    class CodeWithTransposition(codes.ClassicalCode):
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
+            return np.array([[1, 0, 2]])
+
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    with pytest.raises(ValueError, match="not an automorphism"):
+        CodeWithTransposition([[1, 0, 1]]).get_known_permutation_automorphism_group()
+
+
+@pytest.mark.parametrize("bliss", [False, True])
+def test_classical_distances_use_automorphisms(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, bliss: bool
+) -> None:
+    """Exact distances of binary classical codes use their bit automorphisms, which they verify.
+
+    Each distance by the Brouwer-Zimmermann and connected-cluster methods passes its search a
+    function that returns generators of get_known_permutation_automorphism_group, asks the class for
+    its generators once, and matches brute force.  Distances from a vector use no automorphisms.
+    """
+    if bliss:
+        pytest.importorskip("pybliss")
+    else:
+        monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
+    x = sympy.abc.x
+    shuffle = np.random.default_rng(0).permutation(21)
+    cyclic_code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
+    code_builders: list[Callable[[], codes.ClassicalCode]] = [
+        lambda: codes.BCHCode(15, 7),
+        lambda: codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6),
+        lambda: codes.ReedMullerCode(1, 4).forget_distance(),
+        lambda: codes.ExtendedHammingCode(4).forget_distance(),
+        lambda: codes.HammingCode(4).forget_distance(),
+        # with bliss, the generic code with shuffled bits finds the symmetries of its checks
+        lambda: codes.ClassicalCode(cyclic_code.matrix[:, shuffle]),
+    ]
+    methods: list[DistanceMethod] = ["brouwer_zimmermann", "connected_cluster"]
+    function_names = ["get_distance_from_generators", "get_distance_from_checks"]
+    for build in code_builders:
+        expected = build().get_distance_exact(method="brute_force")
+        for method, function_name in zip(methods, function_names, strict=True):
+            code = build()
+            function = getattr(common, function_name)
+            with (
+                unittest.mock.patch.object(
+                    type(code),
+                    "_get_permutation_automorphisms",
+                    autospec=True,
+                    side_effect=type(code)._get_permutation_automorphisms,
+                ) as get_automorphisms,
+                unittest.mock.patch.object(
+                    common, function_name, autospec=True, side_effect=function
+                ) as search,
+            ):
+                assert code.get_distance_exact(method=method) == expected
+            get_automorphisms.assert_called_once()
+            # the search gets the generators of the known group, which bliss finds for a code
+            # without a class that supplies them
+            generators = search.call_args.kwargs["automorphisms"]()
+            known_group = code.get_known_permutation_automorphism_group()
+            assert generators is not None or known_group.order == 1
+            if generators is not None:
+                group = abstract.Group(*map(abstract.GroupMember, generators.tolist()))
+                assert group.equiv(known_group)
+            if type(code) is codes.ClassicalCode:
+                assert (generators is not None) == bliss
+
+    # a wrong permutation of a class makes the search raise an error
+    class CodeWithTransposition(codes.ClassicalCode):
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
+            transposition = np.arange(len(self))
+            transposition[[0, 1]] = [1, 0]
+            return transposition[None]
+
+    for method in methods:
+        with pytest.raises(ValueError, match="not an automorphism"):
+            CodeWithTransposition(cyclic_code.matrix).get_distance_exact(method=method)
+
+    # Distances from a vector use no automorphisms, which need not preserve the vector's coset.
+    # From this vector, searches by either method would ask for automorphisms, and raise an error
+    # if they got the code's.
+    vector = np.zeros(21, dtype=int)
+    vector[np.random.default_rng(14).choice(21, size=11, replace=False)] = 1
+    words = cyclic_code.generator.view(np.ndarray)
+    brute_force = min(
+        np.count_nonzero((np.array(coefficients) @ words + vector) % 2)
+        for coefficients in itertools.product([0, 1], repeat=len(words))
+    )
+    # The distance module searches the coset of a vector.
+    for method, function_name in zip(methods, function_names, strict=True):
+        code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
+        function = getattr(distances, function_name)
+        with unittest.mock.patch.object(
+            distances, function_name, autospec=True, side_effect=function
+        ) as search:
+            assert code.get_distance_exact(vector=vector, method=method) == brute_force
+        assert search.call_args.kwargs.get("automorphisms") is None
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -1939,6 +2138,19 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
             stabs = code.get_stabilizer_ops(pauli.swap_xz())
             assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
+    # operators of one Pauli type fill only their own half of their symplectic vectors
+    for code in get_codes_for_testing_ops():
+        for getter in [
+            code.get_logical_ops,
+            code.get_stabilizer_ops,
+            code.get_gauge_ops,
+            code.get_destabilizer_ops,
+        ]:
+            for pauli in PAULIS_XZ:
+                ops = getter(pauli, symplectic=True).reshape(-1, 2, len(code))
+                assert np.array_equal(ops[:, pauli], getter(pauli))
+                assert not np.any(ops[:, pauli.swap_xz()])
+
     # a code with "over-complete" checks has the expected parameters
     dist = 4
     code = codes.ToricCode(dist, rotated=True)
@@ -2059,6 +2271,19 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
         pytest.raises(ValueError, match="not recognized by GAP/QDistRnd"),
     ):
         non_css.get_code_params(bound=True, decoder=decoder)
+
+
+def test_deprecated_cutoff_of_exact_distances() -> None:
+    """A float cutoff of an exact-distance method warns at the caller, and works in a search."""
+    surface_code = codes.SurfaceCode(2)
+    for code in (
+        codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]]),
+        codes.QuditCode(surface_code.matrix),
+        surface_code.forget_distance(),
+    ):
+        with pytest.warns(DeprecationWarning, match="which is not an integer") as record:
+            code.get_distance_exact(cutoff=cast(Any, 2.5))
+        assert record[0].filename == __file__
 
 
 def test_deprecated_abstract_code_graph() -> None:

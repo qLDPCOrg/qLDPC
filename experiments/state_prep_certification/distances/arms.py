@@ -28,7 +28,6 @@ import pathlib
 from collections.abc import Callable, Iterator
 from typing import Any
 
-import numpy as np
 import numpy.typing as npt
 
 from qldpc import codes
@@ -67,19 +66,6 @@ def distance_call(arrays: dict[str, npt.NDArray[Any]]) -> Callable[[], int]:
         return int(code.get_distance_exact(method="brouwer_zimmermann"))
 
     return call
-
-
-def warm_up_arrays(css: bool) -> dict[str, npt.NDArray[Any]]:
-    """The matrices of the arm's own warm-up: ``SurfaceCode(5)``, or its Hadamard variant."""
-    from experiments.state_prep_certification.distances.codes import workloads
-
-    if css:
-        surface = workloads.get_css_code("surface:5")
-        return {
-            "matrix_x": np.asarray(surface.matrix_x, dtype=np.uint8),
-            "matrix_z": np.asarray(surface.matrix_z, dtype=np.uint8),
-        }
-    return {"matrix": np.asarray(workloads.get_hadamard_code("surface:5").matrix, dtype=np.uint8)}
 
 
 def active_tuning() -> dict[str, Any]:

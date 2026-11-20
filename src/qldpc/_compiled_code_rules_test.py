@@ -32,6 +32,65 @@ def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
                 assert path.name == "_compilation.py", f"{path.name} caches without it"
 
 
+def test_only_compilation_calls_numba_jit() -> None:
+    """Numba code uses the decorators of ``_compilation``, which the tests of the rules read."""
+    for path, tree in _get_source_trees():
+        if path.name == "_compilation.py":
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("numba"):
+                names = {alias.name for alias in node.names}
+            elif isinstance(node, ast.Attribute):
+                names = {node.attr}
+            else:
+                continue
+            assert not names & {"njit", "jit"}, (
+                f"{path.name}:{node.lineno} uses numba's njit or jit"
+            )
+
+
+def test_compiling_decorators_are_used_only_as_decorators() -> None:
+    """``conftest.get_compiled_functions`` sees the decorators only where ``@`` applies them."""
+    for path, tree in _get_source_trees():
+        if path.name == "_compilation.py":
+            continue
+
+        # The names under which the module imports the decorators.
+        names = {"always_compiled", "compiled_on_request"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                names |= {
+                    alias.asname for alias in node.names if alias.name in names and alias.asname
+                }
+
+        # Each use of those names applies a decorator to a function.
+        decorators = {
+            decorator.func if isinstance(decorator, ast.Call) else decorator
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            for decorator in node.decorator_list
+        }
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name | ast.Attribute):
+                name = node.id if isinstance(node, ast.Name) else node.attr
+                assert name not in names or node in decorators, (
+                    f"{path.name}:{node.lineno} uses {name} other than as a decorator"
+                )
+
+
+def test_nothing_asks_numba_for_parallel_code() -> None:
+    """Threads run compiled code, and two that run numba-parallel code at once abort the process.
+
+    ``always_compiled`` has no ``parallel`` option, and compiled code uses nothing from outside
+    qLDPC, so this keeps numba-parallel code out of the compiled code that threads run.
+    """
+    for path, tree in _get_source_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_njit(node.func):
+                names = {keyword.arg for keyword in node.keywords}
+                assert "parallel" not in names, f"{path.name} asks numba for parallel code"
+
+
 def test_always_compiled_functions_do_not_call_compiled_on_request_functions() -> None:
     """An always-compiled function is compiled and cached by itself, in every mode."""
     trees = list(_get_source_trees())
@@ -72,6 +131,58 @@ def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> 
     assert not outside, outside
 
 
+def test_nogil_is_passed_as_a_literal() -> None:
+    """``get_entry_points_without_the_lock`` of ``conftest`` sees ``nogil`` only as a literal.
+
+    It reads every decorator of an always-compiled function, and cannot see ``nogil`` in ``**``.
+    """
+    num_literals = 0
+    for path, tree in _get_source_trees():
+        for function in _get_functions_decorated_by(tree, "always_compiled"):
+            for decorator in function.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                for keyword in decorator.keywords:
+                    assert keyword.arg is not None, (
+                        f"{path.name}: {function.name} passes options by **"
+                    )
+                    if keyword.arg == "nogil":
+                        value = getattr(keyword.value, "value", None)
+                        assert isinstance(value, bool), (
+                            f"{path.name}: {function.name} passes nogil other than as True or False"
+                        )
+                        num_literals += 1
+    assert num_literals
+
+
+def test_run_work_items_is_not_imported_by_name() -> None:
+    """A ``run_work_items`` imported by ``from`` keeps the original, which escapes the fixture.
+
+    ``check_code_on_threads`` replaces only ``_threads.run_work_items``, so helpers imported by
+    name, which call it there, stay checked.
+    """
+    for path, tree in _get_source_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                names = {alias.name for alias in node.names}
+                assert "run_work_items" not in names, f"{path.name} imports run_work_items by name"
+
+
+def test_entry_points_without_the_lock_are_in_packages_that_state_rules_on_threads() -> None:
+    """The docstring of ``_compilation`` says when a package may compile with ``nogil=True``."""
+    entry_points = conftest.get_entry_points_without_the_lock(Path(qldpc.__file__).parent)
+    assert entry_points
+    outside = [
+        f"{module}.{name}"
+        for module, name in entry_points
+        if not module.startswith(_PACKAGES_WITH_RULES_ON_THREADS)
+    ]
+    assert not outside, (
+        f"{outside} release the lock outside _PACKAGES_WITH_RULES_ON_THREADS.  Compile them without"
+        " nogil=True, or meet the conditions in the docstring of _compilation and list the package."
+    )
+
+
 def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:
     """Only qLDPC's source is hashed, but numba checks its version and implements NumPy itself."""
     for path, tree in _get_source_trees():
@@ -101,6 +212,9 @@ def test_names_imported_from_outside_qldpc_are_found() -> None:
 
 # The packages whose functions always-compiled code may use.
 _COMPILABLE_PACKAGES = {"qldpc", "numpy", "numba"}
+
+# The packages that meet the conditions of ``_compilation`` for functions with ``nogil=True``.
+_PACKAGES_WITH_RULES_ON_THREADS = ("qldpc.codes.distance.", "qldpc.circuits.certification.")
 
 # A program that prints the modules that register compiled-on-request functions.  It first imports
 # every module of qLDPC other than tests, which registers them all.

@@ -50,7 +50,7 @@ from experiments.state_prep_certification.certification.counting import (
 )
 from qldpc.circuits.certification import _fault_search, fault_propagation
 from qldpc.circuits.certification._fault_search import Violation
-from qldpc.codes.distance import DistanceMethod
+from qldpc.codes.distance import CosetMethod
 
 CONFIG = json.loads((pathlib.Path(__file__).resolve().parent / "config.json").read_text())
 
@@ -66,7 +66,8 @@ _INITIAL_SLOTS = 2**12
 # An odd 64-bit constant, near 2**64 divided by the golden ratio, that mixes the words of a hash.
 _HASH_MULTIPLIER = np.uint64(0x9E3779B97F4A7C15)
 
-# Compiled with numba.njit(cache=False): qLDPC's always_compiled keys its cache to qLDPC's source.
+# Compiled with numba.njit(cache=True), on the condition that the comment of counting.py states:
+# these functions call only each other, in this file, and NumPy.
 
 
 ####################################################################################################
@@ -130,13 +131,13 @@ class BruteForce:
         max_weight: int | None,
         css_weight: bool,
         memory_limit: int = 2**30,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: CosetMethod = "auto",
     ) -> Violation | None:
         """Find a violating accepted fault of the smallest fault weight by brute force, or None.
 
         The arguments and the result are those of qLDPC's ``find_smallest_violation``.  The
         search checks the weights 1, ..., ``max_weight``, or up to one more than the rank of the
-        flags if ``max_weight`` is None.  ``memory_limit`` bounds the tables of qLDPC's lister,
+        flags if ``max_weight`` is None.  ``memory_limit`` bounds qLDPC's table of syndromes,
         which the baseline does not use.
         """
         self.arguments = {
@@ -162,7 +163,7 @@ class BruteForce:
         stabilizers: npt.ArrayLike,
         max_weight: int | None,
         css_weight: bool,
-        method: DistanceMethod,
+        method: CosetMethod,
     ) -> Violation | None:
         """Reduce the signatures, build the oracle, and check each weight in turn."""
         reduced = reduce_signatures(flags, syndromes)
@@ -257,7 +258,7 @@ def brute_force_smallest_violation(
     max_weight: int | None,
     css_weight: bool,
     memory_limit: int = 2**30,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: CosetMethod = "auto",
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight by brute force, or None.
 
@@ -289,13 +290,13 @@ def _new_state(m: int, num_flag_words: int, num_syndrome_words: int) -> tuple[An
     return counters, next_candidate, chosen, flag_sums, syndrome_sums
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _compare_key(
     sorted_flags: npt.NDArray[np.uint64],
     order: npt.NDArray[np.int64],
     position: int,
     key: npt.NDArray[np.uint64],
-    key_index: int,
+    key_index: int | np.int64,
 ) -> int:
     """-1, 0, or 1 as the mechanism at a sorted position is below, at, or above (key, index)."""
     for word in range(key.shape[0] - 1, -1, -1):
@@ -306,7 +307,7 @@ def _compare_key(
     return 0
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _enumerate_combinations(
     flag_words: npt.NDArray[np.uint64],
     syndrome_words: npt.NDArray[np.uint64],
@@ -340,7 +341,9 @@ def _enumerate_combinations(
     if prefix_length == 0 and closing < 0 and next_candidate[0] == 0:
         # weight 1: the closing scan of the empty prefix, from the first mechanism of zero flags
         next_candidate[0] = 1
-        closing = _lower_bound(sorted_flags, order, flag_sums[0], 0)
+        # np.int64, not a literal 0, so that _lower_bound has one set of argument types: processes
+        # that compile different ones at once can mix up its cache files (numba/numba#10862)
+        closing = _lower_bound(sorted_flags, order, flag_sums[0], np.int64(0))
     while written < combinations.shape[0]:
         if closing >= 0:
             # the closing scan of the prefix of length ``prefix_length``
@@ -395,12 +398,12 @@ def _enumerate_combinations(
     return written, bool(counters[2])
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _lower_bound(
     sorted_flags: npt.NDArray[np.uint64],
     order: npt.NDArray[np.int64],
     key: npt.NDArray[np.uint64],
-    key_index: int,
+    key_index: int | np.int64,
 ) -> int:
     """The first sorted position whose (flags, index) is at or above (key, key_index)."""
     low, high = 0, sorted_flags.shape[0]
@@ -453,7 +456,7 @@ class _DistinctSyndromes:
         _insert_rows(keys, self._keys, self._used, 0, used)
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _insert_rows(
     rows: npt.NDArray[np.uint64],
     keys: npt.NDArray[np.uint64],

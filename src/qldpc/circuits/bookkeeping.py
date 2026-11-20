@@ -93,7 +93,13 @@ class QubitIDs:
     def validated(qubit_ids: QubitIDs, code: codes.QuditCode) -> QubitIDs:
         """Validate qubit IDs for the given code and return a copy."""
         if len(qubit_ids.data) != len(code) or len(qubit_ids.check) != code.num_checks:
-            raise ValueError("Qubit IDs are invalid for the given code")
+            sites = "qubits" if code.field.order == 2 else "qudits"
+            raise ValueError(
+                f"The qubit IDs have {len(qubit_ids.data)} data qubits and {len(qubit_ids.check)}"
+                f" check qubits, but the code has {len(code)} {sites} and {code.num_checks} checks."
+                f"  Give one data qubit for each of its {sites} and one check qubit for each of its"
+                " checks, as QubitIDs.from_code(code) does."
+            )
         validated = QubitIDs(
             qubit_ids.data,
             qubit_ids.check,

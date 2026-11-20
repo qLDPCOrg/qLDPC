@@ -7,7 +7,8 @@ checks ``H`` and are outside the row space of ``G``, or that have a given syndro
 supports through unsatisfied checks.  It is the connected-cluster algorithm of Dumer, Kovalev, and
 Pryadko, with the branch and bound of Okada and Kasai.  ``connected_cluster.md`` in
 ``src/qldpc/codes/distance/`` derives the search, cites its sources, and states its correctness
-requirements.
+requirements.  These include requirements on threads, since several threads run ``_search_supports``
+at once, to search a costly weight limit or to answer several queries (Sections 3.11 and 5).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 import itertools
 import math
 from collections.abc import Callable, Sequence
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -23,7 +25,14 @@ import scipy.sparse
 from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_word, unpack_bits
 from qldpc._compilation import always_compiled
 
-from .._binary import assert_binary, get_nested_code_basis, multiply_binary, swap_pauli_halves
+from .. import _threads
+from .._binary import (
+    assert_binary,
+    get_nested_code_basis,
+    multiply_binary,
+    swap_pauli_halves,
+    symplectic_to_hamming,
+)
 from .._information_sets import automorphism_families
 from .._information_sets.basis_families import infer_weight_divisor
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
@@ -39,6 +48,36 @@ _BLOCKED = 2**40
 # ``_LOAD_BASE * i + l`` (see _get_overlap_cuts), so that each table is one array, which keeps the
 # arguments of the compiled search fewer.
 _LOAD_BASE = 4
+
+# Numba compiles a version of _search_supports for each number of 64-bit words of a syndrome up to
+# this one, and one version for all wider syndromes (see _get_fixed_words).  In each fixed version,
+# the loops over the words have a fixed length that the compiler unrolls.  A version is compiled,
+# and cached, only when a search first needs it, but each takes seconds to compile, so this bound
+# keeps them few.
+_MAX_FIXED_WORDS = 8
+
+
+class _CheckTables(NamedTuple):
+    """The tables of the checks and tests of a search, the first arguments of ``_search_supports``.
+
+    The docstring of ``_search_supports`` describes them.
+    """
+
+    check_starts: npt.NDArray[np.int64]
+    check_symbols: npt.NDArray[np.int64]
+    symbol_masks: npt.NDArray[np.uint64]
+    test_columns: npt.NDArray[np.uint64]
+
+
+# The tables of the overlap cuts of a search, as ``_get_overlap_cuts`` returns them.
+_CutTables = tuple[
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+]
 
 
 ####################################################################################################
@@ -106,8 +145,10 @@ class ConnectedClusterSearch:
 
     The arguments are those of ``get_distance_connected_cluster``, which advances the search until
     it finishes.  Each advance searches the sector with the lowest lower bound on its witnesses
-    through its next weight limit (Section 3.6 of ``connected_cluster.md``).  The searches of the
-    sectors that have witnesses are numbered in the order of those sectors.
+    through its next weight limit (Section 3.6 of ``connected_cluster.md``), on the threads of the
+    tuning if the limit is costly, with the same results and counts of states as a search on one
+    thread (Section 3.11).  The searches of the sectors that have witnesses are numbered in the
+    order of those sectors.
 
     Raises:
         ValueError: If there are neither sectors nor an upper bound, or if a sector is not valid
@@ -128,8 +169,13 @@ class ConnectedClusterSearch:
             raise ValueError("Require at least one sector or an upper bound")
 
         # Keep a search of each sector with witnesses; a sector without witnesses only bounds the
-        # result.
+        # result.  A weight limit runs on threads if it passes the gate of
+        # ``connected_cluster_split_shift``, and runs in chunks of ``2**search_chunk_exponent``
+        # states (Sections 3.6 and 3.11 of connected_cluster.md).
         tuning = get_tuning() if tuning is None else tuning
+        num_threads = _threads.get_num_threads(tuning.num_threads)
+        chunk_states = 1 << tuning.search_chunk_exponent
+        split_minimum_states = (num_threads * chunk_states) >> tuning.connected_cluster_split_shift
         self._cutoff = cutoff
         self._best_weight = upper_bound
         self._no_distance_bounds: list[int] = []
@@ -144,6 +190,9 @@ class ConnectedClusterSearch:
                 restrict_viable_symbols=tuning.restrict_viable_symbols,
                 stabilizer_overlap_cuts=tuning.stabilizer_overlap_cuts,
                 pair_sum_checks=tuning.pair_sum_checks,
+                num_threads=num_threads,
+                split_minimum_states=split_minimum_states,
+                chunk_states=chunk_states,
             )
             if search.has_witnesses:
                 self._searches.append(search)
@@ -322,6 +371,13 @@ class SupportSearch:
             of pairs of those excluded rows that are no heavier than the heaviest check (Section
             3.4).  The search is exact either way, and maps the syndrome of each query to the
             added checks.
+        num_threads: The number of threads of ``find_witness``.  Syndrome queries run on the
+            calling thread.
+        split_minimum_states: ``find_witness`` splits a weight limit across threads only if it
+            predicts that the limit visits more states than this.
+        chunk_states: ``find_witness`` searches in compiled calls that each count at most this
+            many states, so that it takes keyboard interrupts between them, and threads can stop a
+            work item between them (Sections 3.6 and 3.11).  Must be at least one.
 
     Attributes:
         num_variables: The number of variables.
@@ -349,6 +405,9 @@ class SupportSearch:
         restrict_viable_symbols: bool,
         stabilizer_overlap_cuts: bool,
         pair_sum_checks: bool,
+        num_threads: int = 1,
+        split_minimum_states: int = 0,
+        chunk_states: int = MAX_VALUE,
     ) -> None:
         # The compiled search would read invalid input without an error, so validate it here.
         assert_binary(checks, "checks")
@@ -369,6 +428,9 @@ class SupportSearch:
         self._automorphism_minimum_states = automorphism_minimum_states
         self._restrict_viable_symbols = restrict_viable_symbols
         self._stabilizer_overlap_cuts = stabilizer_overlap_cuts
+        self._num_threads = num_threads
+        self._split_minimum_states = split_minimum_states
+        self._chunk_states = chunk_states
 
         # A word satisfies a symplectic check if its dot product with the swapped check vanishes.
         if symplectic:
@@ -377,16 +439,15 @@ class SupportSearch:
             raise ValueError("The excluded rows must satisfy the checks")
         # Keep the first copy of each nonzero check, in order, since zero and duplicate checks add
         # nothing.  Map each given check to the kept check that equals it, or to -1 if it is zero;
-        # ``rank_of_unique`` maps each of the sorted unique rows to its position among kept checks.
+        # ``position_of_unique`` maps each of the sorted unique rows to its position among kept
+        # checks.
         nonzero_rows = np.flatnonzero(np.any(checks, axis=1))
-        _, first_rows, unique_index_of_row = np.unique(
-            checks[nonzero_rows], axis=0, return_index=True, return_inverse=True
-        )
+        first_rows, unique_index_of_row = _get_unique_rows(checks[nonzero_rows])
         order = np.argsort(first_rows)
-        rank_of_unique = np.argsort(order)
+        position_of_unique = np.argsort(order)
         self._checks = checks[nonzero_rows[first_rows[order]]]
         self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
-        self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row.ravel()]
+        self._kept_index_of_check[nonzero_rows] = position_of_unique[unique_index_of_row]
 
         # The search also branches on and weighs the sums of the pairs of kept checks in
         # ``summed_pairs``, which follow the kept checks (Section 3.4 of connected_cluster.md).
@@ -400,11 +461,13 @@ class SupportSearch:
         # ``tests`` the tests that it fails.
         flips = self._get_symbol_columns(searched_checks)
         sparse_flips = scipy.sparse.csr_array(flips)
-        self._check_starts = sparse_flips.indptr.astype(np.int64)
-        self._check_symbols = sparse_flips.indices.astype(np.int64)
-        self._symbol_masks = pack_bits(np.ascontiguousarray(flips.T))
         tests = self._get_symbol_columns(self._get_tests())
-        self._test_columns = pack_bits(np.ascontiguousarray(tests.T))
+        self._check_tables = _CheckTables(
+            sparse_flips.indptr.astype(np.int64),
+            sparse_flips.indices.astype(np.int64),
+            pack_bits(np.ascontiguousarray(flips.T)),
+            pack_bits(np.ascontiguousarray(tests.T)),
+        )
 
         # Without symmetries, every variable is a root.  Symplectic words get no divisor, since
         # their weights count qubits rather than bits.
@@ -424,26 +487,33 @@ class SupportSearch:
         # The excluded rows are known words for the overlap cuts, and queries may have more.  With
         # pair sums, so are the light sums of pairs of those excluded rows that are no heavier than
         # the heaviest check (Section 3.4 of connected_cluster.md).
-        self._witness_words = excluded
+        self._known_words = excluded
         if pair_sum_checks and stabilizer_overlap_cuts:
             max_check_weight = get_row_weights(self._checks, symplectic=symplectic).max(initial=0)
             word_weights = get_row_weights(excluded, symplectic=symplectic)
             light_words = excluded[word_weights <= max_check_weight]
             sums, _ = get_light_pair_sums(light_words, symplectic=symplectic)
-            self._witness_words = np.vstack([excluded, sums])
+            self._known_words = np.vstack([excluded, sums])
         self._query_words = np.zeros((0, checks.shape[1]), dtype=np.uint8)
-        self._build_overlap_cuts()
+        # find_witness tabulates its cuts at its first weight limit.  use_query_overlap_words and
+        # tabulate_query_cuts tabulate the cuts of queries; otherwise find_vector_with_syndrome does
+        # so at its first query.  Each search tabulates only the kind it uses.
+        self._cuts: _CutTables | None = None
+        self._query_cuts: _CutTables | None = None
 
     @property
     def has_witnesses(self) -> bool:
         """Whether any word is outside the row space of ``excluded``."""
         # Without tests, the packed test columns have no blocks.
-        return self._test_columns.shape[1] > 0
+        return self._check_tables.test_columns.shape[1] > 0
 
     def find_witness(self, max_weight: int) -> npt.NDArray[np.int64] | None:
         """Search for a witness of weight at most ``max_weight``, a weight limit of at least one.
 
         The search is exhaustive: it returns None only if every witness is heavier than the limit.
+        A limit that is predicted to visit more than ``split_minimum_states`` states runs on
+        ``num_threads`` threads, which give the same witness and count of states as a search on one
+        thread (Section 3.11 of ``connected_cluster.md``).
 
         Returns:
             The sorted symbols of a witness within the limit, one for each variable of its
@@ -463,21 +533,62 @@ class SupportSearch:
             automorphisms, self._get_automorphisms = self._get_automorphisms(), None
             if automorphisms is not None:
                 self._use_automorphisms(automorphisms)
-        support, num_states = _search_supports(
-            self._check_starts,
-            self._check_symbols,
-            self._symbol_masks,
-            self._test_columns,
-            self._roots,
-            self._ranks,
-            self._inverse_overlaps,
-            int(min(max_weight, self.num_variables)),
-            # The searches from roots ignore the starting syndrome, and do not memoize.
-            np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
-            False,
-            self._restrict_viable_symbols,
-            *self._cuts,
-        )
+        # Tabulate the cuts of the known words under the current ranks, if they are not tabulated,
+        # before any thread starts, so that threads only read the search.
+        if self._cuts is None:
+            words = self._known_words
+            if not self._stabilizer_overlap_cuts:
+                words = words[:0]
+            self._cuts = _get_overlap_cuts(words, self._ranks, self._symplectic)
+        cuts = self._cuts
+        limit = int(min(max_weight, self.num_variables))
+
+        def search(
+            roots: npt.NDArray[np.int64],
+            paths: npt.NDArray[np.int64],
+            frontier_depth: int,
+            resume: npt.NDArray[np.int64],
+            ends: npt.NDArray[np.int64],
+            max_states: int,
+        ) -> tuple[
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+            npt.NDArray[np.int64],
+        ]:
+            """Search the work items of this limit, as ``_search_supports`` does."""
+            return _search_supports(
+                *self._check_tables,
+                roots,
+                paths,
+                frontier_depth,
+                self._ranks,
+                self._inverse_overlaps,
+                limit,
+                resume,
+                ends,
+                max_states,
+                # The searches from roots ignore the starting syndrome, and do not memoize.
+                np.zeros(self._check_tables.symbol_masks.shape[1], dtype=np.uint64),
+                _get_fixed_words(self._check_tables.symbol_masks.shape[1]),
+                False,
+                self._restrict_viable_symbols,
+                *cuts,
+            )
+
+        predicted_states = self._predict_states(max_weight)
+        if self._num_threads > 1 and predicted_states > self._split_minimum_states:
+            support, num_states = _search_on_threads(
+                search,
+                self._roots,
+                limit,
+                self._num_threads,
+                self._chunk_states,
+                predicted_states,
+            )
+        else:
+            support, num_states = _search_in_chunks(search, self._roots, self._chunk_states)
         self.num_states += num_states
         last = self._last_two_num_states[1] if self._last_two_num_states else 0
         self._last_two_num_states = (last, num_states)
@@ -495,6 +606,11 @@ class SupportSearch:
         (Section 3.8 of ``connected_cluster.md``).  The overlap cuts of the rows of ``excluded``
         and of the words that ``use_query_overlap_words`` adds can change which vector the search
         returns, but not whether it finds one within ``max_weight``.
+
+        Coset searches call ``find_vector_with_packed_syndrome`` instead, which skips validation.
+        Unless ``use_query_overlap_words`` or ``tabulate_query_cuts`` has tabulated the cuts of
+        queries, the first call tabulates them and writes to the search, so no other query of the
+        search may run during that call.
 
         Returns:
             The sorted symbols of a vector with the syndrome, or None if every such vector weighs
@@ -523,37 +639,82 @@ class SupportSearch:
             return None
         if not np.any(kept_syndrome):
             return np.empty(0, dtype=np.int64)
-        return self._find_vector_with_packed_syndrome(pack_bits(kept_syndrome[None])[0], max_weight)
+        if self._query_cuts is None:
+            self.tabulate_query_cuts()
+        packed_syndrome = pack_bits(kept_syndrome[None])[0]
+        return self.find_vector_with_packed_syndrome(packed_syndrome, max_weight)[0]
 
-    def _find_vector_with_packed_syndrome(
+    def find_vector_with_packed_syndrome(
         self, packed_syndrome: npt.NDArray[np.uint64], max_weight: int
-    ) -> npt.NDArray[np.int64] | None:
+    ) -> tuple[npt.NDArray[np.int64] | None, int]:
         """Search like ``find_vector_with_syndrome``, from an unvalidated nonzero packed syndrome.
 
         ``packed_syndrome`` has one bit for each kept check, packed as ``pack_bits`` packs a row.
         The kept checks are the rows of ``checks`` without zero rows and later copies, in order, so
-        independent checks are all kept.
+        independent checks are all kept.  Also returns the number of states that the search visited.
+        The cuts of queries must be tabulated already (see ``tabulate_query_cuts``), and the query
+        only reads the search, so that queries can run on threads.
         """
+        assert self._query_cuts is not None
         # The syndrome of a sum of two checks is the sum of their syndromes.
         if len(self._summed_pairs):
             bits = unpack_bits(packed_syndrome[None], len(self._checks))[0]
             sums = bits[self._summed_pairs[:, 0]] ^ bits[self._summed_pairs[:, 1]]
             packed_syndrome = pack_bits(np.concatenate([bits, sums])[None])[0]
-        support, _ = _search_supports(
-            self._check_starts,
-            self._check_symbols,
-            self._symbol_masks,
-            self._test_columns,
+        support, item_states, _, _, _ = _search_supports(
+            *self._check_tables,
             np.array([-1], dtype=np.int64),
+            np.empty((1, 0), dtype=np.int64),
+            0,
             self._ranks,
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
+            _NO_PATH,
+            _NO_PATH,
+            MAX_VALUE,
             packed_syndrome,
+            _get_fixed_words(len(packed_syndrome)),
             True,
             self._restrict_viable_symbols,
             *self._query_cuts,
         )
-        return np.sort(support) if len(support) else None
+        return (np.sort(support) if len(support) else None), int(item_states[0])
+
+    def use_query_overlap_words(self, words: npt.ArrayLike) -> None:
+        """Add known words, such as stabilizers, to those that the cuts of syndrome queries use.
+
+        A word is a vector that satisfies every check, in the representation of ``excluded``.  The
+        cuts of syndrome queries are exact for any words (Section 3.8 of ``connected_cluster.md``),
+        and help most with light ones.  ``find_witness`` does not use these words, since its cuts
+        are exact only for words in the row space of ``excluded`` (Section 3.4).  The cuts do
+        nothing unless ``stabilizer_overlap_cuts`` is set.  Call this method only while no query or
+        search of this object runs, as the constructor of ``CosetLeaderSearch`` does, since it
+        rebuilds the cuts that threads read (Section 3.11).
+
+        Raises:
+            ValueError: If the words are not a binary matrix as wide as the checks, or do not
+                satisfy every check.
+        """
+        assert_binary(words, "words")
+        words = np.asarray(words, dtype=np.uint8)
+        if words.ndim != 2 or words.shape[1] != self._query_words.shape[1]:
+            raise ValueError("The words must be a matrix as wide as the checks")
+        if np.any(multiply_binary(self._checks, words.T)):
+            raise ValueError("The words must satisfy the checks")
+        self._query_words = np.vstack([self._query_words, words])
+        # Tabulate the cuts now, so that the queries after this call only read the search.
+        self.tabulate_query_cuts()
+
+    def tabulate_query_cuts(self) -> None:
+        """Tabulate the overlap cuts of queries under the current ranks.
+
+        The cuts use the rows of ``excluded`` and the words that ``use_query_overlap_words`` adds,
+        and there are none without ``stabilizer_overlap_cuts``.
+        """
+        words = np.vstack([self._excluded, self._query_words])
+        if not self._stabilizer_overlap_cuts:
+            words = words[:0]
+        self._query_cuts = _get_overlap_cuts(words, self._ranks, self._symplectic)
 
     def _predict_states(self, max_weight: int) -> int:
         """The number of states that the next weight limit, ``max_weight``, is expected to visit.
@@ -575,10 +736,7 @@ class SupportSearch:
         The word of a symbol has its value on its variable, so for a symplectic problem the columns
         are those of the ``X`` part, of the ``Z`` part, and of their sum.
         """
-        if not self._symplectic:
-            return matrix
-        part_x, part_z = matrix[:, : self.num_variables], matrix[:, self.num_variables :]
-        return np.hstack([part_x, part_z, part_x ^ part_z])
+        return symplectic_to_hamming(matrix) if self._symplectic else matrix
 
     def _get_tests(self) -> npt.NDArray[np.uint8]:
         """Rows whose products with a word all vanish exactly when the word is excluded.
@@ -588,43 +746,6 @@ class SupportSearch:
         """
         basis, labels = get_nested_code_basis(get_kernel(self._excluded), self._checks)
         return basis[np.any(labels, axis=1)]
-
-    def use_query_overlap_words(self, words: npt.ArrayLike) -> None:
-        """Add known words, such as stabilizers, to those that the cuts of syndrome queries use.
-
-        A word is a vector that satisfies every check, in the representation of ``excluded``.  The
-        cuts of syndrome queries are exact for any words (Section 3.8 of ``connected_cluster.md``),
-        and help most with light ones.  ``find_witness`` does not use these words, since its cuts
-        are exact only for words in the row space of ``excluded`` (Section 3.4).  The cuts do
-        nothing unless ``stabilizer_overlap_cuts`` is set.
-
-        Raises:
-            ValueError: If the words are not a binary matrix as wide as the checks, or do not
-                satisfy every check.
-        """
-        assert_binary(words, "words")
-        words = np.asarray(words, dtype=np.uint8)
-        if words.ndim != 2 or words.shape[1] != self._query_words.shape[1]:
-            raise ValueError("The words must be a matrix as wide as the checks")
-        if np.any(multiply_binary(self._checks, words.T)):
-            raise ValueError("The words must satisfy the checks")
-        self._query_words = np.vstack([self._query_words, words])
-        self._build_overlap_cuts()
-
-    def _build_overlap_cuts(self) -> None:
-        """Tabulate the overlap cuts of ``find_witness`` and of queries, under the current ranks.
-
-        The cuts of ``find_witness`` use the rows of ``excluded``, with ``pair_sum_checks`` also
-        light sums of pairs of them, and those of queries use the rows of ``excluded`` and the
-        words that ``use_query_overlap_words`` adds.  Without ``stabilizer_overlap_cuts``, neither
-        has any cuts.
-        """
-        witness_words = self._witness_words
-        query_words = np.vstack([self._excluded, self._query_words])
-        if not self._stabilizer_overlap_cuts:
-            witness_words = query_words = witness_words[:0]
-        self._cuts = _get_overlap_cuts(witness_words, self._ranks, self._symplectic)
-        self._query_cuts = _get_overlap_cuts(query_words, self._ranks, self._symplectic)
 
     def _use_automorphisms(self, automorphisms: npt.NDArray[np.int_]) -> None:
         """Verify automorphisms, and search only from the least variable of each of their orbits.
@@ -647,20 +768,16 @@ class SupportSearch:
         self._roots = np.unique(orbits, return_index=True)[1].astype(np.int64)
         self._ranks = np.empty(self.num_variables, dtype=np.int64)
         self._ranks[np.argsort(orbits, kind="stable")] = np.arange(self.num_variables)
-        # A cut can leave out the lowest-ranked variable of its word, which the new ranks can move.
-        self._build_overlap_cuts()
+        # A cut can leave out the lowest-ranked variable of its word, which the new ranks can move,
+        # so find_witness tabulates its cuts again, and tabulated cuts of queries are replaced now.
+        self._cuts = None
+        if self._query_cuts is not None:
+            self.tabulate_query_cuts()
 
 
 def _get_overlap_cuts(
     words: npt.NDArray[np.uint8], ranks: npt.NDArray[np.int64], symplectic: bool
-) -> tuple[
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-]:
+) -> _CutTables:
     """Tabulate the overlap cuts of known words for ``_search_supports``.
 
     The cut of a word ``g`` limits the load of a support on ``g``, which a support passes if the
@@ -683,7 +800,7 @@ def _get_overlap_cuts(
     # the words of weight at least two.
     num_variables = len(ranks)
     num_values = 3 if symplectic else 1
-    words = np.unique(words, axis=0)
+    words = words[_get_unique_rows(words)[0]]
     if symplectic:
         part_x, part_z = words[:, :num_variables], words[:, num_variables:]
         supports = part_x | part_z
@@ -726,21 +843,209 @@ def _get_overlap_cuts(
     )
 
 
+def _get_unique_rows(
+    matrix: npt.NDArray[np.uint8],
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """The distinct rows of a binary matrix, as ``np.unique(matrix, axis=0)`` finds them.
+
+    Returns:
+        The index of the first copy of each distinct row, with the distinct rows in increasing
+        order, and the position of each row among the distinct rows.
+    """
+    # Rows packed with their first column in the highest bit, and compared as byte strings, sort
+    # as the rows do, and tens of times faster than np.unique, which compares columns one by one.
+    packed = np.ascontiguousarray(np.packbits(matrix, axis=1))
+    keys = packed.view(np.dtype((np.void, packed.shape[1]))).ravel()
+    _, first_rows, positions = np.unique(keys, return_index=True, return_inverse=True)
+    return first_rows.astype(np.int64), positions.astype(np.int64)
+
+
+def _get_fixed_words(num_words: int) -> tuple[int, ...]:
+    """The argument ``fixed_words`` of ``_search_supports`` for syndromes of ``num_words`` words.
+
+    It holds a zero for each word if there are at most ``_MAX_FIXED_WORDS`` words, and is empty
+    otherwise.
+    """
+    return (0,) * num_words if num_words <= _MAX_FIXED_WORDS else ()
+
+
+####################################################################################################
+# weight limits on threads
+
+# The most items that the frontier of a limit on threads targets, which bounds the cost of its
+# passes and the memory of its paths to within the branching of one depth.
+_MAX_ITEMS = 2**14
+
+# A path of no states, for calls of _search_supports that resume nothing.
+_NO_PATH = np.empty(0, dtype=np.int64)
+
+# Searches the work items of a weight limit, as ``_search_supports`` does: from roots, along paths,
+# with a frontier depth, and optionally with a path and ends to resume and a budget of states.
+_ItemSearch = Callable[
+    [
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        int,
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        int,
+    ],
+    tuple[
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+        npt.NDArray[np.int64],
+    ],
+]
+
+
+def _search_in_chunks(
+    search: _ItemSearch, roots: npt.NDArray[np.int64], chunk_states: int
+) -> tuple[npt.NDArray[np.int64], int]:
+    """Search the subtrees of the roots of a limit on the calling thread, in chunks of states.
+
+    Each call of ``search`` counts at most ``chunk_states`` states, and the next call goes on where
+    it stopped, so the search takes keyboard interrupts between calls, and finds the witness and
+    counts the states of a search in one call (Sections 3.6 and 3.11 of ``connected_cluster.md``).
+
+    Returns:
+        The witness, or an empty array, and the number of states.
+    """
+    num_states = 0
+    paths = np.empty((len(roots), 0), dtype=np.int64)
+    first, resume, ends = 0, _NO_PATH, _NO_PATH
+    while True:
+        support, item_states, _, resume, ends = search(
+            roots[first:], paths[first:], 0, resume, ends, chunk_states
+        )
+        num_states += int(np.sum(item_states))
+        if len(support) or not len(resume):
+            return support, num_states
+        first += len(item_states) - 1
+
+
+def _search_on_threads(
+    search: _ItemSearch,
+    roots: npt.NDArray[np.int64],
+    max_weight: int,
+    num_threads: int,
+    chunk_states: int,
+    predicted_states: int,
+) -> tuple[npt.NDArray[np.int64], int]:
+    """Search a weight limit on threads, which split it into the subtrees of a frontier.
+
+    The frontier deepens from the roots, one depth at a time, until it has about as many states as
+    the limit is predicted to visit chunks of ``chunk_states`` states, but at least
+    ``_threads.ITEMS_PER_THREAD`` for each thread and at most ``_MAX_ITEMS``, or it reaches
+    ``max_weight`` or a witness, or no state is that deep.  The threads claim its states, the work
+    items, one at a time in DFS order, and search each in chunks of at most ``chunk_states`` states.
+    Each item before the first with a witness runs in full, and once that witness is found, no item
+    after it starts and a running one stops after its chunk (Section 3.11 of
+    ``connected_cluster.md``).
+
+    Returns:
+        The witness and the number of states of a search of the limit on one thread.
+    """
+    target = max(
+        _threads.ITEMS_PER_THREAD * num_threads, min(_MAX_ITEMS, predicted_states // chunk_states)
+    )
+
+    # Each pass lists the states one deeper than the current items, which become states above the
+    # frontier, apart from the roots.  ``prefixes`` counts the states above the frontier that come
+    # before each item in DFS order, and ``above`` counts them all.  A witness above the frontier,
+    # with the states through it, ends the deepening, and comes after every listed item.
+    item_roots = roots
+    paths = np.empty((len(roots), 0), dtype=np.int64)
+    prefixes = np.zeros(len(roots), dtype=np.int64)
+    above = 0
+    witness = np.empty(0, dtype=np.int64)
+    best = item_roots, paths, prefixes, above
+    while len(item_roots) < target and paths.shape[1] < max_weight:
+        support, item_states, listed, _, _ = search(
+            item_roots, paths, paths.shape[1] + 1, _NO_PATH, _NO_PATH, MAX_VALUE
+        )
+        if len(support):
+            witness = support
+            above = int(prefixes[len(item_states) - 1] + np.sum(item_states))
+        else:
+            above += int(np.sum(item_states))
+        if not len(listed) and not len(support):
+            return witness, above
+        parents = listed[:, 0]
+        item_roots, paths = item_roots[parents], np.ascontiguousarray(listed[:, 1:])
+        # Each old item at depth one or more is one state now above the frontier, but the empty
+        # states of the roots are not counted.
+        prefixes = prefixes[parents] + (parents + 1 if paths.shape[1] > 1 else 0)
+        if len(support) or len(item_roots) > len(best[0]):
+            best = item_roots, paths, prefixes, above
+        if len(support):
+            break
+    item_roots, paths, prefixes, above = best
+
+    # Search the items one at a time, each in chunks, and record the states and the witness of each
+    # item.
+    num_items = len(item_roots)
+    counts = np.zeros(num_items, dtype=np.int64)
+    witnesses: dict[int, npt.NDArray[np.int64]] = {}
+
+    def start_items(needed: Callable[[int], bool]) -> Callable[[int], bool]:
+        """Return how a worker searches an item."""
+
+        def run_item(item: int) -> bool:
+            """Search an item in chunks until it ends, and return whether it has a witness.
+
+            Between chunks, the item stops once it is no longer ``needed``: once an earlier item has
+            a witness, or once the threads stop.
+            """
+            resume, ends = _NO_PATH, _NO_PATH
+            while True:
+                support, item_states, _, resume, ends = search(
+                    item_roots[item : item + 1],
+                    paths[item : item + 1],
+                    0,
+                    resume,
+                    ends,
+                    chunk_states,
+                )
+                counts[item] += item_states[0]
+                if len(support):
+                    witnesses[item] = support
+                    return True
+                if not len(resume) or not needed(item):
+                    return False
+
+        return run_item
+
+    # Compile the search before the threads call it: a search of no items returns at once.
+    search(item_roots[:0], paths[:0], 0, _NO_PATH, _NO_PATH, MAX_VALUE)
+    first = _threads.run_items_until_first(num_items, num_threads, start_items, single_items=True)
+    if first < num_items:
+        return witnesses[first], int(prefixes[first] + np.sum(counts[: first + 1]))
+    return witness, int(above + np.sum(counts))
+
+
 ####################################################################################################
 # native search
 
 
-@always_compiled
+@always_compiled(nogil=True)
 def _search_supports(
     check_starts: npt.NDArray[np.int64],
     check_symbols: npt.NDArray[np.int64],
     symbol_masks: npt.NDArray[np.uint64],
     test_columns: npt.NDArray[np.uint64],
     roots: npt.NDArray[np.int64],
+    paths: npt.NDArray[np.int64],
+    frontier_depth: int,
     ranks: npt.NDArray[np.int64],
     inverse_overlaps: npt.NDArray[np.int64],
     max_weight: int,
+    resume: npt.NDArray[np.int64],
+    ends: npt.NDArray[np.int64],
+    max_states: int,
     start_syndrome: npt.NDArray[np.uint64],
+    fixed_words: tuple[int, ...],
     memoize: bool,
     restrict_viable_symbols: bool,
     cut_symbol_starts: npt.NDArray[np.int64],
@@ -749,7 +1054,13 @@ def _search_supports(
     cut_entries: npt.NDArray[np.int64],
     cut_capacities: npt.NDArray[np.int64],
     cut_blocked_symbols: npt.NDArray[np.int64],
-) -> tuple[npt.NDArray[np.int64], int]:
+) -> tuple[
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+]:
     """Search the supports that grow from each root through unsatisfied checks.
 
     This is the depth-first search of Sections 3.3, 3.4, and 3.7 of ``connected_cluster.md``, in
@@ -760,23 +1071,67 @@ def _search_supports(
     ``1 / k`` in units of ``1 / scale``, rounded down, so entry 1 is the scale.  The search from a
     root uses only variables of higher rank.  A root of -1 starts a syndrome query (Section 3.8)
     from ``start_syndrome``, which is not empty, is packed as a row of ``symbol_masks``, and is
-    ignored by the other roots.  With ``memoize``, each state computes the overlap and repair of
-    each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.  The
-    remaining arguments tabulate the overlap cuts, as ``_get_overlap_cuts`` returns them.
+    ignored by the other roots.  ``fixed_words`` is empty, or has an entry for each word of a row of
+    ``symbol_masks``, as ``_get_fixed_words`` makes it, and numba compiles a version for each of its
+    lengths (see ``_MAX_FIXED_WORDS``).  With ``memoize``, each state computes the overlap and
+    repair of each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.
+    The remaining arguments tabulate the overlap cuts, as ``_get_overlap_cuts`` returns them.
+
+    The search runs work items in turn, as threads do (Section 3.11).  Item ``i`` is the subtree of
+    a state at depth ``P = paths.shape[1]``, which holds ``P`` symbols: from root ``roots[i]``,
+    state ``d < P`` of its path takes its branch ``paths[i, d]``, counting from zero.  The search
+    replays the path, in which each earlier sibling only stays tried, and stops the item when it
+    goes back above depth ``P``.  It counts only the states at depth ``P`` or more.  With ``P = 0``,
+    the items are whole roots, as in a search of one thread.  A ``frontier_depth`` of ``P + 1``
+    enters no state at that depth, and lists each such state that it would enter instead, in DFS
+    order, by the index of its item and its branch at each depth below it.  A ``frontier_depth`` of
+    zero lists nothing.  A path must lead to a state that the search enters.
+
+    The search stops early once it has counted ``max_states`` states, which must be at least one, at
+    the next state that does not replay a path, just before that state takes its next branch.  It
+    then returns its stack as a path, ``resume``: the branch that each state on it takes, and, for
+    its last state, the next branch.  It also returns, for each state of that path, its end in
+    ``ends``: the branch before which the state leaves.  Given these, and the items from the one at
+    which it stopped, the search replays ``resume`` instead of the path of its first item, counts
+    no state that the replay enters, and goes on exactly where it stopped, so that a search in
+    several calls visits and counts the states of a search in one call (Section 3.11).  A caller
+    may split a call that resumes only the item at which the search stopped into two calls of that
+    item, at a branch ``b`` above ``resume[d]`` and below ``ends[d]``.  The first call takes
+    the ends ``resume[:d] + 1`` followed by ``b`` and the old ends below depth ``d``, so that it
+    leaves the states above depth ``d`` after their branches on the path.  The second takes the
+    path ``resume[:d]`` followed by ``b``, and the old ``ends[: d + 1]``, so that it searches what
+    comes after the first call in DFS order.  The witness of the call that was split is that of the
+    first call if it has one, and otherwise that of the second, and the call counts the states of
+    the first, and also those of the second if the first has no witness.
 
     Returns:
         The symbols of a witness, or of a vector with the syndrome, of weight at most
-        ``max_weight``, or an empty array; and the number of states visited, without the empty
-        state of each root.
+        ``max_weight``, or an empty array; the number of states, never including the empty state
+        of a root, that the search counted in each item, through the item of the witness or the
+        item at which it stopped; the listed states, one per row, as ``[i, b_0, ...,
+        b_{P}]``, for item ``i`` and the branches ``b_d``, through the witness if there is one;
+        and, if the search stopped early, the path and ends with which its item goes on, and
+        otherwise two empty arrays.
+
+    Raises:
+        ValueError: If ``fixed_words`` is not empty and its length is not the number of words of a
+            row of ``symbol_masks``.
     """
     # Size the stack, and the branches of a state, which include the values of a root.
-    num_symbols, num_blocks = symbol_masks.shape
+    num_symbols = len(symbol_masks)
     num_variables = len(ranks)
     num_values = num_symbols // num_variables
     max_column_weight = len(inverse_overlaps) - 1
     max_branches = num_values
     for check in range(len(check_starts) - 1):
         max_branches = max(max_branches, check_starts[check + 1] - check_starts[check])
+
+    # Loops over the words of a syndrome run num_words times, which a version for a fixed number of
+    # words knows when it is compiled.  Too many words would read past the rows of symbol_masks,
+    # and too few would silently skip unsatisfied checks.
+    num_words = len(fixed_words) if len(fixed_words) else symbol_masks.shape[1]
+    if num_words != symbol_masks.shape[1]:
+        raise ValueError("fixed_words must have an entry for each word of a syndrome, or none")
 
     # A symbol is available if its level is the number of states in the stack that restrict their
     # subtrees, which stays below _BLOCKED.  The level counts those that allow the symbol, plus
@@ -798,7 +1153,7 @@ def _search_supports(
     # that restricts its subtree sets restricts[depth], since it may allow no symbols, and allows
     # allowances[allowance_starts[depth] : allowance_starts[depth + 1]].  Room for every state to
     # allow every symbol would be large under a large cutoff, so allowances grows as needed.
-    syndromes = np.zeros((max_weight + 1, num_blocks), dtype=np.uint64)
+    syndromes = np.zeros((max_weight + 1, num_words), dtype=np.uint64)
     support = np.empty(max_weight + 1, dtype=np.int64)
     branches = np.empty((max_weight + 1, max_branches), dtype=np.int64)
     num_branches = np.zeros(max_weight + 1, dtype=np.int64)
@@ -814,8 +1169,28 @@ def _search_supports(
     memos = np.zeros((4, num_symbols if memoize else 0), dtype=np.int64)
     stamp = 0
 
-    num_states = 0
-    for root in roots:
+    # The path of the current item, and the branch before which the state at each depth leaves; the
+    # entry of a depth is MAX_VALUE unless the state at that depth is on the path.  States at
+    # depths below replay_depth replay the path, and are not counted.
+    route = np.empty(max_weight + 1, dtype=np.int64)
+    limits = np.full(max_weight + 1, MAX_VALUE, dtype=np.int64)
+
+    # The states at the frontier depth that the search lists, and its count of states.
+    frontier = np.empty((len(roots) if frontier_depth else 0, frontier_depth + 1), dtype=np.int64)
+    num_listed = 0
+    item_states = np.zeros(len(roots), dtype=np.int64)
+    num_counted = 0
+    for item in range(len(roots)):
+        root = roots[item]
+        if item == 0 and len(resume):
+            path_length = len(resume)
+            route[:path_length] = resume
+            limits[:path_length] = ends
+        else:
+            path_length = paths.shape[1]
+            route[:path_length] = paths[item]
+            limits[:path_length] = paths[item] + 1
+        replay_depth = path_length
         # The empty state has an empty syndrome, and no restriction, unless a query starts it.
         cursors[0] = 0
         depth = 0
@@ -833,6 +1208,7 @@ def _search_supports(
                 levels,
                 num_restrictions,
                 syndromes,
+                num_words,
                 branches,
                 restricts,
                 allowance_starts,
@@ -877,17 +1253,41 @@ def _search_supports(
                     cut_capacities,
                 )
 
-            # Leave the state once it has tried every branch, and release the symbols that it tried
-            # or did not allow.
-            if cursors[depth] == num_branches[depth]:
+            # Leave the state once it has tried every branch, or every branch before its limit on
+            # the path of the item, and release the symbols that it tried or did not allow.  The
+            # states that its parent enters next do not replay the path, so they are counted.
+            if cursors[depth] >= min(num_branches[depth], limits[depth]):
                 for index in range(cursors[depth]):
                     levels[branches[depth, index]] -= _BLOCKED
                 if restricts[depth]:
                     for index in range(allowance_starts[depth], allowance_starts[depth + 1]):
                         levels[allowances[index]] -= 1
                     num_restrictions -= 1
+                limits[depth] = MAX_VALUE
+                replay_depth = min(replay_depth, depth)
                 depth -= 1
                 continue
+
+            # On the path of the item, skip to its branch.  An earlier sibling would leave only its
+            # own symbol tried, once the search left its subtree.
+            if depth < replay_depth:
+                while cursors[depth] < route[depth]:
+                    levels[branches[depth, cursors[depth]]] += _BLOCKED
+                    cursors[depth] += 1
+
+            # Stop once enough states are counted, outside the replay of the path, and return the
+            # branch of each state of the stack and the next branch of the last state as a path.
+            if num_counted >= max_states and depth + 1 >= replay_depth:
+                stop_path = cursors[: depth + 1].copy()
+                stop_path[:depth] -= 1
+                stop_ends = np.minimum(limits[: depth + 1], num_branches[: depth + 1])
+                return (
+                    np.empty(0, dtype=np.int64),
+                    item_states[: item + 1],
+                    frontier[:num_listed],
+                    stop_path,
+                    stop_ends,
+                )
 
             # Take the next branch, and skip its state if it cannot meet the weight limit, since a
             # symbol flips at most max_column_weight unsatisfied checks (b1 in Section 3.4).
@@ -908,21 +1308,41 @@ def _search_supports(
                 cut_capacities,
             )
             support[depth] = symbol
-            num_unsatisfied = _xor_and_count(syndromes, depth, symbol_masks, symbol)
+            num_unsatisfied = _xor_and_count(syndromes, num_words, depth, symbol_masks, symbol)
             needed = (num_unsatisfied + max_column_weight - 1) // max_column_weight
             if depth + 1 + needed > max_weight:
                 continue
 
+            # At the frontier depth, list the state rather than enter it.
+            if depth + 1 == frontier_depth:
+                if num_listed == len(frontier):
+                    larger = np.empty((2 * len(frontier) + 16, frontier.shape[1]), dtype=np.int64)
+                    larger[:num_listed] = frontier[:num_listed]
+                    frontier = larger
+                frontier[num_listed, 0] = item
+                frontier[num_listed, 1:] = cursors[:frontier_depth] - 1
+                num_listed += 1
+                continue
+
             # Enter the state: return it if it is a witness, and otherwise choose its branches.
+            # Only the states of the item count, not those that replay its path.
             depth += 1
-            num_states += 1
+            if depth >= replay_depth:
+                item_states[item] += 1
+                num_counted += 1
             num_branches[depth] = 0
             cursors[depth] = 0
             allowance_starts[depth + 1] = allowance_starts[depth]
             restricts[depth] = False
             if num_unsatisfied == 0:
                 if root < 0 or _is_outside_excluded(test_columns, support, depth):
-                    return support[:depth].copy(), num_states
+                    return (
+                        support[:depth].copy(),
+                        item_states[: item + 1],
+                        frontier[:num_listed],
+                        np.empty(0, dtype=np.int64),
+                        np.empty(0, dtype=np.int64),
+                    )
                 continue
 
             # Make room for the symbols that this state may allow, each at most once, and choose its
@@ -939,6 +1359,7 @@ def _search_supports(
                 levels,
                 num_restrictions,
                 syndromes,
+                num_words,
                 branches,
                 restricts,
                 allowance_starts,
@@ -960,10 +1381,19 @@ def _search_supports(
                 if ranks[variable] < ranks[root]:
                     for value in range(num_values):
                         levels[value * num_variables + variable] -= _BLOCKED
-    return np.empty(0, dtype=np.int64), num_states
+    return (
+        np.empty(0, dtype=np.int64),
+        item_states,
+        frontier[:num_listed],
+        np.empty(0, dtype=np.int64),
+        np.empty(0, dtype=np.int64),
+    )
 
 
-@always_compiled
+# Unlike the small helpers, _get_branches is long and has two call sites, but inlining it makes each
+# state about 3 to 12 percent cheaper with a fixed number of words, and up to about 6 percent
+# cheaper without, for the cost of compiling its code at both sites.
+@always_compiled(inline=True)
 def _get_branches(
     check_starts: npt.NDArray[np.int64],
     check_symbols: npt.NDArray[np.int64],
@@ -971,6 +1401,7 @@ def _get_branches(
     levels: npt.NDArray[np.int64],
     available_level: int,
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     branches: npt.NDArray[np.int64],
     restricts: npt.NDArray[np.bool_],
     allowance_starts: npt.NDArray[np.int64],
@@ -986,8 +1417,9 @@ def _get_branches(
 ) -> int:
     """Choose the branches of the state at ``depth``, whose syndrome is not empty, and count them.
 
-    A symbol is available if its level is ``available_level``.  The support can take ``slack`` more
-    variables.  The weights of the unsatisfied checks are in units of ``1 / inverse_overlaps[1]``.
+    A symbol is available if its level is ``available_level``.  A row of ``syndromes`` has
+    ``num_words`` words.  The support can take ``slack`` more variables.  The weights of the
+    unsatisfied checks are in units of ``1 / inverse_overlaps[1]``.
     Section 3.4 of ``connected_cluster.md`` says when the state is pruned, and when it allows only
     viable symbols in its subtree, which it does only if ``restrict_viable_symbols``.  A state that
     restricts its subtree raises the levels of the symbols that it allows, lists them in
@@ -1000,7 +1432,6 @@ def _get_branches(
     overlap of each symbol, row 1 that overlap, and rows 2 and 3 the same for repairs.  ``stamp`` is
     the stamp of this call, which no other call uses.
     """
-    num_blocks = syndromes.shape[1]
     scale = inverse_overlaps[1]
     memoize = memos.shape[1] > 0
     overlap_stamps, overlaps, repair_stamps, repairs = memos[0], memos[1], memos[2], memos[3]
@@ -1010,26 +1441,36 @@ def _get_branches(
     total_weight = 0
     branch_check = -1
     fewest = check_starts[-1] + 1
-    for block in range(num_blocks):
-        bits = syndromes[depth, block]
+    for word in range(num_words):
+        bits = syndromes[depth, word]
         while bits:
-            check = 64 * block + int(trailing_zeros_word(bits))
+            check = 64 * word + int(trailing_zeros_word(bits))
             bits &= bits - np.uint64(1)
             largest_overlap = 0
             count = 0
-            for position in range(check_starts[check], check_starts[check + 1]):
-                symbol = check_symbols[position]
-                if levels[symbol] == available_level:
-                    if not memoize:
-                        overlap = _get_overlap(syndromes, depth, symbol_masks, symbol)
-                    elif overlap_stamps[symbol] != stamp:
-                        overlap = _get_overlap(syndromes, depth, symbol_masks, symbol)
-                        overlap_stamps[symbol] = stamp
-                        overlaps[symbol] = overlap
-                    else:
-                        overlap = overlaps[symbol]
-                    largest_overlap = max(largest_overlap, overlap)
-                    count += 1
+            if memoize:
+                for position in range(check_starts[check], check_starts[check + 1]):
+                    symbol = check_symbols[position]
+                    if levels[symbol] == available_level:
+                        if overlap_stamps[symbol] != stamp:
+                            overlap = _get_overlap(
+                                syndromes, num_words, depth, symbol_masks, symbol
+                            )
+                            overlap_stamps[symbol] = stamp
+                            overlaps[symbol] = overlap
+                        else:
+                            overlap = overlaps[symbol]
+                        largest_overlap = max(largest_overlap, overlap)
+                        count += 1
+            else:
+                # Without memos, take the overlap of every symbol, and count only the available
+                # ones by a select rather than a branch, which the processor would often mispredict.
+                for position in range(check_starts[check], check_starts[check + 1]):
+                    symbol = check_symbols[position]
+                    available = levels[symbol] == available_level
+                    overlap = _get_overlap(syndromes, num_words, depth, symbol_masks, symbol)
+                    largest_overlap = max(largest_overlap, overlap if available else 0)
+                    count += available
             if count == 0:
                 return 0
             check_weights[check] = inverse_overlaps[largest_overlap]
@@ -1048,10 +1489,10 @@ def _get_branches(
         allowance_end = allowance_starts[depth]
         branch_check = -1
         fewest = check_starts[-1] + 1
-        for block in range(num_blocks):
-            bits = syndromes[depth, block]
+        for word in range(num_words):
+            bits = syndromes[depth, word]
             while bits:
-                check = 64 * block + int(trailing_zeros_word(bits))
+                check = 64 * word + int(trailing_zeros_word(bits))
                 bits &= bits - np.uint64(1)
                 count = 0
                 for position in range(check_starts[check], check_starts[check + 1]):
@@ -1059,11 +1500,11 @@ def _get_branches(
                     if levels[symbol] == available_level:
                         if not memoize:
                             repair = _get_repair(
-                                syndromes, depth, symbol_masks, symbol, check_weights
+                                syndromes, num_words, depth, symbol_masks, symbol, check_weights
                             )
                         elif repair_stamps[symbol] != stamp:
                             repair = _get_repair(
-                                syndromes, depth, symbol_masks, symbol, check_weights
+                                syndromes, num_words, depth, symbol_masks, symbol, check_weights
                             )
                             repair_stamps[symbol] = stamp
                             repairs[symbol] = repair
@@ -1091,9 +1532,9 @@ def _get_branches(
         if levels[symbol] != available_level:
             continue
         if not memoize:
-            repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+            repair = _get_repair(syndromes, num_words, depth, symbol_masks, symbol, check_weights)
         elif repair_stamps[symbol] != stamp:
-            repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+            repair = _get_repair(syndromes, num_words, depth, symbol_masks, symbol, check_weights)
             repair_stamps[symbol] = stamp
             repairs[symbol] = repair
         else:
@@ -1161,31 +1602,39 @@ def _shift_cut_loads(
 @always_compiled(inline=True)
 def _get_overlap(
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     depth: int,
     symbol_masks: npt.NDArray[np.uint64],
     symbol: int,
 ) -> int:
-    """The number of unsatisfied checks that a symbol flips, in the syndrome at a depth."""
+    """The number of unsatisfied checks that a symbol flips, in the syndrome at a depth.
+
+    A row of ``syndromes`` has ``num_words`` words.
+    """
     count = 0
-    for block in range(syndromes.shape[1]):
-        count += int(popcount_word(syndromes[depth, block] & symbol_masks[symbol, block]))
+    for word in range(num_words):
+        count += int(popcount_word(syndromes[depth, word] & symbol_masks[symbol, word]))
     return count
 
 
 @always_compiled(inline=True)
 def _get_repair(
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     depth: int,
     symbol_masks: npt.NDArray[np.uint64],
     symbol: int,
     check_weights: npt.NDArray[np.int64],
 ) -> int:
-    """The total weight of the unsatisfied checks that a symbol flips, at a depth."""
+    """The total weight of the unsatisfied checks that a symbol flips, at a depth.
+
+    A row of ``syndromes`` has ``num_words`` words.
+    """
     repair = 0
-    for block in range(syndromes.shape[1]):
-        bits = syndromes[depth, block] & symbol_masks[symbol, block]
+    for word in range(num_words):
+        bits = syndromes[depth, word] & symbol_masks[symbol, word]
         while bits:
-            repair += check_weights[64 * block + int(trailing_zeros_word(bits))]
+            repair += check_weights[64 * word + int(trailing_zeros_word(bits))]
             bits &= bits - np.uint64(1)
     return repair
 
@@ -1193,18 +1642,20 @@ def _get_repair(
 @always_compiled(inline=True)
 def _xor_and_count(
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     depth: int,
     symbol_masks: npt.NDArray[np.uint64],
     symbol: int,
 ) -> int:
     """Set the syndrome at ``depth + 1`` to that at ``depth`` plus a symbol, and return its size.
 
-    The size of a syndrome is its number of unsatisfied checks.
+    A row of ``syndromes`` has ``num_words`` words, and the size of a syndrome is its number of
+    unsatisfied checks.
     """
     count = 0
-    for block in range(syndromes.shape[1]):
-        syndromes[depth + 1, block] = syndromes[depth, block] ^ symbol_masks[symbol, block]
-        count += int(popcount_word(syndromes[depth + 1, block]))
+    for word in range(num_words):
+        syndromes[depth + 1, word] = syndromes[depth, word] ^ symbol_masks[symbol, word]
+        count += int(popcount_word(syndromes[depth + 1, word]))
     return count
 
 

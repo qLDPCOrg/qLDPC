@@ -3,25 +3,22 @@
 """Exact counts of the logical operators of a given weight in binary CSS codes.
 
 :class:`CSSLogicalCounter` states the conventions of the counts.  Section 3.11 of
-``brouwer_zimmermann.md`` explains the default and MacWilliams methods, full Pauli counts, and the
-counters of deformed codes.
+``brouwer_zimmermann.md`` explains the Brouwer-Zimmermann and MacWilliams methods, full Pauli
+counts, and the counters of deformed codes.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, SupportsIndex
+from typing import TYPE_CHECKING, Literal, SupportsIndex, get_args
 
 import numpy as np
 import numpy.typing as npt
 
-from qldpc import _deprecations
 from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
-from qldpc._utils import get_external_caller_stacklevel
 
 from ._binary import (
     as_binary_matrix_pair,
@@ -34,7 +31,7 @@ from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
 from ._information_sets import basis_families
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
-from .core import NO_DISTANCE, NoDistance
+from .distances import NO_DISTANCE, NoDistance
 
 # codes.common imports this package, so code classes are imported only where they are used.
 if TYPE_CHECKING:
@@ -44,32 +41,23 @@ if TYPE_CHECKING:
 # The basis of a homogeneous sector, and its quotient labels.
 _Sector = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
-LogicalCountMethod = Literal[
-    "brouwer_zimmermann", "macwilliams", "brute_force", "information_sets", "weight_enumerator"
-]
+LogicalCountMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute_force"]
 """The methods of exact counts of logical operators.
 
-- ``"brouwer_zimmermann"``, the default, and its alias ``"information_sets"``: a scan of the words
-  of each weight in several information sets.
-- ``"macwilliams"``, and its alias ``"weight_enumerator"``: the weight distributions of the spaces
-  of the checks, through the MacWilliams identities.  It does not support subsystem codes, full
-  Pauli counts of codes that are not self-dual, or checks of rank above 63.
+- ``"auto"`` (the default): a choice of the methods below.  It takes ``"brouwer_zimmermann"``.  The
+  choice can depend on the version of qLDPC.
+- ``"brouwer_zimmermann"``: a scan of the words of each weight in several information sets.
+- ``"macwilliams"``: the weight distributions of the spaces of the checks, through the MacWilliams
+  identities.  It does not support subsystem codes, full Pauli counts of codes that are not
+  self-dual, or X or Z checks of rank above 63 in codes that encode qubits.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 """
 
-_CanonicalLogicalCountMethod = Literal["brouwer_zimmermann", "macwilliams", "brute_force"]
+# The method that a count runs, once ``"auto"`` has chosen one.
+_ChosenLogicalCountMethod = Literal["brouwer_zimmermann", "macwilliams", "brute_force"]
 
 # The distance searches that a count runs to find its default weight.
 _CountDistanceMethod = Literal["brouwer_zimmermann", "brute_force"]
-
-# The canonical name of every accepted logical-count method name, including aliases.
-_LOGICAL_COUNT_METHODS: dict[str, _CanonicalLogicalCountMethod] = {
-    "brouwer_zimmermann": "brouwer_zimmermann",
-    "brute_force": "brute_force",
-    "information_sets": "brouwer_zimmermann",
-    "macwilliams": "macwilliams",
-    "weight_enumerator": "macwilliams",
-}
 
 
 ####################################################################################################
@@ -252,10 +240,9 @@ class CSSLogicalCounter:
         self,
         weight: SupportsIndex | None = None,
         *,
-        method: LogicalCountMethod = "brouwer_zimmermann",
+        method: LogicalCountMethod = "auto",
         count_pauli: bool = False,
         within_distance: bool = False,
-        max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
 
@@ -267,20 +254,18 @@ class CSSLogicalCounter:
                 None (the default), count the operators whose weight is the distance of the code.
                 A code that encodes no qubits has no distance, and its counts are then zero at the
                 weight ``NO_DISTANCE``.
-            method: ``"brouwer_zimmermann"`` (the default, alias ``"information_sets"``),
-                ``"macwilliams"`` (alias ``"weight_enumerator"``), or ``"brute_force"``.  The
-                MacWilliams method keeps the weight distributions of the checks for later counts of
-                this counter, and does not support subsystem codes, full Pauli counts of codes that
-                are not self-dual, or checks of rank above 63.  Brute force is a reference for small
-                codes.
+            method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, ``"macwilliams"``, or
+                ``"brute_force"`` (see :data:`LogicalCountMethod`).  The MacWilliams method keeps
+                the weight distributions of the checks for later counts of this counter, and does
+                not support subsystem codes, full Pauli counts of codes that are not self-dual, or X
+                or Z checks of rank above 63 in codes that encode qubits.
+                Brute force is a reference for small codes.
             count_pauli: If True, also count full Pauli operators, including Y and mixed operators.
                 These counts are supported only up to the distance, and are zero below it.  Defaults
                 to False.
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Deprecated.  To tune counts instead, see the page
-                :doc:`/exact_search_tuning` of the documentation.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
@@ -293,8 +278,8 @@ class CSSLogicalCounter:
                 ``within_distance`` is set, or if the MacWilliams method does not support the code
                 or the request.
         """
-        # Validate the inputs, resolving method aliases.
-        method = _validate_logical_count_method(method)
+        # Validate the inputs, and choose a method for "auto".
+        method = _get_logical_count_method(method)
         if weight is not None:
             weight = as_integer(weight, "weight")
             if not 0 <= weight <= self.num_qubits:
@@ -305,15 +290,6 @@ class CSSLogicalCounter:
             self._validate_macwilliams_request(count_pauli)
         # Every search of this count uses one tuning.
         tuning = get_tuning()
-        if max_information_sets is not None:  # DEPRECATED: see qldpc._deprecations
-            _deprecations.warn_deprecated(
-                "The max_information_sets argument of logical-operator counts is deprecated and"
-                " will be removed in a future release.  To tune counts, see the documentation page"
-                " 'Exact-search performance and tuning'",
-                stacklevel=get_external_caller_stacklevel(),
-            )
-            max_sets = as_integer(max_information_sets, "max_information_sets")
-            tuning = dataclasses.replace(tuning, max_information_sets=max_sets)
 
         # A code without logicals needs no scan, and the MacWilliams method needs no sectors.
         if not self.dimension:
@@ -361,8 +337,8 @@ class CSSLogicalCounter:
         counts_x = scan.count_words(
             *sector_x,
             target,
-            method == "brute_force",
             pack_bits(self._stabilizers_x if count_masked_ranks else no_rows),
+            brute_force=method == "brute_force",
             complement=False,
             max_exponent=target if count_masked_ranks else 0,
             reject_lighter=reject_lighter,
@@ -378,8 +354,8 @@ class CSSLogicalCounter:
             counts_z = scan.count_words(
                 *sector_z,
                 target,
-                method == "brute_force",
                 pack_bits(self._gauge_x if count_masked_ranks else no_rows),
+                brute_force=method == "brute_force",
                 complement=True,
                 max_exponent=len(self._gauge_x) if count_masked_ranks else 0,
                 reject_lighter=reject_lighter,
@@ -676,10 +652,9 @@ def count_logical_ops_css(
     checks_z: npt.ArrayLike,
     weight: SupportsIndex | None = None,
     *,
-    method: LogicalCountMethod = "brouwer_zimmermann",
+    method: LogicalCountMethod = "auto",
     count_pauli: bool = False,
     within_distance: bool = False,
-    max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
@@ -701,7 +676,6 @@ def count_logical_ops_css(
         method=method,
         count_pauli=count_pauli,
         within_distance=within_distance,
-        max_information_sets=max_information_sets,
     )
 
 
@@ -728,16 +702,14 @@ def compile_search_setup() -> None:
         raise
 
 
-def _validate_logical_count_method(
-    method: LogicalCountMethod,
-) -> _CanonicalLogicalCountMethod:
-    """Validate a logical-count method selector, and return its canonical name."""
-    if not isinstance(method, str) or method not in _LOGICAL_COUNT_METHODS:
+def _get_logical_count_method(method: LogicalCountMethod) -> _ChosenLogicalCountMethod:
+    """Validate a logical-count method, and return the method that the count runs."""
+    if not isinstance(method, str) or method not in get_args(LogicalCountMethod):
         raise ValueError(
-            f"Unknown logical-count method {method!r}; choose from 'brouwer_zimmermann',"
-            " 'macwilliams', or 'brute_force'."
+            f"Unknown logical-count method {method!r}; choose from"
+            f" {', '.join(map(repr, get_args(LogicalCountMethod)))}."
         )
-    return _LOGICAL_COUNT_METHODS[method]
+    return "brouwer_zimmermann" if method == "auto" else method
 
 
 def _get_above_distance_error(weight: int) -> ValueError:

@@ -12,7 +12,8 @@ Each experiment is a subdirectory with an ``experiment.py`` module that defines:
 * ``JOB_MEM_GIB``: the memory cap of a run, which sets how many job slots fit on a machine;
 * ``prepare(label_dir)``: generate or load the inputs, and check them against the frozen files;
 * ``tasks(label_dir, subset)``: the tasks of pass 1 of a subset, such as ``"main"`` or ``"smoke"``;
-* ``worst_case_s(task)``: the worst-case CPU seconds of a task of pass 1, with its repeats;
+* ``worst_case_s(task)``: the worst-case CPU seconds of a task of pass 1, with its repeats, but
+  without the runner's retries, which ``tasks.ceiling_hours`` adds;
 * ``repeat_tasks(task, row)``: the tasks of pass 2 that a task of pass 1 and its row call for;
 * ``run(task, label_dir)``: run one task in the child process, calling ``runner.timed`` once;
 * ``acceptance(node, results_dir)``: run the acceptance tests, and return whether they passed.
@@ -37,6 +38,7 @@ EXPERIMENTS_DIR = pathlib.Path(__file__).resolve().parents[1]
 PLUGINS = {
     "certification": "experiments.state_prep_certification.certification.experiment",
     "distances": "experiments.state_prep_certification.distances.experiment",
+    "ranking": "experiments.state_prep_certification.ranking.experiment",
     "selftest": "experiments.state_prep_certification.common.selftest_plugin",
 }
 

@@ -20,6 +20,7 @@ only within the block that uses it.
 from .core import (
     ALIASES,
     SILENT_ALIASES,
+    as_integer_cutoff,
     defunct,
     get_deprecated_attribute,
     install_deprecated_methods,
@@ -30,6 +31,7 @@ from .core import (
 __all__ = [
     "ALIASES",
     "SILENT_ALIASES",
+    "as_integer_cutoff",
     "defunct",
     "get_deprecated_attribute",
     "install_deprecated_methods",

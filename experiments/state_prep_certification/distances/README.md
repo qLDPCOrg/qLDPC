@@ -37,12 +37,13 @@ Target lengths that the size rule maps to the same parameters merge, and the mer
 ```bash
 python experiments/state_prep_certification/distances/codes.py --out /tmp/codes --check
 python experiments/state_prep_certification/distances/acceptance.py --local
-python experiments/state_prep_certification/run_node.py distances --local --subset smoke --approved-cpu-hours 20
+python experiments/state_prep_certification/run_node.py distances --local --subset smoke --approved-cpu-hours 38
 python experiments/state_prep_certification/distances/analyze.py --label-dir experiments/state_prep_certification/results/distances/<label>
 ```
 
 On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes.
 `analyze.py --archive PATH --out DIR` reads the archive that comes back, and writes `summary.csv`, `families.csv`, `anchors.csv`, `distances.pdf`, and `figure_notes.json`.
+`analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
 ## Attributions
 

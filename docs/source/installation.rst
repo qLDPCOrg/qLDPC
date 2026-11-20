@@ -98,8 +98,9 @@ Finding the automorphisms (symmetries) of a parity check matrix, as needed to co
 
    python -m pip install 'qldpc[bliss]'
 
-With ``pybliss`` installed, the Brouwer-Zimmermann and connected-cluster searches of exact distances of binary quantum codes also find and use the symmetries of these codes, which can make the searches much faster.
+With ``pybliss`` installed, the Brouwer-Zimmermann and connected-cluster searches of exact distances of binary classical and quantum codes also find and use symmetries of these codes, which can make the searches much faster.
 These symmetries include qubit permutations that map the X-type logical operators of a CSS code onto its Z-type ones.
+Without ``pybliss``, these searches still use the symmetries that the constructions of some codes supply, such as the cyclic shifts of a :class:`~qldpc.codes.CyclicCode`.
 ``pybliss`` publishes wheels for macOS arm64 and Linux x86-64; on other platforms, ``pip`` attempts to build it from source.
 Unlike qLDPC, ``pybliss`` is distributed under the GPL/LGPL v3 licenses.
 

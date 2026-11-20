@@ -4,11 +4,13 @@
 
 from __future__ import annotations
 
+import fractions
+import functools
 import importlib
 import inspect
 import unittest.mock
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import galois
 import networkx as nx
@@ -132,6 +134,26 @@ def test_deprecated_methods() -> None:
     assert str(inspect.signature(puncture)).startswith("(self, bits")
 
 
+def test_deprecated_get_automorphism_group(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The deprecated get_automorphism_group returns the permutation automorphism group."""
+    # read the generators of the group from MAGMA output, pasted on standard input
+    user_inputs = iter(
+        ["Permutation group acting on a set of cardinality 2", "Order = 2", "    (1, 2)", ""]
+    )
+    monkeypatch.setattr("builtins.input", lambda: next(user_inputs))
+    code = codes.RepetitionCode(2)
+    method_name = "get_automorphism_group"
+    with pytest.warns(DeprecationWarning, match="DEPRECATED") as caught:
+        group = getattr(code, method_name)(with_magma=True)
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert str(caught[0].message).startswith(f"ClassicalCode.{method_name} is DEPRECATED")
+    assert group.equiv(abstract.CyclicGroup(2))
+    assert "PermutationGroup(LinearCode(" in capsys.readouterr().out
+
+
 def test_deprecated_reduce_logical_ops() -> None:
     """The deprecated reduction of logical operators stores the operators that a decoder finds."""
     # the first code starts with a heavy X-type operator at index 0, the second with a heavy Z-type
@@ -230,7 +252,7 @@ def test_deprecated_get_distance_bound() -> None:
             _deprecations.core.get_distance_bound(subsystem_code)
 
 
-def test_deprecated_distance_functions() -> None:
+def test_deprecated_distance_functions(monkeypatch: pytest.MonkeyPatch) -> None:
     """The deprecated distance functions warn at their caller, and give the distances they gave.
 
     get_distance_quantum read its rows as symplectic unless homogeneous was True: as Pauli strings,
@@ -244,18 +266,6 @@ def test_deprecated_distance_functions() -> None:
                 generator.astype(object)
             ),
             3,
-        ),
-        (
-            lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
-                generator, method="brute_force", max_weight=1
-            ),
-            2,
-        ),
-        (
-            lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
-                generator[:1], generator[1:], homogeneous=True, max_weight=1
-            ),
-            2,
         ),
         (
             lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
@@ -294,6 +304,30 @@ def test_deprecated_distance_functions() -> None:
                 assert search() == 3
             assert get_distance.call_args.kwargs["method"] == "auto"
 
+    # As before, a code without nontrivial words has a distance: its length if it is classical, and
+    # if it is quantum, zero if some logical operators are given, and its number of qubits if not.
+    no_logical_ops = np.zeros((0, 4), dtype=int)
+    for search, distance in (
+        (lambda: get_distance_classical([[0, 0, 0, 0]]), 4),
+        (lambda: get_distance_quantum([[1, 1, 0, 0]], [[1, 1, 0, 0]], homogeneous=True), 0),
+        (lambda: get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]], homogeneous=True), 4),
+        (lambda: get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]]), 2),
+    ):
+        with pytest.warns(DeprecationWarning):
+            assert search() == distance
+
+    # A float cutoff warns, and acts as an integer.
+    get_distance_css_bz: Any = codes.get_distance_css_brouwer_zimmermann  # type: ignore[attr-defined]
+    for search in (
+        functools.partial(get_distance_classical, generator),
+        functools.partial(get_distance_quantum, generator[:1], generator[1:], homogeneous=True),
+        functools.partial(get_distance_css_bz, [(generator[:1], generator[1:])]),
+    ):
+        # Each function also warns that it is deprecated.
+        with pytest.warns(DeprecationWarning) as record:
+            assert search(cutoff=2.5) == 3
+        assert any("which is not an integer" in str(warning.message) for warning in record)
+
     # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
     # arguments.
     with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="stabilizers"):
@@ -306,12 +340,12 @@ def test_deprecated_distance_functions() -> None:
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=name):
             get_distance_quantum(logical_ops, stabilizers, homogeneous=True)
 
-    # The block_size argument gives the batch exponents that it gave before it was deprecated:
-    # exhaustive enumeration took it as its exponent, and scans of information sets took at most
-    # it, clamped to the range of the fields.
+    # The block_size argument gives the exponents that it gave before it was deprecated: exhaustive
+    # enumeration took it as the exponent of its batches, and scans of information sets took at most
+    # it as the exponent of their chunks, clamped to the range of the fields.
     from qldpc.codes.distance import _tuning
 
-    with _tuning.use_tuning(information_set_batch_exponent=10) as active_tuning:
+    with _tuning.use_tuning(search_chunk_exponent=10) as active_tuning:
         with _deprecations.core._use_block_size(None):
             assert _tuning.get_tuning() is active_tuning
         for block_size, batches in (
@@ -327,34 +361,87 @@ def test_deprecated_distance_functions() -> None:
                 tuning = _tuning.get_tuning()
             assert (
                 tuning.enumeration_batch_exponent,
-                tuning.information_set_batch_exponent,
+                tuning.search_chunk_exponent,
             ) == batches
 
     # The functions search with those batches, and warn at their caller about both deprecations.
-    # Rows that record the active batch exponent when the search reads them show the batches, since
-    # nothing else observable does.  The search reads the rows last, after any checks of them.
-    exponents: list[int] = []
-
-    class RecordingRows:
-        def __init__(self, rows: Any) -> None:
-            self.rows = rows
-
-        def __array__(self, dtype: Any = None, copy: Any = None) -> Any:
-            exponents.append(_tuning.get_tuning().enumeration_batch_exponent)
-            return np.asarray(self.rows, dtype=dtype)
-
+    exponents = _record_batch_exponents(monkeypatch)
     for search in (
-        lambda: get_distance_classical(RecordingRows(generator), block_size=2),
-        lambda: get_distance_quantum(
-            RecordingRows(generator[:1]), generator[1:], homogeneous=True, block_size=2
-        ),
+        lambda: get_distance_classical(generator, block_size=2),
+        lambda: get_distance_quantum(generator[:1], generator[1:], homogeneous=True, block_size=2),
     ):
         exponents.clear()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             assert search() == 3
-        assert exponents[-1:] == [2]
+        assert exponents == [(2, 2)]
         assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
+
+
+def test_deprecated_get_distance_css_brouwer_zimmermann(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The deprecated function warns at its caller, and gives the smallest distance of its sectors.
+
+    As before, the result is at most the upper bound, and a sector without nontrivial logical
+    operators has distance zero if some logical operators are given, and its number of bits if not.
+    """
+    get_distance: Any = codes.get_distance_css_brouwer_zimmermann  # type: ignore[attr-defined]
+    generator = np.asarray(codes.HammingCode(3).generator)
+    # The first sector has distance 3, as in test_deprecated_distance_functions, and the second 2.
+    sectors = [(generator[:1], generator[1:]), ([[1, 1, 0, 0, 0, 0, 0]], [])]
+    with pytest.warns(DeprecationWarning, match="get_distance_from_generators") as caught:
+        assert get_distance(sectors, cutoff=0) == 2
+    assert caught[0].filename == __file__
+    for distance_sectors, upper_bound, distance in (
+        (sectors, 1, 1),
+        (sectors, 3, 2),
+        ([([[1, 1, 0, 0]], [[1, 1, 0, 0]]), sectors[0]], None, 0),
+        ([(np.zeros((0, 4), dtype=int), [[1, 1, 0, 0]])], None, 4),
+    ):
+        with pytest.warns(DeprecationWarning):
+            assert get_distance(distance_sectors, cutoff=0, upper_bound=upper_bound) == distance
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="upper bound"):
+        get_distance([], cutoff=0)
+
+    # As before, every sector is checked, even after a bound that no sector can beat.
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="stabilizers"):
+        get_distance(
+            [sectors[0], (generator[:1], [[2, 0, 0, 0, 0, 0, 0]])], cutoff=0, upper_bound=0
+        )
+
+    # A block_size argument gives every search its batches, and also warns at the caller.
+    exponents = _record_batch_exponents(monkeypatch)
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        assert get_distance(sectors, cutoff=0, block_size=2) == 2
+    assert exponents == [(2, 2), (2, 2)]
+    assert len(recorded) == 2 and all(warning.filename == __file__ for warning in recorded)
+
+
+def test_deprecated_cutoff_that_is_not_an_integer() -> None:
+    """A float or a bool cutoff warns at the caller, and acts as its floor within [-1, MAX_VALUE].
+
+    A NaN cutoff acts as -1, and any other cutoff passes unchanged, for the distance functions to
+    accept or reject.
+    """
+    from qldpc.codes.distance import _tuning
+
+    for cutoff, integer in (
+        (-0.5, -1),
+        (True, 1),
+        (np.True_, 1),
+        (np.float16("inf"), _tuning.MAX_VALUE),
+        (float("inf"), _tuning.MAX_VALUE),
+        (1e300, _tuning.MAX_VALUE),
+        (float("nan"), -1),
+        (-float("inf"), -1),
+        # As a Python float it may round to 3, but its floor is exactly 2.
+        (np.nextafter(np.longdouble(3), np.longdouble(0)), 2),
+    ):
+        with pytest.warns(DeprecationWarning, match="which is not an integer") as record:
+            assert _deprecations.as_integer_cutoff(cast(Any, cutoff)) == integer
+        assert record[0].filename == __file__
+    for other_cutoff in (3, fractions.Fraction(5, 2)):
+        assert _deprecations.as_integer_cutoff(cast(Any, other_cutoff)) is other_cutoff
 
 
 def test_deprecated_get_primitive_central_idempotents() -> None:
@@ -492,3 +579,23 @@ def _get_from_package(module_name: str, name: str) -> object:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         return next(getattr(module, name) for module in modules if hasattr(module, name))
+
+
+def _record_batch_exponents(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
+    """Record the active exponents of enumeration batches and of search chunks at each search.
+
+    The deprecated distance functions look up get_distance_from_generators when called, so they
+    call the recording wrapper, which passes each call through unchanged.
+    """
+    from qldpc.codes.distance import _tuning
+
+    exponents: list[tuple[int, int]] = []
+    get_distance = codes.distance.get_distance_from_generators
+
+    def recording_get_distance(*args: Any, **kwargs: Any) -> Any:
+        tuning = _tuning.get_tuning()
+        exponents.append((tuning.enumeration_batch_exponent, tuning.search_chunk_exponent))
+        return get_distance(*args, **kwargs)
+
+    monkeypatch.setattr(codes.distance, "get_distance_from_generators", recording_get_distance)
+    return exponents

@@ -8,6 +8,8 @@ permutation exists.  The section "Searching one sector of a CSS code" of ``READM
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import numpy.typing as npt
 
@@ -32,13 +34,13 @@ def get_sector_map(
     ``basis_x`` is the basis of the row space of ``gauge_x`` that ``get_independent_rows`` gives,
     which the caller has already computed, and which a cheap test needs in reduced row echelon
     form.  The result is the identity if the row spaces are equal.  Otherwise, with the optional
-    pybliss package, bliss looks for an isomorphism of the Tanner graph of the gauge generators
-    (the checks of a stabilizer code) that maps the nonzero rows of ``gauge_x``, counting repeats,
-    one to one onto those of ``gauge_z``, and those of ``gauge_z`` onto those of ``gauge_x``.  So,
-    unless the row spaces are equal, the result is None if no permutation maps the two lists of
-    nonzero rows onto each other in this way, even if some permutation swaps the row spaces.  This
-    happens, for example, when only one list has a redundant row.  Every result passes
-    ``maps_sectors``.
+    pybliss package, the result maps the nonzero rows of ``gauge_x``, counting repeats, one to one
+    onto those of ``gauge_z``, and those of ``gauge_z`` onto those of ``gauge_x``.  It is the first
+    of a few fixed permutations that does, or else one that bliss finds as an isomorphism of the
+    Tanner graph of the gauge generators (the checks of a stabilizer code).  So, unless the row
+    spaces are equal, the result is None if no permutation maps the two lists of nonzero rows onto
+    each other in this way, even if some permutation swaps the row spaces.  This happens, for
+    example, when only one list has a redundant row.  Every result passes ``maps_sectors``.
     """
     # Swapped row spaces have equal ranks.  Row spaces of equal ranks are equal if one holds the
     # other, which a few random words of the row space of gauge_z test cheaply before the exact
@@ -54,12 +56,22 @@ def get_sector_map(
     if not _bliss.is_installed():
         return None
 
-    # An isomorphism that swaps the colors of the checks maps the X-type checks to Z-type checks of
-    # the same weights, and gives each qubit the X-degree and Z-degree of its image swapped.  Check
-    # these necessary conditions, which are cheap, before asking bliss.
+    # A permutation that maps the two lists of nonzero rows onto each other gives each qubit the
+    # X-degree and Z-degree of its image swapped.  Before asking bliss, which would find any such
+    # permutation, try a few that do for common codes (see _get_candidate_maps).
     rows_x = gauge_x[np.any(gauge_x, axis=1)].astype(int)
     rows_z = gauge_z[np.any(gauge_z, axis=1)].astype(int)
     degrees = np.column_stack([rows_x.sum(axis=0), rows_z.sum(axis=0)])
+    for permutation in _get_candidate_maps(len(degrees)):
+        if (
+            np.array_equal(degrees[permutation][:, ::-1], degrees)
+            and _maps_rows(rows_x, rows_z, permutation)
+            and _maps_rows(rows_z, rows_x, permutation)
+        ):
+            return permutation
+
+    # Such a permutation also maps the X-type checks to Z-type checks of the same weights.  Check
+    # these necessary conditions, which are cheap, before asking bliss.
     if not np.array_equal(np.sort(rows_x.sum(axis=1)), np.sort(rows_z.sum(axis=1))) or (
         sorted(map(tuple, degrees.tolist())) != sorted(map(tuple, degrees[:, ::-1].tolist()))
     ):
@@ -91,22 +103,13 @@ def maps_sectors(
     of ``gauge_x``, which rank tests over GF(2) check.
     """
     # A word w maps to the word whose entry permutation[j] is w[j], which takes the columns of w in
-    # the order of the inverse permutation.
+    # the order of the inverse permutation.  A permutation keeps the rank of a matrix, and row
+    # spaces of equal ranks are equal if stacking them keeps the rank.
     inverse = np.argsort(permutation)
-    return _have_equal_row_spaces(gauge_x[:, inverse], gauge_z) and _have_equal_row_spaces(
-        gauge_z[:, inverse], gauge_x
-    )
-
-
-def _have_equal_row_spaces(
-    matrix_a: npt.NDArray[np.uint8], matrix_b: npt.NDArray[np.uint8]
-) -> bool:
-    """Whether two binary matrices with the same number of columns have the same row space."""
-    rank = len(get_independent_rows(matrix_a))
-    return (
-        rank
-        == len(get_independent_rows(matrix_b))
-        == len(get_independent_rows(np.vstack([matrix_a, matrix_b])))
+    rank = len(get_independent_rows(gauge_x))
+    return len(get_independent_rows(gauge_z)) == rank and all(
+        len(get_independent_rows(np.vstack([image, target]))) == rank
+        for image, target in ((gauge_x[:, inverse], gauge_z), (gauge_z[:, inverse], gauge_x))
     )
 
 
@@ -125,3 +128,37 @@ def _may_hold(basis: npt.NDArray[np.uint8], rows: npt.NDArray[np.uint8]) -> bool
     )
     words = multiply_binary(combinations, rows)
     return np.array_equal(multiply_binary(words[:, pivots], basis), words)
+
+
+def _get_candidate_maps(num_qubits: int) -> list[npt.NDArray[np.int_]]:
+    """Qubit permutations that map the X sectors of some common codes onto their Z sectors.
+
+    They are the reversal of the qubits, which does for bivariate bicycle and generalized bicycle
+    codes, the cyclic shift by half of the qubits, which does for some toric codes, and, if the
+    qubits fill a square grid row by row, a quarter turn of the grid, which does for rotated surface
+    codes of odd distance.  Qubitserf tries the first two too (section "Searching one sector of a
+    CSS code" of ``README.md``).
+    """
+    qubits = np.arange(num_qubits)
+    candidates = [qubits[::-1].copy(), (qubits + num_qubits // 2) % num_qubits]
+    side = math.isqrt(num_qubits)
+    if side**2 == num_qubits:
+        rows, columns = divmod(qubits, side)
+        candidates.append(columns * side + side - 1 - rows)
+    return candidates
+
+
+def _maps_rows(
+    rows: npt.NDArray[np.int_], images: npt.NDArray[np.int_], permutation: npt.NDArray[np.int_]
+) -> bool:
+    """Whether a qubit permutation maps binary rows, counting repeats, one to one onto others."""
+
+    def get_sorted_rows(matrix: npt.NDArray[np.int_]) -> npt.NDArray[np.void]:
+        """The rows of a binary matrix, packed into byte strings, in sorted order."""
+        packed = np.ascontiguousarray(np.packbits(matrix, axis=1))
+        return np.sort(packed.view(np.dtype((np.void, packed.shape[1]))).ravel())
+
+    # A word w maps to the word whose entry permutation[j] is w[j] (see maps_sectors).
+    return np.array_equal(
+        get_sorted_rows(rows[:, np.argsort(permutation)]), get_sorted_rows(images)
+    )

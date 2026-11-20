@@ -153,10 +153,12 @@ def _get_unvisited_minima(
     """
     num_rows, num_columns = generators.shape
     layers: dict[bytes, list[int]] = {}
-    for rows, pivots, rank in zip(instance.generators, instance.pivots, instance.ranks):
+    for rows, pivots, rank in zip(
+        instance.generators, instance.pivots, instance.ranks, strict=True
+    ):
         rows = unpack_bits(rows, num_columns)
         set_offset = offset.copy()
-        for row, pivot in zip(rows, pivots[:rank]):
+        for row, pivot in zip(rows[:rank], pivots[:rank], strict=True):
             if set_offset[pivot]:
                 set_offset ^= row
         assert not set_offset[pivots[:rank]].any()
@@ -167,7 +169,7 @@ def _get_unvisited_minima(
     num_sets = len(instance.ranks)
     for key, word_layers in layers.items():
         assert len(word_layers) == num_sets
-        weight = sum(key)
+        weight = int(np.frombuffer(key, dtype=np.uint8).sum())
         for layer, num_completed in itertools.product(range(num_rows + 1), range(num_sets + 1)):
             completed = [layer if index < num_completed else layer - 1 for index in range(num_sets)]
             if all(item > done for item, done in zip(word_layers, completed, strict=True)):

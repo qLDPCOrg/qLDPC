@@ -12,9 +12,14 @@ GNU parallel's resumption depends on its order; writing it again with other cont
 because a changed input must give a new label.  ``cores.txt`` lists the logical CPU of each job
 slot.
 
-The ceiling is the worst-case CPU time of the task list, summed over the tasks of pass 1 by the
-experiment's ``worst_case_s``, which includes the repeats that a task can cause.
-``check_approval`` refuses a list whose ceiling exceeds the approved CPU-hours.
+The ceiling is the worst-case CPU time of the task list, with the runner's retries.  For each task
+of pass 1, the experiment's ``worst_case_s`` W counts its first run and the repeats that it can
+cause, without the runner's retries.  The runner runs each of these at most twice
+(``runner.RUNS_PER_TASK``), so they cost at most 2 W.  One more run at the first run's limit, S
+(``run_cost_s``), covers a first run that is discarded after its whole limit, while its retry
+finishes fast and calls for repeats.  So the task costs at most S + 2 W.  The bound is loose for a
+task without repeats, which costs at most 2 S.  ``check_approval`` refuses a list whose ceiling
+exceeds the approved CPU-hours.
 """
 
 from __future__ import annotations
@@ -121,8 +126,24 @@ def pass_keys(label_dir: pathlib.Path, name: str) -> list[str]:
 def ceiling_hours(
     tasks: Iterable[dict[str, Any]], worst_case_s: Callable[[dict[str, Any]], float]
 ) -> float:
-    """The worst-case CPU-hours of the tasks of pass 1, with the repeats that they can cause."""
-    return sum(worst_case_s(task) for task in tasks) / 3600
+    """The worst-case CPU-hours of the tasks of pass 1, with their repeats and retries.
+
+    If the runner runs a task's first run and each of its repeats up to k = ``runner.RUNS_PER_TASK``
+    times, the task costs at most (k - 1) S + k W, where S is ``run_cost_s(task)`` and W is
+    ``worst_case_s(task)`` (see the module docstring).
+    """
+    runs = runner.RUNS_PER_TASK
+    return sum((runs - 1) * run_cost_s(task) + runs * worst_case_s(task) for task in tasks) / 3600
+
+
+def run_cost_s(task: dict[str, Any]) -> float:
+    """The most seconds that one run of a task can take: start-up, limit, post-processing, grace."""
+    return (
+        float(task.get("startup_cap_s", runner.STARTUP_CAP_S))
+        + float(task["limit_s"])
+        + float(task.get("post_s", runner.FINISH_S))
+        + float(task.get("grace_s", runner.GRACE_S))
+    )
 
 
 def check_memory_caps(tasks: Sequence[dict[str, Any]], job_mem_gib: float) -> None:

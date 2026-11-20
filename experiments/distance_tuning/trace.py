@@ -48,7 +48,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from qldpc.codes.distance import CSSLogicalCounter, _tuning, core, logical_counts
+from qldpc.codes.distance import CSSLogicalCounter, _tuning, distances, logical_counts
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
 from qldpc.codes.distance._connected_cluster import search as support_search
 from qldpc.codes.distance._counting import macwilliams
@@ -212,8 +212,8 @@ def install_wrappers() -> None:
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
-        (core, "get_distance_brouwer_zimmermann", wrap_sectors),
-        (core, "get_distance_connected_cluster", wrap_sectors),
+        (distances, "get_distance_brouwer_zimmermann", wrap_sectors),
+        (distances, "get_distance_connected_cluster", wrap_sectors),
         (logical_counts, "get_distance_brouwer_zimmermann", wrap_sectors),
         (distance, "_prepare_sector_search", wrap_prepare),
         (support_search.SupportSearch, "__init__", wrap_support_search),
@@ -232,7 +232,7 @@ def wrap_sectors(function: Callable[..., Any]) -> Callable[..., Any]:
     The wrapped function, ``get_distance_brouwer_zimmermann`` or
     ``get_distance_connected_cluster``, prepares a search of each of its sectors in the order in
     which it receives them, and ``wrap_prepare`` and ``wrap_support_search`` record the index of the
-    sector of each search.  So a call with one sector has only sector 0.  ``core._search_css``
+    sector of each search.  So a call with one sector has only sector 0.  ``distances._search_css``
     puts the X sector, of the X-type logical operators, before the Z sector, and so does the
     distance search of a count.
     """
@@ -392,8 +392,8 @@ def get_partition_gate(
     Partitioning skips a coverage ``b`` if its bound is at least the work of the best family so far.
     At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
     is over disjoint families.  It skips coverage one if the given family is disjoint and has the
-    pruned disjoint rank bound (Section 4.4 of ``brouwer_zimmermann.md``).  The record also says
-    whether these quantities let partitioning run (``partitioned``), even if it then tried no
+    pruned disjoint rank bound (Section 4.4 of ``brouwer_zimmermann_code.md``).  The record also
+    says whether these quantities let partitioning run (``partitioned``), even if it then tried no
     coverage or found no family; ``wrap_family`` clears ``partitioned`` when a competing family
     rules partitioning out.
     """
@@ -502,7 +502,10 @@ def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
     The works are those that ``_switch_to_automorphism_family`` compares, at the search's best
     weight after it checks the rows of the automorphism family: the work of that family from layer
     one, and the work left in the current family from the layer before which it considers the
-    switch.
+    switch.  The event also records whether the search finished there, as when the rows of the
+    automorphism family lower its best weight to its lower bound, or the images of the blocks raise
+    its lower bound to its best weight.  With ``automorphism_orbit_bounds``, a search that finishes
+    there in either way does not compare the works, but the event records them anyway.
     """
 
     @functools.wraps(function)
@@ -524,7 +527,9 @@ def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
                 )
             )
             event["remaining_work"] = int(certificate.work(search.best, weight))
-        EVENTS.append(event | {"switched": switched, "seconds": seconds})
+        EVENTS.append(
+            event | {"switched": switched, "finished": search.finished, "seconds": seconds}
+        )
 
     return wrapper
 
@@ -568,7 +573,7 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
         # programs, which the search would solve in this layer anyway.
         if can_switch:
             num_scanned = search.instance.certificate.get_num_sets_to_certify(weight, search.best)
-            switch_work = min(num_scanned * math.comb(dimension, weight), certificates.WORK_CAP)
+            switch_work = num_scanned * math.comb(dimension, weight)
             CURRENT_LAYER["switch_work"] = switch_work
         try:
             best = function(search)

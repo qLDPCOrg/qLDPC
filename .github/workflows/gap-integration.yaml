@@ -8,6 +8,8 @@ on:
       - 'src/qldpc/external/gap*'
       - 'src/qldpc/external/_codes*'
       - 'src/qldpc/external/_groups*'
+      - 'src/qldpc/codes/common.py'
+      - 'src/qldpc/circuits/transversal*'
       - '.github/workflows/gap-integration.yaml'
   pull_request:
     branches: [ main ]
@@ -16,6 +18,8 @@ on:
       - 'src/qldpc/external/gap*'
       - 'src/qldpc/external/_codes*'
       - 'src/qldpc/external/_groups*'
+      - 'src/qldpc/codes/common.py'
+      - 'src/qldpc/circuits/transversal*'
       - '.github/workflows/gap-integration.yaml'
     types: [ opened, synchronize, reopened, ready_for_review ]  # defaults plus ready_for_review
   workflow_dispatch:
@@ -49,4 +53,4 @@ jobs:
           uv run --extra gap --group ci-test python -c
           "import qldpc.external.gap as gap; assert gap._get_libgap() is not None"
       - name: Run GAP tests
-        run: uv run --extra gap --group ci-test python checks/pytest_.py src/qldpc/external/
+        run: uv run --extra gap --group ci-test python checks/pytest_.py src/qldpc/external/ src/qldpc/circuits/transversal_test.py

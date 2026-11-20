@@ -15,18 +15,24 @@ with.  If the label does not match that ``circuits.json`` and the working tree's
 and ``pins.json``, the analysis prints a warning and analyzes the label anyway.  The label's hash
 is recomputed from these files and from the harness commit and bundle that the label's
 ``manifest.json`` records.  The ``circuits.json`` of the label of ``check`` must equal that of the
-analyzed label.  Every
-task of the label's ``tasks.json`` and ``tasks-pass2.json`` that has no row is reported as
-``missing``, with a printed note.
+analyzed label.  Every task of the label's ``tasks.json`` and ``tasks-pass2.json`` that has no row
+is reported as ``missing``, with a printed note.
 
-A circuit's verdict is that of ``cert_bz``, or of ``cert_cc`` where ``cert_bz`` did not finish.  It
-is a disagreement where both finish with different verdicts, or where the baseline or the ground
-truth disagrees (``agree_baseline`` or ``agree_ground_truth`` is false).  A disagreement enters no
-count of verdicts and no median, maximum, or ratio of the main table, nor the listing table or the
-counterexample box.  The status counts and agreements count it.  T of a certification arm is the
-median of its first run and repeats.  Its timing is incomplete if a repeat that the first run
-calls for did not finish or is missing, and an incomplete timing enters no median or maximum; the
-same holds for the brute-force baseline ``brute_bz``.
+An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/runner.py``) has the
+status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
+because it compiled.  A circuit's verdict is that of ``cert_bz``, or of ``cert_cc`` where
+``cert_bz`` did not finish.  Where neither finished, it is ``undecided``, or ``timeout_compiled`` if
+either arm's status is ``timeout_compiled``.  It is a disagreement where both finish with different
+verdicts, or where the baseline or the ground truth disagrees (``agree_baseline`` or
+``agree_ground_truth`` is false).  A disagreement enters no count of verdicts and no median,
+maximum, or ratio of the main table, nor the listing table or the counterexample box.  The status
+counts and agreements count it.  T of a certification arm is the median of its first run and
+repeats.  Its timing is incomplete if the first run did not finish, if a repeat that the first run
+calls for did not finish or is missing, or if the row of any of its runs has ``compiled_in_timing``
+set; an incomplete timing enters no median or maximum.  The same holds for the brute-force baseline
+``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its per-weight times are left
+empty.
+
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
 whose enumeration size U exceeds the brute-force cap of ``config.json`` has no ``brute_bz`` task,
@@ -42,15 +48,18 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
     a smallest violation at t + 1; ``violations_at_most_t``: circuits with a smallest violation at
     a weight of at most t;
   - ``certified_at_t_plus_1`` and ``violations_at_t_plus_1``: the outcome at K = t + 1;
-  - ``undecided``: circuits that neither certification arm finished; ``disagreements``;
+  - ``undecided``: circuits that neither certification arm finished, except disagreements and
+    those whose verdict is ``timeout_compiled``;
+  - ``timeout_compiled``: circuits whose verdict is ``timeout_compiled``; ``disagreements``;
   - ``timeout_<arm>``, ``memout_<arm>``, ``error_<arm>``, and ``missing_<arm>`` for each arm of
-    ``REPORTED_ARMS``;
+    ``REPORTED_ARMS``, and ``timeout_compiled_<arm>``: first runs with status ``timeout_compiled``,
+    which ``timeout_<arm>`` does not count;
   - ``largest_n_certified`` and ``largest_K_certified``, over the circuits certified at their K,
     with the cat width as n for cat circuits;
   - ``T_bz_median``, ``T_bz_max``, and ``T_bz_finished``, the median and largest T of ``cert_bz``
     over its finished runs with complete timing, and their number, and the same for ``cert_cc``;
   - ``brute_not_run_over_cap``, ``brute_finished``, and ``brute_timed_out``: circuits over the
-    brute-force cap, and circuits whose ``brute_bz`` run finished or timed out;
+    brute-force cap, and circuits whose ``brute_bz`` run has status ``ok`` or ``timeout``;
     ``brute_ratio_median`` and ``brute_ratio_circuits``: the median of T(``brute_bz``) /
     T(``cert_bz``) over the circuits where both finished with complete timing, and their number;
   - ``max_rss_gib``: the largest peak memory of a run of ``cert_bz`` or ``cert_cc``;
@@ -65,11 +74,12 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
   the brute-force cap, the verdicts, T, timing completeness, and peak memory of both
   certification arms and of ``brute_bz``, the status of each arm of ``REPORTED_ARMS``, the
-  post-processing status of each certification's first run, the repeats that did not finish or
-  are missing, the oracle rows of ``cert_bz`` (its threshold-1 queries and the sum of Omega_m)
-  and of ``brute_bz`` (every row queried), and the agreements.  The counts of a ``count_listing``
-  run that did not finish are those of its partial results: q, q_h, and h, and Pi, E, and Phi of
-  the weights that it completed.
+  post-processing status of each certification's first run, ``repeats_not_ok`` (the repeats that
+  did not finish or are missing, and the runs whose rows have ``compiled_in_timing`` set), the
+  oracle rows of ``cert_bz`` (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz``
+  (every row queried), and the agreements.  The counts of a ``count_listing`` run that did not
+  finish are those of its partial results: q, q_h, and h, and Pi, E, and Phi of the weights that it
+  completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m), Pi_(m-1),
   E_m, Phi_m, Omega_m (marked partial on a weight that did not complete; at m = 1, the
   threshold-1 checks of zero-flag mechanisms and classifications of flagged ones instead),
@@ -142,8 +152,8 @@ REPORTED_ARMS = (
     "prune_sensitivity",
 )
 
-# The statuses of an arm's first run that the main table counts per arm.
-COUNTED_STATUSES = ("timeout", "memout", "error", "missing")
+# The statuses of an arm's first run that the main table counts per arm (see ``_status``).
+COUNTED_STATUSES = ("timeout", "timeout_compiled", "memout", "error", "missing")
 
 # The fields of ``circuits.json`` that hold the parameters of ``summary.csv`` by another name.
 CIRCUIT_FIELDS = {"p": "num_post_selection_detectors", "N": "num_mechanisms"}
@@ -328,9 +338,12 @@ def listing_result(arm_rows: list[dict[str, Any]] | None) -> dict[str, Any]:
 def summarize_certification(arm_rows: list[dict[str, Any]] | None) -> dict[str, Any]:
     """The status, T, timing completeness, peak memory, and result of a certification's runs.
 
-    The status, result, and partial results are those of the first run.  T is the median of the
-    first run and its repeats, and None if the timing is incomplete: if the first run did not
-    finish, or a repeat that it calls for did not finish or is missing.
+    The status is the arm's ``_status``, and the result and partial results are those of the first
+    run.  T is the median of the first run and its repeats, and None if the timing is incomplete: if
+    the first run did not finish, if a repeat that it calls for did not finish or is missing, or if
+    the row of any run has ``compiled_in_timing`` set.  ``repeats_not_ok`` lists the repeats that
+    did not finish or are missing, and the runs whose rows have ``compiled_in_timing`` set, as in
+    ``r1:timeout``, ``r2:missing``, or ``r0:compiled``.
     """
     if not arm_rows:
         return {
@@ -342,16 +355,18 @@ def summarize_certification(arm_rows: list[dict[str, Any]] | None) -> dict[str, 
             "partial": [],
             "post_status": None,
             "repeats_not_ok": [],
+            "first_compiled": False,
         }
     first, repeats = arm_rows[0], arm_rows[1:]
     fast = first["status"] == "ok" and first["T"] is not None and first["T"] < REPEATS["below_s"]
     present = {row["repeat"] for row in repeats}
     not_ok = [f"r{row['repeat']}:{row['status']}" for row in repeats if row["status"] != "ok"]
+    not_ok += [f"r{row['repeat']}:compiled" for row in arm_rows if row.get("compiled_in_timing")]
     if fast:
         not_ok += [f"r{r}:missing" for r in range(1, REPEATS["count"] + 1) if r not in present]
     complete = first["status"] == "ok" and not not_ok
     return {
-        "status": first["status"],
+        "status": _status(arm_rows),
         "T": statistics.median(row["T"] for row in arm_rows) if complete else None,
         "timing_complete": complete,
         "rss": max(
@@ -362,6 +377,7 @@ def summarize_certification(arm_rows: list[dict[str, Any]] | None) -> dict[str, 
         "partial": first.get("partial", []),
         "post_status": first.get("post_status"),
         "repeats_not_ok": not_ok,
+        "first_compiled": bool(first.get("compiled_in_timing")),
     }
 
 
@@ -452,7 +468,7 @@ def summarize(
                 **{f"status_{arm}": _status(arms.get(arm)) for arm in REPORTED_ARMS},
                 "status_brute_bz": OVER_CAP
                 if circuit.get("brute_force") is False
-                else brute["status"],
+                else _status(arms.get("brute_bz")),
                 "T_brute_bz": brute["T"],
                 "timing_complete_brute_bz": brute["timing_complete"],
                 "rss_brute_bz": brute["rss"],
@@ -565,8 +581,17 @@ def _first_result(arm_rows: list[dict[str, Any]] | None) -> dict[str, Any]:
 
 
 def _status(arm_rows: list[dict[str, Any]] | None) -> str:
-    """The status of an arm's first run, or 'not run'."""
-    return arm_rows[0]["status"] if arm_rows else "not run"
+    """The status of an arm's first run, or 'not run'.
+
+    A timeout whose row has ``compiled_in_timing`` set is ``timeout_compiled`` (see the module
+    docstring).
+    """
+    if not arm_rows:
+        return "not run"
+    first = arm_rows[0]
+    if first["status"] == "timeout" and first.get("compiled_in_timing"):
+        return "timeout_compiled"
+    return str(first["status"])
 
 
 def _run_verdict(run: dict[str, Any]) -> str:
@@ -575,10 +600,18 @@ def _run_verdict(run: dict[str, Any]) -> str:
 
 
 def _circuit_verdict(bz: dict[str, Any], cc: dict[str, Any]) -> str:
-    """BZ's verdict, or CC's where BZ did not finish; 'disagreement' or 'undecided' otherwise."""
+    """BZ's verdict, or CC's where BZ did not finish; 'disagreement' or 'undecided' otherwise.
+
+    A circuit that neither arm finished is 'timeout_compiled', not 'undecided', if either arm's
+    status is ``timeout_compiled`` (see the module docstring).
+    """
     verdicts = [verdict(run["result"]) for run in (bz, cc) if run["status"] == "ok"]
     if not verdicts:
-        return "undecided"
+        return (
+            "timeout_compiled"
+            if "timeout_compiled" in (bz["status"], cc["status"])
+            else "undecided"
+        )
     return "disagreement" if len(set(verdicts)) > 1 else verdicts[0]
 
 
@@ -691,7 +724,10 @@ def _per_weight(
     listing: dict[str, Any],
     accepted: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """One row per weight m = 1, ..., K of a circuit; skipped only on completed weights."""
+    """One row per weight m = 1, ..., K of a circuit; skipped only on completed weights.
+
+    The times of a first run whose row has ``compiled_in_timing`` set are left empty.
+    """
     bz_weights = {record["m"]: record for record in bz["partial"] if "m" in record}
     cc_weights = {record["m"]: record for record in cc["partial"] if "m" in record}
     brute_weights = {record["m"]: record for record in brute["partial"] if "m" in record}
@@ -730,23 +766,23 @@ def _per_weight(
                 "threshold1_zero_flag": threshold_one.get("threshold1_zero_flag"),
                 "threshold1_flagged": threshold_one.get("threshold1_flagged"),
                 "skipped": phi - omega if completed and phi is not None else None,
-                "T_m_bz": record.get("T_m"),
-                "T_m_cc": cc_weights.get(m, {}).get("T_m"),
-                "oracle_seconds_bz": record.get("oracle_seconds"),
-                **{
-                    f"brute_{key}": baseline.get(key)
-                    for key in (
-                        "combinations",
-                        "rows",
-                        "calls",
-                        "distinct_syndromes",
-                        "oracle_seconds",
-                    )
-                },
+                "T_m_bz": _first_run_time(bz, record.get("T_m")),
+                "T_m_cc": _first_run_time(cc, cc_weights.get(m, {}).get("T_m")),
+                "oracle_seconds_bz": _first_run_time(bz, record.get("oracle_seconds")),
+                "brute_combinations": baseline.get("combinations"),
+                "brute_rows": baseline.get("rows"),
+                "brute_calls": baseline.get("calls"),
+                "brute_distinct_syndromes": baseline.get("distinct_syndromes"),
+                "brute_oracle_seconds": _first_run_time(brute, baseline.get("oracle_seconds")),
                 "brute_completed": (not baseline["violation"]) if baseline else None,
             }
         )
     return rows
+
+
+def _first_run_time(arm: dict[str, Any], seconds: float | None) -> float | None:
+    """A time from an arm's first run, or None if that run's row has ``compiled_in_timing`` set."""
+    return None if arm["first_compiled"] else seconds
 
 
 def _main_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -755,7 +791,7 @@ def _main_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for family in sorted({row["family"] for row in rows}):
         members = [row for row in rows if row["family"] == family]
         kept = [row for row in members if row["verdict"] != "disagreement"]
-        decided = [row for row in kept if row["verdict"] != "undecided"]
+        decided = [row for row in kept if row["verdict"] not in ("undecided", "timeout_compiled")]
         violations = [row for row in decided if row["verdict"] != "certified"]
         certified = [row for row in decided if row["verdict"] == "certified"]
         finished = {
@@ -785,6 +821,7 @@ def _main_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     row["violation_weight"] == row["t"] + 1 for row in violations
                 ),
                 "undecided": sum(row["verdict"] == "undecided" for row in members),
+                "timeout_compiled": sum(row["verdict"] == "timeout_compiled" for row in members),
                 "disagreements": sum(row["verdict"] == "disagreement" for row in members),
                 **{
                     f"{status}_{arm}": sum(row[f"status_{arm}"] == status for row in members)

@@ -4,8 +4,8 @@
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` counts the
 nontrivial words of one weight in a sector, and ``transport_basis_family`` moves a basis family of a
-sector through a local gate.  Sections cited in this module are those of ``brouwer_zimmermann.md``,
-whose Section 3.11 explains counts.
+sector through a local gate.  Sections cited in this module are those of
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 3.11 explains counts.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from collections.abc import Callable
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits, popcount_word, row_reduce_packed, unpack_bits
+from qldpc._binary import get_num_words, pack_bits, popcount_word, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
 from .._information_sets import basis_families, certificates, completion_bounds
@@ -44,9 +44,9 @@ def count_words(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     weight: int,
-    brute_force: bool,
     rank_rows: _PackedMatrix,
     *,
+    brute_force: bool,
     complement: bool,
     max_exponent: int,
     reject_lighter: bool,
@@ -307,7 +307,7 @@ class _StepTables:
         if self.layers:
             assert basis_family is not None
             num_tail_columns = basis_family.generators.shape[2] - num_rows
-            self.max_row_width += (num_tail_columns + 63) // 64
+            self.max_row_width += get_num_words(num_tail_columns)
 
     def may_use_tables(self, layer: int, set_index: int) -> bool:
         """Whether a step might use tables: whether the tuning considers them for it.
@@ -704,6 +704,8 @@ def _count_chunk_skipping(
     return depth, False
 
 
+# Inlined although it is not small: counts call it once for each prefix in their loop over words,
+# with many arguments, several of them arrays.
 @always_compiled(inline=True)
 def _visit_last_rows(
     rows: _PackedMatrix,
@@ -794,6 +796,10 @@ def _get_masked_rank(
 
     ``pivots`` is scratch space with at least as many rows as ``rows``.
     """
+    # Counts compute this rank for every word that they count, so this does not reuse
+    # ``qldpc._binary.get_rank_packed``.  That function copies its input, so the masked rows would
+    # be copied twice, and it tests the columns one at a time for a pivot until the rank reaches the
+    # number of rows.  Here each masked row meets only the pivot bits of the rows before it.
     pivot_words = np.empty(len(rows), dtype=np.int64)
     pivot_bits = np.empty(len(rows), dtype=np.uint64)
     rank = 0

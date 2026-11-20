@@ -52,13 +52,43 @@ them only in :mod:`qldpc.codes.distance`, whose tests CI runs with them compiled
 is neither runs as plain Python.  A small always-compiled helper that hot loops call can be marked
 ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function may call
 always-compiled and compiled-on-request functions.  An always-compiled function may call only
-always-compiled functions, since it is compiled and cached by itself.
+always-compiled functions, since it is compiled and cached by itself.  The tests of these rules find
+compiled functions by their decorators, so outside tests, use :func:`always_compiled` and
+:func:`compiled_on_request`, or a name that ``from ... import ... as`` gives them in the same
+module, only right after ``@`` above a function, as in ``@always_compiled(nogil=True)``.
 
-Pass ``nogil=True`` to :func:`always_compiled` only for an entry point that several threads run at
-once, such as the scan of a work item of a distance search.  Such a function may write only to
-arrays that its caller gives to one thread.  The compiled code then runs without Python's global
-interpreter lock, so that threads run it in parallel.  Other compiled functions keep the lock, so
-that threads that call them at once take turns.
+Pass ``nogil=True`` to :func:`always_compiled` only for an entry point that runs while other threads
+run compiled code: one that several threads run at once, such as the scan of a work item of a
+distance search, or one that a thread runs while others run another entry point, such as the
+expansion of the certifier's class codewords while threads list them.  Its compiled code then runs
+without Python's global interpreter lock, so that the threads run in parallel, and so does every
+compiled function that it calls.  Such an entry point, and every compiled function that it calls,
+may write only to arrays that it allocates, or to arrays or entries that nothing else reads or
+writes while it runs, such as buffers that its caller gives to one thread.  It must read nothing
+that anything else writes while it runs, and call no numba code compiled with ``parallel=True`` or
+``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  For a distance search,
+Section 5 of its guide, ``qldpc/codes/distance/brouwer_zimmermann_code.md`` or
+``qldpc/codes/distance/connected_cluster.md``, states the requirements on threads in full, and says
+which tests check them, and for the certifier's fault lister, "Threads" in
+``qldpc/circuits/certification/fault_propagation.md`` does.
+``qldpc/codes/distance/_thread_rules_test.py`` checks that Section 5 names each such entry point of
+that package, and ``qldpc/circuits/certification/_fault_search_test.py`` that the certifier's guide
+names those of the certifier.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of
+qLDPC asks numba for parallel code, that no module of the library other than this one and tests
+calls numba's ``njit`` or ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``,
+the only form that the tests read.  A compiled function without ``nogil=True`` keeps the lock when
+Python calls it while it is compiled, so threads that call it at once from Python take turns.
+
+Another subpackage may compile entry points with ``nogil=True`` only if, like the distance and
+certification packages, it has a guide that states their requirements on threads and which tests
+check them, and a test that the guide names each entry point that
+``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds.  If the package starts
+threads, it starts them through ``run_work_items`` of ``qldpc/codes/distance/_threads.py`` or the
+helpers there.  Its ``conftest.py`` then imports the fixture ``check_code_on_threads`` of
+``qldpc/codes/distance/conftest.py``, which checks what the package's workers call, and a test
+checks that the fixture is active, as the certifier's
+``test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads`` does.  The package is then
+listed in ``_PACKAGES_WITH_RULES_ON_THREADS`` of ``qldpc/_compiled_code_rules_test.py``.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
 function of both kinds runs as plain Python, much more slowly.  :func:`always_compiled` then returns
@@ -193,8 +223,9 @@ def always_compiled(
     Used as ``@always_compiled(inline=True)``, it also makes compiled code that calls the function
     include its code rather than call it, which saves the cost of a call in a hot loop.  Used as
     ``@always_compiled(nogil=True)``, it makes the compiled function release Python's global
-    interpreter lock while it runs (see the module docstring for when to use it).  The options are
-    part of the source files, so changing them selects a new directory of compiled code.
+    interpreter lock while it runs, also in the compiled functions that it calls (see the module
+    docstring for when to use it, and what such code must not do).  The options are part of the
+    source files, so changing them selects a new directory of compiled code.
 
     If ``QLDPC_DISABLE_COMPILATION`` or numba's ``NUMBA_DISABLE_JIT`` disables compilation (see the
     module docstring), it returns the function itself.

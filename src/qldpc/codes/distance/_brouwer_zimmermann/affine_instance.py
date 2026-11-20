@@ -5,7 +5,8 @@
 The distance search (``distance.py``) and the coset searches (``coset.py``) scan the words of an
 affine space: an offset plus sums of rows of a set.  Each search packs its problem once for each
 family in an :class:`AffineInstance`.  Sections cited in this module are those of
-``brouwer_zimmermann.md``, whose Section 4.1 says how the searches use instances.
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 4.1 says how the
+searches use instances.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import pack_bits
+from qldpc._binary import get_num_words, pack_bits
 
 from .._information_sets import basis_families, certificates
 
@@ -120,7 +121,7 @@ def get_coset_instance(
     """
     num_generators, num_columns = generators.shape
     if not num_generators:
-        width = max(1, (num_columns + 63) // 64)
+        width = get_num_words(num_columns)
         return AffineInstance(
             generators=np.zeros((1, 0, width), dtype=np.uint64),
             labels=np.zeros((1, 0, 0), dtype=np.uint64),

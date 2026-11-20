@@ -11,7 +11,7 @@
   the other CSS codes not.  Locally, runs are limited to ``LOCAL_LIMIT_S``, and arms that time out
   are reported rather than checked.
 * **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
-  left, while a concurrent run on another code finishes unaffected.
+  left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
 * **AT5:** regenerated codes match ``sample.json``; ``compare_with_sample`` reports a sample whose
   reference distance differs from ``sample.json``; each row's tuning is the shipped default, with
   ``BZ_PRIOR`` for ``q_bz_prior``.
@@ -22,14 +22,17 @@
   without them it is skipped locally and fails on the node, so that the node never runs the
   experiment without work counts.
 * **AT9:** ``run_node.py --dry-run`` writes no task file without an approval that covers the
-  ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives;
-  the repeat policy gives two repeats exactly to timed runs that finished in under 300 s.
+  ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives with
+  the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
+  timed runs that finished in under 300 s.
 * **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that
   disagree or time out, arms that agree on a distance other than the reference, an arm without
-  rows, first runs, repeats, and counting runs that end in an error or memout, only one arm
-  finished, both timed out, complete, partial, and missing work counts), writes every output,
-  classifies them and marks the family medians as its docstring says, and refuses a work count that
-  it cannot read.
+  rows, a first run and a counting run that end in an error, a repeat that ends in a memout, only
+  one arm finished, both timed out, complete, partial, and missing work counts), writes every
+  output, classifies them and marks the family medians as its docstring says, and refuses a work
+  count that it cannot read.  Its rows with ``compiled_in_timing`` set are first timed runs, a
+  timed-out repeat, a finished counting run, and counting timeouts, some of them on codes that
+  disagree or fail.
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
@@ -249,6 +252,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
     assert slow_row["status"] == "timeout" and slow_row["T"] >= 5.0, slow_row
     assert slow_row["result"] == {} and "left after" not in (slow_row["error"] or ""), slow_row
     assert fast_row["status"] == "ok" and fast_row["result"]["distance"] == 7, fast_row
+    assert not fast_row["compiled_in_timing"], fast_row["compiled_function"]
 
 
 @test
@@ -353,15 +357,22 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in task_files] == before
 
     # the ceiling, by independent arithmetic: start-up cap, limit (or the repeat threshold for a
-    # repeated run's first run), result window, and grace, for each run
+    # repeated run's first run), result window, and grace, for each run; then, for the runner's
+    # retries, twice that and one more run at the first run's limit
     timed_cost = (120 + 300 + 30 + 30) + 2 * (120 + 1800 + 30 + 30)
     count_cost = 120 + 1800 + 30 + 30
+    run_cost = 120 + 1800 + 30 + 30  # S: one run at the first run's limit, in either mode
     (golay,) = _entries(("golay",))
     for mode, cost in (("timed", timed_cost), ("count", count_cost)):
         for arm in arms.ARMS:
             assert experiment.worst_case_s(experiment._task(arm, mode, golay, 0)) == cost
     smoke = experiment.tasks(directory, "smoke")
-    hours = sum(timed_cost if task["mode"] == "timed" else count_cost for task in smoke) / 3600
+    hours = (
+        sum(
+            run_cost + 2 * (timed_cost if task["mode"] == "timed" else count_cost) for task in smoke
+        )
+        / 3600
+    )
     match = re.search(r"ceiling ([\d,.]+) CPU-hours", approved.stdout)
     assert match and float(match.group(1).replace(",", "")) == round(hours, 1), approved.stdout
 
@@ -388,7 +399,9 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     from experiments.state_prep_certification.distances import analyze
 
     sample = _sample()
-    golay, bb72, qr47, qr71, qr79 = _entries(("golay", "bb72", "qr47", "qr71", "qr79"))
+    golay, bb72, qr47, qr71, qr79, pp110, surface9 = _entries(
+        ("golay", "bb72", "qr47", "qr71", "qr79", "pp110", "surface9")
+    )
     first, second, third, fourth, fifth = [e for e in sample["codes"] if e["family"] == "hgp"][:5]
     rows = []
 
@@ -402,6 +415,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         mode: str = "timed",
         work: Any = None,
         partial: tuple[Any, ...] = (),
+        compiled: bool = False,
     ) -> None:
         result = {"distance": d, "work": work} if status == "ok" else {}
         rows.append(
@@ -415,6 +429,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
                 "limit_s": 1800.0,
                 "partial": [{"work": count} for count in partial],
                 "result": result,
+                "compiled_in_timing": compiled,
             }
         )
 
@@ -428,17 +443,34 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(bb72, "q_bz_prior", 2, "timeout", 1800.0, None)
     for repeat in (1, 2):
         add(bb72, "q_bz_on", repeat, "ok", 10.0, 6)
-    # qr47: the prior arm has no row; qr71: only the prior arm finishes; qr79: both arms agree on
-    # a distance other than the reference
+    # rows with compiled_in_timing set (rows of retries that compiled too): pp110's first timed run
+    # and finished counting run of the on arm, and surface9's timed-out repeat and timed-out
+    # counting run of the on arm, which reports a partial count that gives no W bound; qr79's,
+    # third's, and fifth's flagged rows are below
+    for repeat in (0, 1, 2):
+        add(pp110, "q_bz_on", repeat, "ok", 10.0, 12, compiled=repeat == 0)
+        add(pp110, "q_bz_prior", repeat, "ok", 20.0, 12)
+        add(surface9, "q_bz_prior", repeat, "ok", 3.0, 9)
+    add(surface9, "q_bz_on", 0, "ok", 1.0, 9)
+    add(surface9, "q_bz_on", 1, "ok", 2.0, 9)
+    add(surface9, "q_bz_on", 2, "timeout", 1800.0, None, compiled=True)
+    for entry, d in ((pp110, 12), (surface9, 9)):
+        add(entry, "q_bz_prior", 0, "ok", 20.0, d, mode="count", work={"total": 100})
+    add(pp110, "q_bz_on", 0, "ok", 10.0, 12, "count", {"total": 50}, compiled=True)
+    add(surface9, "q_bz_on", 0, "timeout", 1800.0, None, "count", None, ({"total": 10},), True)
+    # qr47: the prior arm has no row; qr71: only the prior arm finishes; qr79: both arms agree on a
+    # distance other than the reference, and the on arm has a flagged first run and a memout repeat
     add(qr47, "q_bz_on", 0, "ok", 5.0, 11)
     add(qr71, "q_bz_on", 0, "timeout", 1800.0, None)
     add(qr71, "q_bz_prior", 0, "ok", 900.0, 11)
-    add(qr79, "q_bz_on", 0, "ok", 900.0, 13)
+    add(qr79, "q_bz_on", 0, "ok", 900.0, 13, compiled=True)
+    add(qr79, "q_bz_on", 1, "memout", 900.0, None)
     add(qr79, "q_bz_prior", 0, "ok", 900.0, 13)
     # three hgp codes that fail: a first run ends in an error; a repeat ends in a memout; and a
-    # counting run ends in an error
+    # counting run ends in an error.  Third's prior arm has a flagged first timed run, and fifth's a
+    # flagged counting timeout; both codes stay failures.
     add(third, "q_bz_on", 0, "error", 3.0, None)
-    add(third, "q_bz_prior", 0, "ok", 30.0, 4)
+    add(third, "q_bz_prior", 0, "ok", 30.0, 4, compiled=True)
     add(fourth, "q_bz_on", 0, "ok", 20.0, 4)
     add(fourth, "q_bz_on", 1, "memout", 40.0, None)
     add(fourth, "q_bz_on", 2, "ok", 20.0, 4)
@@ -446,7 +478,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(fifth, "q_bz_on", 0, "ok", 400.0, 4)
     add(fifth, "q_bz_prior", 0, "ok", 400.0, 4)
     add(fifth, "q_bz_on", 0, "error", 5.0, None, mode="count")
-    add(fifth, "q_bz_prior", 0, "ok", 400.0, 4, mode="count", work={"total": 10})
+    add(fifth, "q_bz_prior", 0, "timeout", 1800.0, None, "count", None, ({"total": 10},), True)
     # two hgp codes: only the on arm finishes, with complete counts and a partial count; and both
     # time out, with a counting run killed without partial counts
     add(first, "q_bz_on", 0, "ok", 600.0, 4)
@@ -459,7 +491,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(second, "q_bz_prior", 0, "timeout", 1800.0, None, mode="count")
     expected = [
         experiment._task(arm, "timed", entry, repeat=0)
-        for entry in (golay, bb72, qr47, qr71, qr79, first, second, third, fourth, fifth)
+        for entry in (golay, bb72, qr47, qr71, qr79, pp110, surface9)
+        + (first, second, third, fourth, fifth)
         for arm in ("q_bz_on", "q_bz_prior")
     ] + [
         experiment._task(arm, "count", entry, repeat=0)
@@ -468,6 +501,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
             (first, arms.ARMS),
             (second, arms.ARMS),
             (fifth, arms.ARMS),
+            (pp110, arms.ARMS),
+            (surface9, arms.ARMS),
         )
         for arm in arms_counted
     ]
@@ -511,7 +546,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         assert (out / name).exists(), name
     with open(out / "families.csv") as file:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
-    assert (anchors["codes"], anchors["disagreement"], anchors["failure"]) == ("5", "2", "1")
+    assert (anchors["codes"], anchors["disagreement"], anchors["failure"]) == ("7", "2", "1")
     assert anchors["work_failures"] == "4", anchors
     with open(out / "families.csv") as file:
         (hgp,) = [row for row in csv.DictReader(file) if row["family"] == "hgp"]
@@ -530,6 +565,24 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         pass
     else:
         raise AssertionError("an unreadable work count was accepted")
+
+    # pp110's flagged first timed run leaves R_T incomplete and its T cell "compiled", and its
+    # flagged counting run, which finished, still gives R_W; surface9's flagged timed-out repeat is
+    # left out of the median and of repeats_unfinished, and its flagged counting timeout leaves R_W
+    # incomplete and its W cell "compiled"
+    on, prior = by_name[("pp110", "q_bz_on")], by_name[("pp110", "q_bz_prior")]
+    assert on["T"] is None and on["runs_compiled"] == 1, on
+    assert analyze.ratio(on, prior, "T")["case"] == "incomplete timing"
+    assert analyze.ratio(on, prior, "W")["value"] == 2.0
+    on, prior = by_name[("surface9", "q_bz_on")], by_name[("surface9", "q_bz_prior")]
+    assert (on["T"], on["repeats"], on["repeats_unfinished"], on["runs_compiled"]) == (1.5, 2, 0, 1)
+    assert on["W"] is None and analyze.ratio(on, prior, "W")["case"] == "incomplete timing", on
+    with open(out / "anchors.csv") as file:
+        cells = {row["name"]: row for row in csv.DictReader(file)}
+    assert (cells["pp110"]["q_bz_on_T"], cells["surface9"]["q_bz_on_W"]) == ("compiled",) * 2
+    # the T cell of a failed arm with a flagged first run shows the failure: qr79's memout repeat
+    assert cells["qr79"]["q_bz_on_T"] == "memout", cells["qr79"]
+    assert anchors["incomplete timing"] == "1", anchors
 
 
 if __name__ == "__main__":

@@ -5,12 +5,16 @@
 The search follows `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_ and its
 `adaptation to quantum codes <https://arxiv.org/abs/2408.10743>`_.  This module prepares each
 search, takes its early exits, and scans its layers in resumable chunks with ``affine_search.py``.
-Sections cited in this module are those of ``brouwer_zimmermann.md``, which derives the certificates
-and invariants of the search.
+Sections cited in this module are those of ``brouwer_zimmermann.md`` and
+``brouwer_zimmermann_code.md``, which derive the certificates and invariants of the search.  A
+costly layer runs on several threads (Section 4.5), so a change here must keep the requirements on
+threads in Section 5, such as "Decide only from what a layer leaves the same on any number of
+threads".
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import math
 import threading
@@ -33,17 +37,15 @@ from .._information_sets import (
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
 from . import affine_instance, affine_search
 
-# The automorphism family of a sector: a basis family of the one set that a search scans, and the
-# certificate of all of its images.
-_AutomorphismFamily = tuple[basis_families.BasisFamily, certificates.Certificate]
+# The automorphism family of a sector: a basis family of the one set that a search scans, the
+# certificate of all of its images, and the orbit of each column under the verified group.
+_AutomorphismFamily = tuple[
+    basis_families.BasisFamily, certificates.Certificate, npt.NDArray[np.int64]
+]
 
 # A function that returns the automorphism family of a sector for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[[int], _AutomorphismFamily | None]
 
-# The fewest work items for each thread that a layer split across threads aims for, so that the last
-# ranges of items, which guided self-scheduling makes small, are small enough for threads to finish
-# at about the same time (Section 4.5).
-_ITEMS_PER_THREAD = 32
 
 ####################################################################################################
 # search entry points
@@ -79,8 +81,9 @@ def get_distance_brouwer_zimmermann(
             family.
         get_automorphisms: If given, returns None or an array whose rows ``g`` generate a group of
             column permutations, each mapping column ``j`` to column ``g[j]``.  Each generator must
-            map the space and the excluded subspace of every sector onto themselves.  A search
-            calls the function at most once, and verifies the generators (Section 3.7).
+            map the space and the excluded subspace of every sector onto themselves.  The search
+            of each sector calls the function at most once, so a search of two sectors may call it
+            twice.  Each search verifies the generators (Section 3.7).
         tuning: The tuning that every search uses throughout.  Default: the active tuning.
 
     Returns:
@@ -150,22 +153,16 @@ class BrouwerZimmermannSearch:
         # scans on the same number of threads.
         tuning = get_tuning() if tuning is None else tuning
         num_threads = _threads.get_num_threads(tuning.num_threads)
-        initial_upper_bounds = [
-            _get_lightest_eligible_row_weight(basis, labels) for basis, labels in sectors
-        ]
-        best = min(initial_upper_bounds)
+        best = min(_get_lightest_eligible_row_weight(basis, labels) for basis, labels in sectors)
         if upper_bound is not None:
             best = min(best, upper_bound)
-        for index, ((basis, labels), initial_upper_bound) in enumerate(
-            zip(sectors, initial_upper_bounds, strict=True)
-        ):
+        for index, (basis, labels) in enumerate(sectors):
             prepared = _prepare_sector_search(
                 basis,
                 labels,
                 cutoff=cutoff,
                 weight_divisor=weight_divisor,
                 upper_bound=best,
-                initial_upper_bound=initial_upper_bound,
                 get_disjoint_basis_family=None
                 if get_disjoint_basis_families is None
                 else get_disjoint_basis_families[index],
@@ -188,8 +185,9 @@ class BrouwerZimmermannSearch:
     def get_next_layer_work(self) -> int:
         """The candidate/set evaluations of the layer that ``advance`` scans next, or zero if none.
 
-        This plans the layer as ``advance`` does, but leaves out a switch to an automorphism family,
-        after which the layer scans one set.
+        This plans the layer as ``advance`` does, but leaves out what ``advance`` may do first:
+        attach the bound of the images of the blocks, which can shorten the layer, and switch to an
+        automorphism family, after which the layer scans one set.
         """
         if self.finished:
             return 0
@@ -237,9 +235,12 @@ class _SectorSearch:
 
     ``instance`` holds the packed sets that the search scans, and the certificate of its family:
     those sets, or, if ``uses_automorphism_family``, every image of the one packed set under
-    automorphisms (Section 3.7).  No eligible word weighs less than ``min(lower_bound, best)``, and
-    the search has finished once ``lower_bound`` reaches ``best``.  ``lower_bound`` bounds only the
-    eligible words lighter than ``best`` (Section 3.9, "Certificates and contracts").
+    automorphisms.  Once the search gets automorphisms, and until it switches, the certificate of
+    its family also covers the images of its pivot blocks, unless
+    ``tuning.automorphism_orbit_bounds`` is off (Section 3.7).  No eligible word weighs less than
+    ``min(lower_bound, best)``, and the search has finished once ``lower_bound`` reaches ``best``.
+    ``lower_bound`` bounds only the eligible words lighter than ``best`` (Section 3.9, "Certificates
+    and contracts").
 
     ``get_automorphism_family``, if given, returns an automorphism family of the sector, or None.
     The search calls it at most once, and then sets it to None.  A search that declines to switch
@@ -252,7 +253,6 @@ class _SectorSearch:
 
     instance: affine_instance.AffineInstance
     cutoff: int
-    batch_size: int
     tuning: SearchTuning
     best: int
     lower_bound: int
@@ -271,6 +271,15 @@ class _SectorSearch:
     def dimension(self) -> int:
         """Number of basis rows searched."""
         return self.instance.generators.shape[1]
+
+    @property
+    def batch_size(self) -> int:
+        """The most supports and lookups that one call of a compiled scan does on one thread.
+
+        When the search scans on threads, each call does ``num_threads`` times as many, up to
+        ``MAX_VALUE``.
+        """
+        return 1 << self.tuning.search_chunk_exponent
 
     @property
     def finished(self) -> bool:
@@ -308,13 +317,11 @@ class _SectorSearch:
         num_sets = len(certificate.ranks)
         num_scanned, num_completed = self._plan_layer()
 
-        # Before a costly layer, consider switching to an automorphism family (Section 3.7).  The
-        # layer work saturates at ``WORK_CAP``, as work estimates do, so that a threshold above it
-        # forbids the switch.
-        layer_work = min(self.get_layer_work(), certificates.WORK_CAP)
+        # Before a costly layer, use automorphisms: bound with the images of the blocks, which may
+        # finish the search, and consider switching to an automorphism family (Section 3.7).
         if (
             self._considers_automorphism_family
-            and layer_work >= self.tuning.automorphism_minimum_layer_work
+            and self.get_layer_work() >= self.tuning.automorphism_minimum_layer_work
         ):
             self._switch_to_automorphism_family()
             return self.advance()
@@ -384,7 +391,6 @@ class _SectorSearch:
                 instance.labels[index],
                 instance.ranks[index],
                 instance.widths[index],
-                instance.labels.shape[2],
                 support,
                 prefixes,
                 depth,
@@ -418,7 +424,6 @@ class _SectorSearch:
             instance.labels[index],
             instance.ranks[index],
             instance.widths[index],
-            instance.labels.shape[2],
         )
         table_arguments = (tables.tables, tables.offsets, tables.block_bits)
         items = _WorkItems(self.dimension, weight, self.num_threads)
@@ -525,11 +530,13 @@ class _SectorSearch:
         return self.automorphism_family is not None and self.best < self.declined_best
 
     def _switch_to_automorphism_family(self) -> None:
-        """Scan one set and certify with its images from now on, if that predicts less work.
+        """Bound with the images of the blocks, and switch to the images of one set if that pays.
 
-        The first call gets the automorphism family, which the search keeps while it declines.
-        After a switch, the search scans the new set from layer two, and keeps its lower bound
-        (Section 3.7, "When a search uses an automorphism family").
+        The first call gets the automorphism family, which the search keeps while it declines, and
+        lets the current family certify with the images of its pivot blocks.  The search then
+        switches to scan one set and certify with its images, if that predicts less work.  After a
+        switch, the search scans the new set from layer two, and keeps its lower bound (Section 3.7,
+        "When a search uses an automorphism family").
         """
         if self.get_automorphism_family is not None:
             weight_divisor = self.instance.certificate.weight_divisor
@@ -540,8 +547,30 @@ class _SectorSearch:
 
         # The rows of the scanned set weigh as much as the layer-one words of every image, and may
         # lower the best weight before the estimate.
-        basis_family, certificate = self.automorphism_family
+        basis_family, certificate, orbits = self.automorphism_family
         self.best = _get_basis_family_upper_bound(basis_family, self.best)
+
+        # From now on, the family also certifies with the images of its pivot blocks under the
+        # automorphisms, which can finish the search without a switch (Section 3.7).
+        if self.tuning.automorphism_orbit_bounds and not self.instance.certificate.column_orbits:
+            self.instance = dataclasses.replace(
+                self.instance,
+                certificate=dataclasses.replace(
+                    self.instance.certificate,
+                    pivot_blocks=basis_families.get_pivot_blocks(
+                        self.instance.pivots, self.instance.ranks
+                    ),
+                    lp_max_denominator=self.tuning.lp_dual_max_denominator,
+                    column_orbits=tuple(int(orbit) for orbit in orbits),
+                ),
+            )
+            self.lower_bound = max(
+                self.lower_bound, self.instance.certificate.lower_bound(self.next_weight - 1)
+            )
+            if self.finished:
+                return
+
+        # Switch if the automorphism family predicts less work than the current family has left.
         work = automorphism_families.estimate_automorphism_family_work(certificate, self.best)
         if work >= self.instance.certificate.work(self.best, self.next_weight):
             self.declined_best = self.best
@@ -559,15 +588,15 @@ class _WorkItems:
     """The work items of a layer that threads scan: the supports whose first rows are fixed.
 
     An item fixes the first ``length`` rows of its supports: one row, or two if fixing one row
-    leaves fewer than ``_ITEMS_PER_THREAD`` items for each thread and the layer has four or more
-    rows.  So ``length <= weight - 2``, as ``affine_search.scan_set_items`` requires.  The items are
-    numbered in lexicographic order.  Their numbers of supports vary widely, and earlier items tend
-    to hold more.  ``cumulative_weights`` holds, for each item, the number of supports of the items
-    up to it, as floats, which overflow only for layers far too large to scan.
+    leaves fewer than ``_threads.ITEMS_PER_THREAD`` items for each thread and the layer has four or
+    more rows.  So ``length <= weight - 2``, as ``affine_search.scan_set_items`` requires.  The
+    items are numbered in lexicographic order.  Their numbers of supports vary widely, and earlier
+    items tend to hold more.  ``cumulative_weights`` holds, for each item, the number of supports of
+    the items up to it, as floats, which overflow only for layers far too large to scan.
     """
 
     def __init__(self, num_rows: int, weight: int, num_threads: int) -> None:
-        few = num_rows - weight + 1 < _ITEMS_PER_THREAD * num_threads
+        few = num_rows - weight + 1 < _threads.ITEMS_PER_THREAD * num_threads
         self.length = 2 if few and weight >= 4 else 1
 
         # The fixed rows of an item are combinations of the rows that leave room for the
@@ -608,7 +637,6 @@ def _prepare_sector_search(
     cutoff: int,
     weight_divisor: int,
     upper_bound: int,
-    initial_upper_bound: int | None = None,
     get_disjoint_basis_family: Callable[[], basis_families.BasisFamily] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning,
@@ -616,21 +644,15 @@ def _prepare_sector_search(
 ) -> int | _SectorSearch:
     """Prepare the BZ search of one sector, or return its result if setup already settles it.
 
-    The stages of ``basis_families`` run in order, and between them setup returns if the rows of the
-    family bring the best weight to the cutoff, or if its certificate proves the best weight
-    (Section 4.2).  ``get_disjoint_basis_family``, if given, returns the result of the first stage,
-    and ``get_automorphisms`` is as for ``get_distance_brouwer_zimmermann``.  The search scans on
-    ``num_threads`` threads (Section 4.5).
+    ``upper_bound`` is the best weight so far, which must be at most the weight of the lightest
+    eligible row of ``basis``.  The stages of ``basis_families`` run in order, and between them
+    setup returns if the rows of the family bring the best weight to the cutoff, or if its
+    certificate proves the best weight (Section 4.2).  ``get_disjoint_basis_family``, if given,
+    returns the result of the first stage, and ``get_automorphisms`` is as for
+    ``get_distance_brouwer_zimmermann``.  The search scans on ``num_threads`` threads (Section 4.5).
     """
     dimension = len(basis)
-    best = min(
-        upper_bound,
-        (
-            _get_lightest_eligible_row_weight(basis, labels)
-            if initial_upper_bound is None
-            else initial_upper_bound
-        ),
-    )
+    best = upper_bound
     if best <= cutoff:
         return best
 
@@ -657,8 +679,11 @@ def _prepare_sector_search(
     if lower_bound >= best:
         return best
 
-    # Build the automorphism family at most once (Section 3.7).  Layer work saturates at
-    # ``WORK_CAP``, so a threshold above it turns automorphisms off.
+    # Build the automorphism family at most once (Section 3.7).  A threshold above ``WORK_CAP``
+    # turns automorphisms off (see ``_tuning.py``).  Setup asks before partitioning, whatever the
+    # threshold, and ``advance`` asks once a layer's work, which may exceed ``WORK_CAP``, reaches
+    # the threshold.  So only this check keeps a threshold above ``WORK_CAP`` from building the
+    # family.
     get_automorphism_family = (
         None
         if get_automorphisms is None
@@ -718,7 +743,6 @@ def _prepare_sector_search(
             ),
         ),
         cutoff=cutoff,
-        batch_size=1 << tuning.information_set_batch_exponent,
         tuning=tuning,
         best=best,
         lower_bound=lower_bound,
@@ -727,9 +751,9 @@ def _prepare_sector_search(
         get_automorphism_family=get_automorphism_family,
     )
 
-    # If setup has already asked for the automorphism family, consider the switch now: the rows
-    # and certificate of that family, if any, can lower the best weight or finish the search
-    # (Section 3.7).
+    # If setup has already asked for the automorphism family, which the cache then holds, use it
+    # now: its rows and certificate, and the images of the blocks of the current family, can lower
+    # the best weight or finish the search (Section 3.7).
     if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
         search._switch_to_automorphism_family()
         if search.finished:
@@ -749,8 +773,8 @@ def _get_automorphism_family(
     ``weight_divisor`` divides the Hamming weight of every eligible word.
 
     Returns:
-        The family and certificate of ``automorphism_families.get_automorphism_family``, or None if
-        ``get_automorphisms`` returns None.
+        The family and certificate of ``automorphism_families.get_automorphism_family``, and the
+        orbit of each column under the group, or None if ``get_automorphisms`` returns None.
 
     Raises:
         ValueError: If a generator is not an automorphism of the sector.
@@ -759,8 +783,11 @@ def _get_automorphism_family(
     if automorphisms is None:
         return None
     automorphism_families.verify_automorphisms(basis, labels, automorphisms)
-    return automorphism_families.get_automorphism_family(
-        basis, labels, automorphisms, weight_divisor
+    return (
+        *automorphism_families.get_automorphism_family(
+            basis, labels, automorphisms, weight_divisor
+        ),
+        automorphism_families.get_orbits(automorphisms, basis.shape[1]),
     )
 
 
@@ -776,7 +803,7 @@ def _get_automorphism_family_work(
     automorphism_family = get_automorphism_family(weight_divisor)
     if automorphism_family is None:
         return certificates.WORK_CAP
-    _, certificate = automorphism_family
+    _, certificate, _ = automorphism_family
     return automorphism_families.estimate_automorphism_family_work(certificate, upper_bound)
 
 

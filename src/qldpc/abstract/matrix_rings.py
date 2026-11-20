@@ -178,7 +178,10 @@ class MatrixRing(Ring):
             )
         coefficients = self._get_coefficients_in_ring(matrices)
         if coefficients is None:
-            raise ValueError("The matrix is not in the ring")
+            raise ValueError(
+                f"The matrix is not in the ring, {self}.  Pass a linear combination of the identity"
+                " matrix and of products of the ring's generating matrices."
+            )
         return RingMember._from_trusted_vector(self, coefficients[0])
 
     def lift(self, label: Any, /, *, right: bool = False) -> galois.FieldArray:

@@ -11,18 +11,22 @@
   (N_0 <= 25, p <= 8, K <= 4), including DEMs where a light class precedes a heavy one in DEM
   order; the listing counter gives the same counts when its compiled search returns one class
   codeword at a time; and the rows submitted to the oracle never exceed the listed faults on
-  completed weights.
+  completed weights.  Through the task runner, ``count_listing`` on E-chen and ``ground_truth`` on
+  W(A-ft Shor) and C-goto finish without ``compiled_in_timing``.
 * **AT3:** instrumented and uninstrumented certification give identical certificates on C-goto,
   its variant, and A-ft steane; every wrapped name exists; on a CSS circuit with a violation, each
   query of the fault search is counted once, against an independent spy of the calls that the
   fault search makes.  On E-chen, the shadow oracle answers each query that the counters count,
-  with one threshold-1 query per reduced mechanism, and an oracle whose answers are shifted raises
-  ``ShadowDisagreement``.
-* **AT4:** ``cert_bz`` with a limit of 5 s, on the first of the B-cat circuits of largest K and
-  size that completes a weight in that time, ends as a timeout with T >= 5 s, reports its completed
-  weights as consecutive weights from 2 without a violation, and is not rerun when its task is run
-  again.  A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance
-  of 1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
+  with one threshold-1 query per reduced zero-flag mechanism and one per distinct syndrome of the
+  flagged ones, and an oracle whose answers are shifted raises ``ShadowDisagreement``.
+* **AT4:** ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on the
+  first of the five B-cat circuits of largest K and size that qualifies.  A circuit qualifies if its
+  last weight takes at least 0.5 s in a full run, which compiles nothing in its measured call, and
+  if a run stopped a tenth of the way into that weight completes a weight but not that one.  The
+  stopped run ends as a timeout with T at least the limit, reports its completed weights as
+  consecutive weights from 2 without a violation, and is not rerun when its task is run again.
+  A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance of
+  1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
   its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
   exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
   ``post_s``, and a repeat ends without post-processing or certificate text.
@@ -39,31 +43,36 @@
   ``brute_force_smallest_violation`` finds a violation of the same weight as qLDPC's
   ``find_smallest_violation`` and the ground truth, also with small batches.  Each circuit's U,
   recomputed from N_0 and K, and whether it is within the cap, equal those of ``circuits.json``.
-* **AT8:** the analysis (``analyze.py``) of synthetic rows on four B-cat circuits.  A
+* **AT8:** the analysis (``analyze.py``) of synthetic rows on six B-cat circuits.  A
   ``count_listing`` run that timed out after one completed weight gives Pi, E, Phi, q, q_h, and h
   from its partial results.  A ground-truth count that differs from the counters', and a baseline
   whose enumerated combinations differ from A_m, each make their circuit a disagreement, as does a
   baseline stopped after a violation at weight m against a finished certification whose smallest
-  violation is not at m.  An expected task without a row is reported as ``missing``.  Every case
-  of the combined margin of ``analyze_applications.py`` gives its value, its bound, or a
-  disagreement, and a footnoted margin keeps its sector.  A margin or a deletion parent that
-  disagrees with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a
-  disagreement, and agreeing deletion tasks do not.  A disagreeing parent does so also when its
-  verdict is only in the partial results of a killed task.  The whole margin column of one family
-  is checked, and the footnote lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
-  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
-  unchecked for an input that is not the label's, exclude a disagreement from the table but list
-  its task, and list an uncertified parent and a timeout.
+  violation is not at m.  An expected task without a row is reported as ``missing``.  Rows with
+  ``compiled_in_timing`` set give the statuses, verdict, table counts, and times that
+  ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
+  whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
+  first run that finished.  Every case of the combined margin of ``analyze_applications.py`` gives
+  its value, its bound, or a disagreement, and a footnoted margin keeps its sector.  A margin or a
+  deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
+  makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
+  so also when its verdict is only in the partial results of a killed task.  The whole margin column
+  of one family is checked, and the footnote lists m* = t, but not m* = t + 1 or a disagreement.
+  The deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave
+  the rebuild unchecked for an input that is not the label's, exclude a disagreement from the table
+  but list its task, list an uncertified parent, and give a timeout and a flagged timeout their
+  statuses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
-  acceptance estimate is within five standard errors of the exact probability from the DEM.  A
-  candidate circuit whose prepared state changed, and one with an added random measurement, are
-  rejected for those reasons.  ``prune`` runs twice through the task runner on C-goto, steane, and
-  ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial results.  Each
-  step and each final circuit, rebuilt, has its recorded outcome: by Stim's simulator, by
-  certification, and, where small enough, by the enumeration of the ground truth.  The final m*
-  agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final circuit
-  agree with the exact probabilities from their DEMs.  The enumeration also checks every step on
-  the d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are
+  acceptance estimate is within five standard errors of the exact probability from the DEM.
+  Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
+  accepts their detectors (a flipped sign, a rotated qubit), and one with an added random
+  measurement, are rejected for those reasons.  ``prune`` runs twice through the task runner on
+  C-goto, steane, and ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial
+  results.  Each step and each final circuit, rebuilt, has its recorded outcome: by Stim's
+  simulator, by certification, and, where small enough, by the enumeration of the ground truth.  The
+  final m* agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final
+  circuit agree with the exact probabilities from their DEMs.  The enumeration also checks every
+  step on the d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are
   delayed past its 5 s limit (``step_delay_s``) is a timeout that keeps its steps.
 * **AT10:** the margin gives "all" on C-goto and steane, 3 on E-chen, and 1 on W(C-goto).  On these
   and every ground-truth circuit with r > t, it agrees with ``cert_bz``, with the enumeration up to
@@ -100,7 +109,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc import circuits as qldpc_circuits
-from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBound
+from qldpc.codes.distance import CosetLeaderSearch, CosetMethod, MinWeightBound
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -185,7 +194,7 @@ def test(function: Callable[[pathlib.Path, bool], None]) -> Callable[[pathlib.Pa
     return function
 
 
-def _certify(circuit_id: str, method: DistanceMethod, max_weight: int | None = None) -> Any:
+def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None) -> Any:
     """Certify a circuit of ``circuits.json`` with its options, at its K unless one is given."""
     from qldpc import circuits as qldpc_circuits
 
@@ -223,7 +232,7 @@ def at1_known_circuits(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at2_counters(directory: pathlib.Path, node: bool) -> None:
-    """The counters equal brute force on small circuits and random DEMs."""
+    """Counters equal brute force; two arms run through the runner without compiled_in_timing."""
     # random DEMs, some with a light class before a heavy one in DEM order
     light_first = 0
     for flags, heavy, max_weight in _random_dems():
@@ -275,6 +284,19 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
         assert found == expected, (entry["id"], found, expected)
     print(f"  {len(small)} circuits; 20 random DEMs, {light_first} with a light class first")
 
+    # three tasks through the runner, whose rows run_locally checks for compiled_in_timing.  The
+    # listing count on E-chen reaches the disk-cached search of counting.py.  The ground truth uses
+    # galois's arithmetic, which counting._compile_galois compiles first, and on C-goto it also
+    # reaches, at fault weight 2, more of counting.py's disk-cached functions.
+    for arm, circuit_id in (
+        ("count_listing", "echen"),
+        ("ground_truth", "w.aft.shor.opt_opt"),
+        ("ground_truth", "cgoto"),
+    ):
+        task = experiment._task(arm, experiment._entry(circuit_id), 0, experiment._limit(arm))
+        row = local_runs.run_locally(directory / task["key"], [task])[task["key"]]
+        assert row["status"] == "ok", (task["key"], row["status"])
+
 
 @test
 def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
@@ -284,8 +306,7 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
     assert hasattr(fault_propagation, "find_smallest_violation")
     for name in ("CosetLeaderSearch", "FaultLister", "_check_fault"):
         assert hasattr(_fault_search, name), name
-    for name in ("_should_build_closing_pairs", "_max_syndromes"):
-        assert name in _fault_search.FaultLister.__init__.__code__.co_names, name
+    assert "_max_syndromes" in _fault_search.FaultLister.__init__.__code__.co_names
 
     ids = ["cgoto", "w.cgoto"] + [
         e["id"]
@@ -351,8 +372,13 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
     )
     reduced = counting.reduce_signatures(flags, syndromes)
     assert counted_by_kind["zero_flag:1"] == reduced.num_zero_flag, counted_by_kind
-    num_flagged = reduced.num_reduced - reduced.num_zero_flag
-    assert counted_by_kind["classification:1"] == num_flagged, counted_by_kind
+    # the search classifies each distinct syndrome of the flagged mechanisms once, and E-chen's
+    # flagged mechanisms repeat syndromes, so this count differs from one query per mechanism
+    flagged_syndromes = [
+        syndrome for flag, syndrome in zip(reduced.flags, reduced.syndromes, strict=True) if flag
+    ]
+    assert len(set(flagged_syndromes)) < len(flagged_syndromes), len(flagged_syndromes)
+    assert counted_by_kind["classification:1"] == len(set(flagged_syndromes)), counted_by_kind
     assert any(key.startswith("batch:") for key in shadowed), shadowed
     assert instrumentation.shadow["auto"] in ("brouwer_zimmermann", "connected_cluster")
 
@@ -371,25 +397,54 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     """Limits, the post-processing allowance, repeats, worst cases, and resume."""
     # the first of the five cat circuits of largest K and size that completes a weight but not the
-    # search within 5 s
+    # last weight of its full run when stopped a tenth of the way into that weight.  The kept full
+    # run compiles nothing in its measured call, since the runner retries a run that does, and
+    # run_locally fails if the retry compiled too, so that its weights' times exclude compilation.
+    # A run that ends after its limit is a timeout even if it completed the weight, so a run that
+    # does is no use, and the next circuit is tried.  The runner checks the limit every 0.2 s or so,
+    # and its kill took effect about 0.1-0.25 s after the limit in measured runs, so only circuits
+    # whose last weight takes at least 0.5 s are tried.  These are bcat.w19.t9 and bcat.w18.t9,
+    # whose last weights took about 0.9 s and 0.6 s on the machine that this was written on.  So AT4
+    # uses bcat.w19.t9, passes or fails by chance on a machine about 1.7 to 1.9 times as fast, and
+    # fails on a faster one.
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     candidates = [e for e in entries if e["family"] == "B-cat" and e["status"] == "ok"]
     candidates.sort(key=lambda e: (e["options"]["max_weight"], e["num_mechanisms"]), reverse=True)
-    for circuit in candidates[:5]:
-        task = experiment._task("cert_bz", circuit, 0, 5.0)
+    candidates = candidates[:5]
+    too_short: list[str] = []
+    for circuit in candidates:
+        task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
+        full = local_runs.run_locally(directory / "full" / circuit["id"], [task])[task["key"]]
+        assert full["status"] == "ok" and full["T"] is not None, full
+        ends = [record["T_cumulative"] for record in full["partial"]]
+        assert None not in ends, full["partial"]
+        if len(ends) < 2:
+            too_short.append(f"{circuit['id']} (fewer than two weights)")
+            continue
+        last_weight_seconds = ends[-1] - ends[-2]
+        if last_weight_seconds < 0.5:
+            too_short.append(f"{circuit['id']} ({last_weight_seconds:.2f} s)")
+            continue
+        limit = ends[-2] + last_weight_seconds / 10
+        task = experiment._task("cert_bz", circuit, 0, limit)
         row = local_runs.run_locally(directory / circuit["id"], [task])[task["key"]]
-        if row["status"] == "timeout" and row["partial"]:
+        weights = [record["m"] for record in row["partial"]]
+        if row["status"] == "timeout" and weights and weights[-1] < full["partial"][-1]["m"]:
             break
     else:
-        raise AssertionError("no cat circuit completes a weight but not the search in 5 s")
-    assert row["T"] >= 5.0, row
+        if len(too_short) == len(candidates):
+            raise AssertionError(
+                "each of the five largest cat circuits tried completes fewer than two weights, or"
+                " its last weight takes under 0.5 s on this machine, too little to stop a run"
+                f" during it: {', '.join(too_short)}"
+            )
+        raise AssertionError("no cat circuit completes a weight but not the search in its limit")
+    assert row["T"] >= limit, row
 
     # the partial results are the completed weights, in order from 2, each without a violation
-    weights = [record["m"] for record in row["partial"]]
     assert weights == list(range(2, 2 + len(weights))), weights
     assert all(not record["violation"] for record in row["partial"]), row["partial"]
     assert all(record["T_cumulative"] <= row["T"] for record in row["partial"]), row["partial"]
-    assert len(weights) < circuit["options"]["max_weight"], weights
     print(f"  {circuit['id']}: timeout at T = {row['T']:.1f} s, completed weights {weights}")
 
     before = (directory / circuit["id"] / "runs.jsonl").read_bytes()
@@ -492,12 +547,16 @@ def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at8_analysis(directory: pathlib.Path, node: bool) -> None:
-    """The analysis of synthetic rows: partial counts, disagreements, and missing tasks."""
-    # four B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
+    """Analysis of synthetic rows: partial counts, disagreements, missing tasks, flagged rows."""
+    # six B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
     # times out; the ground truth of the second and the baseline of the third disagree on a count,
     # and both violate at 3, so the box would prefer either of them over the first if they agreed;
-    # the fourth certifies, and its cert_cc task has no row
-    first, second, third, fourth = (experiment._entry(f"bcat.w{w}.t2") for w in (10, 11, 12, 13))
+    # the fourth certifies, and its cert_cc task has no row.  The certifications and baselines of
+    # the fifth and sixth time out, and the rows of the fifth's cert_bz and brute_bz runs have
+    # compiled_in_timing set (rows of retries that compiled too).
+    first, second, third, fourth, fifth, sixth = (
+        experiment._entry(f"bcat.w{w}.t2") for w in (10, 11, 12, 13, 14, 15)
+    )
     rows: list[dict[str, Any]] = []
     expected: dict[str, dict[str, Any]] = {}
 
@@ -508,6 +567,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         T: float | None = None,
         result: dict[str, Any] | None = None,
         partial: list[dict[str, Any]] | None = None,
+        compiled: bool = False,
     ) -> None:
         task = experiment._task(arm, entry, 0, experiment._limit(arm))
         expected[task["key"]] = task
@@ -525,6 +585,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
                 "peak_rss_gib": 0.5,
                 "partial": partial or [],
                 "result": result or {},
+                "compiled_in_timing": compiled,
             }
         )
 
@@ -542,7 +603,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         }
         return result, weights
 
-    # the certifications and counts of the four circuits
+    # the certifications and counts of the first four circuits
     accepted = {"1": 30, "2": 400, "3": 3000}
     listing: dict[str, Any] = {"Pi": {"1": 1, "2": 5}, "E": {"2": 0, "3": 2}, "Phi": {"2": 80}}
     for entry, violation_weight, T in ((first, 2, 100.0), (second, 3, 1000.0), (third, 3, 2000.0)):
@@ -580,6 +641,11 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         result = {"certified": smallest is None, "violation_weight": smallest, "rows": 3430}
         add(entry, "brute_bz", "ok", T, result, enumerations)
 
+    # the timeouts of the fifth and sixth circuits
+    for arm in ("cert_bz", "cert_cc", "brute_bz"):
+        add(fifth, arm, "timeout", 1800.0, compiled=arm != "cert_cc")
+        add(sixth, arm, "timeout", 1800.0)
+
     # analyze the rows, and read the tables
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     by_id = {entry["id"]: entry for entry in entries}
@@ -587,7 +653,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     out.mkdir(parents=True, exist_ok=True)
     analyze.write_outputs(analyze.collect(rows, by_id, expected), by_id, out)
     tables = {}
-    for name in ("summary", "per_weight"):
+    for name in ("summary", "per_weight", "main_table"):
         with open(out / f"{name}.csv") as file:
             tables[name] = list(csv.DictReader(file))
 
@@ -638,8 +704,39 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     # the missing task
     assert summary[fourth["id"]]["status_cert_cc"] == "missing", summary[fourth["id"]]
 
+    # the fifth circuit's flagged timeouts and the sixth's plain ones (see analyze.py's docstring)
+    row = summary[fifth["id"]]
+    statuses = (row["status_cert_bz"], row["status_brute_bz"], row["verdict_bz"], row["verdict"])
+    assert statuses == ("timeout_compiled",) * 4, row
+    assert (summary[sixth["id"]]["status_cert_bz"], summary[sixth["id"]]["verdict"]) == (
+        "timeout",
+        "undecided",
+    )
+    (family,) = tables["main_table"]
+    keys = ("timeout_compiled_cert_bz", "timeout_cert_bz", "timeout_compiled", "undecided")
+    assert [family[key] for key in (*keys, "brute_timed_out")] == ["1"] * 5, family
+
+    # a flagged repeat, and a flagged first run that finished
+    result, weights = certification(None)
+    repeat_flagged, first_flagged = (
+        analyze.summarize_certification(
+            [
+                {"repeat": r, "status": "ok", "T": 1.0, "peak_rss_gib": 0.5, "partial": weights}
+                | {"result": result, "compiled_in_timing": r == compiled}
+                for r in range(analyze.REPEATS["count"] + 1)
+            ]
+        )
+        for compiled in (1, 0)
+    )
+    assert repeat_flagged["T"] is None and repeat_flagged["repeats_not_ok"] == ["r1:compiled"]
+    assert first_flagged["T"] is None and first_flagged["status"] == "ok", first_flagged
+    (_, weight) = analyze._per_weight(
+        "x", {"options": {"max_weight": 2}}, first_flagged, repeat_flagged, first_flagged, {}, {}
+    )
+    assert weight["T_m_bz"] is None and weight["T_m_cc"] == 1.0, weight
+
     _check_application_analysis(directory / "applications")
-    print("  4 B-cat circuits, 2 disagreements, 1 missing task")
+    print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")
 
 
 @test
@@ -680,6 +777,15 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
         applications._check_deletion(changed, goto, noise, options)["outcome"] == "target changed"
     )
     assert not _prepares(changed, goto)
+    # two changes of the prepared state, a flipped sign and a rotated qubit, whose detectors the
+    # certifier accepts, so that its stabilizers show the change.  The rotated child violates the
+    # bound, so it guards that the state is checked before the bound, and the flipped child
+    # certifies, so it guards the check of the state itself.
+    for appended in ("X 0\n", "H 0\n"):
+        moved = stim.Circuit(text + appended)
+        applications._certify(moved, noise, options, "brouwer_zimmermann")
+        outcome = applications._check_deletion(moved, goto, noise, options)["outcome"]
+        assert outcome == "target changed" and not _prepares(moved, goto), (appended, outcome)
     outcome = applications._check_deletion(random, goto, noise, options)["outcome"]
     assert outcome == "detectors rejected" and _prepares(random, goto), outcome
 
@@ -1205,6 +1311,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         "aft.steane.opt_opt": [run("ok", reduced)],
         "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
         "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
+        "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
     }
     per_circuit = {
         circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
@@ -1235,6 +1342,9 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     caption = json.loads((out / "deletion_caption.json").read_text())
     assert [entry["id"] for entry in caption["not_certified_at_t"]] == ["cgoto"], caption
     assert caption["unfinished"][0]["final_checks"] == checks, caption
+    # a deletion run's plain and flagged timeouts
+    statuses = {entry["id"]: entry["status"] for entry in caption["unfinished"]}
+    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, caption
     assert caption["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], caption
     mismatches = caption["rebuild_mismatches"]
     assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], caption

@@ -104,6 +104,17 @@ def test_eligible_rows_have_nonzero_labels() -> None:
     assert binary.get_eligible_rows(np.empty((3, 0), dtype=np.uint8)).tolist() == [True] * 3
 
 
+def test_nonzero_columns() -> None:
+    """The nonzero columns of a binary matrix are those that hold a one, in increasing order."""
+    matrix = np.array([[0, 1, 0, 1], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=np.uint8)
+    assert binary.get_nonzero_columns(matrix).tolist() == [1, 3]
+    assert binary.get_nonzero_columns(np.empty((0, 3), dtype=np.uint8)).tolist() == []
+    # A column of 256 ones, whose count would wrap to zero in uint8, is nonzero.
+    matrix = np.ones((256, 2), dtype=np.uint8)
+    matrix[:, 0] = 0
+    assert binary.get_nonzero_columns(matrix).tolist() == [1]
+
+
 def test_distance_requires_binary_input() -> None:
     """Distance calculations reject non-binary input rather than silently truncating it."""
     # A GF(3) generator matrix is rejected.
@@ -163,6 +174,7 @@ def test_binary_products(
 
 
 def test_symplectic_to_hamming_doubles_weights() -> None:
+    """The image of each Pauli string weighs twice the number of qubits on which the string acts."""
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     transformed = binary.symplectic_to_hamming(symplectic)
     np.testing.assert_array_equal(

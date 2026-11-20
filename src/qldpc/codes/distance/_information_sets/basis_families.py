@@ -7,8 +7,8 @@ Distance searches and counts build families in stages, with their own exits betw
 ``get_disjoint_family``, ``prune_family``, ``get_overlapping_family``, and
 ``get_partitioned_family``.  Each stage aims at a target ``upper_bound``: the best weight ``U`` of a
 distance search, or ``t + 1`` for a count of the words of weight ``t``.  Sections cited in this
-module are those of ``brouwer_zimmermann.md``, whose Section 4.4 gives the rules of the stages and
-of the families of the coset searches.
+module are those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 4.4
+gives the rules of the stages and of the families of the coset searches.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from qldpc._binary import pack_bits, row_reduce_binary, row_reduce_packed, unpac
 from qldpc._compilation import always_compiled, compiled_on_request
 
 from .. import _tuning
+from .._binary import get_nonzero_columns
 from .._tuning import SearchTuning
 from . import matroid_partition
 from .certificates import (
@@ -88,13 +89,21 @@ class BasisFamily(NamedTuple):
         certificate = self.certificate
         if self.max_coverage == 1 or certificate.work(upper_bound) < lp_minimum_work:
             return certificate
-        pivot_blocks = tuple(
-            tuple(int(column) for column in pivots[:rank])
-            for pivots, rank in zip(self.pivots, self.ranks, strict=True)
-        )
         return dataclasses.replace(
-            certificate, pivot_blocks=pivot_blocks, lp_max_denominator=lp_max_denominator
+            certificate,
+            pivot_blocks=get_pivot_blocks(self.pivots, self.ranks),
+            lp_max_denominator=lp_max_denominator,
         )
+
+
+def get_pivot_blocks(
+    pivots: npt.NDArray[np.int64], ranks: npt.NDArray[np.int64]
+) -> tuple[tuple[int, ...], ...]:
+    """The pivot columns of each set of a family, from its pivots padded beyond each rank."""
+    return tuple(
+        tuple(int(column) for column in set_pivots[:rank])
+        for set_pivots, rank in zip(pivots, ranks, strict=True)
+    )
 
 
 ####################################################################################################
@@ -197,7 +206,7 @@ def get_overlapping_family(
 
     # Find the nonzero columns, which the sets of the replacement can use, and the full sets of the
     # family, which the replacement starts from.
-    columns = np.flatnonzero(basis.sum(axis=0))
+    columns = get_nonzero_columns(basis)
     num_columns = len(columns)
     full_indices = np.flatnonzero(basis_family.ranks == dimension)
     num_full = len(full_indices)
@@ -398,7 +407,7 @@ def get_maximum_disjoint_family(
         ``basis_family``, and otherwise a family with no sets.
     """
     dimension = len(basis)
-    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    num_columns = len(get_nonzero_columns(basis))
     no_labels = np.empty((dimension, 0), dtype=np.uint8)
     # No disjoint family improves on one whose pivots use every nonzero column, or that holds as
     # many information sets as a packing keeps.
@@ -462,7 +471,7 @@ def _get_disjoint_sets(
     ``N`` nonzero columns.
     """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
-    nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
+    nonzero_columns = get_nonzero_columns(basis)
     best = _get_disjoint_sets_for_columns(
         basis,
         labels,
@@ -471,7 +480,7 @@ def _get_disjoint_sets(
 
     # Return if the natural order packs as many full sets as any order could.
     max_full_sets = min(len(nonzero_columns) // len(basis), _get_full_set_limit(len(basis)))
-    if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
+    if _count_full_sets(best, len(basis)) == max_full_sets:
         return best
 
     # Otherwise, try random column orders, from a fixed seed for reproducible results.
@@ -489,9 +498,14 @@ def _get_disjoint_sets(
             best = candidate
 
         # Stop early if the packing reaches the bound.
-        if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
+        if _count_full_sets(best, len(basis)) == max_full_sets:
             break
     return best
+
+
+def _count_full_sets(information_sets: list[_DisjointSet], dimension: int) -> int:
+    """The number of full sets, of ``dimension`` pivots, in a packing of disjoint sets."""
+    return sum(len(pivots) == dimension for *_, pivots in information_sets)
 
 
 def _get_full_set_limit(dimension: int) -> int:
@@ -571,7 +585,7 @@ def _check_overlapping_family(
     """
     max_sets, minimum_work, _, binomials, _ = policy
     dimension = basis.shape[0]
-    num_columns = len(np.flatnonzero(basis.sum(axis=0)))
+    num_columns = len(get_nonzero_columns(basis))
     ranks = basis_family.ranks
     num_full = len(np.flatnonzero(ranks == dimension))
 
@@ -652,7 +666,7 @@ def _get_partition_plan(basis: npt.NDArray[np.uint8], tuning: SearchTuning) -> _
     # coverages.  Those limits leave coverage one to the disjoint packing of stage one, so that
     # searches at the default limit build no maximum disjoint family.
     dimension = len(basis)
-    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    num_columns = len(get_nonzero_columns(basis))
     max_sets = tuning.max_information_sets
     coverage_limit = tuning.partition_max_coverage
     if coverage_limit == 1:
@@ -660,10 +674,9 @@ def _get_partition_plan(basis: npt.NDArray[np.uint8], tuning: SearchTuning) -> _
         return _PartitionPlan(dimension, num_columns, range(1, 2), max_sets, unit)
     max_sets = min(max_sets, coverage_limit * num_columns // dimension)
 
-    # The largest coverage is _get_least_coverage(max_sets, dimension, num_columns), computed here
-    # in Python integers, since max_sets up to MAX_VALUE would overflow that compiled helper.  The
-    # sum of b**2 from 2 to B is B (B + 1) (2B + 1) / 6 - 1.
-    max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
+    # The largest coverage to try is the least that ``max_sets`` full sets need
+    # (``_get_least_coverage``).  The sum of b**2 from 2 to B is B (B + 1) (2B + 1) / 6 - 1.
+    max_coverage = _get_least_coverage(max_sets, dimension, num_columns)
     coverages = range(2, max_coverage + 1)
     if not coverages:
         return _PartitionPlan(dimension, num_columns, coverages, max_sets, 0)
@@ -678,7 +691,7 @@ def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
     # a family at the limit of a packing holds as many information sets as a packing keeps, and no
     # partial set.
     dimension = len(basis)
-    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    num_columns = len(get_nonzero_columns(basis))
     max_sets = min(num_columns // dimension + 1, _get_full_set_limit(dimension))
     return matroid_partition.get_information_sets_with_coverage(
         basis, 1, max_sets, keep_partial=True
@@ -724,6 +737,9 @@ def _get_family_of_sets(
 
     The basis's labels are reduced along with it, and the family is certified with the coverage of
     its pivots.
+
+    Raises:
+        RuntimeError: If a set of columns is not independent.
     """
     # Reduce the basis on each set, transforming its labels along with it.
     dimension = len(basis)
@@ -731,18 +747,24 @@ def _get_family_of_sets(
     generators = np.empty((num_sets, dimension, basis.shape[1]), dtype=np.uint8)
     set_labels = np.empty((num_sets, dimension, labels.shape[1]), dtype=np.uint8)
     pivots = np.full((num_sets, dimension), -1, dtype=np.int64)
+    ranks = np.empty(num_sets, dtype=np.int64)
     for index, columns in enumerate(column_sets):
         reduced, reduced_labels, found = row_reduce_binary(
             basis, labels, columns=np.array(columns, dtype=int)
         )
-        assert reduced_labels is not None and len(found) == len(columns)
+        assert reduced_labels is not None  # labels in give labels out
+
+        # A dependent set means that the caller, such as matroid partitioning, broke its contract.
+        if len(found) != len(columns):
+            raise RuntimeError(f"Column set {index} of a basis family is not independent")
         generators[index], set_labels[index] = reduced, reduced_labels
         pivots[index, : len(found)] = found
+        ranks[index] = len(found)
     return BasisFamily(
         generators,
         set_labels,
         pivots,
-        np.array([len(columns) for columns in column_sets], dtype=np.int64),
+        ranks,
         weight_divisor,
         int(np.bincount(pivots[pivots >= 0]).max()),
     )

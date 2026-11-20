@@ -4,11 +4,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import itertools
+import math
 import operator
+import pathlib
+import threading
 import tracemalloc
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Generator, Iterator, Sequence
+from typing import Any
 from unittest import mock
 
 import numpy as np
@@ -16,7 +21,16 @@ import numpy.typing as npt
 import pytest
 import stim
 
+from qldpc import circuits, conftest
+from qldpc.codes.distance import _threads, _tuning
+from qldpc.codes.distance import conftest as distance_conftest
+from qldpc.codes.distance.conftest import THREAD_TIMEOUT
+
 from . import _fault_search
+
+# The timeout of a test that runs the lister on a thread of its own, long enough to compile it on a
+# cold cache of compiled code, such as its versions for read-only arrays.
+_COMPILE_TIMEOUT = 6 * THREAD_TIMEOUT
 
 
 def _irreducible_faults(
@@ -37,6 +51,63 @@ def _irreducible_faults(
                     faults.append(indices)
                 accepted.append(word)
     return faults
+
+
+def _listed_faults(
+    flags: Sequence[int], fault_weight: int, num_starts: int
+) -> list[tuple[int, ...]]:
+    """By brute force, the faults that a lister lists at a fault weight, in the order it lists them.
+
+    The lister numbers its classes in the order of their first members, lists its class tuples in
+    lexicographic order, and lists the faults of each class tuple in lexicographic order of their
+    members, in the order of their classes.
+    """
+    class_numbers: dict[int, int] = {}
+    for flag in flags:
+        class_numbers.setdefault(flag, len(class_numbers))
+
+    def position(fault: tuple[int, ...]) -> tuple[list[int], list[int]]:
+        members = sorted(fault, key=lambda jj: (class_numbers[flags[jj]], jj))
+        return [class_numbers[flags[jj]] for jj in members], members
+
+    return sorted(_irreducible_faults(flags, fault_weight, num_starts), key=position)
+
+
+def _class_codewords(
+    class_flags: Sequence[int], fault_weight: int, num_start_classes: int
+) -> list[tuple[int, ...]]:
+    """By brute force, in lexicographic order, the class codewords that start with a start class.
+
+    The classes have the distinct flags ``class_flags``, and the first ``num_start_classes`` of them
+    are the start classes.  The class codewords are the sets of ``fault_weight`` classes whose flags
+    sum to zero and have rank ``fault_weight - 1``.
+    """
+    class_codewords = []
+    for classes in itertools.combinations(range(len(class_flags)), fault_weight):
+        if classes[0] >= num_start_classes:
+            break
+        basis: list[int] = []
+        for flag in (class_flags[cc] for cc in classes):
+            for row in basis:
+                flag = min(flag, flag ^ row)
+            if flag:
+                basis.append(flag)
+        if _xor(class_flags, classes) == 0 and len(basis) == fault_weight - 1:
+            class_codewords.append(classes)
+    return class_codewords
+
+
+def _take_class_tuples(
+    lister: _fault_search.FaultLister, fault_weight: int, max_rows: int
+) -> list[tuple[int, ...]]:
+    """The first class tuples, at most ``max_rows`` of them, that a lister lists at a fault weight.
+
+    Taking a bounded number of them makes a listing that does not end fail a test, not hang it.
+    """
+    rows = (
+        tuple(row) for batch in lister._iter_class_tuples(fault_weight) for row in batch.tolist()
+    )
+    return list(itertools.islice(rows, max_rows))
 
 
 def _xor(values: Sequence[int], indices: Sequence[int]) -> int:
@@ -69,10 +140,10 @@ def test_listing_matches_brute_force(
 ) -> None:
     """Each irreducible accepted fault with a start member is listed once, and no other fault is.
 
-    Only listers with memory for the closing map of pairs build it.
+    The faults are listed in the order of brute force, by class tuple and then by members.
     """
-    # With zero hashes, lookups find every entry of a table and must compare flags.  Small batches
-    # make a listing pause and resume often.
+    # With zero hashes, each probe finds every class and must compare flags.  Small batches make a
+    # listing pause and resume often.
     if collide:
         monkeypatch.setattr(
             _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
@@ -80,35 +151,23 @@ def test_listing_matches_brute_force(
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
-    # Record the memory limit (from the loop below) of each lister that builds a nonempty closing
-    # map of pairs, to check that some listers with memory for the map build it, and that none
-    # without memory does.
-    limits_with_pairs: set[int] = set()
-    get_closing_map = _fault_search._get_closing_map
-
-    def record_closing_map(
-        hashes: npt.NDArray[np.uint64], size: int
-    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
-        if size == 2 and len(hashes) > 1:
-            limits_with_pairs.add(memory_limit)
-        return get_closing_map(hashes, size)
-
-    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
-    # In the second, the classes with flags 1, 2, 4, and 8 have the same sum of flags, 15, as the
-    # pair of classes with flags 3 and 12, but 3 = 1 + 2, so these six classes are not a class
-    # codeword.  In the third, with two start members, 0 and 1, the class with flags 1 has members 0
-    # and 3, and the class with flags 2 is a start class.  So the fault {1, 2, 3} takes member 3,
-    # which is not a start member, before member 1, which is, and must not be skipped.  In the
-    # fourth, the classes with flags 1 and 2 have two closing pairs, with flags 4 and 7 and with
-    # flags 5 and 6, so the order of the pairs that one lookup finds decides the order of the
-    # faults.
+    # In the second, the classes with flags 1, 2, 4, 8, 3, and 12 have flags that sum to zero, but
+    # 3 = 1 + 2, so these six classes are not a class codeword.  In the third, with two start
+    # members, 0 and 1, the class with flags 1 has members 0 and 3, and the class with flags 2 is a
+    # start class.  So the fault {1, 2, 3} takes member 3, which is not a start member, before
+    # member 1, which is, and must not be skipped.  In the fourth, the classes with flags 1 and 2
+    # are in two class codewords of fault weight four, with the classes with flags 4 and 7 and with
+    # those with flags 5 and 6, whose order decides the order of the faults.  In the fifth, the six
+    # classes have flags that sum to zero, but 5 = 1 + 4 and 10 = 2 + 8, so they are not a class
+    # codeword, although each class is independent of the classes with flags 1 and 2.
     flag_sets = [
         [1, 2, 1, 2, 3, 3],
         [1, 2, 4, 8, 3, 12, 16, 31],
         [1, 2, 3, 1],
         [1, 2, 3, 4, 5, 6, 7],
+        [1, 2, 4, 5, 8, 10],
     ]
     flag_sets += [list(rng.integers(1, 16, size=rng.integers(1, 10))) for _ in range(10)]
     for small_flags in flag_sets:
@@ -122,19 +181,15 @@ def test_listing_matches_brute_force(
         # leave out no fault.
         syndromes = [1 << (13 * jj) for jj in range(num_primitives)]
         errors = [0b1111111 << (7 * jj) for jj in range(num_primitives)]
-        # Without memory, the lister builds no closing map of pairs, except an empty one when there
-        # are fewer than two classes.  The memory limit must not change the order in which faults
-        # are listed, since the first violation in that order is the result.
-        orders: dict[tuple[int, int], list[int]] = {}
-        for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 2, 1)):
-            args = (flags, syndromes, errors, 70, False, num_starts, memory_limit)
+        # The order matters, since the first violation in it is the result.
+        for num_starts in (num_primitives, 2, 1):
+            args = (flags, syndromes, errors, 70, False, num_starts, 0)
             lister = _fault_search.FaultLister(*args)
             for fault_weight in range(2, 7):
-                expected = _irreducible_faults(flags, fault_weight, num_starts)
+                expected = _listed_faults(flags, fault_weight, num_starts)
                 checked, result = _check_faults(lister, fault_weight, ())
                 assert result is None
-                assert sorted(checked) == sorted(_xor(syndromes, fault) for fault in expected)
-                assert orders.setdefault((num_starts, fault_weight), checked) == checked
+                assert checked == [_xor(syndromes, fault) for fault in expected]
                 if expected:
                     stop = int(rng.integers(len(expected)))
                     violation = (expected[stop], _xor(syndromes, expected[stop]))
@@ -143,28 +198,157 @@ def test_listing_matches_brute_force(
                         _fault_search.FaultLister(*args), fault_weight, {violation[1]}
                     )
                     assert result == violation
-    assert limits_with_pairs == {2**20}
 
 
-@pytest.mark.parametrize("size", [1, 2])
-def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest.Config) -> None:
-    """A closing table sorts its sets by hash, keeping lexicographic order among equal hashes."""
+def test_the_walk_lists_each_class_codeword_once_in_lexicographic_order(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The walk by shared flags lists the class codewords of brute force once, in order.
+
+    The flags of the classes are dense, or sparse, each with one or two bits of up to ten, so that
+    the walk has few candidates and forbids classes at several depths.  The 15 classes of every
+    nonzero flag of four bits have class codewords with several classes that have the bit that the
+    walk chooses at their root.  A walk that ignores forbidden classes lists these twice.  They also
+    have sets of six classes whose flags sum to zero but have rank four, which a walk that skips its
+    last test of independence lists.  In the other cases, the walk's array has two rows.  So a full
+    array makes it return the class codewords of earlier roots before it finishes a root, and then
+    move those of the root to the start of the array, and it makes several passes over a root with
+    more than two class codewords.  Each case is listed by a walk that pauses after each probe of
+    work, as on threads, and resumes, and then by the lister on one thread.  The paused walk may
+    return a bounded number of batches and class codewords, and both listings run on a thread of
+    their own with a timeout, so that a listing that does not end fails rather than hangs.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    cases = [(list(range(1, 16)), 1, 6, _fault_search._MAX_ROOT_CODEWORDS)]
+    for dense in [False, True] * 4:
+        num_bits = int(rng.integers(4, 11))
+        values = [value for value in range(1, 2**num_bits) if dense or value.bit_count() <= 2]
+        num_classes = min(len(values), int(rng.integers(5, 13)))
+        flags = [int(flag) for flag in rng.choice(values, size=num_classes, replace=False)]
+        cases.append((flags, int(rng.integers(num_classes + 1)), 6, 2))
+    for flags, num_starts, max_fault_weight, max_root_codewords in cases:
+        monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
+        lister = _class_lister(flags, num_starts)
+        for fault_weight in range(3, max_fault_weight + 1):
+            expected = _class_codewords(flags, fault_weight, num_starts)
+            walk = _fault_search._SharedFlagWalk(
+                lister._class_rows, lister._bit_index, lister._class_map, fault_weight
+            )
+            listed = distance_conftest.run_on_a_thread(
+                functools.partial(_list_paused, walk, lister._num_start_classes, len(expected)),
+                timeout=_COMPILE_TIMEOUT,
+            )
+            assert listed == expected
+            listed = distance_conftest.run_on_a_thread(
+                functools.partial(_take_class_tuples, lister, fault_weight, len(expected) + 1),
+                timeout=_COMPILE_TIMEOUT,
+            )
+            assert listed == expected
+
+
+def _list_paused(
+    walk: _fault_search._SharedFlagWalk, num_roots: int, max_rows: int
+) -> list[tuple[int, ...]]:
+    """List the first roots with a walk that pauses after each probe of work, and resumes.
+
+    The walk may return at most ``10**5`` batches and ``max_rows`` class codewords.
+    """
+    rows: list[tuple[int, ...]] = []
+    for num_batches, batch in enumerate(walk.list_range(0, num_roots, 1)):
+        rows.extend(tuple(row) for row in batch.tolist())
+        assert num_batches < 10**5 and len(rows) <= max_rows
+    return rows
+
+
+def _class_lister(flags: Sequence[int], num_starts: int) -> _fault_search.FaultLister:
+    """A lister of faults with these flags, distinct syndromes, and representatives of weight 3."""
+    syndromes = [1 << jj for jj in range(len(flags))]
+    errors = [0b111 << (3 * jj) for jj in range(len(flags))]
+    return _fault_search.FaultLister(flags, syndromes, errors, 3 * len(flags), False, num_starts, 0)
+
+
+def _list_class_tuples(
+    flags: Sequence[int], num_starts: int, fault_weight: int, max_rows: int
+) -> list[tuple[int, ...]]:
+    """The first class tuples, at most ``max_rows``, of a lister of faults with these flags."""
+    return _take_class_tuples(_class_lister(flags, num_starts), fault_weight, max_rows)
+
+
+@pytest.mark.parametrize("collide", [False, True])
+def test_a_class_codeword_that_two_states_could_find_is_listed_once(
+    collide: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The walk by shared flags lists a class codeword once, also with members and hashes shared.
+
+    Of the classes 0 to 3 with flags 4, 5, 6, and 7, the walk from root 0 finds the class codeword
+    of all four at the state of classes 0 and 1, and could find it again at the state of classes 0
+    and 2, where class 1 is forbidden ("Listing class codewords by shared flags" in
+    ``fault_propagation.md``).  Classes of several members, and zero hashes, which make every class
+    share each probe's hash, change nothing, and with no start class nothing is listed.
+    """
+    if collide:
+        monkeypatch.setattr(
+            _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
+        )
+    assert _list_class_tuples([4, 5, 6, 7], 1, 4, 2) == [(0, 1, 2, 3)]
+    assert _list_class_tuples([4, 5, 4, 6, 7, 5, 6], 1, 4, 2) == [(0, 1, 2, 3)]
+    assert _list_class_tuples([4, 5, 6, 7], 0, 4, 1) == []
+
+
+@pytest.mark.parametrize(
+    ("max_root_codewords", "more_passes"), [(2, True), (27, True), (29, False)]
+)
+def test_a_root_whose_class_codewords_fill_its_array_takes_more_passes(
+    max_root_codewords: int, more_passes: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The walk by shared flags makes another pass over a root whose class codewords fill its array.
+
+    Among the classes of every nonzero flag of four bits, the roots of flags 1, 2, and 3 have 28,
+    22, and 16 class codewords of fault weight four.  An array of 27 rows fills with class codewords
+    of the first root, so the walk keeps the first 13 of them, releases those before its ceiling,
+    and makes another pass for the rest, while an array of 29 rows holds them all, and makes the
+    walk return those of the first root once the first class codeword of the second fills it.  The
+    listing is that of brute force either way.
+    """
+    # Record the work of the walk, which another pass over a root adds to.
+    works: list[int] = []
+    list_by_shared_flags = _fault_search._list_by_shared_flags
+
+    def record_work(*args: Any) -> int:
+        num_codewords = list_by_shared_flags(*args)
+        works.append(int(args[-2][4]))
+        return num_codewords
+
+    monkeypatch.setattr(_fault_search, "_list_by_shared_flags", record_work)
+    flags = list(range(1, 16))
+    expected = _class_codewords(flags, 4, 3)
+    assert _list_class_tuples(flags, 3, 4, len(expected) + 1) == expected
+    one_pass_work = works[-1]
+    monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
+    assert _list_class_tuples(flags, 3, 4, len(expected) + 1) == expected
+    assert (works[-1] > one_pass_work) == more_passes
+
+
+def test_listers_reject_zero_flags() -> None:
+    """A lister rejects a primitive fault with zero flags, which no flag class can hold."""
+    with pytest.raises(ValueError, match="nonzero flags"):
+        _fault_search.FaultLister([1, 0], [1, 2], [1, 2], 2, False, 1, 0)
+
+
+def test_the_map_of_classes_sorts_the_classes_stably_by_hash(pytestconfig: pytest.Config) -> None:
+    """The map of classes by hash lists the classes by hash, those of each hash in order."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_classes in (0, 1, 2, 5, 40):
-        # Random hashes, hashes from four values so that many sets share one, and small hashes so
-        # that different hashes share their high bits.
+        # Random hashes, and hashes from four values, so that many classes share one.
         for hashes in (
             rng.integers(2**64, size=num_classes, dtype=np.uint64),
             rng.integers(2**64, size=4, dtype=np.uint64)[rng.integers(4, size=num_classes)],
-            rng.integers(2**8, size=num_classes, dtype=np.uint64),
         ):
-            expected_sets = sorted(
-                itertools.combinations(range(num_classes), size),
-                key=lambda classes: _xor(hashes.tolist(), classes),
-            )
-            keys, sets = _fault_search._get_closing_table(hashes, size)
-            assert keys.tolist() == [_xor(hashes.tolist(), classes) for classes in expected_sets]
-            assert sets.tolist() == [list(classes) for classes in expected_sets]
+            expected = sorted(range(num_classes), key=lambda each: (int(hashes[each]), each))
+            keys, classes, slots = _fault_search._get_class_map(hashes)
+            assert classes.tolist() == expected
+            assert keys.tolist() == [int(hashes[each]) for each in expected]
+            assert slots.tolist() == _fault_search._get_key_slots(keys).tolist()
 
 
 def test_repeated_syndromes_are_checked_once() -> None:
@@ -188,7 +372,7 @@ def test_light_pairs_match_brute_force(
     for _ in range(20):
         light = list(dict.fromkeys(int(ss) << 62 for ss in rng.integers(16, size=6)))
         heavy = [int(ss) << 62 for ss in rng.integers(16, size=8)]
-        num_words = _fault_search._get_num_words(light + heavy)
+        num_words = _fault_search._get_num_words_for_values(light + heavy)
         pairs = _fault_search._get_light_pairs(
             _fault_search._hashed_rows(heavy, num_words),
             _fault_search._hashed_rows(light, num_words),
@@ -197,6 +381,57 @@ def test_light_pairs_match_brute_force(
             first = next((ii for ii, ss in enumerate(light) if syndrome ^ ss in light), -1)
             expected = [first, light.index(syndrome ^ light[first])] if first >= 0 else [-1, -1]
             assert pair == expected
+
+
+def test_heavy_primitive_faults_get_products_of_light_representatives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A heavy primitive fault gets the product of the representatives of its first light pair.
+
+    The pair starts with the first light syndrome, in the order of the primitive faults, whose sum
+    with the heavy syndrome is also light.  A heavy primitive fault without a pair keeps the
+    oracle's representative.
+    """
+    # The stabilizers ZXX, X on qubit 2, and XZX make the syndromes 1, 4, 5, and 7 light.  With the
+    # light syndromes 5, 7, and 4 of these faults, the heavy syndrome 2, which repeats, is 5 + 7,
+    # the heavy syndrome 3 is 7 + 4, and the heavy syndrome 6 is no such sum.  The oracle's
+    # representatives of 2 and 3 differ from these products.
+    stabilizers = np.array([[0, 1, 1, 1, 0, 0], [0, 0, 1, 0, 0, 0], [1, 0, 1, 0, 1, 0]])
+    syndromes = [5, 7, 4, 2, 2, 3, 6]
+    lister = mock.Mock(wraps=_fault_search.FaultLister)
+    monkeypatch.setattr(_fault_search, "FaultLister", lister)
+    flags = [1 << jj for jj in range(len(syndromes))]
+    assert _fault_search.find_smallest_violation(flags, syndromes, stabilizers, None, False) is None
+    _, primitive_syndromes, representatives, *_, num_starts, _ = lister.call_args.args
+
+    def syndrome_of(pauli: int) -> int:
+        x = [(pauli >> qubit) & 1 for qubit in range(3)]
+        z = [(pauli >> (3 + qubit)) & 1 for qubit in range(3)]
+        return sum(
+            int(np.dot(x, row[3:]) + np.dot(z, row[:3])) % 2 << jj
+            for jj, row in enumerate(stabilizers)
+        )
+
+    for syndrome, representative in zip(primitive_syndromes, representatives, strict=True):
+        assert syndrome_of(representative) == syndrome
+
+    oracle = _fault_search.CosetLeaderSearch(stabilizers)
+
+    def oracle_representative(syndrome: int) -> int:
+        return oracle.get_min_weight_bound(syndrome, 1).representative
+
+    light = [5, 7, 4]
+    expected = []
+    for syndrome in primitive_syndromes[:num_starts]:
+        first = next((ss for ss in light if syndrome ^ ss in light), None)
+        expected.append(
+            oracle_representative(syndrome)
+            if first is None
+            else oracle_representative(first) ^ oracle_representative(syndrome ^ first)
+        )
+    assert primitive_syndromes[:num_starts] == [2, 2, 3, 6]
+    assert list(representatives[:num_starts]) == expected
+    assert oracle_representative(2) != expected[0] and oracle_representative(3) != expected[2]
 
 
 @pytest.mark.parametrize("css_weight", [False, True])
@@ -286,54 +521,705 @@ def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.Mo
         assert _check_faults(searcher, 2, {1 ^ 4})[1] == ((0, 2), 1 ^ 4)
 
 
-def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A table of pairs and its slots need at most about ``_BYTES_PER_PAIR`` bytes for each pair."""
-    # tracemalloc traces only allocations by Python, so build the table with the Python versions of
-    # the compiled functions.
-    for name in ("_get_closing_table", "_sort_bucket", "_get_key_slots", "_find_syndrome_slot"):
-        function = getattr(_fault_search, name)
-        monkeypatch.setattr(_fault_search, name, getattr(function, "py_func", function))
-    # Distinct random hashes leave no bucket to merge sort, and give the pairs distinct keys, which
-    # need the most slots.
-    num_classes = 200
-    hashes = np.random.default_rng(0).integers(2**64, size=num_classes, dtype=np.uint64)
-    # Build a small table first, so that loading the compiled code that the Python versions call
-    # adds no allocations to the measurement.
-    _fault_search._get_closing_map(hashes[:3], 2)
-    was_tracing = tracemalloc.is_tracing()
-    tracemalloc.start()
-    try:
-        tracemalloc.reset_peak()
-        before = tracemalloc.get_traced_memory()[0]
-        _fault_search._get_closing_map(hashes, 2)
-        peak = tracemalloc.get_traced_memory()[1]
-    finally:
-        if not was_tracing:
-            tracemalloc.stop()
-    # Allow a few kilobytes that do not grow with the number of pairs.
-    num_pairs = num_classes * (num_classes - 1) // 2
-    assert peak - before <= num_pairs * _fault_search._BYTES_PER_PAIR + 2**14
+def test_checked_faults_follow_the_table_of_syndromes(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lister checks, in the order it lists them, the faults that the table does not leave out.
 
-
-def test_memory_limit_is_split_within_the_caps() -> None:
-    """The memory limit goes to the map of pairs first, and then to the table of syndromes.
-
-    The map of pairs holds at most 2**31 pairs, and the table of syndromes gets room for at most
-    2**31, however large the limit.
+    It leaves out a fault if its syndrome is in the table of syndromes, which takes each new
+    syndrome while it has room, or if its representatives have Pauli weight at most its fault
+    weight.  This holds whether or not the table fills up, though the lister skips many of the
+    faults that the table leaves out without looking them up.
     """
-    split = _fault_search._split_memory_limit
-    # With 2**16 classes there are 2**31 - 2**15 pairs, which the map may hold.  With one more
-    # class there are more than 2**31, which it may not.
-    assert split(2**16, 1, 2**50) == (True, 2**31)
-    assert split(2**16 + 1, 1, 2**50) == (False, 2**31)
-    # Three classes have three pairs.  A syndrome of two words takes 40 bytes: 8 for its hash, 16
-    # for its words, and 16 for its two slots.  The table gets what the map leaves, or the whole
-    # limit if the map misses by a byte.
-    pair_bytes = 3 * _fault_search._BYTES_PER_PAIR
-    syndrome_bytes = 40
-    assert split(3, 2, pair_bytes) == (True, 0)
-    assert split(3, 2, pair_bytes + 5 * syndrome_bytes) == (True, 5)
-    assert split(3, 2, pair_bytes - 1) == (False, (pair_bytes - 1) // syndrome_bytes)
+    # With no memory, the table of syndromes keeps room for its first two syndromes.
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    default_remembered = _fault_search._MAX_REMEMBERED_CHOICES
+
+    def check(
+        flags: list[int],
+        syndromes: list[int],
+        representatives: list[int],
+        num_qubits: int,
+        num_starts: int,
+    ) -> None:
+        """Check the listing against a model of the table, with and without room in it.
+
+        Also check it when the lister remembers only one choice of members of each class tuple.
+        """
+        cases = itertools.product(((0, 2), (2**20, None)), (default_remembered, 1))
+        for (memory_limit, room), remembered in cases:
+            monkeypatch.setattr(_fault_search, "_MAX_REMEMBERED_CHOICES", remembered)
+            lister = _fault_search.FaultLister(
+                flags, syndromes, representatives, num_qubits, False, num_starts, memory_limit
+            )
+            table: set[int] = set()
+            for fault_weight in range(2, 6):
+                expected = []
+                for fault in _listed_faults(flags, fault_weight, num_starts):
+                    syndrome = _xor(syndromes, fault)
+                    if syndrome in table:
+                        continue
+                    if room is None or len(table) < room:
+                        table.add(syndrome)
+                    error = _xor(representatives, fault)
+                    error_weight = (
+                        error & ((1 << num_qubits) - 1) | error >> num_qubits
+                    ).bit_count()
+                    if error_weight > fault_weight:
+                        expected.append(syndrome)
+                assert _check_faults(lister, fault_weight, ()) == (expected, None)
+
+    # Syndromes of two bits repeat often, for faults and for partial choices of their members, and
+    # errors on six qubits leave out some faults but not all.  Then the same with zero hashes, so
+    # that every remembered choice shares its hash, and with the two bits of each syndrome in
+    # different words, so that a remembered choice must match every word of its syndrome.
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for shift, num_qubits in ((0, 6), (63, 70)):
+        if shift:
+            monkeypatch.setattr(
+                _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
+            )
+        for _ in range(20):
+            num_primitives = int(rng.integers(6, 11))
+            flags = [int(flag) for flag in rng.integers(1, 8, size=num_primitives)]
+            syndromes = [
+                int(syndrome) << shift for syndrome in rng.integers(4, size=num_primitives)
+            ]
+            representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
+            num_starts = int(rng.integers(1, num_primitives + 1))
+            check(flags, syndromes, representatives, num_qubits, num_starts)
+
+    # The start members 0, 1, and 2 come first in the classes with flags 1, 2, and 4, which, with
+    # the class with flags 7, form a class codeword.  The choice of members 3 and 5 of the first two
+    # classes has no start member, and the later choice of 4 and 1 has one, with the same syndrome.
+    # Only the latter is completed by member 6, which is not a start member, and its fault {1, 4, 6,
+    # 7} has a syndrome of its own.  Each representative has weight three.
+    flags = [1, 2, 4, 1, 1, 2, 4, 7]
+    syndromes = [16, 3, 32, 1, 0, 2, 64, 128]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, syndromes, representatives, 24, 3)
+
+    # Primitive fault 3 has flags but no syndrome, so adding it to a choice keeps the syndrome of
+    # the choice.  In the class codeword of the classes with flags 1, 2, 4, and 7, the choice of
+    # members 0, 2, and 3 of the first three classes has the syndrome of the choice of members 0 and
+    # 2 of the first two, but other completions, so a remembered choice must also match the level.
+    flags = [1, 1, 2, 4, 7]
+    syndromes = [1, 2, 4, 0, 8]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, syndromes, representatives, 15, 1)
+
+    # Members 0 to 3, the start members, come first in the classes with flags 1, 2, 4, and 7, and
+    # members 4 to 8 come after them.  The syndrome of member 6 makes the choice of members 4, 6,
+    # and 7 of the first three classes, which has no start member, share its syndrome with a later
+    # choice that has one.  With the first syndromes below, that is the choice of members 5, 1,
+    # and 7, whose start member was chosen before the last of its levels, so a remembered choice
+    # must record a start member chosen at any level.  With the second, it is the choice of members
+    # 5 and 1 of the first two classes, so it must also record the level, besides whether it has a
+    # start member.  Member 8, which is not a start member, completes only the later choices, so
+    # skipping them after the earlier choice would lose faults.
+    flags = [1, 2, 4, 7, 1, 1, 2, 4, 7]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, [1, 2, 4, 8, 16, 32, 50, 64, 128], representatives, 27, 4)
+    check(flags, [1, 2, 4, 8, 16, 32, 114, 64, 128], representatives, 27, 4)
+
+
+@pytest.mark.parametrize("num_threads", [2, 3, 8])
+@pytest.mark.parametrize("max_root_codewords", [2, 2**20])
+@pytest.mark.parametrize("split_probes", [0, 1])
+def test_listing_on_threads_checks_the_faults_of_one_thread(
+    num_threads: int,
+    max_root_codewords: int,
+    split_probes: int,
+    pytestconfig: pytest.Config,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On threads, a lister checks the faults of one thread, in order, with the same work.
+
+    Listings move to threads at once, or after the calling thread has listed alone a probe of work
+    for each thread, with batches of one class codeword, calls of about one probe of work, and one
+    held batch for each thread, so that the threads pause within passes over roots and wait often.
+    The threads hand on no empty batch.  With an array of two class codewords, the walk makes
+    several passes over some roots.  Fixed instances check that a thread pauses within a pass and
+    makes another pass over a root, that the calling thread lists alone first when the work splits
+    after a probe, and that a violation found while threads list closes the listing as on one
+    thread and leaves no thread running.  The same holds with a full table of syndromes.  The
+    threads run with read-only views of the arrays of the lister that they read, and leave them
+    unchanged.  The calling thread consumes the listing on a thread of its own, so that a deadlock
+    fails the test.
+    """
+    monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", split_probes)
+    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
+    monkeypatch.setattr(_fault_search, "_PROBES_PER_CALL", 1)
+    monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+    # With no memory, the table of syndromes keeps room for its first two syndromes.
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+
+    # Record the work and the class codewords of each call of the walk, and, for a call on a thread
+    # of the listing, whether the rows of the classes were writeable and whether it did at most
+    # about one probe of work, which a call passes by at most a step: a candidate, a reduction, and
+    # the bits of a word of flags.  For a lister on several threads, also record whether the
+    # calling thread or a thread listed, and whether a thread paused within a pass over a root or
+    # made another pass over a root.
+    listed: list[tuple[int, int]] = []
+    thread_calls: list[tuple[bool, bool]] = []
+    events: set[str] = set()
+    list_by_shared_flags = _fault_search._list_by_shared_flags
+    max_work = 1 + _fault_search._PROBES_PER_REDUCTION + 64
+
+    def record_listing(*args: Any) -> int:
+        walk_state = args[-2]
+        work = int(walk_state[4])
+        num_codewords = list_by_shared_flags(*args)
+        work = int(walk_state[4]) - work
+        listed.append((work, num_codewords))
+        on_thread = threading.current_thread().name == "qldpc-search"
+        if on_thread:
+            thread_calls.append((args[0].flags.writeable, work <= max_work))
+        if in_use[0]._num_threads > 1:
+            events.add("listed on a thread" if on_thread else "listed alone")
+            if on_thread and walk_state[2] >= 0:
+                events.add("paused within a pass")
+            if on_thread and walk_state[8]:
+                events.add("another pass on a thread")
+        return num_codewords
+
+    monkeypatch.setattr(_fault_search, "_list_by_shared_flags", record_listing)
+
+    # Check that the threads pass on batches of at most ``_CODEWORD_BATCH_SIZE`` class codewords,
+    # although a call of the walk by shared flags can return the two of a root, and no empty batch,
+    # although most calls of one probe of work return none.
+    iterate_in_order = _fault_search.iterate_in_order
+
+    def check_batches(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
+        with contextlib.closing(iterate_in_order(*args, **kwargs)) as batches:
+            for batch in batches:
+                assert len(batch) == 1
+                try:
+                    yield batch
+                except GeneratorExit:
+                    if any(each.name == "qldpc-search" for each in threading.enumerate()):
+                        events.add("closed while threads list")
+                    raise
+
+    monkeypatch.setattr(_fault_search, "iterate_in_order", check_batches)
+
+    # Mark the arrays of the lister in use that the threads read read-only while they list.
+    def get_shared_arrays(*args: Any, **kwargs: Any) -> list[object]:
+        names = (
+            "_class_rows",
+            "_bit_index",
+            "_class_map",
+            "_class_offsets",
+            "_class_members",
+            "_primitive_rows",
+        )
+        return [vars(in_use[0])[name] for name in names]
+
+    in_use: list[_fault_search.FaultLister] = []
+    marked = distance_conftest.check_shared_arrays_on_threads(monkeypatch, get_shared_arrays)
+
+    def check_listing(
+        listers: Sequence[_fault_search.FaultLister],
+        fault_weight: int,
+        violating: Collection[int],
+        same_work: bool = True,
+    ) -> list[int]:
+        """Check that the listers check the same faults, and return the syndromes checked.
+
+        With ``same_work``, also check that they list the same class codewords with the same work.
+        Threads can list past a violation that ends a listing early, so then they need not.
+        """
+        results = []
+        for lister in listers:
+            listed.clear()
+            in_use[:] = [lister]
+            checked, result = distance_conftest.run_on_a_thread(
+                functools.partial(_check_faults, lister, fault_weight, violating),
+                timeout=_COMPILE_TIMEOUT,
+            )
+            totals = (sum(work for work, _ in listed), sum(number for _, number in listed))
+            results.append((checked, result, totals if same_work else None))
+            assert not [each for each in threading.enumerate() if each.name == "qldpc-search"]
+        assert results[0] == results[1]
+        return results[0][0]
+
+    # Syndromes of three bits repeat often, and errors on six qubits leave out some faults.
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(6):
+        num_primitives = int(rng.integers(6, 12))
+        flags = [int(flag) for flag in rng.integers(1, 16, size=num_primitives)]
+        syndromes = [int(syndrome) for syndrome in rng.integers(8, size=num_primitives)]
+        representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
+        num_starts = int(rng.integers(1, num_primitives + 1))
+        for memory_limit in (0, 2**20):
+            args = (flags, syndromes, representatives, 6, False, num_starts, memory_limit)
+            listers = [
+                _fault_search.FaultLister(*args),
+                _fault_search.FaultLister(*args, num_threads),
+            ]
+            for fault_weight in range(2, 7):
+                checked = check_listing(listers, fault_weight, ())
+                if checked:
+                    # Stop new listers at a violation, since a lister leaves out the syndromes
+                    # that it has checked.
+                    violating = {checked[int(rng.integers(len(checked)))]}
+                    pair = [
+                        _fault_search.FaultLister(*args),
+                        _fault_search.FaultLister(*args, num_threads),
+                    ]
+                    check_listing(pair, fault_weight, violating)
+    if split_probes == 0:
+        assert any(marked) and thread_calls
+
+    # List a fixed instance: the classes of flags 4, 5, 6, 7, 1, 2, and 3, of one member each, at
+    # fault weight three, whose seven class codewords each make one fault with a syndrome of its
+    # own.  The first root has three class codewords, more than an array of two rows holds.  When
+    # the work splits at once, threads list every root, and so make another pass over the first
+    # root, pausing within it.  When it splits after a probe, the calling thread lists the first
+    # root alone, and threads list the others.
+    flags = [4, 5, 6, 7, 1, 2, 3]
+    errors = [0b1111111 << (7 * jj) for jj in range(7)]
+    args = (flags, [1 << jj for jj in range(7)], errors, 49, False, 7, 0)
+    events.clear()
+    checked = check_listing(
+        [_fault_search.FaultLister(*args), _fault_search.FaultLister(*args, num_threads)], 3, ()
+    )
+    assert len(checked) == 7 and "listed on a thread" in events
+    if split_probes == 0 and max_root_codewords == 2:
+        assert {"another pass on a thread", "paused within a pass"} <= events
+    assert ("listed alone" in events) == (split_probes == 1)
+
+    # The classes of every nonzero flag of four bits, of one member each, make 35 class codewords
+    # of fault weight three, seven of them of the first root.  Check each fault on its own, and stop
+    # at the tenth, a class codeword of the second root, so that the calling thread closes the
+    # listing while threads list.  They cannot finish: the 25 class codewords after it are batches
+    # of their own, more than the at most eight batches that the threads may hold while the calling
+    # thread takes no more (see ``iterate_in_order``).
+    flags = list(range(1, 16))
+    errors = [0b1111111 << (7 * jj) for jj in range(15)]
+    args = (flags, [1 << jj for jj in range(15)], errors, 105, False, 15, 0)
+    listers = [_fault_search.FaultLister(*args), _fault_search.FaultLister(*args, num_threads)]
+    checked = check_listing(listers, 3, ())
+    assert len(checked) == 35
+    monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
+    monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 1)
+    events.clear()
+    pair = [_fault_search.FaultLister(*args), _fault_search.FaultLister(*args, num_threads)]
+    assert len(check_listing(pair, 3, {checked[9]}, same_work=False)) == 10
+    assert "closed while threads list" in events
+    assert thread_calls == [(False, True)] * len(thread_calls)
+
+
+def test_a_thread_of_a_listing_hands_on_no_empty_batch_and_stops_when_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A thread of a listing hands on only nonempty batches, and returns once its stop event is set.
+
+    With calls of one probe of work, most calls of the walk list no class codeword.  The function
+    that a listing on threads gives ``iterate_in_order`` for each thread lists the range of all the
+    roots, as one thread would, in batches that are never empty.  With its stop event set, it
+    returns after one call of the walk, which lists no class codeword.
+    """
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
+    monkeypatch.setattr(_fault_search, "_PROBES_PER_CALL", 1)
+    start_workers: list[Callable[..., Any]] = []
+    iterate_in_order = _fault_search.iterate_in_order
+
+    def record_start_worker(
+        num_items: int, num_threads: int, start_worker: Callable[..., Any], **kwargs: Any
+    ) -> Iterator[npt.NDArray[np.int64]]:
+        start_workers.append(start_worker)
+        return iterate_in_order(num_items, num_threads, start_worker, **kwargs)
+
+    calls: list[int] = []
+    list_by_shared_flags = _fault_search._list_by_shared_flags
+
+    def count_calls(*args: Any) -> int:
+        calls.append(1)
+        return list_by_shared_flags(*args)
+
+    monkeypatch.setattr(_fault_search, "iterate_in_order", record_start_worker)
+    monkeypatch.setattr(_fault_search, "_list_by_shared_flags", count_calls)
+    flags = list(range(1, 16))
+    syndromes = [1 << jj for jj in range(15)]
+    errors = [0b111 << (3 * jj) for jj in range(15)]
+    lister = _fault_search.FaultLister(flags, syndromes, errors, 45, False, 15, 0, 3)
+    expected = _class_codewords(flags, 3, 15)
+    listed = distance_conftest.run_on_a_thread(
+        functools.partial(_take_class_tuples, lister, 3, len(expected) + 1),
+        timeout=_COMPILE_TIMEOUT,
+    )
+    assert listed == expected and len(start_workers) == 1
+
+    # Run the function of a thread on this thread, as a thread would.
+    batches = list(start_workers[0](threading.Event())(0, lister._num_start_classes))
+    assert all(len(batch) for batch in batches)
+    assert [tuple(row) for batch in batches for row in batch.tolist()] == expected
+    stop = threading.Event()
+    stop.set()
+    calls.clear()
+    assert not list(start_workers[0](stop)(0, lister._num_start_classes))
+    assert len(calls) == 1
+
+
+def test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads() -> None:
+    """The requirements on threads of ``fault_propagation.md`` name each entry point without lock.
+
+    The entry points are the functions of this package compiled with ``nogil=True``, which threads
+    run, and whose rules those requirements state.
+    """
+    guide = pathlib.Path(__file__).with_name("fault_propagation.md").read_text(encoding="utf-8")
+    requirements = guide.split("\n### Requirements on threads\n", 1)[1].split("\n## ", 1)[0]
+    entry_points = conftest.get_entry_points_without_the_lock(pathlib.Path(__file__).parent)
+    assert entry_points
+    for module, name in entry_points:
+        assert f"`{name}`" in requirements, f"The requirements on threads omit {module}.{name}"
+
+
+def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lister checks the faults of one thread when a later range is listed before the first.
+
+    The calling thread lists the first root alone, and the thread of the first range of the other
+    roots lists it only once a later range is listed.  Of two violations, one in each of these
+    ranges, the lister finds the first, as one thread does.
+    """
+    monkeypatch.setattr(_fault_search, "_get_root_weights", lambda q, s, m: np.full(s, 1.0))
+    monkeypatch.setattr(_fault_search, "_PROBES_PER_REDUCTION", 4)
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 2)
+    monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 2)
+    later_listed = threading.Event()
+    iterate_in_order = _fault_search.iterate_in_order
+
+    def gated_iterate(
+        num_items: int, num_threads: int, start_worker: Callable[..., Any], **kwargs: Any
+    ) -> Iterator[npt.NDArray[np.int64]]:
+        """Iterate in order, with the first range listed only once a later range is listed."""
+
+        def gated_start(stop: threading.Event) -> Callable[[int, int], Any]:
+            list_range = start_worker(stop)
+
+            def gated_range(start: int, end: int) -> Iterator[npt.NDArray[np.int64]]:
+                if start == 0:
+                    assert later_listed.wait(timeout=THREAD_TIMEOUT)
+                yield from list_range(start, end)
+                if start:
+                    later_listed.set()
+
+            return gated_range
+
+        return iterate_in_order(num_items, num_threads, gated_start, **kwargs)
+
+    monkeypatch.setattr(_fault_search, "iterate_in_order", gated_iterate)
+    # Seven classes of one member each, with flags 4, 5, 6, 7, 1, 2, and 3 and distinct syndromes,
+    # make seven class codewords of fault weight three.  On three threads, a split comes after six
+    # probes.  The root 0, of flags 4, takes four probes for its reduction, a probe for its one bit,
+    # and a probe and a reduction of four probes for each of the three classes after it with bit 2,
+    # so the calling thread lists it alone.  The threads list the six roots of equal weights left in
+    # ranges of two.  The class codeword of classes 1, 3, and 5 is in the first range, and that of
+    # classes 4, 5, and 6, the last, in the second.  Errors on disjoint sets of seven qubits leave
+    # out no fault.
+    flags = [4, 5, 6, 7, 1, 2, 3]
+    syndromes = [1 << jj for jj in range(7)]
+    errors = [0b1111111 << (7 * jj) for jj in range(7)]
+    args = (flags, syndromes, errors, 49, False, 7, 0)
+
+    def check() -> None:
+        checked, _ = _check_faults(_fault_search.FaultLister(*args), 3, ())
+        first, last = 2 | 8 | 32, 16 | 32 | 64
+        assert len(checked) == 7 and checked[-1] == last and first in checked
+        for violating in ((), {first, last}):
+            later_listed.clear()
+            expected = _check_faults(_fault_search.FaultLister(*args), 3, violating)
+            assert _check_faults(_fault_search.FaultLister(*args, 3), 3, violating) == expected
+            assert later_listed.is_set()
+
+    distance_conftest.run_on_a_thread(check, timeout=_COMPILE_TIMEOUT)
+
+
+@pytest.mark.parametrize("split_probes", [1, 200])
+def test_only_costly_listings_move_to_threads(
+    split_probes: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A listing starts threads only once the calling thread has done the work that splits it.
+
+    It also needs as much work left, as estimated from the weights of its roots.  With classes of
+    flags 1 to 7, fault weight three, and three threads, the roots 0 to 6 weigh in proportion to 6,
+    5, 4, 3, 2, 1, and 0, and take 260, 196, 196, 68, 67, 67, and 67 probes of work: 64 for the
+    root, one for each bit of the root and each candidate, and 64 for each class codeword.  A split
+    of the work of three probes comes after the first root, whose work, times 15 for the weight
+    left over 6 for its own, exceeds the split, so the listing starts threads.  A split of 600
+    comes after the first three roots, in ranges of 1 and 2, whose 652 probes, times 6 left over
+    their 15, fall far short of it, so the calling thread lists the other roots too.  Either way,
+    the lister checks the faults of one thread.
+    """
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", split_probes)
+    iterations: list[int] = []
+    iterate_in_order = _fault_search.iterate_in_order
+
+    def count_iterations(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
+        iterations.append(args[0])
+        return iterate_in_order(*args, **kwargs)
+
+    monkeypatch.setattr(_fault_search, "iterate_in_order", count_iterations)
+    flags = [1, 2, 3, 4, 5, 6, 7]
+    syndromes = [1 << jj for jj in range(7)]
+    errors = [0b1111111 << (7 * jj) for jj in range(7)]
+    args = (flags, syndromes, errors, 49, False, 7, 0)
+
+    def check() -> None:
+        expected = _check_faults(_fault_search.FaultLister(*args), 3, ())
+        assert _check_faults(_fault_search.FaultLister(*args, 3), 3, ()) == expected
+
+    distance_conftest.run_on_a_thread(check, timeout=_COMPILE_TIMEOUT)
+    assert bool(iterations) == (split_probes == 1)
+
+
+def test_listing_on_threads_stops_its_threads_when_an_exception_is_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exception raised while threads list, here by the oracle, stops them before it propagates.
+
+    With 35 class codewords of fault weight three, of seven roots, in batches of one class codeword,
+    and one held batch for each thread, the threads cannot finish while the calling thread takes no
+    more, so only closing the listing stops them.
+    """
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
+    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
+    monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
+    monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+    flags = list(range(1, 16))
+    syndromes = [1 << jj for jj in range(15)]
+    errors = [0b1111111 << (7 * jj) for jj in range(15)]
+    lister = _fault_search.FaultLister(flags, syndromes, errors, 105, False, 15, 0, 3)
+
+    def find_violation(syndromes: npt.NDArray[np.uint64], max_weight: int) -> int:
+        raise ValueError("the oracle failed")
+
+    # Record the batches of class tuples, to close them after the check if it fails.
+    batches: list[Generator[npt.NDArray[np.int64], None, None]] = []
+    iter_class_tuples = lister._iter_class_tuples
+
+    def record_batches(fault_weight: int) -> Generator[npt.NDArray[np.int64], None, None]:
+        batches.append(iter_class_tuples(fault_weight))
+        return batches[-1]
+
+    monkeypatch.setattr(lister, "_iter_class_tuples", record_batches)
+
+    def list_faults() -> None:
+        with pytest.raises(ValueError, match="the oracle failed"):
+            try:
+                lister.find_first(3, find_violation)
+            finally:
+                running = [each for each in threading.enumerate() if each.name == "qldpc-search"]
+                for each in batches:
+                    each.close()
+                assert not running
+
+    distance_conftest.run_on_a_thread(list_faults, timeout=_COMPILE_TIMEOUT)
+
+
+def test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads() -> None:
+    """A thread of a listing that reads the tuning through ``get_tuning`` fails.
+
+    ``conftest.py`` here gives the tests of this package the fixture ``check_code_on_threads`` of
+    the distance package, which makes it fail.
+    """
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[object]]:
+        return lambda start, end: iter([_tuning.get_tuning()])
+
+    def iterate() -> None:
+        with pytest.raises(AssertionError, match="get_tuning"):
+            list(_threads.iterate_in_order(2, 2, start_worker))
+
+    distance_conftest.run_on_a_thread(iterate)
+
+
+def test_certifications_list_on_the_threads_of_the_search_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A certification lists faults on the number of threads of the search tuning.
+
+    The circuit of ``test_flagged_circuit_with_permuted_signed_outputs`` in
+    ``fault_propagation_test.py``, without its damaging fault, lists faults up to fault weight
+    three.  With every listing moved to threads, the certificate on three threads is that of one.
+    """
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
+    thread_counts: list[int] = []
+    iterator_thread_counts: list[int] = []
+    fault_lister = _fault_search.FaultLister
+    iterate_in_order = _fault_search.iterate_in_order
+
+    def record_lister(*args: Any, **kwargs: Any) -> _fault_search.FaultLister:
+        thread_counts.append(kwargs["num_threads"])
+        return fault_lister(*args, **kwargs)
+
+    def record_iterator_threads(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
+        iterator_thread_counts.append(args[1])
+        return iterate_in_order(*args, **kwargs)
+
+    monkeypatch.setattr(_fault_search, "FaultLister", record_lister)
+    monkeypatch.setattr(_fault_search, "iterate_in_order", record_iterator_threads)
+    circuit = stim.Circuit()
+    circuit.append("I", range(9))
+    for flag in range(1, 16):
+        for syndrome in (3, 5, 6):
+            targets = [stim.target_x(jj) for jj in range(3) if (syndrome >> jj) & 1]
+            targets += [stim.target_x(5 + jj) for jj in range(4) if (flag >> jj) & 1]
+            circuit.append("CORRELATED_ERROR", targets, 0.001)
+    circuit += stim.Circuit("H 0 1 2\nS 0 2\nX 0")
+    circuit.append("M", range(5, 9))
+    for jj in range(4):
+        circuit.append("DETECTOR", [stim.target_rec(jj - 4)])
+
+    def certify() -> list[circuits.BoundedFaultPropagationCertificate]:
+        certificates = []
+        for num_threads in (1, 3):
+            with _tuning.use_tuning(num_threads=num_threads):
+                certificates.append(
+                    circuits.certify_bounded_fault_propagation(
+                        circuit, output_qubits=[2, 0, 4, 1, 3], post_select=range(4), max_weight=3
+                    )
+                )
+        return certificates
+
+    one, three = distance_conftest.run_on_a_thread(certify, timeout=_COMPILE_TIMEOUT)
+    assert thread_counts == [1, 3]
+    assert iterator_thread_counts and set(iterator_thread_counts) == {3}
+    assert one.certified and one == three
+
+
+def _listing_lister(memory_limit: int) -> _fault_search.FaultLister:
+    """A lister of two members in each of 12 classes with random flags of six bits.
+
+    The syndromes are random and of 12 bits, so that the faults share some syndromes but fill a
+    table of syndromes, and each representative has weight three, so that each fault with a new
+    syndrome is checked.
+    """
+    rng = np.random.default_rng(5)
+    class_flags = rng.choice(np.arange(1, 64), size=12, replace=False).tolist()
+    flags = [int(flag) for flag in class_flags for _ in range(2)]
+    syndromes = [int(syndrome) for syndrome in rng.integers(2**12, size=len(flags))]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    lister = _fault_search.FaultLister(
+        flags, syndromes, representatives, 3 * len(flags), False, len(flags), memory_limit
+    )
+    return lister
+
+
+def test_the_table_of_syndromes_stays_within_the_memory_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The table of syndromes, also while it grows, fits the memory limit, and grows up to it.
+
+    Twelve classes of two members each, with random flags of six bits and random syndromes of 12
+    bits, list 1362 distinct syndromes up to fault weight six.  A syndrome of the 72 output qubits
+    takes two words, and so 40 bytes in the table (see ``FaultLister``), and
+    while the table grows, its old and new rows are both in use.  So, from two rows, the table
+    grows to 1024 rows with room for 1536 syndromes, which also holds the old 512, but not with room
+    for 1535.  After a violation empties the table, it grows again as far.
+    """
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    grow_syndrome_table = _fault_search._grow_syndrome_table
+    sizes: list[int] = []
+
+    def record_growth(
+        syndrome_rows: npt.NDArray[np.uint64], num_syndromes: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+        assert 40 * 3 * len(syndrome_rows) <= memory_limit
+        sizes.append(2 * len(syndrome_rows))
+        return grow_syndrome_table(syndrome_rows, num_syndromes)
+
+    monkeypatch.setattr(_fault_search, "_grow_syndrome_table", record_growth)
+    for room, largest_size in ((1535, 512), (1536, 1024)):
+        memory_limit = 40 * room
+        lister = _listing_lister(memory_limit)
+        for weight in range(2, 7):
+            _check_faults(lister, weight, ())
+        assert max(sizes) == largest_size
+        sizes.clear()
+        _check_faults(lister, 6, set(range(0, 2**12, 31)))
+        _check_faults(lister, 6, ())
+        assert max(sizes) == largest_size
+        sizes.clear()
+
+
+def test_sorting_a_full_array_of_class_codewords_takes_about_as_much_memory_again() -> None:
+    """Sorting ``n`` rows of ``m`` classes takes at most ``(8 m + 16) n`` bytes beyond the rows.
+
+    This is the memory that ``_MAX_ROOT_CODEWORDS`` and the docstring of ``memory_limit`` in
+    ``fault_propagation.py`` state for each thread that lists: an array of ``2**20`` rows of
+    ``8 m`` bytes, and as much again and 16 MiB more to sort it.  tracemalloc does not see the
+    allocations of compiled code, so the test sorts with the Python version of the compiled
+    function.
+    """
+    sort_rows = getattr(_fault_search._sort_rows, "py_func", _fault_search._sort_rows)
+    num_rows = 2**14
+    rng = np.random.default_rng(0)
+    for fault_weight in (3, 6):
+        rows = rng.integers(num_rows, size=(num_rows, fault_weight))
+        expected = sorted(map(tuple, rows.tolist()))
+        was_tracing = tracemalloc.is_tracing()
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            before = tracemalloc.get_traced_memory()[0]
+            sort_rows(rows)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            if not was_tracing:
+                tracemalloc.stop()
+        assert list(map(tuple, rows.tolist())) == expected
+        # Allow a few kilobytes that do not grow with the number of rows.
+        assert peak - before <= num_rows * (8 * fault_weight + 16) + 2**14
+
+
+def test_the_table_of_syndromes_has_room_for_at_most_2_to_the_31_syndromes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The room of the table of syndromes is the memory limit over 40 bytes, at most 2**31.
+
+    A syndrome of two words takes 40 bytes.  The table's slots, twice as many as its rows, must
+    stay within 2**32, as ``_find_syndrome_slot`` needs.
+    """
+    rooms: list[int] = []
+    table_should_grow = _fault_search._table_should_grow
+
+    def record_room(num_syndromes: int, num_rows: int, max_syndromes: int) -> bool:
+        rooms.append(max_syndromes)
+        return table_should_grow(num_syndromes, num_rows, max_syndromes)
+
+    monkeypatch.setattr(_fault_search, "_table_should_grow", record_room)
+    for memory_limit, room in (
+        (40 * 2**31 - 1, 2**31 - 1),
+        (40 * 2**31, 2**31),
+        (40 * 2**31 + 40, 2**31),
+        (2**50, 2**31),
+    ):
+        rooms.clear()
+        _check_faults(_listing_lister(memory_limit), 3, ())
+        assert rooms and set(rooms) == {room}
+
+
+def test_roots_are_weighed_by_the_choices_of_their_other_classes() -> None:
+    """The weights of the roots are in proportion to ``C(q - 1 - r, m - 2)``, and stay finite."""
+    for num_classes, fault_weight in itertools.product(range(12), range(3, 9)):
+        for num_roots in range(num_classes + 1):
+            weights = _fault_search._get_root_weights(num_classes, num_roots, fault_weight)
+            expected = [
+                math.comb(num_classes - 1 - root, fault_weight - 2) for root in range(num_roots)
+            ]
+            scale = math.comb(num_classes - 1, fault_weight - 2) if num_classes else 0
+            if scale:
+                np.testing.assert_allclose(weights * scale, expected, rtol=1e-12)
+            else:
+                assert not weights.any()
+    # About 10**420 choices of the classes of the first root, more than a float holds.
+    weights = _fault_search._get_root_weights(10**4, 3, 200)
+    assert np.isfinite(weights).all() and weights[0] == 1 and 0 < weights[2] < weights[1] < 1
 
 
 def test_key_slots_find_the_first_entry_of_each_key(pytestconfig: pytest.Config) -> None:
@@ -498,18 +1384,28 @@ def test_light_primitive_faults_are_never_searched(monkeypatch: pytest.MonkeyPat
 
 
 def test_max_weight_limits_the_fault_weight() -> None:
-    """Only faults of fault weight at most ``max_weight`` are checked."""
+    """``max_weight``, even one that exceeds 64 bits, limits the fault weight of checked faults."""
     # The only accepted fault is that of all three primitive faults.
-    for max_weight in (None, 30, 2):
-        failure = _certify_map([1, 2, 3], [1, 2, 12], max_weight, 4)
-        assert (failure is None) == (max_weight == 2)
+    failures = {
+        max_weight: _certify_map([1, 2, 3], [1, 2, 12], max_weight, 4)
+        for max_weight in (None, 2**70, 2)
+    }
+    assert failures[2] is None and failures[None] is not None
+    assert failures[2**70] == failures[None]
 
 
-def test_memory_limit_does_not_change_results(pytestconfig: pytest.Config) -> None:
-    """With almost no memory, the search finds the same counterexample as with ample memory."""
+def test_memory_limit_does_not_change_results(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With almost no memory, the search finds the same counterexample as with ample memory.
+
+    The table of syndromes starts with room for two, so that it grows with ample memory, and fills
+    without.
+    """
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first map has flags of rank four, and its only accepted fault has fault weight five and
-    # residual weight six, so that the search finds it with the table of pairs if it fits.
+    # residual weight six.
     maps = [([1, 2, 4, 8, 15], [3, 12, 48, 0, 0])]
     for _ in range(10):
         num_primitives = int(rng.integers(4, 10))

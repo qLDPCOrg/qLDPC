@@ -22,9 +22,17 @@ from qldpc.external import _bliss
 class _FakeGraph:
     """Stand-in for a pybliss graph, which finds its automorphisms by brute force."""
 
-    def __init__(self, colors: npt.NDArray[np.int32], edges: set[tuple[int, int]]) -> None:
-        self.colors = colors
-        self.edges = edges
+    def __init__(self, num_vertices: int) -> None:
+        self.colors = np.zeros(num_vertices, dtype=np.int32)
+        self.edges: set[tuple[int, int]] = set()
+
+    def add_edge(self, vertex: int, neighbor: int) -> None:
+        """Join two vertices."""
+        self.edges.add((min(vertex, neighbor), max(vertex, neighbor)))
+
+    def change_color(self, vertex: int, color: int) -> None:
+        """Color a vertex."""
+        self.colors[vertex] = color
 
     def find_automorphisms(self, stats: object, report: Callable[[int, np.ndarray], None]) -> None:
         """Report every nontrivial permutation within color classes that preserves edges."""
@@ -53,10 +61,11 @@ class _FakeGraph:
 
     def permute(self, perm: npt.NDArray[np.uint32]) -> _FakeGraph:
         """The graph whose vertex perm[v] has the color and edges of vertex v of this graph."""
-        colors = np.empty_like(self.colors)
-        colors[perm] = self.colors
-        edges = {(min(perm[a], perm[b]), max(perm[a], perm[b])) for a, b in self.edges}
-        return _FakeGraph(colors, {(int(a), int(b)) for a, b in edges})
+        graph = _FakeGraph(len(self.colors))
+        graph.colors[perm] = self.colors
+        for vertex, neighbor in self.edges:
+            graph.add_edge(int(perm[vertex]), int(perm[neighbor]))
+        return graph
 
     def cmp(self, other: _FakeGraph) -> int:
         """Zero if the graphs are equal, and one otherwise."""
@@ -67,17 +76,8 @@ class _FakeGraph:
 @pytest.fixture
 def fake_pybliss(monkeypatch: pytest.MonkeyPatch) -> None:
     """Install a controlled stand-in for the optional pybliss package."""
-
-    def graph_from_numpy(
-        num_vertices: int, edges: npt.NDArray[np.int32], colors: npt.NDArray[np.int32]
-    ) -> _FakeGraph:
-        assert len(colors) == num_vertices
-        return _FakeGraph(colors, {(min(map(int, edge)), max(map(int, edge))) for edge in edges})
-
     monkeypatch.setitem(
-        sys.modules,
-        "pybliss",
-        types.SimpleNamespace(graph_from_numpy=graph_from_numpy, Stats=lambda: None),
+        sys.modules, "pybliss", types.SimpleNamespace(Graph=_FakeGraph, Stats=lambda: None)
     )
 
 
@@ -108,6 +108,20 @@ def test_get_matrix_isomorphism(fake_pybliss: None) -> None:
     assert _bliss.get_matrix_isomorphism(matrix_a, np.where(matrix_a == 2, 1, matrix_a)) is None
     assert _bliss.get_matrix_isomorphism(matrix_a, matrix_b[:2]) is None
     assert _bliss.get_matrix_isomorphism(np.array([[1]]), np.array([[2]])) is None
+
+    # rows with one nonzero value each, and a zero row, keep their values and supports
+    matrix_a = np.array([[1, 1, 0], [0, 2, 0], [0, 0, 0]])
+    matrix_b = matrix_a[[2, 0, 1]][:, [2, 0, 1]]
+    perm = _bliss.get_matrix_isomorphism(matrix_a, matrix_b)
+    assert perm is not None
+    for (row, col), value in np.ndenumerate(matrix_a):
+        assert matrix_b[perm[row], perm[3 + col] - 3] == value
+    assert _bliss.get_matrix_isomorphism(matrix_a, np.where(matrix_a, 3 - matrix_a, 0)) is None
+
+    # colors of rows stand in for the values of entries only if each row has one nonzero value, and
+    # rows and columns keep their own colors, which here a transposition would otherwise mix
+    for matrix_a, matrix_b in _get_matrices_without_isomorphisms():
+        assert _bliss.get_matrix_isomorphism(matrix_a, matrix_b) is None
 
 
 def test_is_installed() -> None:
@@ -148,6 +162,14 @@ perm = _bliss.get_matrix_isomorphism(matrix_a, matrix_b)
 assert np.array_equal(matrix_b[perm[:3]][:, [col - 3 for col in perm[3:]]], matrix_a)
 assert _bliss.get_matrix_isomorphism(np.array([[1]]), np.array([[2]])) is None
 assert _bliss.get_matrix_isomorphism(three_valued_matrix, three_valued_matrix % 3) is None
+matrix_a = np.array([[1, 1, 0, 0], [0, 2, 2, 0], [0, 0, 0, 1]])
+matrix_b = matrix_a[[1, 2, 0]][:, [1, 2, 3, 0]]
+perm = _bliss.get_matrix_isomorphism(matrix_a, matrix_b)
+assert np.array_equal(matrix_b[perm[:3]][:, [col - 3 for col in perm[3:]]], matrix_a)
+assert _bliss.get_matrix_isomorphism(matrix_a, np.where(matrix_a, 3 - matrix_a, 0)) is None
+assert _bliss.get_matrix_isomorphism(np.array([[1, 2], [1, 2]]), np.array([[1, 2], [2, 1]])) is None
+matrix_a = np.array([[1, 1, 1], [1, 0, 0], [0, 1, 0]])
+assert _bliss.get_matrix_isomorphism(matrix_a, np.array([[1, 1, 0], [0, 1, 1], [0, 1, 0]])) is None
 """
 
 
@@ -169,3 +191,16 @@ def _get_cycled_matrices() -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]:
     """A 3 x 4 matrix with no nontrivial automorphisms, and its rows and columns cycled."""
     matrix = np.array([[1, 2, 0, 0], [0, 1, 1, 0], [2, 0, 0, 0]])
     return matrix, matrix[[1, 2, 0]][:, [1, 2, 3, 0]]
+
+
+def _get_matrices_without_isomorphisms() -> list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
+    """Pairs of matrices without isomorphisms, which simplified graphs of matrices would miss.
+
+    The rows of the first pair have two values each.  In the second pair, the transpose of the first
+    matrix, with its first two columns swapped, is the second, but no isomorphism maps rows to rows.
+    """
+    matrix = np.array([[1, 1, 1], [1, 0, 0], [0, 1, 0]])
+    return [
+        (np.array([[1, 2], [1, 2]]), np.array([[1, 2], [2, 1]])),
+        (matrix, np.array([[1, 1, 0], [0, 1, 1], [0, 1, 0]])),
+    ]

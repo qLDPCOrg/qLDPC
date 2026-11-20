@@ -131,10 +131,13 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
     while line := input():
         lines.append(line)
 
-    # identify permutations in the output
+    # identify permutations in the output; MAGMA lists no generators of a trivial group
+    output = "\n".join(lines)
     one_cycle_pattern = r"\((?:\d|,\s+)+\)"
     permutation_pattern = rf"(?:{one_cycle_pattern})+"
-    permutations = re.findall(permutation_pattern, "\n".join(lines), re.DOTALL)
+    permutations = re.findall(permutation_pattern, output, re.DOTALL)
+    if not permutations and re.search(r"^\s*Order = 1\s*$", output, re.MULTILINE):
+        permutations = ["()"]
     if not permutations:
         raise ValueError("Invalid MAGMA output")
 

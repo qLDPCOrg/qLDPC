@@ -43,8 +43,8 @@ def get_nested_distance_brute_force(
 
 
 def _get_distance_brute_force(
-    logical_ops: npt.ArrayLike,
-    stabilizers: npt.ArrayLike,
+    logical_ops: npt.NDArray[np.uint8],
+    stabilizers: npt.NDArray[np.uint8],
     *,
     cutoff: int,
     batch_exponent: int,
@@ -72,15 +72,15 @@ def _get_distance_brute_force(
         the result is one more than the number of qubits if symplectic, and otherwise than the
         number of columns.
     """
-    num_bits = np.shape(logical_ops)[-1]
+    num_bits = logical_ops.shape[-1]
 
-    weight_func = symplectic_weight if symplectic else np.bitwise_count
+    weight_func = _get_riffled_weights if symplectic else np.bitwise_count
     if symplectic:
         logical_ops = riffle(logical_ops)
         stabilizers = riffle(stabilizers)
 
-    int_logical_ops = pack_bits(np.asarray(logical_ops, dtype=np.uint8))
-    int_stabilizers = pack_bits(np.asarray(stabilizers, dtype=np.uint8))
+    int_logical_ops = pack_bits(logical_ops)
+    int_stabilizers = pack_bits(stabilizers)
     num_stabilizers = len(int_stabilizers)
 
     # Vectorize over as many generators as keep a batch within ``2**batch_exponent`` packed
@@ -155,19 +155,6 @@ def _get_distance_brute_force(
 # weights of riffled words, and array helpers
 
 
-def symplectic_weight(
-    words: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
-) -> npt.NDArray[np.uint64]:
-    """Count the qubits in the support of each riffled word, in which aligned bit pairs hold qubits.
-
-    The result is uint64, and written into ``out`` if it is given.
-    """
-    out = np.right_shift(words, 1, out=out)
-    out |= words
-    out &= _MASK55
-    return np.bitwise_count(out, out=out)
-
-
 def inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     """Compute ``arr.sum(-1)`` into ``arr[..., 0]``, and return that view.
 
@@ -182,12 +169,24 @@ def inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     return arr[..., 0]
 
 
-def riffle(array: npt.ArrayLike) -> npt.ArrayLike:
+def riffle(array: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Riffle Pauli strings, putting the X and Z support bits of each qubit next to each other."""
-    arr = np.asarray(array)
-    num_bits = arr.shape[-1]
+    num_bits = array.shape[-1]
     assert num_bits % 2 == 0
-    if arr.size == 0:
+    if array.size == 0:
         # There is nothing to riffle, such as when there are no stabilizers.
-        return np.empty((0, num_bits), dtype=arr.dtype)
-    return np.reshape(arr, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)
+        return np.empty((0, num_bits), dtype=array.dtype)
+    return np.reshape(array, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)
+
+
+def _get_riffled_weights(
+    words: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
+) -> npt.NDArray[np.uint64]:
+    """Count the qubits in the support of each riffled word, in which aligned bit pairs hold qubits.
+
+    The result is uint64, and written into ``out`` if it is given.
+    """
+    out = np.right_shift(words, 1, out=out)
+    out |= words
+    out &= _MASK55
+    return np.bitwise_count(out, out=out)

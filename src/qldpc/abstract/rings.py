@@ -198,7 +198,10 @@ class Ring(abc.ABC):
     def _check_same_ring(self, other: Ring) -> None:
         """Raise a ValueError unless another ring equals this ring."""
         if other != self:
-            raise ValueError("Cannot combine members of different rings")
+            raise ValueError(
+                f"Cannot combine members of different rings: {_ring_difference(self, other)}."
+                "  Construct every member from the same ring's one, basis, or generators."
+            )
 
     def _format(self, member: RingMember) -> str:
         """Write a ring member as a sum of basis elements, such as ``2 e_1 + e_3``."""
@@ -1160,6 +1163,23 @@ class RingMember:
         for value, label in terms:
             ring_member._vec[label] += ring_member.field(value)
         return ring_member
+
+
+def _ring_difference(ring: Ring, other: Ring) -> str:
+    """Say how two unequal rings differ, for error messages."""
+    if ring.field is not other.field:
+        return (
+            f"one over {_describe_field(ring.field)}, and one over {_describe_field(other.field)}"
+        )
+    if isinstance(ring, GroupRing) and isinstance(other, GroupRing):
+        if ring.group.order != other.group.order:
+            return f"group algebras of groups of orders {ring.group.order} and {other.group.order}"
+        if not ring.group.equiv(other.group):
+            return "group algebras whose groups have different members or generators"
+        return "group algebras whose group members have different matrix lifts"
+    if ring.name != other.name:
+        return f"{ring.name}, and {other.name}"
+    return f"two rings named '{ring.name}' with different bases"
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations

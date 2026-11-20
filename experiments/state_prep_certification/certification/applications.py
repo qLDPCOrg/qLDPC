@@ -302,21 +302,35 @@ def circuit_text(circuit: stim.Circuit) -> str:
 def _check_deletion(
     child: stim.Circuit, entry: dict[str, Any], noise: dict[str, Any], options: dict[str, Any]
 ) -> dict[str, Any]:
-    """The outcome of one deletion: accepted, or the reason for its rejection."""
-    stabilizers = qldpc_circuits.get_state_stabilizers(child, entry["output_qubits"])
-    texts = [str(stabilizer) for stabilizer in stabilizers]
-    if len(texts) != len(entry["output_qubits"]) or not circuits.same_state(
-        entry["stabilizers"], texts
-    ):
-        return {"outcome": "target changed"}
+    """The outcome of one deletion: accepted, or the reason for its rejection.
+
+    The reason is the first check that fails: of the prepared state, the detectors, then the bound.
+    The state is checked from the certificate's stabilizers, so that they are not found twice.
+    They equal the child's own: the certifier finds them with any flag detectors added, and accepts
+    only deterministic detectors, which add no stabilizers.  If the certifier raises a ValueError,
+    the state is checked from the child.
+    """
     try:
         certificate = _certify(child, noise, options, "brouwer_zimmermann")
     except ValueError as error:
+        stabilizers = qldpc_circuits.get_state_stabilizers(child, entry["output_qubits"])
+        if not _prepares_target(stabilizers, entry):
+            return {"outcome": "target changed"}
         return {"outcome": "detectors rejected", "reason": str(error)[:300]}
+    if not _prepares_target(certificate.state_stabilizers, entry):
+        return {"outcome": "target changed"}
     example = certificate.counterexample
     if example is None:
         return {"outcome": "accepted"}
     return {"outcome": "violation", "violation_weight": len(example.fault_indices)}
+
+
+def _prepares_target(stabilizers: Any, entry: dict[str, Any]) -> bool:
+    """Whether stabilizers of a prepared state give the parent's signed state, ``entry``'s."""
+    texts = [str(stabilizer) for stabilizer in stabilizers]
+    return len(texts) == len(entry["output_qubits"]) and circuits.same_state(
+        entry["stabilizers"], texts
+    )
 
 
 def _certify(

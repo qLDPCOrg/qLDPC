@@ -130,6 +130,39 @@ def test_get_inverse() -> None:
         binary.get_inverse(matrix[:-1])
 
 
+def test_rank_and_row_reduction_stop_at_max_rank() -> None:
+    """A rank is capped at ``max_rank``, and a reduction that it stops finds the first pivots."""
+    matrix = np.random.default_rng(6).integers(0, 2, (6, 70), dtype=np.uint8)
+    matrix[-1] = matrix[0] ^ matrix[1]
+    rank = np.linalg.matrix_rank(galois.GF2(matrix))
+    packed, labels, columns = binary.pack_bits(matrix), np.empty((6, 0), np.uint64), np.arange(70)
+    _, _, pivots = binary.row_reduce_packed(packed, labels, columns)
+    for max_rank in (0, 2, rank, rank + 1):
+        assert binary.get_rank_packed(packed, max_rank) == min(rank, max_rank)
+        _, _, first_pivots = binary.row_reduce_packed(packed, labels, columns, max_rank)
+        np.testing.assert_array_equal(first_pivots, pivots[:max_rank])
+
+
+####################################################################################################
+# packed rows as Python integers
+
+
+def test_rows_pack_into_integers_and_back(pytestconfig: pytest.Config) -> None:
+    """Entry ``j`` of a row is bit ``j`` of its integer, which splits back into its packed words.
+
+    A row of ``n`` bits packs into ``ceil(n / 64)`` words.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    matrix = rng.integers(0, 2, (5, 130), dtype=np.uint8)
+    values = binary.row_ints(matrix)
+    assert values == tuple(sum(int(bit) << jj for jj, bit in enumerate(row)) for row in matrix)
+    packed = binary.pack_bits(matrix)
+    assert [binary.get_num_words(num_bits) for num_bits in (0, 1, 64, 65)] == [0, 1, 1, 2]
+    for row, value in zip(packed, values, strict=True):
+        assert binary.words_to_int(row) == value
+        np.testing.assert_array_equal(binary.int_to_words(value, packed.shape[1]), row)
+
+
 ####################################################################################################
 # native word intrinsics
 

@@ -57,7 +57,7 @@ class LPCode(CSSCode):
 
     If the ring is the group algebra of an abelian group whose members lift to permutation matrices,
     translating every block of qudits by the same group member maps the checks of each type onto
-    themselves, so LPCode.get_known_qudit_automorphism_group includes these translations.
+    themselves, so LPCode.get_known_permutation_automorphism_group includes these translations.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -282,7 +282,7 @@ class LPCode(CSSCode):
 
         return lifted_ops_x, lifted_ops_z
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Translations of every block of qudits, or None (see _get_lifted_block_translations)."""
         return _get_lifted_block_translations(self.matrix_a.ring, len(self))
 
@@ -294,9 +294,9 @@ class SLPCode(CSSCode):
     That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See
     help(qldpc.codes.LPCode) for additional information.  The ring of an SLPCode must satisfy
     requirements 1 and 2 of an LPCode.  ``set_logicals`` is as for :class:`LPCode`.  As for an
-    LPCode, SLPCode.get_known_qudit_automorphism_group includes the translations of every block of
-    qudits by the same group member if the ring is the group algebra of an abelian group whose
-    members lift to permutation matrices.
+    LPCode, SLPCode.get_known_permutation_automorphism_group includes the translations of every
+    block of qudits by the same group member if the ring is the group algebra of an abelian group
+    whose members lift to permutation matrices.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by::
@@ -404,7 +404,7 @@ class SLPCode(CSSCode):
         """
         return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Translations of every block of qudits, or None (see _get_lifted_block_translations)."""
         return _get_lifted_block_translations(self.matrix_a.ring, len(self))
 

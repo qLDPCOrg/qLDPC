@@ -12,6 +12,9 @@ matrix with one uint8 entry per bit, are compiled with ``always_compiled`` from
 code, ``popcount_word`` and ``trailing_zeros_word`` become single LLVM instructions.  The functions
 ``row_reduce_binary``, ``get_independent_rows``, and ``get_kernel`` are Python-level wrappers for
 binary matrices with one uint8 entry per bit, which pack and unpack around the compiled functions.
+``row_ints`` packs the rows of a binary matrix into Python integers, and ``words_to_int`` and
+``int_to_words`` convert packed rows to and from them, with bit ``j`` of a row in bit ``j`` of its
+integer.  ``get_num_words`` counts the words of a packed row.
 
 NumPy has no linear algebra over GF(2), and ``galois`` provides it only for unpacked arrays at the
 Python level.  NumPy's ``packbits`` and ``bitwise_count`` resemble ``pack_bits`` and
@@ -36,6 +39,9 @@ if TYPE_CHECKING:
     from numba.core.base import BaseContext
     from numba.core.typing.context import BaseContext as TypingContext
     from numba.core.typing.templates import Signature
+
+# The default ``max_rank`` of ``row_reduce_packed`` and ``get_rank_packed``, which no rank reaches.
+_NO_RANK_LIMIT = 2**63 - 1
 
 ####################################################################################################
 # linear algebra of unpacked binary matrices
@@ -134,23 +140,30 @@ def unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.ui
 
 @always_compiled
 def row_reduce_packed(
-    rows: npt.NDArray[np.uint64], labels: npt.NDArray[np.uint64], columns: npt.NDArray[np.int64]
+    rows: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    columns: npt.NDArray[np.int64],
+    max_rank: int = _NO_RANK_LIMIT,
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
     """Row-reduce packed rows over the given columns, transforming packed labels in parallel.
 
-    This is ``row_reduce_binary`` on packed rows, without its checks and defaults: every column must
-    be in range, and ``labels`` must have one row per row of ``rows``, with no words if there are no
-    labels.  The inputs are not modified.  Returns the reduced rows and labels, and the pivot
-    columns.  Rows after the pivot rows vanish on the given columns, so if the columns are
-    ``0, 1, ..., width - 1`` in order, ``reduced[: len(pivots)]`` is the reduced row echelon form
-    without zero rows.
+    This is ``row_reduce_binary`` on packed rows, without its checks or its defaults for ``labels``
+    and ``columns``: every column must be in range, and ``labels`` must have one row per row of
+    ``rows``, with no words if there are no labels.  The inputs are not modified.  Returns the
+    reduced rows and labels, and the pivot columns.  Rows after the pivot rows vanish on the given
+    columns, so if the columns are ``0, 1, ..., width - 1`` in order, ``reduced[: len(pivots)]`` is
+    the reduced row echelon form without zero rows.
+
+    ``max_rank``, which must be nonnegative, caps the number of pivots; by default there is no cap.
+    The pivots found are the first ones of the full reduction.  A reduction that the cap stops
+    promises only these pivots, not its rows or labels.
     """
     words, tags = rows.copy(), labels.copy()
     num_rows = len(words)
-    pivots = np.empty(min(num_rows, len(columns)), dtype=np.int64)
+    pivots = np.empty(min(num_rows, len(columns), max_rank), dtype=np.int64)
     rank = 0
     for column in columns:
-        if rank == num_rows:
+        if rank == len(pivots):
             break
         word = column // 64
         bit = np.uint64(1) << np.uint64(column % 64)
@@ -223,10 +236,14 @@ def multiply_packed(
 
 
 @always_compiled
-def get_rank_packed(rows: npt.NDArray[np.uint64]) -> int:
-    """Return the rank of packed rows over GF(2)."""
+def get_rank_packed(rows: npt.NDArray[np.uint64], max_rank: int = _NO_RANK_LIMIT) -> int:
+    """Return the rank of packed rows over GF(2), or ``max_rank`` if that is smaller.
+
+    ``max_rank`` must be nonnegative.  The function stops row-reducing once it finds that many
+    pivots, so a small ``max_rank`` saves time.
+    """
     labels = np.empty((len(rows), 0), dtype=np.uint64)
-    _, _, pivots = row_reduce_packed(rows, labels, np.arange(64 * rows.shape[1]))
+    _, _, pivots = row_reduce_packed(rows, labels, np.arange(64 * rows.shape[1]), max_rank)
     return len(pivots)
 
 
@@ -245,6 +262,30 @@ def get_inverse(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     if len(pivots) < size:
         raise ValueError("The matrix is not invertible over GF(2)")
     return unpack_bits(inverse, size)
+
+
+####################################################################################################
+# packed rows: word counts and Python integers
+
+
+def get_num_words(num_bits: int) -> int:
+    """The number of 64-bit words that hold ``num_bits`` bits, as in a row of ``pack_bits``."""
+    return (num_bits + 63) // 64
+
+
+def row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
+    """Pack each row of a binary matrix into an integer, with entry ``j`` in bit ``j``."""
+    return tuple(map(words_to_int, pack_bits(matrix)))
+
+
+def words_to_int(row: npt.NDArray[np.uint64]) -> int:
+    """Convert a row of 64-bit words into an integer, with word ``j`` in bits ``64 j`` and up."""
+    return sum(int(word) << (64 * jj) for jj, word in enumerate(row))
+
+
+def int_to_words(value: int, num_words: int) -> npt.NDArray[np.uint64]:
+    """Split an integer into ``num_words`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
+    return np.frombuffer(value.to_bytes(8 * num_words, "little"), dtype="<u8").astype(np.uint64)
 
 
 ####################################################################################################
