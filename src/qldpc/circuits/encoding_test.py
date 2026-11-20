@@ -190,28 +190,29 @@ def test_state_stabilizers_of_invalid_qubits(qubits: list[int] | int) -> None:
 
 
 def test_state_stabilizer_failure_regressions() -> None:
-    """Exercise row-space, detector-parity, noisy-sign, and zero-logical edge cases."""
+    """Exercise row-space, qubit-order, detector-parity, noisy-sign, and zero-logical cases."""
     ghz = circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), [0, 1])
     assert stim.PauliString("+XX") in ghz
     assert stim.PauliString("+ZZ") in ghz
 
     # The only stabilizer of this rotated GHZ state on qubits 1 and 2 is X1 Z2, the product of Z0 X1
-    # and Z0 Z2, so finding it requires eliminating qubit 0 from the stabilizers.  Requested in
-    # reverse order, it is Z2 X1.
+    # and Z0 Z2, so finding it requires eliminating qubit 0 from the stabilizers.  Requested as
+    # [2, 1], it is returned as ZX, since position i refers to qubits[i].
     rotated_ghz = stim.Circuit("H 0\nCX 0 1 0 2\nH 1")
     assert circuits.get_state_stabilizers(rotated_ghz, [1, 2]) == [stim.PauliString("+XZ")]
     assert circuits.get_state_stabilizers(rotated_ghz, [2, 1]) == [stim.PauliString("+ZX")]
 
-    # a count of zero requested qubits is valid, and gives no stabilizers
+    # the integer 0 requests no qubits, and gives no stabilizers
     assert circuits.get_state_stabilizers(rotated_ghz, 0) == []
 
     repeated_detector = stim.Circuit("H 0\nM 0\nDETECTOR rec[-1] rec[-1]")
     assert circuits.get_state_stabilizers(repeated_detector, [0]) == []
 
+    # noise is dropped, so every run gives +Z
     noisy_signs = [
         circuits.get_state_stabilizers(stim.Circuit("X_ERROR(0.5) 0"), [0]) for _ in range(20)
     ]
-    assert all(signs == [stim.PauliString("+Z")] for signs in noisy_signs)
+    assert noisy_signs == [[stim.PauliString("+Z")]] * 20
 
     zero_logical = codes.TrivialCode(1, num_stabs_x=1)
     assert circuits.get_logical_state_stabilizers(zero_logical, stim.Circuit("R 0")) == []
@@ -241,9 +242,10 @@ def test_state_stabilizer_signs_must_be_determined() -> None:
     with pytest.raises(ValueError, match=r"stabilizer Z2 .*detectors \[1\]"):
         circuits.get_state_stabilizers(circuit, [2])
 
-    # Each round's random outcome flips qubit 1, so the sign of Z1 is the parity of three random
-    # detectors.  From three repetitions on, Stim keeps the REPEAT block in the detector error model
-    # instead of unrolling it, so this case checks that the gauges inside the block are found.
+    # Each round's random outcome flips qubit 1 when it is 1, so the sign of Z1 is the parity of
+    # three random detectors.  From three repetitions on, Stim keeps the REPEAT block in the
+    # detector error model instead of unrolling it, so this case checks that the random detectors
+    # inside the folded block are all found.
     circuit = stim.Circuit("REPEAT 3 {\n    H 0\n    CX 0 1\n    MR 0\n    DETECTOR rec[-1]\n}")
     with pytest.raises(ValueError, match=r"stabilizer Z1 .*detectors \[0, 1, 2\]"):
         circuits.get_state_stabilizers(circuit, [1])
@@ -286,7 +288,9 @@ def test_state_stabilizers_ignore_observables(
     """Ignore observables, even random ones, which Stim's detector error model rejects.
 
     In the last case, the final feedback leaves qubit 1 flipped by the random result of the first
-    round, so Z1 has no fixed sign.  Running the REPEAT block once would give +Z instead.
+    round, so Z1 has no fixed sign.  This checks that removing the observables keeps the block's
+    repeat count: with one repetition, the detector error model would see no random outcome
+    reaching Z1, and Z1 would be returned with a random sign.
     """
     stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
     assert stabilizers == [stim.PauliString(string) for string in expected]
