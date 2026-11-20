@@ -187,9 +187,12 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
      The search of a sector can hold a lighter witness from its setup, which joins `U` only after the probe advances that search.
    - Before each limit whose expected work exceeds `auto_free_work`, starting with the limit that ended the free phase, `_should_switch` may switch to a BZ search with the full tuning and the upper bound `U`.
      The level of a limit is the weight that it certifies, one weight divisor above it.
-     The search switches only while its work grows faster per unit of weight than BZ's would at the level of its next limit.
-     It then switches if its spent and projected work exceeds the estimated work of BZ, to certify that level or to reach `U`.
-     A search has a growth only after two limits without a witness, so it cannot switch before then.
+     The search switches if its spent and projected work to certify the level of its next limit exceeds the estimated work of BZ.
+     Otherwise, it switches if its spent and projected work to reach `U` exceeds that of BZ, but only while the search of its next limit grows faster per unit of weight than BZ's would at the level of that limit.
+     The projection to `U` extrapolates that growth over every limit below `U`, so it calls for a switch only while the growth test agrees.
+     The comparison at the level projects only up to the level of the next limit, and needs no growth test.
+     The search can switch only once the search of its next limit has a growth, which takes at least two limits without a witness.
+     Before that, a first limit that `cutoff` raises has the prediction `MAX_VALUE - 1`, which says nothing about its cost, and after one limit the prediction assumes no growth.
      So a search with a cutoff, whose first limit is the cutoff, runs through it and one more limit before it can switch.
      With a cutoff within about two weight divisors of the distance, it may never switch.
 
@@ -218,6 +221,7 @@ The known ways for the rule to lose are these:
 - A classical code of high relative distance whose space exceeds `auto_brute_force_max_words` takes BZ, which can be slower than enumerating it, as on a BCH code of length 127 and dimension 29, on which BZ takes about 1.4 times as long on one thread.
 - A quantum code on which BZ is much faster pays for the connected-cluster search up to the switch, the probe, and the setup of a BZ search that starts again, since the switch discards the probe.
 - A quantum code on which the connected-cluster search would win switches to BZ if the estimates make BZ look cheaper than it is, as when a basis has columns that its information sets cannot cover evenly.
+  The comparison at the level of the next limit does not ask for faster growth, so such an estimate alone can make it switch.
 - A search with a cutoff near the distance may never switch (see above).
   It then pays for the whole connected-cluster search unless its probe finishes.
 
