@@ -214,8 +214,9 @@ def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPat
     with pytest.raises(ValueError, match=r"stabilizer Z[12] .*detectors \[0\]"):
         circuits.get_state_stabilizers(measured_ghz, [1, 2])
 
-    # The error names the random detector by its index in the circuit, after a deterministic
-    # detector, which the simulation route leaves out of its matrix.
+    # Here a deterministic detector precedes the random one.  The simulation route leaves the
+    # deterministic one out of its matrix, but the error still names the random one by its index in
+    # the circuit.
     circuit = stim.Circuit("M 0\nDETECTOR rec[-1]\nH 1\nCX 1 2\nM 1\nDETECTOR rec[-1]")
     for force_flows in [False, True]:
         with monkeypatch.context() as context:
@@ -330,14 +331,19 @@ def test_state_stabilizers_with_repeated_reset_measurements(
 ) -> None:
     """Both routes handle MR, MRX, and MRY with a repeated target, whose flows Stim gets wrong.
 
-    After ``H 0; CX 0 1``, the first result of ``MR 0 0`` is random.  It gives the sign of Z on
-    qubit 1.  The second result is 0, so a detector on it is deterministic.  So only Z on the
-    untouched qubit 2 has a fixed sign.  A detector on the first result instead leaves the sign of
-    Z on qubit 1 undetermined.  MRX and MRY act alike in their own bases.  So does the first
-    ``MR 0 0`` of a REPEAT block, which takes the flows route either way.  In ``MR 0; MR[t] 0 0``,
-    the first result is random and the rest are 0.  Stim's flows of ``MR 0 0`` attribute the first
-    result to the second (https://github.com/quantumlib/Stim/issues/1109).  That would tie the sign
-    of Z on qubit 1 to a detector on the second result, and raise an error for it.
+    Stim's flows of ``MR 0 0`` attribute the first result to the second
+    (https://github.com/quantumlib/Stim/issues/1109).  After ``H 0; CX 0 1``, that would tie the
+    sign of Z on qubit 1 to a detector on the second result, and raise an error for it.
+
+    In fact, the first result of ``MR 0 0`` is random, and gives the sign of Z on qubit 1.  The
+    second result is 0, so a detector on it is deterministic.  So only Z on the untouched qubit 2
+    has a fixed sign.  A detector on the first result instead leaves the sign of Z on qubit 1
+    undetermined.
+
+    MRX and MRY act alike in their own bases.  So does the first ``MR 0 0`` of a REPEAT block,
+    which takes the flows route either way.  In ``MR 0; MR[t] 0 0``, the first result is random and
+    the rest are 0.  This case guards against the single-target pieces of ``MR[t] 0 0`` merging
+    with the preceding ``MR 0`` into another repeated-target MR.
     """
     for force_flows in [False, True]:
         with monkeypatch.context() as context:

@@ -26,7 +26,8 @@ from .transforms import with_remapped_qubits
 #     gauge detectors allowed;
 #   - REPEAT blocks, classically controlled gates, and inverted result targets, such as M !0,
 #     which simulation has not been compared on yet;
-#   - MPAD, which without_noise makes of heralded noise, and which has not been compared on yet;
+#   - MPAD, which stim.Circuit.without_noise puts in place of heralded noise, and which has not
+#     been compared on yet;
 #   - pair measurements, such as MXX, and SPP, which have not been compared on yet;
 #   - any other instruction, such as Clifford gates missing from this list, for the same reason.
 _SIMULATED_INSTRUCTIONS = frozenset(
@@ -583,25 +584,25 @@ def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
     another.  The issue also gives MPAD wrong flows, but they differ only in sign, which
     get_state_stabilizers ignores, so MPAD needs no split.  TICK instructions before, between, and
     after the single-target instructions stop Stim from merging them with each other or with their
-    neighbors, and the single-target instructions keep the original tag.  The measurements keep
-    their order.
+    neighbors.  The single-target instructions keep the original tag, so that the split circuit
+    carries the same tags.  The measurements keep their order.  A circuit with nothing to split is
+    returned unchanged.
 
     Once qLDPC requires a stim release that fixes this issue, delete this function, its call in
     _get_fixed_parities_by_flows, and the cases of
     test_state_stabilizers_with_repeated_reset_measurements that only it needs, such as the tagged
     MR and the REPEAT block.
     """
+    if not any(_repeats_reset_target(instruction) for instruction in circuit):
+        return circuit
     split_circuit = stim.Circuit()
     for instruction in circuit:
         if isinstance(instruction, stim.CircuitRepeatBlock):
             body = _split_repeated_reset_measurements(instruction.body_copy())
             split_circuit.append(stim.CircuitRepeatBlock(instruction.repeat_count, body))
-            continue
-        targets = instruction.targets_copy()
-        qubits = [target.value for target in targets]
-        if instruction.name in ("MR", "MRX", "MRY") and len(set(qubits)) < len(qubits):
+        elif _repeats_reset_target(instruction):
             split_circuit.append("TICK")
-            for target in targets:
+            for target in instruction.targets_copy():
                 split_circuit.append(
                     instruction.name, [target], instruction.gate_args_copy(), tag=instruction.tag
                 )
@@ -609,6 +610,14 @@ def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
         else:
             split_circuit.append(instruction)
     return split_circuit
+
+
+def _repeats_reset_target(instruction: stim.CircuitInstruction | stim.CircuitRepeatBlock) -> bool:
+    """Whether an instruction is, or a REPEAT block holds, an MR, MRX, or MRY repeating a target."""
+    if isinstance(instruction, stim.CircuitRepeatBlock):
+        return any(_repeats_reset_target(inner) for inner in instruction.body_copy())
+    qubits = [target.value for target in instruction.targets_copy()]
+    return instruction.name in ("MR", "MRX", "MRY") and len(set(qubits)) < len(qubits)
 
 
 def _get_logical_tableau_from_code_data(
