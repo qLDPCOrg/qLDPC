@@ -9,9 +9,9 @@ a table of these costs beside the field that gates each step, in seconds and in 
 field (``in units``), to compare with the default of the field.  A second table gives, by field,
 each cost rounded as ``round_to_grid`` does (``derived``) beside the default.  The script then
 measures the coefficients of the cost model of completion tables on the searches of
-``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which together can take hours.  It
-prints each coefficient, under ``measured``, beside its default.  The functions of this script say
-how it measures each cost.  The script sets no value.
+``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which together take about three
+hours.  It prints each coefficient, under ``measured``, beside its default.  The functions of this
+script say how it measures each cost.  The script sets no value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
@@ -117,8 +117,9 @@ LINEAR_PROGRAMS = (
 )
 
 # The cost data set, on which the script measures the coefficients of the cost model of completion
-# tables, and how many times it traces each search under each tuning.
-COST_DATA_SET = ("distance/bb288/X", "distance/pp232/X", "distance/pp170/X", "distance/pp276/X")
+# tables, and how many times it traces each search under each tuning.  Its searches build tables of
+# 28 to 113 MiB, and each of their traces with tables disabled ends within about 20 minutes.
+COST_DATA_SET = ("distance/pp232/X", "distance/pp170/X", "distance/qt7/X")
 COST_MODEL_REPEATS = 3
 
 # The tunings of the traces of the cost data set.
