@@ -191,6 +191,17 @@ def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.Monk
         circuits.get_state_stabilizers(stim.Circuit("H 0"), [0])
 
 
+@pytest.mark.parametrize("qubits", [[0, 1, 0], [-1]])
+def test_state_stabilizers_of_invalid_qubits(qubits: list[int]) -> None:
+    """Requested qubits must be nonnegative and distinct.
+
+    Position i of a returned string refers to qubits[i], so with qubits [0, 1, 0] after
+    ``H 0; CX 0 1``, a returned XXX would stand for X0 X1 X0 = X1, which is not a stabilizer.
+    """
+    with pytest.raises(ValueError, match="nonnegative and distinct"):
+        circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), qubits)
+
+
 def test_state_stabilizer_failure_regressions() -> None:
     """Exercise row-space, detector-parity, noisy-sign, and zero-logical edge cases."""
     ghz = circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), [0, 1])
@@ -284,7 +295,6 @@ def test_state_stabilizers_match_flows() -> None:
         instruction.name in ("MR", "MRX", "MRY") and _repeats_target(instruction)
         for instruction in instructions
     )
-    assert any(len(set(qubits)) < len(qubits) for _, qubits in cases)
 
     # compare with flows
     outcomes = []
@@ -375,17 +385,15 @@ def test_get_logical_tableau_from_code_data() -> None:
 
 
 def _get_random_state_prep_circuit(rng: np.random.Generator) -> tuple[stim.Circuit, list[int]]:
-    """A random circuit, and a random list of qubits to request.
+    """A random circuit, and a random list of distinct qubits to request.
 
     The requested qubits come in a random order, and may include a qubit that the circuit leaves
-    untouched, or a repeated qubit.
+    untouched.
     """
     num_qubits = int(rng.integers(2, 6))
     circuit = _get_random_circuit(rng, num_qubits, num_measurements_before=0, in_repeat_block=False)
     num_requested = int(rng.integers(0, num_qubits + 2))
     requested = rng.choice(num_qubits + 1, size=num_requested, replace=False).tolist()
-    if requested and rng.random() < 0.1:
-        requested.append(requested[0])
     return circuit, requested
 
 

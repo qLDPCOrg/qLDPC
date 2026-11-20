@@ -205,6 +205,7 @@ def get_state_stabilizers(
         the requested-qubit frame: position ``i`` refers to ``qubits[i]`` in the input circuit.
 
     Raises:
+        ValueError: If a requested qubit is negative or repeated.
         ValueError: If the sign of a stabilizer on the requested qubits depends on detectors whose
             combined outcome is random, as for Z on qubit 1 after
             ``H 0; CX 0 1; M 0; DETECTOR rec[-1]``.
@@ -212,6 +213,8 @@ def get_state_stabilizers(
     state_qubits = (
         np.arange(qubits, dtype=int) if isinstance(qubits, int) else np.asarray(qubits, dtype=int)
     )
+    if np.any(state_qubits < 0) or len(np.unique(state_qubits)) < len(state_qubits):
+        raise ValueError(f"The requested qubits must be nonnegative and distinct, not {qubits}")
 
     # reset every qubit, including requested qubits that the circuit leaves untouched in |0>
     num_qubits = max(state_prep_circuit.num_qubits, int(state_qubits.max(initial=-1)) + 1)
