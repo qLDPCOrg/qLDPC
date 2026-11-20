@@ -349,10 +349,13 @@ A root is never split between threads, so a listing with fewer start classes tha
 The calling thread first lists the first roots alone, however costly the first one is, in ranges of 1, 2, 4, and more roots, until it has done `2^18` probes of work for each thread.
 If the work left, estimated as its work times the ratio of the weights of the other roots to those of its own, is less than `2^18` probes for each thread, it lists the other roots alone too.
 Otherwise the listing is costly, and the other roots move to threads.
-On `n` threads, `iterate_in_order` in `qldpc/codes/distance/_threads.py` splits the roots that move to threads into ranges, each of the fewest roots whose weights reach `1 / (32 t)` of those of all these roots, for `t = min(n - 1, number of these roots)` threads.
+On `n` threads, `iterate_in_order` in `qldpc/codes/distance/_threads.py` splits the roots that move to threads into ranges, each of the fewest roots whose weights reach `1 / (256 t)` of those of all these roots, for `t = min(n - 1, number of these roots)` threads.
 The threads claim the ranges in order, and the calling thread takes the class codewords of each range in turn, as its thread lists them.
-A thread hands them to the calling thread in batches of at most `2^10` class codewords, so that the batches that `iterate_in_order` holds take bounded memory.
-Each call of the walk on a thread returns after about `2^20` probes of work, also within a pass over a root, whose state the walk keeps for its next call, so that the thread checks often whether to stop.
+The weights can estimate the work poorly: on the experiment's BB [[144,12,12]] circuit at fault weight 5, one range of 32 per thread held half of the work before the first violation.
+Many small ranges keep the threads on roots that the calling thread soon needs.
+A thread hands the class codewords to the calling thread in batches of at most `2^10` class codewords, so that the batches that `iterate_in_order` holds, at most 64 for each thread, take bounded memory.
+Each call of the walk on a thread returns after about `2^20` probes of work, also within a pass over a root, whose state the walk keeps for its next call, and the thread then checks whether to stop: closing the listing sets a stop event that `iterate_in_order` gives the threads.
+A thread hands on no empty batch, since empty batches would fill the cap of held batches and stall the threads that list ahead.
 
 The expansion is that of a single thread, since it gets the same class codewords in the serial order, and how they are split into batches of class codewords does not change it.
 Batches of class codewords split only between class codewords; the expansion starts each class codeword with no remembered choices, and keeps its table of syndromes and its batch of faults from one class codeword to the next, within a batch of class codewords and across batches.
@@ -383,6 +386,7 @@ Changes to the listing must keep these requirements.
 - **Stop the threads whenever a listing ends, also by an exception.**
   `find_first` closes the batches of class tuples that it takes, and `iterate_in_order` then stops the threads and waits for them; `test_listing_on_threads_stops_its_threads_when_an_exception_is_raised` checks this, and the tests of `iterate_in_order` in `qldpc/codes/distance/_threads_test.py` check its order, its cap on held batches of class codewords (`64 t` on `t` threads that list, and one more for the range that the calling thread reads), and how it stops.
   Each batch that a thread hands to the calling thread holds at most `2^10` class codewords, so that the held batches take bounded memory.
+  A thread checks the stop event after each call of the walk rather than hand on empty batches; `test_a_thread_of_a_listing_hands_on_no_empty_batch_and_stops_when_asked` checks this, and `test_closing_the_iterator_sets_the_stop_event_of_its_threads` in `_threads_test.py` that closing the listing sets that event.
 - **Call no numba-parallel code on threads, and read the tuning only on the calling thread.**
   The search reads its number of threads before it lists, and `test_certifications_list_on_the_threads_of_the_search_tuning` checks that a certification lists on the number of threads of the tuning that it runs within.
   The fixture `check_code_on_threads` of `qldpc/codes/distance/conftest.py`, which `conftest.py` here imports, fails each test of this package whose threads call numba-parallel code from Python or read the tuning through `get_tuning`.

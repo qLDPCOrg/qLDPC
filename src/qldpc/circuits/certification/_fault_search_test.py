@@ -638,13 +638,14 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     Listings move to threads at once, or after the calling thread has listed alone a probe of work
     for each thread, with batches of one class codeword, calls of about one probe of work, and one
     held batch for each thread, so that the threads pause within passes over roots and wait often.
-    With an array of two class codewords, the walk makes several passes over some roots.  A fixed
-    instance checks that a thread pauses within a pass and makes another pass over a root, that the
-    calling thread lists alone first when the work splits after a probe, and that a violation found
-    while the listing goes on closes it as on one thread and leaves no thread running.  The same
-    holds with a full table of syndromes.  The threads run with read-only views of the arrays of
-    the lister that they read, and leave them unchanged.  The calling thread consumes the listing on
-    a thread of its own, so that a deadlock fails the test.
+    The threads hand on no empty batch.  With an array of two class codewords, the walk makes
+    several passes over some roots.  Fixed instances check that a thread pauses within a pass and
+    makes another pass over a root, that the calling thread lists alone first when the work splits
+    after a probe, and that a violation found while threads list closes the listing as on one
+    thread and leaves no thread running.  The same holds with a full table of syndromes.  The
+    threads run with read-only views of the arrays of the lister that they read, and leave them
+    unchanged.  The calling thread consumes the listing on a thread of its own, so that a deadlock
+    fails the test.
     """
     monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", split_probes)
@@ -686,13 +687,14 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     monkeypatch.setattr(_fault_search, "_list_by_shared_flags", record_listing)
 
     # Check that the threads pass on batches of at most ``_CODEWORD_BATCH_SIZE`` class codewords,
-    # although a call of the walk by shared flags can return the two of a root.
+    # although a call of the walk by shared flags can return the two of a root, and no empty batch,
+    # although most calls of one probe of work return none.
     iterate_in_order = _fault_search.iterate_in_order
 
     def check_batches(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
         with contextlib.closing(iterate_in_order(*args, **kwargs)) as batches:
             for batch in batches:
-                assert len(batch) <= 1
+                assert len(batch) == 1
                 try:
                     yield batch
                 except GeneratorExit:
@@ -788,18 +790,62 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
         assert {"another pass on a thread", "paused within a pass"} <= events
     assert ("listed alone" in events) == (split_probes == 1)
 
-    # Check each fault on its own, and stop at the fifth, the last class codeword of the second
-    # root, so that the calling thread closes the listing while threads list.  They cannot finish:
-    # the five roots after it take at least ten calls of the walk, each of which passes on a batch,
-    # more than the at most eight batches that the threads may hold while the calling thread takes
-    # no more (see ``iterate_in_order``).
+    # The classes of every nonzero flag of four bits, of one member each, make 35 class codewords
+    # of fault weight three, seven of them of the first root.  Check each fault on its own, and stop
+    # at the tenth, a class codeword of the second root, so that the calling thread closes the
+    # listing while threads list.  They cannot finish: the 25 class codewords after it are batches
+    # of their own, more than the at most eight batches that the threads may hold while the calling
+    # thread takes no more (see ``iterate_in_order``).
+    flags = list(range(1, 16))
+    errors = [0b1111111 << (7 * jj) for jj in range(15)]
+    args = (flags, [1 << jj for jj in range(15)], errors, 105, False, 15, 0)
+    listers = [_fault_search.FaultLister(*args), _fault_search.FaultLister(*args, num_threads)]
+    checked = check_listing(listers, 3, ())
+    assert len(checked) == 35
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 1)
     events.clear()
     pair = [_fault_search.FaultLister(*args), _fault_search.FaultLister(*args, num_threads)]
-    assert len(check_listing(pair, 3, {checked[4]}, same_work=False)) == 5
+    assert len(check_listing(pair, 3, {checked[9]}, same_work=False)) == 10
     assert "closed while threads list" in events
     assert thread_calls == [(False, True)] * len(thread_calls)
+
+
+def test_a_thread_of_a_listing_hands_on_no_empty_batch_and_stops_when_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A thread of a listing hands on only nonempty batches, and returns once its stop event is set.
+
+    With calls of one probe of work, most calls of the walk list no class codeword.  A function
+    that ``start_walk`` returns lists a range of every root as one thread would, in batches that
+    are never empty; with its stop event set, it returns after its first call, before the class
+    codewords of the range.
+    """
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
+    monkeypatch.setattr(_fault_search, "_PROBES_PER_CALL", 1)
+    listed: dict[str, list[tuple[int, ...]]] = {}
+
+    def fake_iterate(
+        num_items: int, num_threads: int, start_worker: Callable[..., Any], **kwargs: Any
+    ) -> Iterator[npt.NDArray[np.int64]]:
+        stop = threading.Event()
+        batches = list(start_worker(stop)(0, num_items))
+        assert all(len(batch) for batch in batches)
+        listed["running"] = [tuple(row) for batch in batches for row in batch.tolist()]
+        stop.set()
+        stopped = list(start_worker(stop)(0, num_items))
+        listed["stopped"] = [tuple(row) for batch in stopped for row in batch.tolist()]
+        yield from batches
+
+    monkeypatch.setattr(_fault_search, "iterate_in_order", fake_iterate)
+    flags = list(range(1, 16))
+    syndromes = [1 << jj for jj in range(15)]
+    errors = [0b111 << (3 * jj) for jj in range(15)]
+    lister = _fault_search.FaultLister(flags, syndromes, errors, 45, False, 15, 0, 3)
+    expected = _class_codewords(flags, 3, 15)
+    assert _take_class_tuples(lister, 3, len(expected) + 1) == expected
+    assert listed["running"] == expected
+    assert listed["stopped"] == []
 
 
 def test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads() -> None:

@@ -531,16 +531,23 @@ class FaultLister:
             thread_walk = make_walk()
 
             def list_range(start: int, end: int) -> Iterator[npt.NDArray[np.int64]]:
-                """List the class codewords of a range of the other roots, a batch at a time."""
+                """List the class codewords of a range of the other roots, a batch at a time.
+
+                Stop early, leaving the walk unfinished, once the stop event is set, after which
+                the thread lists no other range.
+                """
                 # Copy each batch in slices of at most ``_CODEWORD_BATCH_SIZE`` class codewords,
                 # since the walk overwrites its array while the calling thread reads earlier ones,
-                # and the batches that ``iterate_in_order`` holds should take little memory.  Pass
-                # on an empty batch too, so that the thread checks often whether to stop.
+                # and the batches that ``iterate_in_order`` holds should take little memory.  Hand
+                # on no empty batch, since the batches that it holds are capped: check the stop
+                # event after each call of the walk instead.
                 for class_codewords in thread_walk.list_range(
                     num_listed + start, num_listed + end, _PROBES_PER_CALL
                 ):
-                    for first in range(0, max(len(class_codewords), 1), _CODEWORD_BATCH_SIZE):
+                    for first in range(0, len(class_codewords), _CODEWORD_BATCH_SIZE):
                         yield class_codewords[first : first + _CODEWORD_BATCH_SIZE].copy()
+                    if stop.is_set():
+                        return
 
             return list_range
 
