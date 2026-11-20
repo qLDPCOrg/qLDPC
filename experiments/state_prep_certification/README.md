@@ -43,9 +43,7 @@ The runner discards a run whose measured call compiled, whatever its status, and
 A run's T includes loading from the cache any compiled code that its process first reaches in its measured call, and the other first-call work of a fresh process.
 The task's one row is that of its kept run, which records any discarded run in `discarded_run`.
 A row has `compiled_in_timing` set when its run is a retry that compiled too, and only then does its T include a compilation that numba reports; [`common/runner.py`](common/runner.py) says when that happens.
-A row with `compiled_in_timing` set is kept so that it is visible, but its T enters no analysis.
-Each experiment's analysis stops with an error that names such rows.
-The ranking analysis, which admits circuits by certification's verdicts, still reads the verdicts of flagged certification rows.
+A row with `compiled_in_timing` set is kept so that it is visible, but its timing enters no analysis; each experiment's `analyze.py` says how it treats such rows.
 
 There is one job slot per physical core, with two cores and 16 GiB of memory left free and as many slots as the memory caps of the runs allow.
 Pass 1 holds every first run in an order shuffled with a fixed seed.

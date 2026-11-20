@@ -43,22 +43,25 @@
   ``brute_force_smallest_violation`` finds a violation of the same weight as qLDPC's
   ``find_smallest_violation`` and the ground truth, also with small batches.  Each circuit's U,
   recomputed from N_0 and K, and whether it is within the cap, equal those of ``circuits.json``.
-* **AT8:** the analysis (``analyze.py``) of synthetic rows on four B-cat circuits.  A
+* **AT8:** the analysis (``analyze.py``) of synthetic rows on six B-cat circuits.  A
   ``count_listing`` run that timed out after one completed weight gives Pi, E, Phi, q, q_h, and h
   from its partial results.  A ground-truth count that differs from the counters', and a baseline
   whose enumerated combinations differ from A_m, each make their circuit a disagreement, as does a
   baseline stopped after a violation at weight m against a finished certification whose smallest
-  violation is not at m.  An expected task without a row is reported as ``missing``.  A row with
-  ``compiled_in_timing`` set stops ``write_outputs``, with an error that names it.  Every case of
-  the combined margin of ``analyze_applications.py`` gives its value, its bound, or a disagreement,
-  and a footnoted margin keeps its sector.  A margin or a deletion parent that disagrees with
-  ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement, and
-  agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in the
-  partial results of a killed task.  The whole margin column of one family is checked, and the
-  footnote lists m* = t, but not m* = t + 1 or a disagreement.  The deletion outputs rebuild a
-  reduced circuit from its input, report a wrong final SHA-256, leave the rebuild unchecked for an
-  input that is not the label's, exclude a disagreement from the table but list its task, and list
-  an uncertified parent and a timeout.
+  violation is not at m.  An expected task without a row is reported as ``missing``.  Rows with
+  ``compiled_in_timing`` set give the statuses, verdict, table counts, and times that
+  ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
+  whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
+  first run that finished.  Every case of the combined margin of ``analyze_applications.py`` gives
+  its value, its bound, or a disagreement, and a footnoted margin keeps its sector.  A margin or a
+  deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
+  makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
+  so also when its verdict is only in the partial results of a killed task.  The whole margin column
+  of one family is checked, and the footnote lists m* = t, but not m* = t + 1 or a disagreement.
+  The deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave
+  the rebuild unchecked for an input that is not the label's, exclude a disagreement from the table
+  but list its task, list an uncertified parent, and give a timeout and a flagged timeout their
+  statuses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -544,12 +547,16 @@ def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at8_analysis(directory: pathlib.Path, node: bool) -> None:
-    """Analysis of synthetic rows: partial counts, disagreements, missing tasks, a flagged row."""
-    # four B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
+    """Analysis of synthetic rows: partial counts, disagreements, missing tasks, flagged rows."""
+    # six B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
     # times out; the ground truth of the second and the baseline of the third disagree on a count,
     # and both violate at 3, so the box would prefer either of them over the first if they agreed;
-    # the fourth certifies, and its cert_cc task has no row
-    first, second, third, fourth = (experiment._entry(f"bcat.w{w}.t2") for w in (10, 11, 12, 13))
+    # the fourth certifies, and its cert_cc task has no row.  The certifications and baselines of
+    # the fifth and sixth time out, and the rows of the fifth's cert_bz and brute_bz runs have
+    # compiled_in_timing set (rows of retries that compiled too).
+    first, second, third, fourth, fifth, sixth = (
+        experiment._entry(f"bcat.w{w}.t2") for w in (10, 11, 12, 13, 14, 15)
+    )
     rows: list[dict[str, Any]] = []
     expected: dict[str, dict[str, Any]] = {}
 
@@ -560,6 +567,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         T: float | None = None,
         result: dict[str, Any] | None = None,
         partial: list[dict[str, Any]] | None = None,
+        compiled: bool = False,
     ) -> None:
         task = experiment._task(arm, entry, 0, experiment._limit(arm))
         expected[task["key"]] = task
@@ -577,6 +585,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
                 "peak_rss_gib": 0.5,
                 "partial": partial or [],
                 "result": result or {},
+                "compiled_in_timing": compiled,
             }
         )
 
@@ -594,7 +603,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         }
         return result, weights
 
-    # the certifications and counts of the four circuits
+    # the certifications and counts of the first four circuits
     accepted = {"1": 30, "2": 400, "3": 3000}
     listing: dict[str, Any] = {"Pi": {"1": 1, "2": 5}, "E": {"2": 0, "3": 2}, "Phi": {"2": 80}}
     for entry, violation_weight, T in ((first, 2, 100.0), (second, 3, 1000.0), (third, 3, 2000.0)):
@@ -632,6 +641,11 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         result = {"certified": smallest is None, "violation_weight": smallest, "rows": 3430}
         add(entry, "brute_bz", "ok", T, result, enumerations)
 
+    # the timeouts of the fifth and sixth circuits
+    for arm in ("cert_bz", "cert_cc", "brute_bz"):
+        add(fifth, arm, "timeout", 1800.0, compiled=arm != "cert_cc")
+        add(sixth, arm, "timeout", 1800.0)
+
     # analyze the rows, and read the tables
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     by_id = {entry["id"]: entry for entry in entries}
@@ -639,7 +653,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     out.mkdir(parents=True, exist_ok=True)
     analyze.write_outputs(analyze.collect(rows, by_id, expected), by_id, out)
     tables = {}
-    for name in ("summary", "per_weight"):
+    for name in ("summary", "per_weight", "main_table"):
         with open(out / f"{name}.csv") as file:
             tables[name] = list(csv.DictReader(file))
 
@@ -690,21 +704,39 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     # the missing task
     assert summary[fourth["id"]]["status_cert_cc"] == "missing", summary[fourth["id"]]
 
-    # a row with compiled_in_timing set (the row of a retry that compiled too) stops the outputs,
-    # with an error that names it
-    key = experiment._task("cert_bz", fourth, 0, experiment._limit("cert_bz"))["key"]
-    flagged = [row | {"compiled_in_timing": row["task_key"] == key} for row in rows]
-    try:
-        analyze.write_outputs(
-            analyze.collect(flagged, by_id, expected), by_id, directory / "flagged"
+    # the fifth circuit's flagged timeouts and the sixth's plain ones (see analyze.py's docstring)
+    row = summary[fifth["id"]]
+    statuses = (row["status_cert_bz"], row["status_brute_bz"], row["verdict_bz"], row["verdict"])
+    assert statuses == ("timeout_compiled",) * 4, row
+    assert (summary[sixth["id"]]["status_cert_bz"], summary[sixth["id"]]["verdict"]) == (
+        "timeout",
+        "undecided",
+    )
+    (family,) = tables["main_table"]
+    keys = ("timeout_compiled_cert_bz", "timeout_cert_bz", "timeout_compiled", "undecided")
+    assert [family[key] for key in (*keys, "brute_timed_out")] == ["1"] * 5, family
+
+    # a flagged repeat, and a flagged first run that finished
+    result, weights = certification(None)
+    repeat_flagged, first_flagged = (
+        analyze.summarize_certification(
+            [
+                {"repeat": r, "status": "ok", "T": 1.0, "peak_rss_gib": 0.5, "partial": weights}
+                | {"result": result, "compiled_in_timing": r == compiled}
+                for r in range(analyze.REPEATS["count"] + 1)
+            ]
         )
-    except ValueError as refusal:
-        assert key in str(refusal), refusal
-    else:
-        raise AssertionError("the outputs took a row with compiled_in_timing set")
+        for compiled in (1, 0)
+    )
+    assert repeat_flagged["T"] is None and repeat_flagged["repeats_not_ok"] == ["r1:compiled"]
+    assert first_flagged["T"] is None and first_flagged["status"] == "ok", first_flagged
+    (_, weight) = analyze._per_weight(
+        "x", {"options": {"max_weight": 2}}, first_flagged, repeat_flagged, first_flagged, {}, {}
+    )
+    assert weight["T_m_bz"] is None and weight["T_m_cc"] == 1.0, weight
 
     _check_application_analysis(directory / "applications")
-    print("  4 B-cat circuits, 2 disagreements, 1 missing task")
+    print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")
 
 
 @test
@@ -1279,6 +1311,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         "aft.steane.opt_opt": [run("ok", reduced)],
         "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
         "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
+        "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
     }
     per_circuit = {
         circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
@@ -1309,6 +1342,9 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     caption = json.loads((out / "deletion_caption.json").read_text())
     assert [entry["id"] for entry in caption["not_certified_at_t"]] == ["cgoto"], caption
     assert caption["unfinished"][0]["final_checks"] == checks, caption
+    # a deletion run's plain and flagged timeouts
+    statuses = {entry["id"]: entry["status"] for entry in caption["unfinished"]}
+    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, caption
     assert caption["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], caption
     mismatches = caption["rebuild_mismatches"]
     assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], caption

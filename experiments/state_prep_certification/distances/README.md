@@ -43,7 +43,7 @@ python experiments/state_prep_certification/distances/analyze.py --label-dir exp
 
 On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes.
 `analyze.py --archive PATH --out DIR` reads the archive that comes back, and writes `summary.csv`, `families.csv`, `anchors.csv`, `distances.pdf`, and `figure_notes.json`.
-A row with `compiled_in_timing` set (see the [shared README](../README.md#runs)) stops the analysis with an error that names it.
+`analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
 ## Attributions
 

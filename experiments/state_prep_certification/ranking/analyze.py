@@ -19,9 +19,10 @@ certification archive, and stops unless every check passes:
 
 **Admission.**  A circuit is admitted if certification's analysis of the archive gives it the
 verdict "certified" or "violation at t + 1" at K = t + 1, which is certification at K = t, rather
-than "disagreement" (the certification arms or checks disagree) or no verdict.  A group is in
-scope if it has at least two admitted circuits.  Every circuit not admitted, and every group
-dropped, is reported.
+than "disagreement" (the certification arms or checks disagree), "timeout_compiled" (an arm's
+timeout may be due only to a compilation; see certification's ``analyze.py``), or no verdict.  A
+group is in scope if it has at least two admitted circuits.  Every circuit not admitted, and every
+group dropped, is reported.
 
 **Scores** (``experiment.scores``), per admitted circuit and rate: Phi_unc, Phi_unc of the X-type
 histogram, Phi_cal with its histogram and calibration contributions sigma_hist and sigma_cal, the
@@ -82,20 +83,18 @@ the reference, and b_direct the mean of the preparation's setup and the projecte
 delta_a = A_score - A_direct and delta_b = b_direct - b_score, the scores cost no more for k
 circuits exactly when delta_a <= k delta_b; ``break_even`` gives the outcome, k*, in each case of
 the sign of delta_b.  k* is computed only where every component of the group's costs is projected.
-b_unc, the per-circuit cost of Phi_unc, is reported beside them.
-
-A row of the ranking label with ``compiled_in_timing`` set (see ``common/runner.py``) stops the
-analysis with an error that names it.  The admission reads only the verdicts of the certification
-archive's rows, whatever their ``compiled_in_timing``, although a flagged timeout there may have
-timed out only because it compiled.
+b_unc, the per-circuit cost of Phi_unc, is reported beside them.  A row of the ranking label with
+``compiled_in_timing`` set (see ``common/runner.py``) gives no CPU seconds.  A group gets no costs
+at a rate where its calibration, or the histogram or direct reference of one of its admitted
+circuits, has such a row.
 
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory): ``admission.csv``,
 ``candidates.csv`` (with each circuit's projected and achieved costs), ``pairs.csv``,
 ``agreement.csv``, ``kendall.csv``, ``gate.json``, ``groups.csv``, ``cost_table.csv``,
 ``leading_order.csv``, ``checks.json`` (RT6, the ``mc_check`` estimates against the reference
 within three standard errors plus tau; RT7, whether the two copies of each ``repro`` task agree;
-and every task without a final ``ok`` row), and ``consumers/``, the consumer circuit and block
-preparation of each group and rate.
+and every task without a final ``ok`` row or whose row has ``compiled_in_timing`` set), and
+``consumers/``, the consumer circuit and block preparation of each group and rate.
 """
 
 from __future__ import annotations
@@ -342,10 +341,18 @@ def evaluate(
             # a calib task that did not finish keeps the fields of its partial result
             calib_row = rows.get(f"calib.{group}.p{rate:g}")
             fields = _fields(calib_row)
+            # a row with compiled_in_timing set gives no CPU seconds (see the module docstring)
+            if _compiled(calib_row):
+                fields = {
+                    key: value
+                    for key, value in fields.items()
+                    if not key.startswith("cpu_") and key != "score_timing"
+                }
             group_row: dict[str, Any] = {
                 "group": group,
                 "rate": rate,
                 "status_calib": _status(calib_row),
+                "compiled_in_timing_calib": _compiled(calib_row),
                 "unreachable_cells": [m for m in range(1, M + 1) if not cells[m]],
                 **{key: value for key, value in fields.items() if key not in ("group", "rate")},
             }
@@ -449,6 +456,12 @@ def _candidate(
         "admitted": admitted,
         "status_histogram": _status(histogram_row),
         "status_direct": _status(direct_row),
+        "compiled_arms": " ".join(
+            name
+            for name, row in (("histogram", histogram_row), ("direct", direct_row))
+            if _compiled(row)
+        )
+        or None,
         "unsampled_cells": group_row.get("unsampled_cells", []),
     }
     # the baselines need only the total-weight histogram, and the scores also the calibration
@@ -476,10 +489,11 @@ def _candidate(
             "sigma_cal": sigma_cal,
             "truncation_histogram": histograms[0].truncation_error_bound,
             "truncation_calibration": calibration.truncated_probability,
-            "cpu_histogram": {
-                name: _cpu(fields) for name, fields in (("total", total), ("x", x_type))
-            },
         }
+        if not _compiled(histogram_row):
+            candidate["cpu_histogram"] = {
+                name: _cpu(fields) for name, fields in (("total", total), ("x", x_type))
+            }
     if direct_row is not None and direct_row["status"] == "ok":
         result = direct_row["result"]
         candidate |= {
@@ -492,7 +506,10 @@ def _candidate(
             "eta": result["eta"],
             "inadequate": result["inadequate"],
             "strata": result["strata"],
-            "cpu_direct": {
+            "num_direct_samples": result["num_samples"],
+        }
+        if not _compiled(direct_row):
+            candidate["cpu_direct"] = {
                 key: result[key]
                 for key in (
                     "cpu_consumer_setup_s",
@@ -500,9 +517,7 @@ def _candidate(
                     "cpu_exact_s",
                     "cpu_sampled_s",
                 )
-            },
-            "num_direct_samples": result["num_samples"],
-        }
+            }
     return candidate
 
 
@@ -689,8 +704,8 @@ def costs(candidates: list[dict[str, Any]], groups: list[dict[str, Any]]) -> lis
     """The cost lines of each group at each rate, as the module docstring defines them.
 
     A group needs at least two admitted circuits, its calibration and score timing, and every
-    circuit's reference and scores.  Each circuit's own projected and achieved costs are added to
-    its row of ``candidates``.
+    circuit's reference and scores, none of them from a row with ``compiled_in_timing`` set.  Each
+    circuit's own projected and achieved costs are added to its row of ``candidates``.
     """
     rows = []
     for group in groups:
@@ -707,12 +722,19 @@ def costs(candidates: list[dict[str, Any]], groups: list[dict[str, Any]]) -> lis
         row["admitted"] = len(members)
         taus = [c["tau"] for c in members if "tau" in c]
         row |= {"tau_min": min(taus, default=None), "tau_max": max(taus, default=None)}
+        compiled = group.get("compiled_in_timing_calib") or any(
+            c.get("compiled_arms") for c in members
+        )
         complete = (
             members
             and "calibration" in group
             and "score_timing" in group
             and all("phi_true" in c and "phi_cal" in c for c in members)
         )
+        if len(members) >= 2 and compiled:
+            reason = "a row has compiled_in_timing set"
+            rows.append(row | {"k_star": "not computed", "reason": reason})
+            continue
         if len(members) < 2 or not complete:
             rows.append(row | {"k_star": "not computed", "reason": "incomplete or out of scope"})
             continue
@@ -1228,18 +1250,11 @@ def leading_order_rows(
 def _ranking_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], list[str]]:
     """The final rows of the label by key, and every expected task without an ``ok`` row.
 
-    Raises:
-        ValueError: If a row has ``compiled_in_timing`` set, since its CPU seconds include a
-            compilation.
+    A task whose row has ``compiled_in_timing`` set is listed too.
     """
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {label_dir.name}: {problem}")
-    compiled = sorted(key for key, row in final.items() if row.get("compiled_in_timing"))
-    if compiled:
-        raise ValueError(
-            f"rows whose retry compiled in its measured call (compiled_in_timing): {compiled}"
-        )
     expected = (
         task_store.load_tasks(label_dir) if (label_dir / task_store.TASKS_FILE).exists() else {}
     )
@@ -1248,6 +1263,7 @@ def _ranking_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], l
         for key in sorted(expected)
         if key not in final or final[key]["status"] != "ok"
     ]
+    not_ok += [f"{key}: compiled_in_timing" for key in sorted(final) if _compiled(final[key])]
     return final, not_ok
 
 
@@ -1268,6 +1284,11 @@ def _x_table(tables: Any) -> np.ndarray:
     """The X-type table of a calibration's tables, which ``Consumer.calibrate`` always fills."""
     assert tables is not None
     return np.asarray(tables[Pauli.X])
+
+
+def _compiled(row: dict[str, Any] | None) -> bool:
+    """Whether a row has ``compiled_in_timing`` set, so that its times are incomplete."""
+    return row is not None and bool(row.get("compiled_in_timing"))
 
 
 def _status(row: dict[str, Any] | None) -> str:

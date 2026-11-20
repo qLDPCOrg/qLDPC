@@ -200,7 +200,7 @@ def write_applications(
 ) -> None:
     """Write margin_footnote.csv and the deletion outputs; see the module docstring."""
     from experiments.state_prep_certification.certification import applications
-    from experiments.state_prep_certification.certification.analyze import _write_csv
+    from experiments.state_prep_certification.certification.analyze import _status, _write_csv
 
     # the circuits of the footnote of the margin column
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
@@ -244,7 +244,8 @@ def write_applications(
             run = entry["arms"][arm][0]
             result = run["result"]
             records = [record for record in run.get("partial") or [] if "step" in record]
-            steps += [{"id": circuit_id, "arm": arm, "status": run["status"]} | r for r in records]
+            status = _status([run])
+            steps += [{"id": circuit_id, "arm": arm, "status": status} | r for r in records]
             parent = _parent_verdict(run)
             disagreement = verdicts[circuit_id] == "disagreement"
             row = None
@@ -266,7 +267,7 @@ def write_applications(
                 unfinished = {
                     "id": circuit_id,
                     "arm": arm,
-                    "status": run["status"],
+                    "status": status,
                     "steps": len(records),
                 }
                 checks = _final_checks(run)
