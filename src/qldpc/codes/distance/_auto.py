@@ -235,22 +235,25 @@ def _should_switch(
     """Whether the connected-cluster search is predicted to cost more than a BZ search.
 
     The level of the next weight limit is the weight that the limit certifies, one weight divisor
-    above it.  The search switches only while its growth exceeds BZ's at that level.  It then
-    switches if its spent and projected work to certify that level, or to reach the probe's bound,
-    exceeds BZ's.  To reach the bound, the projection also counts half of the states predicted for
-    the next limit's search at the weight limit ``probe_bound``.  ``search_by_cost`` calls it only
-    while its connected-cluster search, which the probe's bound caps, is unfinished, so the bound
-    exceeds the next limit.
+    above it.  The search switches only once the search of the next limit has a growth.  It then
+    switches if its spent and projected work to certify that level exceeds BZ's.  Otherwise, while
+    its growth exceeds BZ's at that level, it switches if its spent and projected work to reach the
+    probe's bound exceeds BZ's.  To reach the bound, the projection also counts half of the states
+    predicted for the next limit's search at the weight limit ``probe_bound``.  ``search_by_cost``
+    calls it only while its connected-cluster search, which the probe's bound caps, is unfinished,
+    so the bound exceeds the next limit.
     """
     index, max_weight = clusters.next_limit
     assert probe_bound > max_weight
     growth = clusters.get_growth(index)
-    level = max_weight + clusters.searches[index].weight_divisor
-    if growth is None or growth <= costs.get_growth(index, level):
+    if growth is None:
         return False
+    level = max_weight + clusters.searches[index].weight_divisor
     spent = clusters.num_states * state_cost
     if spent + _project_states(clusters, level) * state_cost > costs.get_work(level):
         return True
+    if growth <= costs.get_growth(index, level):
+        return False
     projected = _project_states(clusters, probe_bound)
     projected += clusters.predict_states(index, probe_bound) / 2
     return spent + projected * state_cost > costs.get_work(probe_bound)

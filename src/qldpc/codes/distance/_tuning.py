@@ -261,9 +261,10 @@ class SearchTuning:
     #: examines at most this many packed 64-bit integers: ``2**dim * ceil(width / 64)`` for words of
     #: ``width`` bits in a space of dimension ``dim``, summed over the spaces of a search, such as
     #: the two sectors of a CSS code.  Raising it enumerates larger spaces.
-    #: Defaults to ``2**30``, chosen by hand: an enumeration of about a second, whose cost, unlike
-    #: that of the other methods, is known before it runs.
-    auto_brute_force_max_words: int = 2**30
+    #: Defaults to ``2**20``, chosen by hand: an enumeration of about a millisecond, the fixed cost
+    #: of a Brouwer-Zimmermann search of a small code.  On larger spaces, a Brouwer-Zimmermann
+    #: search is usually faster (section "Refining the choice" of ``README.md`` names exceptions).
+    auto_brute_force_max_words: int = 2**20
 
     #: The work, in candidate/set evaluations, below which a search by cost of ``method="auto"``
     #: runs its connected-cluster search without probing or switching: it runs on while its spent
