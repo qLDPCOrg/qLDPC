@@ -26,7 +26,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance import DistanceMethod, distances, get_distance_css
+from qldpc.codes.distance import DistanceMethod, get_distance_css
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 from .conftest import Tune, assert_valid_subgraphs
@@ -283,7 +283,7 @@ def test_distance_classical(bits: int = 3) -> None:
 
     # trivial (null) codes have an undefined distance
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
-    random_vector = np.random.default_rng(0).integers(2, size=len(trivial_code))
+    random_vector = np.random.randint(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
     assert trivial_code.get_distance_exact() is codes.NO_DISTANCE
     assert trivial_code.get_distance_bound() is codes.NO_DISTANCE
@@ -1417,12 +1417,11 @@ def test_classical_distances_use_automorphisms(
         np.count_nonzero((np.array(coefficients) @ words + vector) % 2)
         for coefficients in itertools.product([0, 1], repeat=len(words))
     )
-    # The distance module searches the coset of a vector.
     for method, function_name in zip(methods, function_names, strict=True):
         code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
-        function = getattr(distances, function_name)
+        function = getattr(common, function_name)
         with unittest.mock.patch.object(
-            distances, function_name, autospec=True, side_effect=function
+            common, function_name, autospec=True, side_effect=function
         ) as search:
             assert code.get_distance_exact(vector=vector, method=method) == brute_force
         assert search.call_args.kwargs.get("automorphisms") is None

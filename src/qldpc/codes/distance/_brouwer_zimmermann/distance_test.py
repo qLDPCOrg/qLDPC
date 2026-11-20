@@ -27,7 +27,7 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
-from .. import distances
+from .. import core
 from .._information_sets import basis_families, certificates, completion_bounds, matroid_partition
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from ..conftest import (
@@ -1645,31 +1645,25 @@ def test_searches_on_threads_find_the_distances_that_one_thread_finds(
     searches: list[tuple[int, Callable[[], object]]] = [
         (
             8,
+            functools.partial(core.get_distance_from_generators, get_golay_checks(), method=method),
+        ),
+        (
+            5,
             functools.partial(
-                distances.get_distance_from_generators, get_golay_checks(), method=method
+                core.get_distance_css, surface.matrix_x, surface.matrix_z, Pauli.X, method=method
             ),
         ),
         (
             5,
             functools.partial(
-                distances.get_distance_css,
-                surface.matrix_x,
-                surface.matrix_z,
-                Pauli.X,
-                method=method,
+                core.get_distance_css, surface.matrix_x, surface.matrix_z, method=method
             ),
         ),
+        (4, functools.partial(core.get_distance_pauli, hadamard, method=method)),
         (
             5,
             functools.partial(
-                distances.get_distance_css, surface.matrix_x, surface.matrix_z, method=method
-            ),
-        ),
-        (4, functools.partial(distances.get_distance_pauli, hadamard, method=method)),
-        (
-            5,
-            functools.partial(
-                distances.get_distance_pauli, qldpc.codes.BaconShorCode(5).matrix, method=method
+                core.get_distance_pauli, qldpc.codes.BaconShorCode(5).matrix, method=method
             ),
         ),
     ]
@@ -1698,15 +1692,11 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
     bicycle = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     method: qldpc.codes.DistanceMethod = "brouwer_zimmermann"
     searches: list[tuple[int, Callable[[], object]]] = [
-        (5, functools.partial(distances.get_distance_from_generators, random_code, method=method)),
+        (5, functools.partial(core.get_distance_from_generators, random_code, method=method)),
         (
             8,
             functools.partial(
-                distances.get_distance_css,
-                bicycle.matrix_x,
-                bicycle.matrix_z,
-                Pauli.X,
-                method=method,
+                core.get_distance_css, bicycle.matrix_x, bicycle.matrix_z, Pauli.X, method=method
             ),
         ),
     ]
