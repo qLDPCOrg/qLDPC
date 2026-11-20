@@ -983,8 +983,8 @@ def _get_coset_weight(
     """The minimum weight of the coset of a vector that is not a word of a binary classical code.
 
     The code has the parity checks ``checks`` and the generators ``generators``.  Callers pass both
-    because they already have them.  The syndrome of ``vector`` is nonzero.  Once the search
-    finds a vector of the coset that weighs at most ``cutoff``, it stops and returns that weight, an
+    because they already have them.  The syndrome of ``vector`` must be nonzero.  A search of the
+    coset stops at the first vector that weighs at most ``cutoff``, and returns that weight, an
     upper bound.  An automorphism of the code need not map the coset of the vector onto itself, so
     the searches of the coset use no automorphisms.
     """
