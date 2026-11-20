@@ -85,6 +85,58 @@ def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> 
     assert not outside, outside
 
 
+def test_nogil_is_passed_as_a_literal() -> None:
+    """``get_entry_points_without_the_lock`` of ``conftest`` sees ``nogil`` only as a literal.
+
+    It reads every decorator of an always-compiled function, and cannot see ``nogil`` in ``**``.
+    """
+    num_literals = 0
+    for path, tree in _get_source_trees():
+        for function in _get_functions_decorated_by(tree, "always_compiled"):
+            for decorator in function.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                for keyword in decorator.keywords:
+                    assert keyword.arg is not None, (
+                        f"{path.name}: {function.name} passes options by **"
+                    )
+                    if keyword.arg == "nogil":
+                        value = getattr(keyword.value, "value", None)
+                        assert isinstance(value, bool), (
+                            f"{path.name}: {function.name} passes nogil other than as True or False"
+                        )
+                        num_literals += 1
+    assert num_literals
+
+
+def test_run_work_items_is_not_imported_by_name() -> None:
+    """A ``run_work_items`` imported by ``from`` keeps the original, which escapes the fixture.
+
+    ``check_code_on_threads`` replaces only ``_threads.run_work_items``, so helpers imported by
+    name, which call it there, stay checked.
+    """
+    for path, tree in _get_source_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                names = {alias.name for alias in node.names}
+                assert "run_work_items" not in names, f"{path.name} imports run_work_items by name"
+
+
+def test_entry_points_without_the_lock_are_in_packages_that_state_rules_on_threads() -> None:
+    """The docstring of ``_compilation`` says when a package may compile with ``nogil=True``."""
+    entry_points = conftest.get_entry_points_without_the_lock(Path(qldpc.__file__).parent)
+    assert entry_points
+    outside = [
+        f"{module}.{name}"
+        for module, name in entry_points
+        if not module.startswith(_PACKAGES_WITH_RULES_ON_THREADS)
+    ]
+    assert not outside, (
+        f"{outside} release the lock outside _PACKAGES_WITH_RULES_ON_THREADS.  Compile them without"
+        " nogil=True, or meet the conditions in the docstring of _compilation and list the package."
+    )
+
+
 def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:
     """Only qLDPC's source is hashed, but numba checks its version and implements NumPy itself."""
     for path, tree in _get_source_trees():
@@ -114,6 +166,9 @@ def test_names_imported_from_outside_qldpc_are_found() -> None:
 
 # The packages whose functions always-compiled code may use.
 _COMPILABLE_PACKAGES = {"qldpc", "numpy", "numba"}
+
+# The packages that meet the conditions of ``_compilation`` for functions with ``nogil=True``.
+_PACKAGES_WITH_RULES_ON_THREADS = ("qldpc.codes.distance.", "qldpc.circuits.certification.")
 
 # A program that prints the modules that register compiled-on-request functions.  It first imports
 # every module of qLDPC other than tests, which registers them all.
