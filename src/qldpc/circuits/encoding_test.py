@@ -180,13 +180,14 @@ def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.Monk
 
 @pytest.mark.parametrize("qubits", [[0, 1, 0], [-1], -1])
 def test_state_stabilizers_of_invalid_qubits(qubits: list[int] | int) -> None:
-    """Requested qubits must be nonnegative and distinct, and their number nonnegative.
+    """Reject negative or repeated requested qubits, and a negative number of qubits.
 
     Position i of a returned string refers to qubits[i], so with qubits [0, 1, 0] after
     ``H 0; CX 0 1``, a returned XXX would stand for X0 X1 X0 = X1, which is not a stabilizer.
     """
     with pytest.raises(ValueError, match="must be nonnegative"):
         circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), qubits)
+    assert circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), 0) == []
 
 
 def test_state_stabilizer_failure_regressions() -> None:
@@ -195,7 +196,8 @@ def test_state_stabilizer_failure_regressions() -> None:
     assert stim.PauliString("+XX") in ghz
     assert stim.PauliString("+ZZ") in ghz
 
-    # finding X1 Z2 of this GHZ state with H on qubit 1 needs eliminating qubit 0
+    # X1 Z2 of this GHZ state with H on qubit 1 is the product of Z0 X1 and Z0 Z2, so finding it
+    # needs eliminating qubit 0
     rotated_ghz = stim.Circuit("H 0\nCX 0 1 0 2\nH 1")
     assert circuits.get_state_stabilizers(rotated_ghz, [1, 2]) == [stim.PauliString("+XZ")]
 
@@ -235,6 +237,12 @@ def test_state_stabilizer_signs_must_be_determined() -> None:
     with pytest.raises(ValueError, match=r"stabilizer Z2 .*detectors \[1\]"):
         circuits.get_state_stabilizers(circuit, [2])
 
+    # Each round's random outcome flips qubit 1, so the sign of Z1 is the parity of three random
+    # detectors.  Stim folds a REPEAT block of the detector error model from three repetitions on.
+    circuit = stim.Circuit("REPEAT 3 {\n    H 0\n    CX 0 1\n    MR 0\n    DETECTOR rec[-1]\n}")
+    with pytest.raises(ValueError, match=r"stabilizer Z1 .*detectors \[0, 1, 2\]"):
+        circuits.get_state_stabilizers(circuit, [1])
+
     # the error names a logical stabilizer by its logical qubit, here on physical qubit 2
     qubit_ids = circuits.QubitIDs(data=(2,))
     with pytest.raises(ValueError, match=r"logical stabilizer Z0 .*detectors \[0\]"):
@@ -262,7 +270,7 @@ def test_state_stabilizer_signs_must_be_determined() -> None:
 def test_state_stabilizers_ignore_observables(
     circuit: str, qubits: list[int], expected: list[str]
 ) -> None:
-    """Ignore observables, including random ones, which Stim's detector error model rejects."""
+    """Ignore observables, even random ones, which Stim's detector error model rejects."""
     stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
     assert stabilizers == [stim.PauliString(string) for string in expected]
 
@@ -272,6 +280,7 @@ def test_state_stabilizers_ignore_observables(
     [
         ("CX sweep[0] 0", [0], ["+Z"]),
         ("M !0\nCX rec[-1] 1", [1], ["-Z"]),
+        ("H 0\nCX 0 1\nM 0\nCX rec[-1] 1", [1], ["+Z"]),
         ("MPAD 1\nCX rec[-1] 0", [0], ["-Z"]),
         ("HERALDED_ERASE(0.1) 0\nCX rec[-1] 1", [1], ["+Z"]),
         ("REPEAT 3 {\n    X 0\n}", [0], ["-Z"]),
@@ -280,7 +289,8 @@ def test_state_stabilizers_ignore_observables(
 def test_state_stabilizer_signs(circuit: str, qubits: list[int], expected: list[str]) -> None:
     """Find the signs of stabilizers that sweep bits, measurement results, and REPEAT blocks fix.
 
-    Sweep bits are 0.  ``M !0`` reports 1 for qubit 0 in |0>, and so flips qubit 1.  ``MPAD 1``
+    Sweep bits are 0.  ``M !0`` reports 1 for qubit 0 in |0>, and so flips qubit 1.  Feedback on
+    the random result of ``M 0`` in a Bell state undoes the result's effect on qubit 1.  ``MPAD 1``
     reports 1.  Without noise, heralded noise reports 0.
     """
     stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
@@ -307,7 +317,8 @@ def test_state_stabilizers_with_repeated_reset_measurements(
     untouched qubit 2 has a fixed sign.  A detector on the first result instead leaves the sign of Z
     on qubit 1 undetermined.  MRX and MRY act alike in their own bases, and so does the first
     ``MR 0 0`` of a REPEAT block.  Stim's flow generators attribute the first result to the second
-    (https://github.com/quantumlib/Stim/issues/1109), and would give other answers.
+    (https://github.com/quantumlib/Stim/issues/1109), so a stabilizer finder built on them would
+    give other answers here.
     """
     if isinstance(expected, str):
         with pytest.raises(ValueError, match=expected):
