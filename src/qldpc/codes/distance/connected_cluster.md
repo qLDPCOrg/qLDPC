@@ -351,7 +351,7 @@ It also computes the overlap of every symbol of an unsatisfied check, available 
 It then takes the `m_c` of the check ([Section 3.4](#34-pruning)) and its number of available symbols without branching on availability, since the processor often mispredicts that branch, which costs more than the extra overlaps.
 
 **The distance of a vector from a classical code.**
-The least weight of the vectors with a given syndrome, a coset, can also come from a distance search rather than a syndrome query.
+The vectors with a given syndrome form a coset, whose least weight can also come from a distance search rather than a syndrome query.
 `ClassicalCode.get_distance_exact(vector=v)` finds the least weight of `v + c` over the words `c` of a classical code with checks `H` and generator matrix `G_C`, the weight of the coset of `v`.
 By the connected-cluster method, it runs a distance search with one more bit `b`, the checks `[H | Hv]`, and the excluded rows `[G_C | 0]`.
 A vector `(x, b)` satisfies these checks exactly when `Hx = b Hv`.

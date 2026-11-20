@@ -626,7 +626,7 @@ class ClassicalCode(AbstractCode):
         else:
             # The distance of the vector from the code is the least weight of its coset.  It is zero
             # for a code word.  Otherwise a search of the coset finds it for a binary code, and an
-            # enumeration of the code words for any other field.  The search of the coset takes a
+            # enumeration of the code words for any other field.  The search of the coset needs a
             # vector with a nonzero syndrome.
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):

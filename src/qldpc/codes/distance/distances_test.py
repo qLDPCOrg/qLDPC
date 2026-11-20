@@ -809,7 +809,8 @@ def test_coset_weights_of_vectors(
 
     # With a cutoff between zero and the weight of the vector, the search may stop only at a vector
     # of the coset within the cutoff.  Every coset of the [7, 4] Hamming code weighs at most one, so
-    # the result must be one, and a search that ran past the cutoff could return a heavier vector.
+    # the result must be one, and a search that stopped at a vector heavier than the cutoff would
+    # return more.
     hamming = qldpc.codes.HammingCode(3)
     checks = hamming.matrix.view(np.ndarray).astype(np.uint8)
     generators = hamming.generator.view(np.ndarray).astype(np.uint8)
