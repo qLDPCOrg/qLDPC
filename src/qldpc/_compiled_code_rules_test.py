@@ -86,9 +86,9 @@ def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> 
 
 
 def test_nogil_is_passed_as_a_literal() -> None:
-    """``get_entry_points_without_the_lock`` of ``conftest`` reads ``nogil`` only as a literal.
+    """``get_entry_points_without_the_lock`` of ``conftest`` sees ``nogil`` only as a literal.
 
-    It reads every decorator of an always-compiled function, so none may take options by ``**``.
+    It reads every decorator of an always-compiled function, and cannot see ``nogil`` in ``**``.
     """
     num_literals = 0
     for path, tree in _get_source_trees():
@@ -110,7 +110,11 @@ def test_nogil_is_passed_as_a_literal() -> None:
 
 
 def test_run_work_items_is_not_imported_by_name() -> None:
-    """``check_code_on_threads`` patches ``_threads``, which a name imported by ``from`` skips."""
+    """A ``run_work_items`` imported by ``from`` keeps the original, which escapes the fixture.
+
+    ``check_code_on_threads`` replaces only ``_threads.run_work_items``, so helpers imported by
+    name, which call it there, stay checked.
+    """
     for path, tree in _get_source_trees():
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -119,7 +123,7 @@ def test_run_work_items_is_not_imported_by_name() -> None:
 
 
 def test_entry_points_without_the_lock_are_in_packages_that_state_rules_on_threads() -> None:
-    """Each function compiled with ``nogil=True`` is in a package that meets the rules for it."""
+    """The docstring of ``_compilation`` says when a package may compile with ``nogil=True``."""
     entry_points = conftest.get_entry_points_without_the_lock(Path(qldpc.__file__).parent)
     assert entry_points
     outside = [
@@ -129,7 +133,7 @@ def test_entry_points_without_the_lock_are_in_packages_that_state_rules_on_threa
     ]
     assert not outside, (
         f"{outside} release the lock outside _PACKAGES_WITH_RULES_ON_THREADS.  Compile them without"
-        " nogil=True, or meet the conditions of the docstring of _compilation and list the package."
+        " nogil=True, or meet the conditions in the docstring of _compilation and list the package."
     )
 
 

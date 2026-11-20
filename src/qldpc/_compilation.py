@@ -75,16 +75,16 @@ qLDPC asks numba for parallel code, and that ``nogil`` is passed as a literal ``
 the only form that the tests read.  A compiled function without ``nogil=True`` keeps the lock when
 Python calls it while it is compiled, so threads that call it at once from Python take turns.
 
-Another package may compile entry points with ``nogil=True`` only if, like the distance and
-certification packages, it has a guide that states their requirements on threads and the tests that
-check them, and a test, with ``get_entry_points_without_the_lock`` of ``qldpc/conftest.py``, that
-the guide names each one.  If the package starts threads, it starts them through ``run_work_items``
-of ``qldpc/codes/distance/_threads.py`` or the helpers there, and its ``conftest.py`` imports the
-fixture ``check_code_on_threads`` of the distance tests, which checks what their workers call, with
-a test that the fixture is active, as
+Another subpackage may compile entry points with ``nogil=True`` only if, like the distance and
+certification packages, it has a guide that states their requirements on threads and which tests
+check them, and a test that the guide names each entry point that
+``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds.  If the package starts
+threads, it starts them through ``run_work_items`` of ``qldpc/codes/distance/_threads.py`` or the
+helpers there.  Its ``conftest.py`` then imports the fixture ``check_code_on_threads`` of
+``qldpc/codes/distance/conftest.py``, which checks what the package's workers call, and a test
+checks that the fixture is active, as the certifier's
 ``test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads`` does.  The package is then
-added to ``_PACKAGES_WITH_RULES_ON_THREADS`` of ``qldpc/_compiled_code_rules_test.py``, which checks
-that every such entry point is in a listed package.
+listed in ``_PACKAGES_WITH_RULES_ON_THREADS`` of ``qldpc/_compiled_code_rules_test.py``.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
 function of both kinds runs as plain Python, much more slowly.  :func:`always_compiled` then returns
