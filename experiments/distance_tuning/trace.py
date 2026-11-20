@@ -48,7 +48,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from qldpc.codes.distance import CSSLogicalCounter, _tuning, core, logical_counts
+from qldpc.codes.distance import CSSLogicalCounter, _tuning, distances, logical_counts
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
 from qldpc.codes.distance._connected_cluster import search as support_search
 from qldpc.codes.distance._counting import macwilliams
@@ -212,8 +212,8 @@ def install_wrappers() -> None:
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
-        (core, "get_distance_brouwer_zimmermann", wrap_sectors),
-        (core, "get_distance_connected_cluster", wrap_sectors),
+        (distances, "get_distance_brouwer_zimmermann", wrap_sectors),
+        (distances, "get_distance_connected_cluster", wrap_sectors),
         (logical_counts, "get_distance_brouwer_zimmermann", wrap_sectors),
         (distance, "_prepare_sector_search", wrap_prepare),
         (support_search.SupportSearch, "__init__", wrap_support_search),
@@ -232,7 +232,7 @@ def wrap_sectors(function: Callable[..., Any]) -> Callable[..., Any]:
     The wrapped function, ``get_distance_brouwer_zimmermann`` or
     ``get_distance_connected_cluster``, prepares a search of each of its sectors in the order in
     which it receives them, and ``wrap_prepare`` and ``wrap_support_search`` record the index of the
-    sector of each search.  So a call with one sector has only sector 0.  ``core._search_css``
+    sector of each search.  So a call with one sector has only sector 0.  ``distances._search_css``
     puts the X sector, of the X-type logical operators, before the Z sector, and so does the
     distance search of a count.
     """

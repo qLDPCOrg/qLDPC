@@ -67,7 +67,8 @@ from typing import TYPE_CHECKING
 
 from qldpc import _deprecations
 
-from .core import (
+from .coset_leaders import CosetLeaderSearch, CosetMethod
+from .distances import (
     NO_DISTANCE,
     DistanceMethod,
     NoDistance,
@@ -76,7 +77,6 @@ from .core import (
     get_distance_from_generators,
     get_distance_pauli,
 )
-from .coset_leaders import CosetLeaderSearch, CosetMethod
 from .logical_counts import (
     CSSLogicalCounter,
     CSSLogicalCounts,

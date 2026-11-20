@@ -151,7 +151,7 @@ Setting `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py` to `False` t
 
 For a CSS code, the known words of the search of X-type logical operators are its X-type stabilizer generators, and those of a subsystem code its gauge generators.
 The distance search of a classical code has no known words, since its `G` is empty, so the cuts change nothing there.
-The search for the distance of a vector from a classical code (see [Section 4](#4-guide-to-the-source-code)) excludes the rows of the generator matrix of the code, which are rows of `G`, so it cuts by them, and the argument above applies.
+The search for the distance of a vector from a classical code (see "The distance of a vector from a classical code" in [Section 3.8](#38-vectors-with-a-given-syndrome)) excludes the rows of the generator matrix of the code, which are rows of `G`, so it cuts by them, and the argument above applies.
 The half-overlap rule is a property of minimum-weight vectors of a coset; the search programs Qubitserf (`cpp/distfind/cc.cpp`, which also leaves out the first variable of each even word), QEDist (`cssdist/native_css/exact.cpp`), public-regular-logical-frames (`src/lp_exclusion.cpp`) of J. Y. Lee, and tropidist (`cdist/gmitm.c`) prune by it ([references](#references)).
 The cuts made the searches of surface, toric, and color codes, whose stabilizers are much lighter than their distances, visit about 4 to over 1000 times fewer states, and those of bivariate bicycle codes up to 3 times fewer.
 For pair-partition and quantum Tanner codes, the cuts changed the number of states visited by at most about 5 percent, and for lifted-product codes by up to about a quarter either way.
@@ -350,6 +350,17 @@ A distance search, whose checks are usually sparse, recomputes both, since the b
 It also computes the overlap of every symbol of an unsatisfied check, available or not.
 It then takes the `m_c` of the check ([Section 3.4](#34-pruning)) and its number of available symbols without branching on availability, since the processor often mispredicts that branch, which costs more than the extra overlaps.
 
+**The distance of a vector from a classical code.**
+The vectors with a given syndrome form a coset, whose least weight can also come from a distance search rather than a syndrome query.
+`ClassicalCode.get_distance_exact(vector=v)` finds the least weight of `v + c` over the words `c` of a classical code with checks `H` and generator matrix `G_C`, the weight of the coset of `v`.
+By the connected-cluster method, it runs a distance search with one more bit `b`, the checks `[H | Hv]`, and the excluded rows `[G_C | 0]`.
+A vector `(x, b)` satisfies these checks exactly when `Hx = b Hv`.
+So with `b = 1`, `x` is in the coset of `v`, and with `b = 0`, `x` is a word of the code, which the excluded rows span.
+The witnesses of the search are therefore the vectors of the coset with `b = 1` appended, and each weighs one more than its vector: the coset weighs one less than the distance of the search, and a cutoff of the coset weight is a cutoff one higher in the search.
+`v` itself is in its coset, so the coset weighs at most `wt(v)`.
+If `wt(v)` is at most the cutoff, the weight `wt(v)` is returned without a search.
+Otherwise the search is limited to weight `wt(v)`, and a search that finds no witness within it shows that the coset weighs `wt(v)`.
+
 ### 3.9 Sparser stabilizers of subsystem codes
 
 The distance search of a subsystem code needs checks whose row space is its stabilizer group ([Section 3.1](#31-the-problem)).
@@ -524,16 +535,16 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_cluster` |
-| Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
-| Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py` |
+| Sectors of a CSS code | `_search_css` of `distances.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
+| Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `distances.py` |
 | Problems of Section 3.7, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance over several sectors | `get_distance_connected_cluster`, which advances `ConnectedClusterSearch` one weight limit at a time |
-| Distance of a vector `v` from a classical code with generator matrix `G_C` | `ClassicalCode.get_distance_exact(vector=v)` in `src/qldpc/codes/common.py`, which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one |
+| Distance of a vector `v` from a classical code with generator matrix `G_C` | `_get_coset_weight` of `distances.py`, which `ClassicalCode.get_distance_exact(vector=v)` calls, and which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one ([Section 3.8](#38-vectors-with-a-given-syndrome)) |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch.find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
 | Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
-| Sparser checks with the same span | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `core.py` |
+| Sparser checks with the same span | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `distances.py` |
 | Rounds of sparsifying | `max_coset_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
 | Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `_get_min_weight_bound_and_states`), and `_get_batch_cluster_bound` and `_get_min_cluster_weight` in `_connected_cluster/coset.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
@@ -548,7 +559,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
-`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the sectors of the search and pass it the active tuning, the last two after they derive the stabilizers of subsystem codes and make them sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
+`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `distances.py` build the sectors of the search and pass it the active tuning, the last two after they derive the stabilizers of subsystem codes and make them sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
 `SupportSearch` validates every sector, and the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes, `logical_counts.py`, and `get_distance_from_generators` reject `method="connected_cluster"`: counting needs every word of a weight rather than one witness, and generators are not checks.
 Hypergraph product codes get their closed-form distances by searching the classical seed codes with the given method.

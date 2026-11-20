@@ -19,7 +19,7 @@ import qldpc
 from qldpc._binary import get_kernel
 from qldpc.objects import Pauli
 
-from . import _auto, core
+from . import _auto, distances
 from ._binary import get_nested_code_basis
 from ._brouwer_zimmermann.distance import BrouwerZimmermannSearch
 from ._connected_cluster.search import ConnectedClusterSearch, SupportSearch
@@ -143,8 +143,8 @@ def test_a_search_by_cost_can_end_in_its_free_phase(routes: Routes) -> None:
     checks = get_golay_checks()
     surface_code = qldpc.codes.SurfaceCode(3).conjugated([0, 4])
     with use_tuning(auto_brute_force_max_words=0):
-        assert core.get_distance_from_checks(checks, checks, method="auto") == 7
-        assert core.get_distance_pauli(surface_code.matrix, method="auto") == 3
+        assert distances.get_distance_from_checks(checks, checks, method="auto") == 7
+        assert distances.get_distance_pauli(surface_code.matrix, method="auto") == 3
     assert routes.probes == routes.switch_bounds == []
 
 
@@ -183,7 +183,7 @@ def test_the_free_phase_ends_with_the_expected_work(
             auto_free_work=free_work,
             connected_cluster_state_evaluations=state_cost,
         ):
-            assert core.get_distance_from_checks(checks, checks, method="auto") == 7
+            assert distances.get_distance_from_checks(checks, checks, method="auto") == 7
         assert len(spent_at_probes) == len(routes.probes) == num_probes
         assert all(states * state_cost <= free_work for states in spent_at_probes)
         routes.probes.clear()
@@ -198,7 +198,7 @@ def test_a_cutoff_ends_the_free_phase_at_once(routes: Routes) -> None:
     """
     checks = get_golay_checks()
     with use_tuning(auto_brute_force_max_words=0, auto_free_work=10**12, auto_probe_work=0):
-        assert core.get_distance_from_checks(checks, checks, method="auto", cutoff=4) == 7
+        assert distances.get_distance_from_checks(checks, checks, method="auto", cutoff=4) == 7
     assert len(routes.probes) == 1 and routes.switch_bounds == []
 
 
@@ -215,15 +215,15 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
     hgp_checks = hgp_code.conjugated(range(0, len(hgp_code), 2)).matrix
     with use_tuning(**UNLIMITED):
         for search in (
-            functools.partial(core.get_distance_from_checks, checks, checks, method="auto"),
-            functools.partial(core.get_distance_pauli, pauli_checks, method="auto"),
+            functools.partial(distances.get_distance_from_checks, checks, checks, method="auto"),
+            functools.partial(distances.get_distance_pauli, pauli_checks, method="auto"),
         ):
             assert search() == 7
             assert search(max_weight=10) == 7
             assert search(max_weight=5) == 6
             assert search(cutoff=7) == 7
             assert 7 <= search(cutoff=9) <= 9
-        assert core.get_distance_pauli(bacon_shor_code.matrix, method="auto") == 3
+        assert distances.get_distance_pauli(bacon_shor_code.matrix, method="auto") == 3
     assert [finished for finished, _ in routes.probes] == [True] * 11 and routes.switch_bounds == []
 
     # The lightest nontrivial row of the basis of the probe of hgp_checks weighs 14 as a BZ word, or
@@ -233,16 +233,16 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
     # Pauli strings.  A cutoff below 7 must not return 7, and a cutoff of 7, doubled for the BZ
     # words, returns 7 before the setup.
     with use_tuning(**NO_PROBE):
-        core.get_distance_pauli(hgp_checks, method="auto")
+        distances.get_distance_pauli(hgp_checks, method="auto")
     assert routes.probes[-1] == (False, 14)
 
     # Each finished probe's bound, a weight of BZ words, is even and lies between twice the
     # distance and twice the cutoff.
     routes.probes.clear()
     with use_tuning(**UNLIMITED):
-        assert core.get_distance_pauli(hgp_checks, method="auto", cutoff=4) == 4
-        assert 4 <= core.get_distance_pauli(hgp_checks, method="auto", cutoff=6) <= 6
-        assert core.get_distance_pauli(hgp_checks, method="auto", cutoff=7) == 7
+        assert distances.get_distance_pauli(hgp_checks, method="auto", cutoff=4) == 4
+        assert 4 <= distances.get_distance_pauli(hgp_checks, method="auto", cutoff=6) <= 6
+        assert distances.get_distance_pauli(hgp_checks, method="auto", cutoff=7) == 7
     for (finished, best), cutoff in zip(routes.probes, (4, 6, 7), strict=True):
         assert finished and 8 <= best <= 2 * cutoff and best % 2 == 0
 
@@ -252,7 +252,9 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
     routes.probes.clear()
     routes.limits.clear()
     with use_tuning(**NO_PROBE):
-        assert core.get_distance_css(golay.matrix_x, golay.matrix_z, method="auto", cutoff=7) == 7
+        assert (
+            distances.get_distance_css(golay.matrix_x, golay.matrix_z, method="auto", cutoff=7) == 7
+        )
     assert [finished for finished, _ in routes.probes] == [True] and routes.limits == []
 
 
@@ -266,7 +268,7 @@ def test_an_unfinished_probe_caps_the_search_by_its_bound(routes: Routes) -> Non
     """
     surface_code = qldpc.codes.SurfaceCode(6)
     with use_tuning(**NO_PROBE):
-        distance = core.get_distance_css(
+        distance = distances.get_distance_css(
             surface_code.matrix_x, surface_code.matrix_z, method="auto"
         )
     assert distance == 6
@@ -287,8 +289,8 @@ def test_a_switch_takes_the_probe_bound_and_finds_the_distance(routes: Routes) -
     pauli_checks = golay.conjugated(range(0, 23, 2)).matrix
     with use_tuning(**SWITCH) as tuning:
         for search in (
-            functools.partial(core.get_distance_from_checks, checks, checks, method="auto"),
-            functools.partial(core.get_distance_pauli, pauli_checks, method="auto"),
+            functools.partial(distances.get_distance_from_checks, checks, checks, method="auto"),
+            functools.partial(distances.get_distance_pauli, pauli_checks, method="auto"),
         ):
             assert search() == 7
             assert search(max_weight=5) == 6
@@ -352,12 +354,15 @@ def test_searches_by_cost_use_lifted_automorphisms(routes: Routes) -> None:
     shifts = np.roll(np.arange(23), 1)[None]
     bicycle_code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
     conjugated = bicycle_code.conjugated(range(7, 14))
-    search_css = functools.partial(core.get_distance_css, golay.matrix_x, golay.matrix_z)
+    search_css = functools.partial(distances.get_distance_css, golay.matrix_x, golay.matrix_z)
     search_golay = functools.partial(
-        core.get_distance_from_checks, golay.matrix, golay.get_stabilizer_ops(), symplectic=True
+        distances.get_distance_from_checks,
+        golay.matrix,
+        golay.get_stabilizer_ops(),
+        symplectic=True,
     )
     search_bicycle = functools.partial(
-        core.get_distance_from_checks,
+        distances.get_distance_from_checks,
         conjugated.matrix,
         conjugated.get_stabilizer_ops(),
         symplectic=True,

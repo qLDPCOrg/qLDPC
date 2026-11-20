@@ -31,7 +31,7 @@ from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
 from ._information_sets import basis_families
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
-from .core import NO_DISTANCE, NoDistance
+from .distances import NO_DISTANCE, NoDistance
 
 # codes.common imports this package, so code classes are imported only where they are used.
 if TYPE_CHECKING:

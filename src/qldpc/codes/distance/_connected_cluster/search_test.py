@@ -30,7 +30,7 @@ from ..conftest import (
     get_golay_checks,
     get_span,
 )
-from ..core import get_distance_css
+from ..distances import get_distance_css
 from . import search as cs
 from .sparse_checks import get_light_pair_sums, get_row_weights
 
