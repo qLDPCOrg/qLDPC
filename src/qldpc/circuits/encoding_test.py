@@ -364,3 +364,40 @@ def _get_state_stabilizer_outcome(circuit: stim.Circuit, qubits: list[int]) -> l
         return [str(stabilizer) for stabilizer in circuits.get_state_stabilizers(circuit, qubits)]
     except ValueError as error:
         return f"{type(error).__name__}: {error}"
+
+
+def test_deprecated_logical_state_stabilizers_argument_order() -> None:
+    """The released argument order (state_prep_circuit, code, qubit_ids) warns and still works."""
+    code = codes.SteaneCode()
+    data = tuple(range(3, 3 + len(code)))
+    prep = circuits.with_remapped_qubits(circuits.get_encoding_circuit(code, only_zero=True), data)
+    qids = circuits.QubitIDs(data, tuple(range(20, 20 + code.num_checks)))
+    expected = circuits.get_logical_state_stabilizers(code, prep, qids)
+
+    # the released keyword names still work in any order, without warning
+    assert expected == circuits.get_logical_state_stabilizers(
+        state_prep_circuit=prep, code=code, qubit_ids=qids
+    )
+
+    with pytest.warns(DeprecationWarning, match="DEPRECATED") as record:
+        stabilizers = circuits.get_logical_state_stabilizers(prep, code, qids)
+    assert stabilizers == expected
+    assert len(record) == 1 and record[0].filename == __file__
+
+
+def test_get_logical_tableau_from_code_data() -> None:
+    """Identify a logical tableau, and reject invalid encoders and non-logical circuits."""
+    code = codes.FiveQubitCode()
+    encoder, decoder = circuits.get_encoder_and_decoder(code)
+    logical_x = math.op_to_string(code.get_logical_ops(Pauli.X, symplectic=True)[0])
+    logical_tableau = encoding._get_logical_tableau_from_code_data(
+        1, 0, encoder, decoder, logical_x.to_tableau().to_circuit()
+    )
+    assert logical_tableau == stim.Tableau.from_named_gate("X")
+
+    with pytest.raises(ValueError, match="does not implement a logical operation"):
+        encoding._get_logical_tableau_from_code_data(1, 0, encoder, decoder, stim.Circuit("X 0"))
+    with pytest.raises(ValueError, match="incompatible dimensions"):
+        encoding._get_logical_tableau_from_code_data(
+            1, 0, stim.Tableau(1), stim.Tableau(2), stim.Circuit()
+        )
