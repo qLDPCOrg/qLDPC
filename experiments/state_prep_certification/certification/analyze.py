@@ -15,9 +15,9 @@ with.  If the label does not match that ``circuits.json`` and the working tree's
 and ``pins.json``, the analysis prints a warning and analyzes the label anyway.  The label's hash
 is recomputed from these files and from the harness commit and bundle that the label's
 ``manifest.json`` records.  The ``circuits.json`` of the label of ``check`` must equal that of the
-analyzed label.  Every
-task of the label's ``tasks.json`` and ``tasks-pass2.json`` that has no row is reported as
-``missing``, with a printed note.
+analyzed label.  Every task of the label's ``tasks.json`` and ``tasks-pass2.json`` that has no row
+is reported as ``missing``, with a printed note.  A row with ``compiled_in_timing`` set (see
+``common/runner.py``) stops ``write_outputs`` with an error that names it.
 
 A circuit's verdict is that of ``cert_bz``, or of ``cert_cc`` where ``cert_bz`` did not finish.  It
 is a disagreement where both finish with different verdicts, or where the baseline or the ground
@@ -190,7 +190,21 @@ def write_outputs(
     """Write the tables and counterexamples of the circuits that ``collect`` gives.
 
     Every output takes each circuit's verdict from the rows of summary.csv.
+
+    Raises:
+        ValueError: If a row has ``compiled_in_timing`` set, since its T includes a compilation.
     """
+    compiled = sorted(
+        row["task_key"]
+        for entry in per_circuit.values()
+        for arm_rows in entry["arms"].values()
+        for row in arm_rows
+        if row.get("compiled_in_timing")
+    )
+    if compiled:
+        raise ValueError(
+            f"rows whose retry compiled in its measured call (compiled_in_timing): {compiled}"
+        )
     summary_rows, weight_rows = summarize(per_circuit)
     write_tables(summary_rows, weight_rows, out)
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}

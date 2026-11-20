@@ -8,8 +8,9 @@ The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on
 compares the prior arm with the arm with everything on, where T is the median of a timed run's
 repeats, a repeat that did not finish counting as the limit L.  An arm counts as finished if its
 first run finished, even if its repeats did not; ``summary.csv`` records the number of unfinished
-repeats in ``repeats_unfinished``, and a median that is L is in effect a bound.  The cases, in
-order:
+repeats in ``repeats_unfinished``, and a median that is L is in effect a bound.  A row with
+``compiled_in_timing`` set (see ``common/runner.py``) stops the analysis with an error that names
+it.  The cases, in order:
 
 1. **disagreement:** the arms, their repeats, or their counting runs report different distances,
    or a distance that differs from the code's reference distance; no ratio;
@@ -118,7 +119,15 @@ def summarize(
         rows: The final rows of the runs.
         sample: The frozen sample.
         expected: The tasks of pass 1, so that a task without a final row is reported as missing.
+
+    Raises:
+        ValueError: If a row has ``compiled_in_timing`` set, since its T includes a compilation.
     """
+    compiled = sorted(row["task_key"] for row in rows if row.get("compiled_in_timing"))
+    if compiled:
+        raise ValueError(
+            f"rows whose retry compiled in its measured call (compiled_in_timing): {compiled}"
+        )
     grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = {}
     for task in expected:
         code_hash = task["key"].split(".")[2]

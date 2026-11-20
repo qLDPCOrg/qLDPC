@@ -11,7 +11,9 @@
   (N_0 <= 25, p <= 8, K <= 4), including DEMs where a light class precedes a heavy one in DEM
   order; the listing counter gives the same counts when its compiled search returns one class
   codeword at a time; and the rows submitted to the oracle never exceed the listed faults on
-  completed weights.
+  completed weights.  Each compiled function of ``counting.py`` that ran has one compiled version.
+  Through the task runner, ``count_listing`` on E-chen and ``ground_truth`` on W(A-ft Shor) and
+  C-goto finish without ``compiled_in_timing``.
 * **AT3:** instrumented and uninstrumented certification give identical certificates on C-goto,
   its variant, and A-ft steane; every wrapped name exists; on a CSS circuit with a violation, each
   query of the fault search is counted once, against an independent spy of the calls that the
@@ -20,15 +22,15 @@
   flagged ones, and an oracle whose answers are shifted raises ``ShadowDisagreement``.
 * **AT4:** ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on the
   first of the five B-cat circuits of largest K and size that qualifies.  A circuit qualifies if its
-  last weight takes at least 0.5 s in a full run after a first, warming one, and if a run stopped a
-  tenth of the way into that weight completes a weight but not that one.  The stopped run ends as a
-  timeout with T at least the limit, reports its completed weights as consecutive weights from 2
-  without a violation, and is not rerun when its task is run again.  A ``cert_bz`` run on the
-  weakened C-goto, which violates, gets a post-processing allowance of 1 s, and its description is
-  delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and its verdict, and its
-  ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets exactly ``repeats.count``
-  repeats (``repeat_tasks``), each with a limit of 600 s and no ``post_s``, and a repeat ends
-  without post-processing or certificate text.
+  last weight takes at least 0.5 s in a full run, which compiles nothing in its measured call, and
+  if a run stopped a tenth of the way into that weight completes a weight but not that one.  The
+  stopped run ends as a timeout with T at least the limit, reports its completed weights as
+  consecutive weights from 2 without a violation, and is not rerun when its task is run again.
+  A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance of
+  1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
+  its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
+  exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
+  ``post_s``, and a repeat ends without post-processing or certificate text.
 * **AT5:** every input matches its SHA-256, its recomputed DEM parameters equal those of
   ``circuits.json``, and each code file passes ``code_files.check_code`` (``circuits.py --check``).
   Every noisy input has only the expected noise, with every measurement noisy.
@@ -42,21 +44,25 @@
   ``brute_force_smallest_violation`` finds a violation of the same weight as qLDPC's
   ``find_smallest_violation`` and the ground truth, also with small batches.  Each circuit's U,
   recomputed from N_0 and K, and whether it is within the cap, equal those of ``circuits.json``.
+  Each compiled function of ``counting.py`` and ``baseline.py`` that ran has one compiled version.
 * **AT8:** the analysis (``analyze.py``) of synthetic rows on four B-cat circuits.  A
   ``count_listing`` run that timed out after one completed weight gives Pi, E, Phi, q, q_h, and h
   from its partial results.  A ground-truth count that differs from the counters', and a baseline
   whose enumerated combinations differ from A_m, each make their circuit a disagreement, as does a
   baseline stopped after a violation at weight m against a finished certification whose smallest
-  violation is not at m.  An expected task without a row is reported as ``missing``.  Every case
-  of the combined margin of ``analyze_applications.py`` gives its value, its bound, or a
-  disagreement, and a footnoted margin keeps its sector.  A margin or a deletion parent that
-  disagrees with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a
-  disagreement, and agreeing deletion tasks do not.  A disagreeing parent does so also when its
-  verdict is only in the partial results of a killed task.  The whole margin column of one family
-  is checked, and the footnote lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
-  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
-  unchecked for an input that is not the label's, exclude a disagreement from the table but list
-  its task, and list an uncertified parent and a timeout.
+  violation is not at m.  An expected task without a row is reported as ``missing``.  Rows with
+  ``compiled_in_timing`` set, one ok and one timeout, stop ``write_outputs`` before it writes
+  anything, with an error that names exactly those rows.  They leave unchanged the verdicts of
+  ``summarize``, which the ranking analysis reads.  Every case of the combined margin of
+  ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a footnoted margin
+  keeps its sector.  A margin or a deletion parent that disagrees with ``cert_bz``, or a final
+  circuit that CC does not certify, makes its circuit a disagreement, and agreeing deletion tasks do
+  not.  A disagreeing parent does so also when its verdict is only in the partial results of a
+  killed task.  The whole margin column of one family is checked, and the footnote lists m* = t, but
+  not m* = t + 1 or a disagreement.  The deletion outputs rebuild a reduced circuit from its input,
+  report a wrong final SHA-256, leave the rebuild unchecked for an input that is not the label's,
+  exclude a disagreement from the table but list its task, and list an uncertified parent and a
+  timeout.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -227,7 +233,7 @@ def at1_known_circuits(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at2_counters(directory: pathlib.Path, node: bool) -> None:
-    """The counters equal brute force on small circuits and random DEMs."""
+    """Counters equal brute force; two arms run through the runner without compiled_in_timing."""
     # random DEMs, some with a light class before a heavy one in DEM order
     light_first = 0
     for flags, heavy, max_weight in _random_dems():
@@ -278,6 +284,22 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
         found = None if certificate.certified else len(certificate.counterexample.fault_indices)
         assert found == expected, (entry["id"], found, expected)
     print(f"  {len(small)} circuits; 20 random DEMs, {light_first} with a light class first")
+
+    # each compiled function that ran has one compiled version, as its disk cache requires
+    _check_one_version(counting)
+
+    # three tasks through the runner, whose rows run_locally checks for compiled_in_timing.  The
+    # listing count on E-chen reaches the disk-cached search of counting.py.  The ground truth uses
+    # galois's arithmetic, which galois_gf2 compiles first, and on C-goto it also reaches, at fault
+    # weight 2, more of counting.py's disk-cached functions.
+    for arm, circuit_id in (
+        ("count_listing", "echen"),
+        ("ground_truth", "w.aft.shor.opt_opt"),
+        ("ground_truth", "cgoto"),
+    ):
+        task = experiment._task(arm, experiment._entry(circuit_id), 0, experiment._limit(arm))
+        row = local_runs.run_locally(directory / task["key"], [task])[task["key"]]
+        assert row["status"] == "ok", (task["key"], row["status"])
 
 
 @test
@@ -379,15 +401,16 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     """Limits, the post-processing allowance, repeats, worst cases, and resume."""
     # the first of the five cat circuits of largest K and size that completes a weight but not the
-    # last weight of its full run when stopped a tenth of the way into that weight.  The full run
-    # is timed after another full run, since the first run of a fresh cache of compiled code spends
-    # seconds compiling.  A run that ends after its limit is a timeout even if it completed the
-    # weight, so a run that does is no use, and the next circuit is tried.  The runner checks the
-    # limit every 0.2 s or so, and its kill took effect about 0.1-0.25 s after the limit in
-    # measured runs, so only circuits whose last weight takes at least 0.5 s are tried.  These are
-    # bcat.w19.t9 and bcat.w18.t9, whose last weights took about 0.9 s and 0.6 s on the machine
-    # that this was written on.  So AT4 uses bcat.w19.t9, passes or fails by chance on a machine
-    # about 1.7 to 1.9 times as fast, and fails on a faster one.
+    # last weight of its full run when stopped a tenth of the way into that weight.  The kept full
+    # run compiles nothing in its measured call, since the runner retries a run that does, and
+    # run_locally fails if the retry compiled too, so that its weights' times exclude compilation.
+    # A run that ends after its limit is a timeout even if it completed the weight, so a run that
+    # does is no use, and the next circuit is tried.  The runner checks the limit every 0.2 s or so,
+    # and its kill took effect about 0.1-0.25 s after the limit in measured runs, so only circuits
+    # whose last weight takes at least 0.5 s are tried.  These are bcat.w19.t9 and bcat.w18.t9,
+    # whose last weights took about 0.9 s and 0.6 s on the machine that this was written on.  So AT4
+    # uses bcat.w19.t9, passes or fails by chance on a machine about 1.7 to 1.9 times as fast, and
+    # fails on a faster one.
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     candidates = [e for e in entries if e["family"] == "B-cat" and e["status"] == "ok"]
     candidates.sort(key=lambda e: (e["options"]["max_weight"], e["num_mechanisms"]), reverse=True)
@@ -395,7 +418,6 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     too_short: list[str] = []
     for circuit in candidates:
         task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
-        local_runs.run_locally(directory / "warm" / circuit["id"], [task])
         full = local_runs.run_locally(directory / "full" / circuit["id"], [task])[task["key"]]
         assert full["status"] == "ok" and full["T"] is not None, full
         ends = [record["T_cumulative"] for record in full["partial"]]
@@ -493,7 +515,7 @@ def at6_node_imports(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
-    """The baseline agrees with the certifier, the counters, and the ground truth."""
+    """Baseline against certifier, counters, and ground truth; one compiled version per function."""
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     ids = {e["id"] for e in entries if e["status"] == "ok" and e["ground_truth"]}
     ids |= {"cgoto", "w.cgoto", "echen"}
@@ -519,6 +541,9 @@ def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
     assert outcomes["certified"] and outcomes["violation"], outcomes
     print(f"  20 random DEMs: {outcomes}")
 
+    # each compiled function that ran has one compiled version, as its disk cache requires
+    _check_one_version(counting, baseline)
+
     # U, and whether it is within the cap, as circuits.json records them
     cap = experiment.CONFIG["brute_force"]["max_combinations"]
     ok = [entry for entry in entries if entry["status"] == "ok"]
@@ -529,7 +554,7 @@ def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at8_analysis(directory: pathlib.Path, node: bool) -> None:
-    """The analysis of synthetic rows: partial counts, disagreements, and missing tasks."""
+    """Analysis of synthetic rows: partial counts, disagreements, missing tasks, flagged rows."""
     # four B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
     # times out; the ground truth of the second and the baseline of the third disagree on a count,
     # and both violate at 3, so the box would prefer either of them over the first if they agreed;
@@ -674,6 +699,30 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
 
     # the missing task
     assert summary[fourth["id"]]["status_cert_cc"] == "missing", summary[fourth["id"]]
+
+    # rows with compiled_in_timing set (rows of retries that compiled too), here an ok row and a
+    # timeout, keep summarize's verdicts, which the ranking analysis reads, as they are, but stop
+    # write_outputs with an error that names those rows alone
+    keys = {
+        experiment._task("cert_bz", fourth, 0, experiment._limit("cert_bz"))["key"],
+        experiment._task("count_listing", first, 0, experiment._limit("count_listing"))["key"],
+    }
+    flagged = [row | {"compiled_in_timing": row["task_key"] in keys} for row in rows]
+    assert sorted(row["status"] for row in flagged if row["compiled_in_timing"]) == [
+        "ok",
+        "timeout",
+    ]
+    per_circuit = analyze.collect(flagged, by_id, expected)
+    verdicts = {row["id"]: row["verdict"] for row in analyze.summarize(per_circuit)[0]}
+    assert verdicts == {circuit_id: row["verdict"] for circuit_id, row in summary.items()}
+    (directory / "flagged").mkdir()
+    try:
+        analyze.write_outputs(per_circuit, by_id, directory / "flagged")
+    except ValueError as refusal:
+        assert {row["task_key"] for row in rows if row["task_key"] in str(refusal)} == keys, refusal
+        assert not any((directory / "flagged").iterdir())
+    else:
+        raise AssertionError("the outputs took a row with compiled_in_timing set")
 
     _check_application_analysis(directory / "applications")
     print("  4 B-cat circuits, 2 disagreements, 1 missing task")
@@ -871,6 +920,43 @@ def at11_code_files(directory: pathlib.Path, node: bool) -> None:
         problems = code_files.check_code(altered_entry, altered_code)
         assert any(check in problem for problem in problems), (check, problems)
     print(f"  {len(alterations)} altered code files fail")
+
+
+def _check_one_version(*modules: Any) -> None:
+    """Each compiled function of the modules that this process ran has one compiled version.
+
+    ``counting.py`` and ``baseline.py`` cache their compiled code on disk on the condition that
+    each function has one version (see their comments).  A function loaded from the disk cache
+    does not compile its callees, which then show no signatures.  So each function that ran is
+    recompiled, uncached, for each of its signatures, which compiles or loads its callees.  This
+    repeats until no function gains a signature, so that callees of callees are reached too.
+    """
+    dispatchers = [
+        value
+        for module in modules
+        for value in vars(module).values()
+        if isinstance(value, numba.core.dispatcher.Dispatcher)
+    ]
+    assert any(dispatcher.signatures for dispatcher in dispatchers), "no compiled function ran"
+    recompiled: set[tuple[Any, Any]] = set()
+    while True:
+        pending = [
+            (dispatcher, signature)
+            for dispatcher in dispatchers
+            for signature in dispatcher.signatures
+            if (dispatcher, signature) not in recompiled
+        ]
+        if not pending:
+            break
+        for dispatcher, signature in pending:
+            recompiled.add((dispatcher, signature))
+            uncached: Any = numba.njit(dispatcher.py_func)
+            uncached.compile(signature)
+    versions = {
+        f"{dispatcher.py_func.__module__}.{dispatcher.py_func.__qualname__}": dispatcher.signatures
+        for dispatcher in dispatchers
+    }
+    assert all(len(signatures) <= 1 for signatures in versions.values()), versions
 
 
 def _check_brute_bz(circuit_id: str) -> bool:

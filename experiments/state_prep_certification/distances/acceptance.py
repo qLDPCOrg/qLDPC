@@ -11,7 +11,7 @@
   the other CSS codes not.  Locally, runs are limited to ``LOCAL_LIMIT_S``, and arms that time out
   are reported rather than checked.
 * **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
-  left, while a concurrent run on another code finishes unaffected.
+  left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
 * **AT5:** regenerated codes match ``sample.json``; ``compare_with_sample`` reports a sample whose
   reference distance differs from ``sample.json``; each row's tuning is the shipped default, with
   ``BZ_PRIOR`` for ``q_bz_prior``.
@@ -22,14 +22,16 @@
   without them it is skipped locally and fails on the node, so that the node never runs the
   experiment without work counts.
 * **AT9:** ``run_node.py --dry-run`` writes no task file without an approval that covers the
-  ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives;
-  the repeat policy gives two repeats exactly to timed runs that finished in under 300 s.
+  ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives with
+  the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
+  timed runs that finished in under 300 s.
 * **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that
   disagree or time out, arms that agree on a distance other than the reference, an arm without
   rows, first runs, repeats, and counting runs that end in an error or memout, only one arm
   finished, both timed out, complete, partial, and missing work counts), writes every output,
   classifies them and marks the family medians as its docstring says, and refuses a work count that
-  it cannot read.
+  it cannot read.  Rows with ``compiled_in_timing`` set, one ok and one timeout, stop the analysis,
+  with an error that names exactly those rows.
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
@@ -249,6 +251,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
     assert slow_row["status"] == "timeout" and slow_row["T"] >= 5.0, slow_row
     assert slow_row["result"] == {} and "left after" not in (slow_row["error"] or ""), slow_row
     assert fast_row["status"] == "ok" and fast_row["result"]["distance"] == 7, fast_row
+    assert not fast_row["compiled_in_timing"], fast_row["compiled_function"]
 
 
 @test
@@ -353,15 +356,22 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in task_files] == before
 
     # the ceiling, by independent arithmetic: start-up cap, limit (or the repeat threshold for a
-    # repeated run's first run), result window, and grace, for each run
+    # repeated run's first run), result window, and grace, for each run; then, for the runner's
+    # retries, twice that and one more run at the first run's limit
     timed_cost = (120 + 300 + 30 + 30) + 2 * (120 + 1800 + 30 + 30)
     count_cost = 120 + 1800 + 30 + 30
+    run_cost = 120 + 1800 + 30 + 30  # S: one run at the first run's limit, in either mode
     (golay,) = _entries(("golay",))
     for mode, cost in (("timed", timed_cost), ("count", count_cost)):
         for arm in arms.ARMS:
             assert experiment.worst_case_s(experiment._task(arm, mode, golay, 0)) == cost
     smoke = experiment.tasks(directory, "smoke")
-    hours = sum(timed_cost if task["mode"] == "timed" else count_cost for task in smoke) / 3600
+    hours = (
+        sum(
+            run_cost + 2 * (timed_cost if task["mode"] == "timed" else count_cost) for task in smoke
+        )
+        / 3600
+    )
     match = re.search(r"ceiling ([\d,.]+) CPU-hours", approved.stdout)
     assert match and float(match.group(1).replace(",", "")) == round(hours, 1), approved.stdout
 
@@ -530,6 +540,20 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         pass
     else:
         raise AssertionError("an unreadable work count was accepted")
+
+    # rows with compiled_in_timing set (rows of retries that compiled too), here an ok row and a
+    # timeout, stop the analysis, with an error that names those rows alone
+    keys = {str(rows[0]["task_key"])}
+    keys.add(next(str(row["task_key"]) for row in rows if row["status"] == "timeout"))
+    flagged = [dict(row, compiled_in_timing=row["task_key"] in keys) for row in rows]
+    assert {row["status"] for row in flagged if row["compiled_in_timing"]} == {"ok", "timeout"}
+    try:
+        analyze.summarize(flagged, sample, expected)
+    except ValueError as refusal:
+        named = {str(row["task_key"]) for row in rows if str(row["task_key"]) in str(refusal)}
+        assert named == keys, refusal
+    else:
+        raise AssertionError("a row with compiled_in_timing set was analyzed")
 
 
 if __name__ == "__main__":

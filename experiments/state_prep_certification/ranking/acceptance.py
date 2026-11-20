@@ -34,18 +34,22 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   f + g <= 2, at each rate, the reference's numbers of paired changes +1 and -1 equal those of the
   plain enumeration.
 * **RT8:** no ``mqt`` or ``qiskit`` module is loaded.
-* **RT9:** on a synthetic certification archive, named and labelled as a node's, each verdict and
-  a disagreement admit or drop their circuits as the rule says, a circuit without a row is not
-  admitted, and a group with one admitted circuit is out of scope.  An archive that breaks any one
-  provenance check fails it.  A ``direct`` task stopped at a limit of 20 s is a timeout that keeps
-  the laws of both fault weights and its finished strata.
+* **RT9:** on a synthetic certification archive, named and labelled as a node's, each verdict and a
+  disagreement admit or drop their circuits as the rule says, a circuit without a row is not
+  admitted, and a group with one admitted circuit is out of scope; a row with ``compiled_in_timing``
+  set changes no admission.  An archive that breaks any one provenance check fails it.  A ``direct``
+  task stopped at a limit of 20 s is a timeout that keeps the laws of both fault weights and its
+  finished strata.  A task of each arm, on C-goto or the Steane group, finishes through the task
+  runner without ``compiled_in_timing``.
 * **RT10:** the reference's ratio, error, allowance, and inadequate strata from hand-made strata;
   resolved and unresolved pairs, and correct, wrong, tied, uncertain, and missing calls; the gate's
   outcomes; a pair on each side of the margin; a group's cost lines and k*, and each validity input
   of the cost projection on each side of its threshold; the break-even outcomes at their
   boundaries; projected costs; the exemption of parts with few draws, at its boundary and with the
   floor s_min sigma_target^2; each part's estimate and bound; and the nonzero draws of a
-  calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.
+  calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.  Rows
+  with ``compiled_in_timing`` set, one ok and one timeout, stop the analysis, with an error that
+  names exactly those rows.
 
 Each test prints PASS or FAIL; the script exits with status 1 if any failed.
 """
@@ -467,7 +471,7 @@ def rt8_imports(directory: pathlib.Path) -> None:
 
 @test
 def rt9_analysis(directory: pathlib.Path) -> None:
-    """Admission, every provenance check, and a timeout that keeps its laws and strata."""
+    """Admission, provenance, a timeout that keeps its strata, and each arm's unflagged run."""
     verdicts = {
         "aft.steane.heuristic_heuristic": ("certified", "certified"),
         "aft.steane.heuristic_opt": ("violation at 2", "violation at 2"),
@@ -487,6 +491,15 @@ def rt9_analysis(directory: pathlib.Path) -> None:
     assert admission["aft.steane.heuristic_opt"]["group_in_scope"]
     assert admission["aft.shor.opt_opt"]["admitted"]
     assert not admission["aft.shor.opt_opt"]["group_in_scope"]
+
+    # the admission reads the certification rows' verdicts whatever their compiled_in_timing: here
+    # every row has it set
+    runs = label_dir / "runs.jsonl"
+    rows = [
+        json.loads(line) | {"compiled_in_timing": True} for line in runs.read_text().splitlines()
+    ]
+    runs.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    assert {row["id"]: row for row in analyze.admit(label_dir, experiment.groups())} == admission
 
     # each provenance check fails on an archive that breaks only it
     other = json.loads(circuits_bytes)
@@ -513,8 +526,31 @@ def rt9_analysis(directory: pathlib.Path) -> None:
     ) | {"limit_s": 20.0}
     row = local_runs.run_locally(directory / "timeout", [task])[task["key"]]
     strata = [record["stratum"] for record in row["partial"] if "stratum" in record]
-    assert row["status"] == "timeout" and "pi" in row["partial"][0] and strata, row["status"]
+    first = row["partial"][0]
+    assert row["status"] == "timeout" and "pi" in first and "eta" in first and strata, row["status"]
     print(f"  a direct task stopped at 20 s keeps {len(strata)} strata")
+
+    # one task of each arm finishes through the runner without compiled_in_timing, which
+    # run_locally checks.  This shows that the analysis's guard does not refuse a node run's label
+    # for these arms.
+    repro = {"id": "cgoto", "rate": 0.001, "copy": "a"}
+    for arm, name, inputs, seed_name in (
+        ("histogram", "cgoto.p0.001", {"id": "cgoto", "rate": 0.001}, None),
+        ("direct", "cgoto.p0.001", {"id": "cgoto", "rate": 0.001}, None),
+        ("calib", "steane.p0.001", {"group": "steane", "rate": 0.001}, None),
+        ("exact", "cgoto", {"id": "cgoto"}, None),
+        ("mc_check", "cgoto.p0.005", {"id": "cgoto", "rate": 0.005}, None),
+        (
+            "repro",
+            "histogram.cgoto.p0.001.a",
+            repro | {"kind": "histogram"},
+            "repro.histogram.cgoto.p0.001",
+        ),
+        ("repro", "direct.cgoto.p0.001.a", repro | {"kind": "direct"}, "repro.direct.cgoto.p0.001"),
+    ):
+        task = experiment._task(arm, name, inputs, seed_name=seed_name) | {"limit_s": 600.0}
+        row = local_runs.run_locally(directory / task["key"], [task])[task["key"]]
+        assert row["status"] == "ok", (task["key"], row["status"])
 
 
 @test
@@ -962,6 +998,26 @@ def rt10_rules(directory: pathlib.Path) -> None:
         error = float(consumers._get_jeffreys_deviations(increases, decreases, count))
         mean = (increases - decreases) / count
         assert analyze.nonzero_changes(mean, error, count) == increases + decreases
+
+    # rows with compiled_in_timing set (rows of retries that compiled too), here an ok row and a
+    # timeout, stop the analysis, with an error that names those rows alone
+    label_dir = directory / "compiled"
+    label_dir.mkdir(parents=True, exist_ok=True)
+    for key, status, compiled in (
+        ("direct.c", "ok", True),
+        ("direct.d", "ok", False),
+        ("direct.e", "timeout", True),
+    ):
+        store.append_row(
+            label_dir, {"task_key": key, "status": status, "compiled_in_timing": compiled}
+        )
+    try:
+        analyze._ranking_rows(label_dir)
+    except ValueError as refusal:
+        named = {key for key in ("direct.c", "direct.d", "direct.e") if key in str(refusal)}
+        assert named == {"direct.c", "direct.e"}, refusal
+    else:
+        raise AssertionError("a row with compiled_in_timing set was analyzed")
 
 
 ####################################################################################################

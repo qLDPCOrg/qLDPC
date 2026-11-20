@@ -7,27 +7,19 @@ time T of the arm's distance call on its stored code, including building the cod
 counting run makes the same call with qLDPC's opt-in work counters on, untimed for the analysis
 but under the same limit.  Counting tasks exist only if the installed qLDPC has the counters.
 
-Before timing, each run warms up: ``trial.warm_up`` for the ``distance`` and ``hadamard``
-workloads, so that every route is compiled, and then the arm itself, untimed, on the
-matrices of ``SurfaceCode(5)`` (or its Hadamard variant for a code that is not CSS), with its own
-tuning.  A timed run that finishes in under ``repeat_below_s`` gets ``repeats`` more runs.
+No run warms up before timing; the runner retries any run whose measured call compiled
+(``common/runner.py``).  A timed run that finishes in under ``repeat_below_s`` gets ``repeats`` more
+runs.
 """
 
 from __future__ import annotations
 
 import json
 import pathlib
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from experiments.state_prep_certification.common import runner
 from experiments.state_prep_certification.distances import arms, codes
-
-# Importing ``codes`` above puts ``experiments/distance_tuning`` on the path, whose scripts import
-# each other as top-level modules; mypy knows them only as experiments.distance_tuning.*.
-if TYPE_CHECKING:
-    from experiments.distance_tuning import trial
-else:
-    import trial
 
 NAME = "distances"
 EXTRA_WHEELS = ["matplotlib"]
@@ -93,17 +85,12 @@ def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, An
 
 
 def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
-    """Warm up, then run the arm's distance call once, timed (and counting in mode ``count``)."""
+    """Run the arm's distance call once, timed (and counting in mode ``count``)."""
     from qldpc.codes.distance import _tuning
 
     arm, entry = task["arm"], task["input"]
     stored = codes.load_code(label_dir, entry["code_hash"])
-
-    # warm up every route, then the arm itself on a small code, with its own tuning
-    for kind in ("distance", "hadamard"):
-        trial.warm_up(kind)
     with _tuning.use_tuning(**arms.tuning_changes(arm)):
-        arms.distance_call(arms.warm_up_arrays(entry["css"]))()
         tuning = arms.active_tuning()
         call = arms.distance_call(stored)
         if task["mode"] == "count":

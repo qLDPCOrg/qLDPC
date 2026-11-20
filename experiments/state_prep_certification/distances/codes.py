@@ -17,9 +17,11 @@ made.  Draw i of parameters ``params`` of family ``f`` uses ``numpy.random.defau
 separators=(",", ":"))).digest()[:8], "big") >> 1``.  The only screens are structural: the
 construction's own rejection, and ``k = 0``.  A draw is also screened out if it duplicates a kept
 code, an anchor, a CSS code of ``trial.WARM_UP_CODES``, or the Hadamard variant of such a code, by
-the SHA-256 of the reduced row echelon forms of the check matrices.  Every draw and its outcome goes
-to ``draws.jsonl``, a size with fewer valid draws than codes goes to ``shortfalls`` of the sample,
-and an unexpected exception stops the script.
+the SHA-256 of the reduced row echelon forms of the check matrices.  ``trial.WARM_UP_CODES`` are the
+codes on which ``experiments/distance_tuning`` warms up; no run of this experiment warms up on them,
+but the screen against them is part of the rule that produced the frozen ``sample.json``.  Every
+draw and its outcome goes to ``draws.jsonl``, a size with fewer valid draws than codes goes to
+``shortfalls`` of the sample, and an unexpected exception stops the script.
 
 **Anchors.**  The named codes of ``ANCHORS``, from ``experiments/distance_tuning/workloads.py``,
 qLDPC's constructors, and the vendored constructions below, with a reference distance where an
@@ -557,6 +559,7 @@ def generate(out: pathlib.Path) -> dict[str, Any]:
     (out / "codes").mkdir(parents=True, exist_ok=True)
     endpoints = json.loads(ENDPOINTS.read_text())["families"]
     seen: dict[str, str] = {}
+    # screen out distance_tuning's warm-up codes and their Hadamard variants (see the docstring)
     for name in trial.WARM_UP_CODES:
         warm_up = workloads.get_code(name)
         if isinstance(warm_up, codes.CSSCode):

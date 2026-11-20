@@ -45,6 +45,7 @@ import numpy as np
 import stim
 
 from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common import tasks as task_store
 from experiments.state_prep_certification.ranking import consumer as ranking_consumer
 from experiments.state_prep_certification.ranking import direct
 from qldpc import circuits as qldpc_circuits
@@ -161,13 +162,8 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
 
 
 def worst_case_s(task: dict[str, Any]) -> float:
-    """The worst case of a task: start-up cap, limit, grace, and the allowance to finish."""
-    return (
-        float(task["startup_cap_s"])
-        + float(task["limit_s"])
-        + float(task["grace_s"])
-        + runner.FINISH_S
-    )
+    """The worst case of a task, which has no repeats: one run at its limit (``run_cost_s``)."""
+    return task_store.run_cost_s(task)
 
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:

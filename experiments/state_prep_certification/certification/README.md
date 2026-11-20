@@ -69,6 +69,14 @@ The final circuit, which can equal the parent, is then certified at K = t by CC,
 `prune_sensitivity` does the same by increasing index of the instruction of the first measurement.
 `margin` and the deletion arms send each completed step, a fault weight or a tried qubit, to the runner as a partial result, so that a run killed at its limit keeps its steps; the circuit of a killed deletion run is not a result.
 
+The runner retries any run whose measured call compiled, as the [shared README](../README.md#runs) describes.
+No run warms up before timing, apart from `ground_truth`, whose task process first compiles galois's GF(2) arithmetic, untimed ([`common/galois_gf2.py`](../common/galois_gf2.py)).
+The count and ground-truth arms take their DEM from an untimed certification at fault weight 1.
+This certification is preparation, not a warm-up, but it also compiles, or loads from the cache, the code that their measured calls share with it.
+The experiment's own compiled code, in `counting.py` and `baseline.py`, is cached on disk.
+
+A row with `compiled_in_timing` set (see the [shared README](../README.md#runs)) stops `analyze.py` with an error that names it, before it writes any table.
+
 ## Workflow
 
 On the workstation, with `circuit_data/` holding the hand-translated and synthesized circuits:
@@ -78,17 +86,18 @@ python experiments/state_prep_certification/certification/circuits.py --fetch
 python experiments/state_prep_certification/certification/circuits.py --build
 python experiments/state_prep_certification/certification/circuits.py --check
 python experiments/state_prep_certification/certification/acceptance.py --local
-python experiments/state_prep_certification/run_node.py certification --local --subset smoke --approved-cpu-hours 27
+python experiments/state_prep_certification/run_node.py certification --local --subset smoke --approved-cpu-hours 79
 ```
 
 `--fetch` downloads MQT QECC's circuits, and `--build` writes the inputs, with the licenses and `circuits.json`, to `circuit_data/inputs/`.
 `--check` checks the inputs' hashes and DEM parameters against `circuits.json`, the states of the synthesized inputs, and each code file against its circuit, as `code_files.check_code` describes; where the fetched sources are present, as on the workstation, it also rebuilds the inputs from them in a scratch directory and compares.
 On the node, the experiment runs the same check before any task, copies `circuits.json` into the label directory, and never imports MQT or qiskit.
 
-The subset `smoke` has a ceiling of about 26 CPU-hours, which `--approved-cpu-hours` must cover, although its runs take minutes; `run_node.py certification --subset smoke --dry-run` prints it.
+The subset `smoke` has a ceiling of about 78 CPU-hours, which `--approved-cpu-hours` must cover, although its runs take minutes; `run_node.py certification --subset smoke --dry-run` prints it.
 
 On the node, `node.sh certification --approved-cpu-hours H` runs the subset `main` (certification by both oracles, the brute-force baseline where U is within the cap, the shadow run, the counts, the margins, and the deletions), and `--subset check` the ground truth by brute force, in a label directory and archive of its own.
 The ceiling of `main` follows from `circuits.json`: each run costs at most its start-up cap, its limit, its post-processing allowance, and the grace, and a fast run of `cert_bz`, `cert_cc`, or `brute_bz` gets two repeats.
+The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) explains.
 `run_node.py certification --dry-run` prints the tasks and the ceiling of the current `circuits.json`.
 On the workstation, `analyze.py --archive PATH --check-archive PATH` writes the tables and counterexamples; without the archive of `check`, the tables report the ground truth as not run.
 It takes the circuits and their parameters from the label's copy of `circuits.json`, and stops if the label of `check` ran with another one.
@@ -96,7 +105,7 @@ If a label does not match its `circuits.json` and the working tree's `config.jso
 Its outputs include `listing_table.csv`, the listed faults and oracle rows against all accepted combinations per family and weight; and `counterexamples.json`, every counterexample and the box of three example counterexamples.
 It reports every task without a row as missing, and leaves every circuit with a disagreement out of the verdict counts, medians and maxima, `listing_table.csv`, and the box.
 Where A_m was not computed, `listing_table.csv` divides by C(N_0, m) instead, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
-The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, disagreements with the baseline and the ground truth, and a task without a row.
+The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, disagreements with the baseline and the ground truth, a task without a row, and rows with `compiled_in_timing` set, one ok and one timeout.
 
 `analyze_applications.py` adds the margins and the deletions.
 `summary.csv` gives each circuit's combined margin: the m* or "all" that `cert_bz`, `cert_cc`, and `margin` determine, or, if none determines it, "m* > k" for the largest certified fault weight k.

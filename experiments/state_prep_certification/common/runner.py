@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The task runner: one run of one task in a fresh child process, with its limits and its row.
+"""The task runner: one task, in one or two fresh child processes, with its limits and its row.
 
 The parent side, ``run_task``, starts the child with the thread variables of ``THREAD_VARIABLES``
 set to 1, and, if it is given a CPU, has the child pin itself to that CPU.  On the node, the
@@ -10,7 +10,8 @@ records the child's process group (or, in local mode, its process id) and the st
 child and the runner in ``active/<task_key>``, and watches the child:
 
 * **Start-up cap:** the child must report that timing started within ``startup_cap_s`` of its
-  launch (process start, imports, warm-up); otherwise it is killed and the run is an ``error``.
+  launch (process start, imports, and any untimed preparation); otherwise it is killed and the
+  run is an ``error``.
 * **Limit:** the measured call gets ``limit_s`` from the moment that the child reports its start.
   The parent kills the child as soon as the limit has passed, and the run is a ``timeout``
   whenever the measured time T is at least the limit, even if the call returned later.  The T of a
@@ -24,13 +25,39 @@ child and the runner in ``active/<task_key>``, and watches the child:
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
   process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.
 * **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
-  partial results that the child wrote before the kill, waits up to ``grace_s`` for the processes
-  to go, and accepts no other message.  A process is killed only if its start time is the one
-  recorded when it was seen, so that a reused process id is never killed.
+  partial results and the report of a compilation that the child wrote before the kill, waits up
+  to ``grace_s`` for the processes to go, and accepts no other message.  A process is killed only
+  if its start time is the one recorded when it was seen, so that a reused process id is never
+  killed.
+* **Compilation:** while the measured call runs, the child listens to numba's documented event
+  ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and reports
+  the first compilation to the parent at once.  numba does not send this event when it compiles a
+  ``numba.vectorize`` or ``numba.guvectorize`` ufunc or a ``numba.cfunc``, such as galois's ufuncs
+  (see ``galois_gf2.py``), so such a compilation in a measured call goes unreported.
 
-The parent appends exactly one final row to the store and exits with status 0, or, on SIGTERM or
-SIGINT, kills the run, waits out the grace, and exits with status 2 without a row.  If the parent
-itself fails, it kills the run before it exits.
+  The parent discards a run whose measured call compiled, whatever its status.  The discarded run is
+  not stopped early, since numba writes compiled code to its cache only after the compilation ends,
+  and a kill could lose it.  The parent then runs the task once more, in a fresh process that loads
+  the compiled code from numba's disk cache: the retry, which is never discarded.  A run's T
+  includes loading from the cache any compiled code that its process first reaches in its measured
+  call, and the other first-call work of a fresh process.  A task takes at most ``RUNS_PER_TASK``
+  runs, and its kept row records the discarded run, if any, in ``discarded_run``: its run id,
+  status, T, error, and the function that it compiled.
+
+  A row has ``compiled_in_timing`` set when its run is a retry that compiled too; only then does its
+  T include a compilation that numba reports.  That happens for code whose compilation was lost when
+  the discarded run was killed at its limit or memory cap or ended in an error, for code that the
+  discarded run never reached, and for code that numba does not cache on disk, such as galois's
+  ``numba.jit`` functions that ``galois_gf2.py`` does not compile first.  It can also happen when
+  processes compile different versions of one function at once, since one can overwrite the cache
+  entry that another wrote (numba/numba#10862; see the comment in ``certification/counting.py``).
+  Such a row is kept so that it is visible.  ``compiled_in_timing`` is the flag that the analyses
+  test, and ``compiled_function`` names the first function compiled, to show what to look into.
+
+``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
+during or between its runs, kills any current run, waits up to the grace for its processes to go,
+and returns 2 without a row; ``run_task.py`` exits with that status.  If the parent itself fails, it
+kills the run before it exits.
 
 The child side is ``child_main``.  The experiment's ``run(task, label_dir)`` calls ``timed`` once
 around the measured call, may call ``send_partial`` with partial results as they arrive and
@@ -54,6 +81,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -71,6 +99,10 @@ THREAD_VARIABLES = (
 )
 
 STARTUP_CAP_S = 120.0
+# The most runs of one task: a run, and a retry if the measured call of that run compiled.  Raising
+# it would need discarded_run to record every discarded run, and the docs that describe one retry,
+# such as tasks.py's statement of the ceiling, to change.
+RUNS_PER_TASK = 2
 GRACE_S = 30.0
 FINISH_S = 30.0
 POLL_S = 1.0
@@ -119,7 +151,7 @@ def run_task(
     job_slot: int | None = None,
     cpu: int | None = None,
 ) -> int:
-    """Run one task in a child process, append its final row, and return the exit status.
+    """Run one task, in one or two fresh child processes, and append its final row.
 
     Args:
         label_dir: The label's directory, which holds ``tasks.json`` and ``runs.jsonl``.
@@ -128,6 +160,9 @@ def run_task(
         local: Whether to keep the child in this session and kill by process tree.
         job_slot: GNU parallel's job slot of this task, if any.
         cpu: The logical CPU to which the child pins itself, if any (Linux only).
+
+    Returns:
+        0 once it has appended the row, or 2, without a row, if SIGTERM or SIGINT stopped the task.
     """
     command = [
         sys.executable,
@@ -137,8 +172,44 @@ def run_task(
         str(label_dir),
         task["key"],
     ]
-    watcher = _Watcher(label_dir, task, local=local, job_slot=job_slot, cpu=cpu)
-    return watcher.run(command)
+    # A stop signal stops the current run, or the task between its runs.
+    stop = _Stop()
+
+    def on_signal(signum: int, frame: Any) -> None:
+        stop.signum = signum
+
+    previous_handlers = {
+        sig: signal.signal(sig, on_signal) for sig in (signal.SIGTERM, signal.SIGINT)
+    }
+    try:
+        row: dict[str, Any] | None = None
+        for _ in range(RUNS_PER_TASK):
+            if stop.signum is not None:
+                return 2
+            watcher = _Watcher(label_dir, task, local=local, job_slot=job_slot, cpu=cpu, stop=stop)
+            new_row = watcher.run(command)
+            if new_row is None:
+                return 2
+            if row is not None:
+                new_row["discarded_run"] = {
+                    name: row[name]
+                    for name in ("run_id", "status", "T", "error", "compiled_function")
+                }
+            row = new_row
+            if not row["compiled_in_timing"]:
+                break
+        assert row is not None
+        store.append_row(label_dir, row)
+        return 0
+    finally:
+        for sig, handler in previous_handlers.items():
+            signal.signal(sig, handler)
+
+
+class _Stop:
+    """The stop signal that the runner received, if any, which every run of the task reads."""
+
+    signum: int | None = None
 
 
 class _Watcher:
@@ -152,6 +223,7 @@ class _Watcher:
         local: bool,
         job_slot: int | None,
         cpu: int | None,
+        stop: _Stop,
     ) -> None:
         self.label_dir = label_dir
         self.task = task
@@ -172,10 +244,11 @@ class _Watcher:
         self.post: dict[str, Any] | None = None
         self.post_phase = False
         self.child_error: str | None = None
+        self.compiled_function: str | None = None
         self.peak_rss = 0
         self.threads_peak: int | None = None
         self.seen: dict[int, str] = {}
-        self.stop_signal: int | None = None
+        self.stop = stop
         self.root = -1
         self.group: int | None = None
         self.buffer = b""
@@ -183,8 +256,8 @@ class _Watcher:
         self.measured_at: float | None = None
         self.killed_at: float | None = None
 
-    def run(self, command: list[str]) -> int:
-        """Start the child, watch it, and write the row; see ``run_task``."""
+    def run(self, command: list[str]) -> dict[str, Any] | None:
+        """Start the child, watch it, and return its row, or None if a signal stopped it."""
         for name in ("active", "logs"):
             (self.label_dir / name).mkdir(exist_ok=True)
         active_file = self.label_dir / "active" / self.task["key"]
@@ -197,9 +270,6 @@ class _Watcher:
         env[_CHANNEL_VARIABLE] = str(write_fd)
         if self.cpu is not None:
             env[_CPU_VARIABLE] = str(self.cpu)
-        previous_handlers = {
-            sig: signal.signal(sig, self._on_signal) for sig in (signal.SIGTERM, signal.SIGINT)
-        }
         with open(log_file, "wb") as log:
             child = subprocess.Popen(
                 command,
@@ -238,14 +308,12 @@ class _Watcher:
             raise
         finally:
             os.close(read_fd)
-            for sig, handler in previous_handlers.items():
-                signal.signal(sig, handler)
         _keep_tail(log_file)
-        if self.stop_signal is not None:
+        if self.stop.signum is not None:
             active_file.unlink(missing_ok=True)
-            return 2
+            return None
 
-        # one final row
+        # the run's row
         if rusage is not None:
             scale = 1 if sys.platform == "darwin" else 1024
             self.peak_rss = max(self.peak_rss, rusage.ru_maxrss * scale)
@@ -255,9 +323,8 @@ class _Watcher:
         if stray:
             left = f"processes left after the grace: {stray}"
             row["error"] = f"{row['error']}; {left}" if row["error"] else left
-        store.append_row(self.label_dir, row)
         active_file.unlink(missing_ok=True)
-        return 0
+        return row
 
     def _watch(
         self, child: subprocess.Popen[bytes], read_fd: int, launch: float
@@ -283,7 +350,7 @@ class _Watcher:
             # limits and signals
             now = time.monotonic()
             reason = None
-            if self.stop_signal is not None:
+            if self.stop.signum is not None:
                 reason = "signal"
             elif self.timing_started_at is None and now - launch > self.startup_cap_s:
                 reason = "startup"
@@ -306,17 +373,17 @@ class _Watcher:
             if reason is not None:
                 self._kill()
                 self.killed_at = time.monotonic()
-                while open_channel and self._read(read_fd, 0.0, drain=True, partials_only=True):
+                while open_channel and self._read(read_fd, 0.0, drain=True, after_kill=True):
                     pass
                 return reason, None
 
     def _read(
-        self, read_fd: int, timeout: float, drain: bool = False, partials_only: bool = False
+        self, read_fd: int, timeout: float, drain: bool = False, after_kill: bool = False
     ) -> bool:
         """Read and handle available messages; return False once the channel is closed.
 
         With ``drain``, return False also when nothing is waiting, so that a loop ends.  With
-        ``partials_only``, as after a kill, handle only the partial results.
+        ``after_kill``, handle only the partial results and the report of a compilation.
         """
         ready, _, _ = select.select([read_fd], [], [], timeout)
         if not ready:
@@ -326,7 +393,7 @@ class _Watcher:
         *lines, self.buffer = self.buffer.split(b"\n")
         for line in lines:
             message = json.loads(line)
-            if partials_only and message["type"] != "partial":
+            if after_kill and message["type"] not in ("partial", "compiled"):
                 continue
             now = time.monotonic()
             if message["type"] == "start":
@@ -352,11 +419,13 @@ class _Watcher:
             self.post = message["fields"]
         elif kind == "error":
             self.child_error = message["message"]
+        elif kind == "compiled" and self.compiled_function is None:
+            self.compiled_function = message["function"]
 
     def _row(
         self, kill_reason: str | None, returncode: int | None, started_at: str, finished_at: str
     ) -> dict[str, Any]:
-        """The final row of the run."""
+        """The row of the run."""
         error: str | None = None
         post_status: str | None = None
         T: float | None = None
@@ -419,15 +488,14 @@ class _Watcher:
             "threads_peak": self.threads_peak,
             "local": self.local,
             "error": error,
+            "compiled_in_timing": self.compiled_function is not None,
+            "compiled_function": self.compiled_function,
+            "discarded_run": None,
             "started_at": started_at,
             "finished_at": finished_at,
             "partial": self.partials,
             "result": result,
         }
-
-    def _on_signal(self, signum: int, frame: Any) -> None:
-        """Remember a stop signal; the watch loop kills the run."""
-        self.stop_signal = signum
 
     def _members(self, table: dict[int, Process]) -> list[int]:
         """The live processes of the run: its process group, or locally its process tree."""
@@ -507,6 +575,8 @@ class _Channel:
     def __init__(self) -> None:
         fd = os.environ.get(_CHANNEL_VARIABLE)
         self.fd = int(fd) if fd is not None else None
+        # numba may compile on a thread other than the one that sends the other messages
+        self.lock = threading.Lock()
 
     def send(self, message: dict[str, Any]) -> None:
         """Send one message, as a line of JSON."""
@@ -514,8 +584,9 @@ class _Channel:
             return
         data = (json.dumps(message, separators=(",", ":"), default=_jsonable) + "\n").encode()
         view = memoryview(data)
-        while view:
-            view = view[os.write(self.fd, view) :]
+        with self.lock:
+            while view:
+                view = view[os.write(self.fd, view) :]
 
 
 _CHANNEL = _Channel()
@@ -524,16 +595,23 @@ _CHANNEL = _Channel()
 def timed(function: Callable[..., _ReturnType], *args: Any, **kwargs: Any) -> _ReturnType:
     """Call the measured function once, timing it, and tell the runner when it starts and ends.
 
-    T is the wall time by ``time.perf_counter``, and the CPU time includes child processes.
+    T is the wall time by ``time.perf_counter``, and the CPU time includes child processes.  While
+    the function runs, the first compilation that numba reports in this process, on any thread, is
+    reported to the runner at once (see the module docstring).
     """
+    # numba is imported here, in the child, so that the runner's own process does not load it
+    from numba.core import event
+
     if _CHANNEL.timing_started:
         raise RuntimeError("timed(...) may be called only once per run")
     _CHANNEL.timing_started = True
     _CHANNEL.send({"type": "start", "affinity": _affinity()})
     cpu_start = _cpu_seconds()
-    _CHANNEL.wall_start = time.perf_counter()
-    value = function(*args, **kwargs)
-    wall = time.perf_counter() - _CHANNEL.wall_start
+    reporter = _new_compile_reporter()
+    with event.install_listener("numba:compile", reporter):
+        _CHANNEL.wall_start = time.perf_counter()
+        value = function(*args, **kwargs)
+        wall = time.perf_counter() - _CHANNEL.wall_start
     cpu = _cpu_seconds() - cpu_start
     _CHANNEL.measured = wall
     _CHANNEL.send({"type": "measured", "T": wall, "T_cpu": cpu})
@@ -592,6 +670,34 @@ def child_main(
     else:
         _CHANNEL.send({"type": "result", "fields": fields, "final": True})
     return 0
+
+
+def _new_compile_reporter() -> Any:
+    """A listener of numba's event ``"numba:compile"`` that reports the first compilation.
+
+    numba sends this event for the compilation of a ``numba.jit`` function (see the module
+    docstring for what it does not report).  The listener's class is defined here, on call, since
+    it subclasses numba's ``event.Listener``, and only the child imports numba.
+    """
+    from numba.core import event
+
+    class CompileReporter(event.Listener):
+        """Report the first compilation that starts, with the name of its function."""
+
+        reported = False
+
+        def on_start(self, started: event.Event) -> None:
+            if self.reported:
+                return
+            self.reported = True
+            function = started.data["dispatcher"].py_func
+            name = f"{function.__module__}.{function.__qualname__}"
+            _CHANNEL.send({"type": "compiled", "function": name})
+
+        def on_end(self, ended: event.Event) -> None:
+            pass
+
+    return CompileReporter()
 
 
 ####################################################################################################

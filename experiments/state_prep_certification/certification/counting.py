@@ -40,7 +40,16 @@ import stim
 # The number of class codewords that the compiled search returns at a time.
 _BUFFER = 4096
 
-# Compiled with numba.njit(cache=False): qLDPC's always_compiled keys its cache to qLDPC's source.
+# Compiled with numba.njit(cache=True), which caches compiled code on disk, rather than with
+# qLDPC's private always_compiled, which code outside qLDPC does not use.  numba checks only the
+# function's own source file for changes, which suffices here, since these functions call only each
+# other, in this file, and NumPy, never qLDPC's compiled code.
+#
+# Each function is also compiled for one set of argument types only, so that on one machine its
+# cache holds one compiled version.  Processes that compile different versions of a function at
+# once can mix up its cache files (numba/numba#10862); one version per function rules this out on
+# one machine.  numba also keys each version to the CPU, so machines with different CPUs that share
+# a cache, such as through a shared results directory, could still meet the issue.
 
 
 ####################################################################################################
@@ -268,7 +277,7 @@ def _new_state(prefix_length: int, num_words: int) -> tuple[npt.NDArray[Any], ..
     return depth, next_class, chosen, basis, pivot_word, pivot_bit, sums
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _search_codewords(
     words: npt.NDArray[np.uint64],
     sorted_words: npt.NDArray[np.uint64],
@@ -536,7 +545,7 @@ def brute_force_counts(
     return counts
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _next_combination(indices: npt.NDArray[np.int64], n: int) -> bool:
     """Advance an increasing index tuple to the next one; return False after the last."""
     k = indices.shape[0]
@@ -551,7 +560,7 @@ def _next_combination(indices: npt.NDArray[np.int64], n: int) -> bool:
     return True
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _rank64(vectors: npt.NDArray[np.uint64]) -> int:
     """The GF(2) rank of 64-bit vectors."""
     basis = np.zeros(64, dtype=np.uint64)
@@ -569,7 +578,7 @@ def _rank64(vectors: npt.NDArray[np.uint64]) -> int:
     return rank
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _enumerate_accepted(
     flags: npt.NDArray[np.uint64],
     syndromes: npt.NDArray[np.int64],
@@ -597,7 +606,7 @@ def _enumerate_accepted(
             return count, violated
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _count_independent(class_flags: npt.NDArray[np.uint64], num_start: int, length: int) -> int:
     """Increasing tuples of classes with independent flags whose first class is a start class."""
     n = class_flags.shape[0]
@@ -614,7 +623,7 @@ def _count_independent(class_flags: npt.NDArray[np.uint64], num_start: int, leng
             return count
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _count_circuits(class_flags: npt.NDArray[np.uint64], num_start: int, size: int) -> int:
     """Minimal sets of classes whose flags sum to zero, with a start class first."""
     n = class_flags.shape[0]
@@ -634,7 +643,7 @@ def _count_circuits(class_flags: npt.NDArray[np.uint64], num_start: int, size: i
             return count
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _count_heavy_circuits(
     flags: npt.NDArray[np.uint64], heavy: npt.NDArray[np.bool_], size: int
 ) -> int:
