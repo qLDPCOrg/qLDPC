@@ -37,9 +37,8 @@ from qldpc.codes.distance._tuning import get_tuning
 # closing table is built, before the slots, each set takes at most 8 more for a bucket count, so the
 # peak is 40 bytes plus 4 for each class: 48 for a pair.  This leaves out the extra memory of merge
 # sorting a bucket (a range of the table whose keys share their top bits) of more than 32 sets that
-# is out of order (see ``_sort_bucket``), and the arrays into which ``_list_class_codewords`` lists
-# class codewords, one for each thread that lists, whose rows have room for all the class codewords
-# of one lookup (see ``_CodewordWalk``).
+# is out of order (see ``_sort_bucket``), and the arrays into which each listing thread lists class
+# codewords (see ``_CodewordWalk`` and ``_ClusterWalk``).
 _BYTES_PER_SET = 40
 
 # The largest number of classes in a closing set (see ``FaultLister``).  Each class that a closing
@@ -65,27 +64,37 @@ _INITIAL_BATCH_SIZE = 2**6
 # The largest number of faults in a batch.
 _BATCH_SIZE = 2**12
 
-# The number of class codewords (see ``FaultLister``) after which ``_list_class_codewords`` returns,
-# to be resumed by its next call, so that memory does not grow with their number.
+# The number of class codewords (see ``FaultLister``) after which ``_list_class_codewords`` and
+# ``_list_cluster_codewords`` return, to be resumed by their next calls, so that memory does not
+# grow with their number.
 _CODEWORD_BATCH_SIZE = 2**10
 
-# The number of lookups after which ``_list_class_codewords`` also returns on threads, so that a
-# thread checks often whether to stop (see "Threads" in ``fault_propagation.md``).
+# The number of lookups after which ``_list_class_codewords`` and ``_list_cluster_codewords`` also
+# return on threads, so that a thread checks often whether to stop (see "Threads" in
+# ``fault_propagation.md``).
 _LOOKUPS_PER_CALL = 2**16
 
-# A listing of class codewords moves to threads once the calling thread, listing alone, has made
-# this many lookups for each thread, and the lookups left are estimated to be at least as many.
+# The assumed cost, in probes of its closing map, of each state of the walk by shared flags (see
+# ``FaultLister``), which reduces the flags of a class and chooses a flag bit, and of each candidate
+# that it finds dependent.
+_PROBES_PER_NODE = 64
+
+# A lookup of the walk by closing sets, which reduces the flags of a class and probes a closing map
+# that may not fit in a cache, costs about this many probes of the walk by shared flags.  A listing
+# counts the work of the walk by shared flags in lookups at this rate.
+_PROBES_PER_LOOKUP = 16
+
+# The number of class codewords of one root that the array of the walk by shared flags holds, so
+# that it takes at most ``8 m`` MiB for fault weight ``m``.  A root whose class codewords fill it is
+# listed by the walk by closing sets.
+_MAX_ROOT_CODEWORDS = 2**20
+
+# A listing of class codewords moves to threads once the calling thread, listing alone, has done
+# the work of this many lookups for each thread, and the work left is estimated to be at least as
+# much.
 # Starting threads and draining them costs about as much as half this many lookups for each thread,
 # so small listings never start them.
 _SPLIT_LOOKUPS_PER_THREAD = 2**14
-
-# The number of work items into which a listing on threads splits its walk for each thread, about
-# ``_WALK_ITEMS_PER_THREAD / RANGES_PER_THREAD`` for each range of ``iterate_in_order``, so that the
-# ranges hold about equal work.
-_WALK_ITEMS_PER_THREAD = 256
-
-# A walk end (see ``_list_class_codewords``) after every class codeword.
-_NO_WALK_END = (1 << 62, 0)
 
 # The number of syndromes that the table of listed syndromes starts with room for.
 _INITIAL_SYNDROME_TABLE_SIZE = 2**10
@@ -286,17 +295,30 @@ class FaultLister:
     representative.  The hashes and the other parts are linear, so the row of a set of classes or
     of primitive faults is the sum of their rows.
 
+    For fault weights of three or more, the lister lists the class codewords of each start class
+    in turn, the root, and in this order.  It lists a root by one of two walks, which list the
+    same class codewords in the same order ("Listing class codewords by shared flags" in
+    ``fault_propagation.md``).  The walk by shared flags (``_list_cluster_codewords``) branches on
+    the flag bits of the classes that it has chosen, and checks each class codeword in the closing
+    map of single classes.  The walk by closing sets (``_list_class_codewords``) chooses every
+    independent set of classes and looks up the classes that close it.  The walk by shared flags
+    gives a root up to the walk by closing sets once its work passes the estimated work of the walk
+    by closing sets for the root (see ``_get_root_lookups``), or once the class codewords of the
+    root fill its array (see ``_MAX_ROOT_CODEWORDS``).  So a root costs at most about twice as much
+    as with the cheaper walk.  A listing counts its work in lookups of the walk by closing sets (see
+    ``_PROBES_PER_LOOKUP``).
+
     A closing map of a size has two parts: a closing table, which lists the sets of that many
     classes sorted by the hash of their summed flags, and a hash map from each hash to its first
-    entry in the table.  Fault weight three uses the closing map of single classes.  Larger fault
-    weights use the closing map of pairs if it fits within the memory limit and has at most 2**31
-    pairs, and otherwise that of single classes.  The table of syndromes of listed faults (see
-    ``find_first``) grows within the rest of the memory limit, up to 2**31 syndromes.  With the map
-    of pairs, a fault weight ``m`` may use a closing map of up to ``min(m - 2, _MAX_CLOSING_SIZE)``
-    classes instead: one that was built for an earlier fault weight, or one that is built now
-    because the last listing of class codewords that ran to its end made enough lookups (see
-    ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can give up the room for it and still
-    grow to the same largest size (see ``_take_table_room``).
+    entry in the table.  At fault weight three, the walk by closing sets uses the closing map of
+    single classes.  At larger fault weights, it uses the closing map of pairs if it fits within the
+    memory limit and has at most 2**31 pairs, and otherwise that of single classes.  The table of
+    syndromes of listed faults (see ``find_first``) grows within the rest of the memory limit, up
+    to 2**31 syndromes.  With the map of pairs, a fault weight ``m`` may use a closing map of up to
+    ``min(m - 2, _MAX_CLOSING_SIZE)`` classes instead: one that was built for an earlier fault
+    weight, or one that is built now because the last listing of class codewords that ran to its
+    end made enough lookups (see ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can give
+    up the room for it and still grow to the same largest size (see ``_take_table_room``).
 
     On several threads, a costly listing of class codewords moves to threads, while the calling
     thread expands the class codewords into faults in the serial order, that of a listing on a
@@ -342,10 +364,11 @@ class FaultLister:
         )
 
         # Build the rows of the classes and of the primitive faults, as the class docstring
-        # describes.
+        # describes, and the index of the walk by shared flags from each flag bit to its classes.
         class_flags = [flags[members[0]] for members in member_lists]
         flag_words = _to_words(class_flags, _get_num_words_for_values(class_flags))
         self._class_rows = np.hstack([_hash_words(flag_words)[:, None], flag_words])
+        self._bit_index = _get_bit_index(flag_words)
         # The syndromes, and the X and Z parts of the representatives, take a word for every 64
         # output qubits, as the batches of ``CosetLeaderSearch`` need.
         mask = (1 << num_qubits) - 1
@@ -504,77 +527,85 @@ class FaultLister:
             yield np.repeat(np.flatnonzero(class_sizes > 1), 2).reshape(-1, 2)
             return
 
-        # Find the last classes of a class codeword together, as a closing set, in a closing map,
-        # after choosing the classes before them.  On one thread, list every class codeword in one
-        # walk of the classes to choose.
+        # List the class codewords of each root by the walk by shared flags, or give it up to the
+        # walk by closing sets once the walk by shared flags has done the estimated work of the walk
+        # by closing sets for the root.  On one thread, list every root in one walk.
         closing_map = self._get_closing_map(fault_weight)
-        num_chosen = fault_weight - closing_map[1].shape[1]
-        walk = _CodewordWalk(self._class_rows, self._num_start_classes, closing_map, fault_weight)
+        if 1 not in self._closing_maps:
+            self._closing_maps[1] = _get_closing_map(self._class_rows[:, 0], 1)
+        root_lookups = _get_root_lookups(
+            len(self._class_rows),
+            self._num_start_classes,
+            fault_weight - closing_map[1].shape[1],
+        )
+        root_budgets = np.minimum(root_lookups * _PROBES_PER_LOOKUP, 2.0**62).astype(np.int64)
+
+        def make_walk() -> _ClusterWalk:
+            """A walk of the roots, which gives roots up to its own walk by closing sets."""
+            return _ClusterWalk(
+                self._class_rows,
+                self._bit_index,
+                self._closing_maps[1],
+                root_budgets,
+                _CodewordWalk(self._class_rows, self._num_start_classes, closing_map, fault_weight),
+                fault_weight,
+            )
+
+        walk = make_walk()
+        num_roots = self._num_start_classes
         if self._num_threads < 2:
-            yield from walk.list_range(None, _NO_WALK_END)
-            self._num_lookups = walk.num_lookups
+            yield from walk.list_range(0, num_roots)
+            self._num_lookups = walk.work // _PROBES_PER_LOOKUP
             return
 
-        # On several threads, split the walk into work items, and list the first items alone, in
-        # ranges of 1, 2, 4, and more items, until the lookups show that the listing is costly (see
-        # "Threads" in ``fault_propagation.md``).  If the lookups left, estimated from the weights
-        # of the items, are fewer than ``_SPLIT_LOOKUPS_PER_THREAD`` for each thread, list the rest
-        # alone too.
-        firsts, seconds, cumulative_weights = _get_walk_items(
-            len(self._class_rows), self._num_start_classes, num_chosen, self._num_threads
-        )
-        num_items = len(firsts)
-
-        def get_prefix(item: int) -> tuple[int, int]:
-            """The first two classes of an item, or the end of the walk after the last item."""
-            return (int(firsts[item]), int(seconds[item])) if item < num_items else _NO_WALK_END
-
-        split_lookups = self._num_threads * _SPLIT_LOOKUPS_PER_THREAD
+        # On several threads, the work items are the roots.  List the first roots alone, in ranges
+        # of 1, 2, 4, and more roots, until the work shows that the listing is costly (see "Threads"
+        # in ``fault_propagation.md``).  If the work left, estimated from the weights of the roots,
+        # the lookups of the walk by closing sets, is less than ``_SPLIT_LOOKUPS_PER_THREAD``
+        # lookups for each thread, list the rest alone too.
+        cumulative_weights = np.cumsum(root_lookups)
+        split_work = self._num_threads * _SPLIT_LOOKUPS_PER_THREAD * _PROBES_PER_LOOKUP
         num_listed, num_next = 0, 1
-        while num_listed < num_items and walk.num_lookups < split_lookups:
-            end = min(num_items, num_listed + num_next)
-            yield from walk.list_range(get_prefix(num_listed), get_prefix(end))
+        while num_listed < num_roots and walk.work < split_work:
+            end = min(num_roots, num_listed + num_next)
+            yield from walk.list_range(num_listed, end)
             num_listed, num_next = end, 2 * num_next
         listed_weight = cumulative_weights[num_listed - 1] if num_listed else 0.0
-        weight_left = cumulative_weights[-1] - listed_weight if num_items else 0.0
-        if (
-            num_listed < num_items
-            and walk.num_lookups * weight_left < split_lookups * listed_weight
-        ):
-            yield from walk.list_range(get_prefix(num_listed), _NO_WALK_END)
-            num_listed = num_items
+        weight_left = cumulative_weights[-1] - listed_weight if num_roots else 0.0
+        if num_listed < num_roots and walk.work * weight_left < split_work * listed_weight:
+            yield from walk.list_range(num_listed, num_roots)
+            num_listed = num_roots
 
-        # List the other items on threads, each with its own walk, and yield their class codewords
-        # in the order of the items, while the threads list later items.
+        # List the other roots on threads, each with its own walk, and yield their class codewords
+        # in the order of the roots, while the threads list later roots.
         walks = [walk]
 
         def start_walk(
             stop: threading.Event,
         ) -> Callable[[int, int], Iterator[npt.NDArray[np.int64]]]:
-            """Start the walk of a thread, and return how it lists a range of the other items."""
-            thread_walk = _CodewordWalk(
-                self._class_rows, self._num_start_classes, closing_map, fault_weight
-            )
+            """Start the walk of a thread, and return how it lists a range of the other roots."""
+            thread_walk = make_walk()
             walks.append(thread_walk)
 
             def list_range(start: int, end: int) -> Iterator[npt.NDArray[np.int64]]:
-                """List the class codewords of a range of the other items, a batch at a time."""
-                prefixes = get_prefix(num_listed + start), get_prefix(num_listed + end)
+                """List the class codewords of a range of the other roots, a batch at a time."""
                 # Copy each batch, since the walk overwrites its array while the calling thread
                 # reads earlier ones.
-                for class_codewords in thread_walk.list_range(*prefixes, _LOOKUPS_PER_CALL):
+                for class_codewords in thread_walk.list_range(
+                    num_listed + start, num_listed + end, _LOOKUPS_PER_CALL
+                ):
                     yield class_codewords.copy()
 
             return list_range
 
-        if num_listed < num_items:
+        if num_listed < num_roots:
             yield from iterate_in_order(
-                num_items - num_listed,
+                num_roots - num_listed,
                 self._num_threads,
                 start_walk,
                 cumulative_weights=cumulative_weights[num_listed:] - listed_weight,
             )
-        self._num_lookups = sum(each.num_lookups for each in walks)
+        self._num_lookups = sum(each.work for each in walks) // _PROBES_PER_LOOKUP
 
     def _get_closing_map(
         self, fault_weight: int
@@ -608,11 +639,11 @@ class FaultLister:
 
 
 class _CodewordWalk:
-    """A walk of ``_list_class_codewords`` on one thread, with the arrays that it lists into.
+    """A walk by closing sets on one thread, with the arrays of ``_list_class_codewords``.
 
     ``class_rows`` and ``num_start_classes`` are those of a ``FaultLister``, and ``closing_map`` its
-    closing map for the fault weight.  A walk lists ranges of class codewords, one range at a time,
-    and counts its lookups over all of them.
+    closing map for the fault weight.  A walk lists the class codewords of roots, one root at a
+    time, and counts its lookups over all of them.
     """
 
     def __init__(
@@ -644,39 +675,26 @@ class _CodewordWalk:
 
     @property
     def num_lookups(self) -> int:
-        """The number of lookups of closing sets that the walk has made in all of its ranges."""
+        """The number of lookups of closing sets that the walk has made for all of its roots."""
         return int(self._walk_state[1])
 
-    def list_range(
-        self,
-        start: tuple[int, int] | None,
-        end: tuple[int, int],
-        lookups_per_call: int = 1 << 62,
-    ) -> Iterator[npt.NDArray[np.int64]]:
-        """Yield the class codewords of a range of the walk, in its order, in batches.
+    def list_root(self, root: int, lookups_per_call: int) -> Iterator[npt.NDArray[np.int64]]:
+        """Yield the class codewords whose first class is ``root``, in lexicographic order.
 
-        The range starts at the first class codeword, if ``start`` is None, or else at the first
-        class codeword whose first two classes are ``start`` or come after it in lexicographic
-        order, and ends before the first whose first two classes are ``end`` or come after it.
-        ``start`` must hold a start class and a later class.  Each batch is a view of an array that
-        the next batch overwrites.  A call of ``_list_class_codewords`` makes at most
-        ``lookups_per_call`` lookups, so that a batch can be empty.
+        Each batch is a view of an array that the next batch overwrites.  A call of
+        ``_list_class_codewords`` makes at most ``lookups_per_call`` lookups, so that a batch can be
+        empty.
         """
-        # Start the walk as it is when it has just chosen the first class of ``start``, and will
-        # choose the second next (see ``_list_class_codewords``).
+        # Start the walk as it is when it has just chosen the root, and will choose the class after
+        # it next, and end it before the class codewords whose first two classes are the next class
+        # and the class after that (see ``_list_class_codewords``).
         walk_state = self._walk_state
-        walk_state[0] = 0
-        if start is None:
-            self._next_classes[0] = 0
-        else:
-            first, second = start
-            self._pivots[0] = _reduce_flags(
-                self._class_rows[first, 1:], self._basis[:0], self._pivots, self._basis[0]
-            )
-            self._chosen_row_sums[1] = self._class_rows[first]
-            self._next_classes[:2] = first + 1, second
-            walk_state[0] = 1
-        walk_state[2], walk_state[3] = end
+        self._pivots[0] = _reduce_flags(
+            self._class_rows[root, 1:], self._basis[:0], self._pivots, self._basis[0]
+        )
+        self._chosen_row_sums[1] = self._class_rows[root]
+        self._next_classes[:2] = root + 1, root + 1
+        walk_state[0], walk_state[2], walk_state[3] = 1, root + 1, root + 2
         while walk_state[0] >= 0:
             walk_state[4] = walk_state[1] + lookups_per_call
             num_codewords = _list_class_codewords(
@@ -693,62 +711,138 @@ class _CodewordWalk:
             yield self._codewords[:num_codewords]
 
 
-def _get_walk_items(
-    num_classes: int, num_start_classes: int, num_chosen: int, num_threads: int
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
-    """Split the walk of ``_list_class_codewords`` into work items for threads.
+class _ClusterWalk:
+    """A walk by shared flags on one thread, with the arrays of ``_list_cluster_codewords``.
 
-    The walk chooses ``k = num_chosen`` classes, at least two, before each lookup, the first a start
-    class ``c1``.  Any two classes are independent, so the walk chooses each pair of ``c1`` and a
-    later class ``c2``.  An item holds the class codewords whose first chosen class is ``c1`` and
-    whose second is in a range ``[b, e)`` of later classes.  Its weight estimates its lookups: the
-    number of ways to choose the other ``k - 2`` classes after the second, summed over the range,
-    which is ``C(q - b, k - 1) - C(q - e, k - 1)`` for ``q`` classes.  The classes after each start
-    class are split into the fewest ranges whose weights are about
-    ``1 / (_WALK_ITEMS_PER_THREAD * num_threads)`` of the total or less, so that the number of
-    items grows with the number of start classes and of threads, not of classes.  Return the first
-    two classes of each item, in the order of the walk, and the total weight of the items up to
-    each.
+    ``class_rows`` are the rows of the classes of a ``FaultLister``, ``bit_index`` the index from
+    each flag bit to its classes (see ``_get_bit_index``), and ``single_map`` the closing map of
+    single classes.  ``root_budgets`` holds the work, in probes, after which the walk of each root
+    gives the root up to ``closing_walk``, a walk by closing sets.  A walk lists ranges of roots,
+    one range at a time, and counts its work over all of them.
     """
-    # ``suffix[c]`` is the weight of the pairs of a start class before ``c`` and a class from ``c``
-    # on, ``C(q - c, k - 1)``, as a float, which is zero once ``q - c < k - 1``.
-    remaining = num_classes - np.arange(num_classes + 1, dtype=np.float64)
+
+    def __init__(
+        self,
+        class_rows: npt.NDArray[np.uint64],
+        bit_index: tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]],
+        single_map: tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]],
+        root_budgets: npt.NDArray[np.int64],
+        closing_walk: _CodewordWalk,
+        fault_weight: int,
+    ) -> None:
+        self._class_rows = class_rows
+        self._bit_index = bit_index
+        self._single_map = single_map
+        self._root_budgets = root_budgets
+        self._closing_walk = closing_walk
+
+        # Make the arrays of ``_list_cluster_codewords``, with a level for each chosen class but the
+        # last two, and its state.  The array of class codewords takes memory only for the rows
+        # that the walk writes.
+        num_classes, num_words = class_rows.shape
+        num_levels = fault_weight - 2
+        self._levels = np.zeros((4, num_levels), dtype=np.int64)
+        self._chosen_row_sums = np.zeros((num_levels, num_words), dtype=np.uint64)
+        self._basis = np.zeros((num_levels, num_words - 1), dtype=np.uint64)
+        self._pivots = np.zeros(num_levels, dtype=np.int64)
+        self._class_states = np.zeros(num_classes, dtype=np.int8)
+        self._marks = np.empty(num_classes, dtype=np.int64)
+        self._walk_state = np.zeros(10, dtype=np.int64)
+        self._codewords = np.empty((_MAX_ROOT_CODEWORDS, fault_weight), dtype=np.int64)
+
+    @property
+    def work(self) -> int:
+        """The work of the walk for all of its roots, in probes.
+
+        This counts each lookup of the walk by closing sets as ``_PROBES_PER_LOOKUP`` probes.
+        """
+        return int(self._walk_state[4]) + _PROBES_PER_LOOKUP * self._closing_walk.num_lookups
+
+    def list_range(
+        self, start: int, end: int, lookups_per_call: int = 1 << 62
+    ) -> Iterator[npt.NDArray[np.int64]]:
+        """Yield the class codewords of the roots from ``start`` to ``end - 1``, in batches.
+
+        The class codewords of each root come in lexicographic order.  Each batch is a view of an
+        array that a later batch can overwrite.  A call of ``_list_cluster_codewords`` stops once it
+        has done the work of ``lookups_per_call`` lookups, and a call of ``_list_class_codewords``
+        once it has made that many, so that a batch can be empty.
+        """
+        walk_state = self._walk_state
+        walk_state[0], walk_state[1], walk_state[2] = start, end, -1
+        walk_state[7:] = 0
+        while walk_state[0] < end:
+            walk_state[5] = min(int(walk_state[4]) + lookups_per_call * _PROBES_PER_LOOKUP, 1 << 62)
+            num_codewords = _list_cluster_codewords(
+                self._class_rows,
+                *self._bit_index,
+                *self._single_map,
+                self._root_budgets,
+                _PROBES_PER_NODE,
+                _CODEWORD_BATCH_SIZE,
+                self._levels,
+                self._chosen_row_sums,
+                self._basis,
+                self._pivots,
+                self._class_states,
+                self._marks,
+                walk_state,
+                self._codewords,
+            )
+            yield self._codewords[:num_codewords]
+
+            # List a root that the walk gave up by closing sets.
+            if walk_state[9]:
+                root = int(walk_state[0])
+                yield from self._closing_walk.list_root(root, lookups_per_call)
+                walk_state[0], walk_state[9] = root + 1, 0
+
+
+def _get_root_lookups(
+    num_classes: int, num_start_classes: int, num_chosen: int
+) -> npt.NDArray[np.float64]:
+    """Estimate the lookups of the walk by closing sets for each root.
+
+    The walk chooses ``k = num_chosen`` classes, at least two, before each lookup, the first of them
+    the root ``c1``, so it makes at most ``C(q - 1 - c1, k - 1)`` lookups for ``q`` classes.
+    """
+    remaining = num_classes - 1 - np.arange(num_start_classes, dtype=np.float64)
     factors = (remaining[:, None] - np.arange(num_chosen - 1)) / (
         num_chosen - 1 - np.arange(num_chosen - 1)
     )
-    suffix = np.prod(np.maximum(factors, 0.0), axis=1)
+    return np.prod(np.maximum(factors, 0.0), axis=1)
 
-    # Split the later classes of each start class ``c1`` into ``G`` ranges of about equal weight,
-    # at most one for each later class.  Range ``j`` starts at the first class from which the weight
-    # left is at most ``1 - j / G`` of that of ``c1``.
-    firsts = np.arange(num_start_classes, dtype=np.int64)
-    first_weights = suffix[firsts + 1]
-    target = (
-        first_weights.sum() / (_WALK_ITEMS_PER_THREAD * num_threads) if num_start_classes else 0.0
-    )
-    num_ranges = np.ones(num_start_classes, dtype=np.int64)
-    if target > 0:
-        # A start class with no later class has the upper bound zero, which ``np.clip`` returns
-        # when it is below the lower bound, so give it one range again.
-        num_ranges = np.clip(np.ceil(first_weights / target), 1, num_classes - 1 - firsts)
-        num_ranges = np.maximum(num_ranges, 1).astype(np.int64)
-    item_firsts = np.repeat(firsts, num_ranges)
-    starts = np.repeat(np.cumsum(num_ranges) - num_ranges, num_ranges)
-    indices = np.arange(len(item_firsts)) - starts
-    totals = np.repeat(num_ranges, num_ranges)
-    weights_left = suffix[item_firsts + 1] * (1 - indices / totals)
-    seconds = np.searchsorted(-suffix, -weights_left).astype(np.int64)
-    seconds = np.where(indices == 0, item_firsts + 1, np.maximum(seconds, item_firsts + 1))
 
-    # Drop ranges that start where the one before starts, and weigh each by the weight from its
-    # start to the start of the next range of its start class, or to the end.
-    keep = np.ones(len(seconds), dtype=bool)
-    keep[1:] = (seconds[1:] != seconds[:-1]) | (item_firsts[1:] != item_firsts[:-1])
-    item_firsts, seconds = item_firsts[keep], seconds[keep]
-    ends = np.full(len(seconds), num_classes, dtype=np.int64)
-    same_first = item_firsts[1:] == item_firsts[:-1]
-    ends[:-1][same_first] = seconds[1:][same_first]
-    return item_firsts, seconds, np.cumsum(suffix[seconds] - suffix[ends])
+@always_compiled
+def _get_bit_index(
+    flag_words: npt.NDArray[np.uint64],
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """Index classes by their flag bits, for the walk by shared flags.
+
+    ``flag_words`` holds the flags of each class.  Return offsets and classes such that the classes
+    whose flags have bit ``b`` are ``classes[offsets[b]:offsets[b + 1]]``, in increasing order.
+    """
+    num_classes, num_words = flag_words.shape
+    offsets = np.zeros(64 * num_words + 1, dtype=np.int64)
+    for each in range(num_classes):
+        for word in range(num_words):
+            remaining = flag_words[each, word]
+            while remaining:
+                offsets[64 * word + trailing_zeros_word(remaining) + 1] += 1
+                remaining &= remaining - np.uint64(1)
+    for bit in range(64 * num_words):
+        offsets[bit + 1] += offsets[bit]
+    classes = np.empty(offsets[-1], dtype=np.int64)
+    next_entries = offsets[:-1].copy()
+    for each in range(num_classes):
+        for word in range(num_words):
+            remaining = flag_words[each, word]
+            while remaining:
+                bit = 64 * word + trailing_zeros_word(remaining)
+                classes[next_entries[bit]] = each
+                next_entries[bit] += 1
+                remaining &= remaining - np.uint64(1)
+    return offsets, classes
 
 
 def _split_memory_limit(
@@ -1058,6 +1152,246 @@ def _sort_bucket(
 
 
 @always_compiled(nogil=True)
+def _list_cluster_codewords(
+    class_rows: npt.NDArray[np.uint64],
+    bit_offsets: npt.NDArray[np.int64],
+    bit_classes: npt.NDArray[np.int64],
+    closing_keys: npt.NDArray[np.uint64],
+    closing_sets: npt.NDArray[np.int32],
+    closing_slots: npt.NDArray[np.int64],
+    root_budgets: npt.NDArray[np.int64],
+    node_cost: int,
+    batch_size: int,
+    levels: npt.NDArray[np.int64],
+    chosen_row_sums: npt.NDArray[np.uint64],
+    basis: npt.NDArray[np.uint64],
+    pivots: npt.NDArray[np.int64],
+    class_states: npt.NDArray[np.int8],
+    marks: npt.NDArray[np.int64],
+    walk_state: npt.NDArray[np.int64],
+    codewords: npt.NDArray[np.int64],
+) -> int:
+    """List the class codewords of roots by shared flags into an array, and return their number.
+
+    ``class_rows`` holds the row of each class (see ``FaultLister``), ``bit_offsets`` and
+    ``bit_classes`` index the classes by their flag bits (see ``_get_bit_index``), and
+    ``closing_keys``, ``closing_sets``, and ``closing_slots`` are the closing map of single classes
+    from ``_get_closing_map``.  For each root in turn, the listing lists the class codewords of
+    ``m = codewords.shape[1]`` classes whose first class is the root, as "Listing class codewords by
+    shared flags" in ``fault_propagation.md`` describes.  Each class codeword is a row of classes in
+    increasing order, and the rows of a root are sorted in lexicographic order once it is done.
+
+    The work of the listing counts ``node_cost`` for each class that it chooses or finds dependent,
+    and one for each probe of the closing map.  The listing gives a root up, and lists none of its
+    class codewords, if ``root_budgets[root]`` is less than ``node_cost``, once its work for the
+    root passes ``root_budgets[root]``, or if the class codewords of the root fill the array.
+
+    The depth is the index, among the chosen classes, of the last one chosen.  The listing keeps
+    its state between calls in the other arrays.  Column ``d`` of ``levels`` holds the class chosen
+    at depth ``d``, the entry of ``bit_classes`` of its next candidate and the entry after its last,
+    and the number of marks when it was chosen.  Row ``d`` of ``chosen_row_sums`` is the sum of the
+    rows of the classes chosen up to depth ``d``, and row ``d`` of ``basis`` and entry ``d`` of
+    ``pivots`` hold the reduced flags of the class chosen at depth ``d``, as in ``_reduce_flags``.
+    ``class_states`` holds 1 for each chosen class, 2 for each forbidden class, and 0 for the
+    others, and ``marks`` lists the forbidden classes in the order in which they were forbidden.
+    ``walk_state`` holds the root, the end of the roots, the depth (-1 between roots), the number of
+    marks, the work so far, the work at which to pause, the work when the root started, the number
+    of rows that the last call returned, the number of rows of the unfinished root, which follow
+    them, and 1 if the listing gave the root up.  The state starts with the first root, the end of
+    the roots, the depth -1, ``class_states`` zero, and the other entries of ``walk_state`` zero,
+    apart from the work and the work at which to pause.
+
+    The listing returns once no root before the end is left, once it has listed at least
+    ``batch_size`` class codewords and finished a root, once its work reaches the work at which to
+    pause, once the array has no room for another class codeword, or once it gives a root up, which
+    it then leaves in ``walk_state``.  It returns the rows of the roots that it has finished, and
+    its next call moves the rows of an unfinished root to the start of the array.  Threads run this
+    without the global interpreter lock, each with its own state and arrays (see "Threads" in
+    ``fault_propagation.md``).
+    """
+    # Column 0 of the class rows holds the hash of the flags, and the other columns the flags.  The
+    # closing keys serve as rows of one column, as in ``_list_class_codewords``.
+    num_words = class_rows.shape[1]
+    fault_weight = codewords.shape[1]
+    last_depth = fault_weight - 3
+    reduced = np.empty(num_words - 1, dtype=np.uint64)
+    row = np.empty(fault_weight, dtype=np.int64)
+    key_rows = closing_keys.reshape((len(closing_keys), 1))
+    no_words = closing_keys[:0]
+
+    # Move the rows of an unfinished root to the start of the array.
+    root, end_root, depth, num_marks = walk_state[0], walk_state[1], walk_state[2], walk_state[3]
+    work, max_work, root_work = walk_state[4], walk_state[5], walk_state[6]
+    num_pending = walk_state[8]
+    for index in range(num_pending):
+        codewords[index] = codewords[walk_state[7] + index]
+    num_ready = 0
+    gave_up = 0
+    while work < max_work:
+        # Start the next root, if a root is left and the batch is not done, by choosing it and the
+        # bit whose candidates come next.  Give the root up at once if its budget is below a node.
+        if depth < 0:
+            if root >= end_root or num_ready >= batch_size:
+                break
+            if root_budgets[root] < node_cost:
+                gave_up = 1
+                break
+            root_work = work
+            work += node_cost
+            depth, num_marks = 0, 0
+            class_states[root] = 1
+            levels[0, 0], levels[3, 0] = root, 0
+            levels[1, 0], levels[2, 0] = _choose_bit(
+                class_rows[root, 1:], root, bit_offsets, bit_classes
+            )
+            chosen_row_sums[0] = class_rows[root]
+            pivots[0] = _reduce_flags(class_rows[root, 1:], basis[:0], pivots, basis[0])
+            continue
+        if work - root_work > root_budgets[root]:
+            gave_up = 1
+            break
+
+        # Once every candidate after a chosen class is tried, allow the classes forbidden since it
+        # was chosen again, and forbid it in the candidates after it.  Once the root is done, sort
+        # its class codewords.
+        if levels[1, depth] == levels[2, depth]:
+            for index in range(levels[3, depth], num_marks):
+                class_states[marks[index]] = 0
+            num_marks = levels[3, depth]
+            chosen_class = levels[0, depth]
+            if depth > 0:
+                class_states[chosen_class] = 2
+                marks[num_marks] = chosen_class
+                num_marks += 1
+            else:
+                class_states[chosen_class] = 0
+            depth -= 1
+            if depth < 0:
+                _sort_rows(codewords[num_ready : num_ready + num_pending])
+                num_ready += num_pending
+                num_pending = 0
+                root += 1
+            continue
+
+        # A probe adds at most one class codeword.  If the array has no room for it, return the
+        # rows of the roots that are done, or give the root up if there are none.
+        if depth == last_depth and num_ready + num_pending == len(codewords):
+            gave_up = 1 if num_ready == 0 else 0
+            break
+
+        # Take the next candidate, unless it is chosen or forbidden.
+        candidate = bit_classes[levels[1, depth]]
+        levels[1, depth] += 1
+        if class_states[candidate]:
+            continue
+
+        # With all classes but the last chosen, probe the closing map with the hash of the summed
+        # flags.  On a hit, record a class codeword if the class found has exactly these flags,
+        # comes after the root, is neither chosen nor forbidden, and if the candidate keeps the
+        # chosen classes independent.  The classes have distinct flags, so at most one is found.
+        if depth == last_depth:
+            work += 1
+            key = chosen_row_sums[depth, 0] ^ class_rows[candidate, 0]
+            entry = closing_slots[_find_syndrome_slot(key, no_words, key_rows, closing_slots)]
+            while entry >= 0 and entry < len(closing_keys) and closing_keys[entry] == key:
+                closing_class = closing_sets[entry, 0]
+                entry += 1
+                closes = True
+                for word in range(1, num_words):
+                    summed = chosen_row_sums[depth, word] ^ class_rows[candidate, word]
+                    if summed != class_rows[closing_class, word]:
+                        closes = False
+                        break
+                if not closes:
+                    continue
+                available = closing_class > root and class_states[closing_class] == 0
+                if available and (
+                    _reduce_flags(class_rows[candidate, 1:], basis[: depth + 1], pivots, reduced)
+                    >= 0
+                ):
+                    for level in range(depth + 1):
+                        row[level] = levels[0, level]
+                    row[depth + 1] = candidate
+                    row[depth + 2] = closing_class
+                    row.sort()
+                    codewords[num_ready + num_pending] = row
+                    num_pending += 1
+                break
+            continue
+
+        # Otherwise choose the candidate, and the bit whose candidates come next, if it keeps the
+        # chosen classes independent, and else forbid it in the candidates after it.
+        work += node_cost
+        pivot = _reduce_flags(class_rows[candidate, 1:], basis[: depth + 1], pivots, reduced)
+        if pivot < 0:
+            class_states[candidate] = 2
+            marks[num_marks] = candidate
+            num_marks += 1
+            continue
+        depth += 1
+        class_states[candidate] = 1
+        levels[0, depth], levels[3, depth] = candidate, num_marks
+        basis[depth] = reduced
+        pivots[depth] = pivot
+        for word in range(num_words):
+            chosen_row_sums[depth, word] = (
+                chosen_row_sums[depth - 1, word] ^ class_rows[candidate, word]
+            )
+        levels[1, depth], levels[2, depth] = _choose_bit(
+            chosen_row_sums[depth, 1:], root, bit_offsets, bit_classes
+        )
+
+    # After giving a root up, allow every class again, and drop the class codewords of the root.
+    if gave_up:
+        for index in range(num_marks):
+            class_states[marks[index]] = 0
+        for level in range(depth + 1):
+            class_states[levels[0, level]] = 0
+        depth, num_marks, num_pending = -1, 0, 0
+    walk_state[0], walk_state[2], walk_state[3], walk_state[4] = root, depth, num_marks, work
+    walk_state[6], walk_state[7], walk_state[8], walk_state[9] = (
+        root_work,
+        num_ready,
+        num_pending,
+        gave_up,
+    )
+    return num_ready
+
+
+@always_compiled
+def _choose_bit(
+    flags: npt.NDArray[np.uint64],
+    root: int,
+    bit_offsets: npt.NDArray[np.int64],
+    bit_classes: npt.NDArray[np.int64],
+) -> tuple[int, int]:
+    """Choose the bit of nonzero flags with the fewest classes after the root, the lowest of these.
+
+    Return the entry of ``bit_classes`` of its first class after the root, and the entry after its
+    last class (see ``_get_bit_index``).
+    """
+    best_start, best_end = 0, -1
+    for word in range(len(flags)):
+        remaining = flags[word]
+        while remaining:
+            bit = 64 * word + trailing_zeros_word(remaining)
+            remaining &= remaining - np.uint64(1)
+            start, end = bit_offsets[bit], bit_offsets[bit + 1]
+            start += np.searchsorted(bit_classes[start:end], root, side="right")
+            if best_end < 0 or end - start < best_end - best_start:
+                best_start, best_end = start, end
+    return best_start, best_end
+
+
+@always_compiled
+def _sort_rows(rows: npt.NDArray[np.int64]) -> None:
+    """Sort rows in lexicographic order, by a stable sort by each column from the last."""
+    for column in range(rows.shape[1] - 1, -1, -1):
+        order = np.argsort(rows[:, column].copy(), kind="mergesort")
+        rows[:] = rows[order]
+
+
+@always_compiled(nogil=True)
 def _list_class_codewords(
     class_rows: npt.NDArray[np.uint64],
     num_start_classes: int,
@@ -1086,12 +1420,11 @@ def _list_class_codewords(
     ``i`` levels), ``basis`` and ``pivots`` (the reduced flags of the chosen classes, as in
     ``_reduce_flags``, in their first ``len(next_classes)`` rows), and ``walk_state``.  This holds
     the level of the next choice, the number of lookups made so far, the end of the walk (two
-    classes ``e1`` and ``e2``), and a number of lookups at which to pause.  The state starts as
-    zeros, apart from the end and the lookups at which to pause, or as the state just after
-    choosing a start class at level 0 (see ``_CodewordWalk.list_range``).  The walk lists the class
-    codewords whose first two classes come before ``(e1, e2)`` in lexicographic order, then sets the
-    level to -1.  The other ``s - 1`` rows of ``basis`` and ``pivots`` hold the closing classes
-    being checked.
+    classes ``e1`` and ``e2``), and a number of lookups at which to pause.  The state starts as the
+    state just after choosing a start class at level 0 (see ``_CodewordWalk.list_root``).  The walk
+    lists the class codewords whose first two classes come before ``(e1, e2)`` in lexicographic
+    order, then sets the level to -1.  The other ``s - 1`` rows of ``basis`` and ``pivots`` hold the
+    closing classes being checked.
 
     The listing pauses once at most ``C(num_classes, s - 1)`` rows of the array are free, since one
     lookup adds at most that many class codewords (see "Listing each irreducible accepted fault
