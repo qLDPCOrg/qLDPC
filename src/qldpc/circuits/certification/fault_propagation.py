@@ -107,10 +107,10 @@ def certify_bounded_fault_propagation(
             certificate uses for Pauli strings.  Default: all qubits that the circuit acts on and
             never measures.
         memory_limit: The approximate number of bytes that the search may use for its table of
-            the syndromes of checked faults, a positive integer.  A smaller limit can make the
-            search slower, but never changes the result.  Beyond this limit, each thread that lists
-            faults can take up to about ``16 m + 16`` MiB at fault weight ``m``.  Default: ``2**30``
-            (1 GiB).
+            the syndromes of the faults that it lists, a positive integer.  A smaller limit can make
+            the search slower, but never changes the result.  Beyond this limit, each thread that
+            lists faults can take up to about ``16 m + 16`` MiB at fault weight ``m``, and a few
+            bytes for each distinct value of the flags.  Default: ``2**30`` (1 GiB).
         method: The exact search of residual weights: ``"brouwer_zimmermann"``, its alias
             ``"information_sets"``, or ``"connected_cluster"`` (see
             :class:`~qldpc.codes.distance.CosetLeaderSearch`); ``"auto"`` takes

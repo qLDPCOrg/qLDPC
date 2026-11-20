@@ -136,7 +136,7 @@ class BruteForce:
 
         The arguments and the result are those of qLDPC's ``find_smallest_violation``.  The
         search checks the weights 1, ..., ``max_weight``, or up to one more than the rank of the
-        flags if ``max_weight`` is None.  ``memory_limit`` bounds the tables of qLDPC's lister,
+        flags if ``max_weight`` is None.  ``memory_limit`` bounds qLDPC's table of syndromes,
         which the baseline does not use.
         """
         self.arguments = {
