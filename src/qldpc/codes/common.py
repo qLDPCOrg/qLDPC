@@ -62,7 +62,7 @@ from .distance._binary import (
     infer_field,
     multiply_binary,
 )
-from .distance.core import _validate_distance_method
+from .distance.distances import _get_coset_weight, _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -624,36 +624,17 @@ class ClassicalCode(AbstractCode):
                 self._distance = int(distance)
 
         else:
-            # An automorphism of the code need not map the coset of the vector onto itself, so the
-            # searches of the coset below use no automorphisms.
+            # A vector in the code is at distance zero from it.
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
-            if self.field is galois.GF2 and method == "connected_cluster":
-                # The vector itself is within the cutoff, or bounds the weight of its coset.
-                weight = int(np.count_nonzero(vector))
-                if weight <= cutoff:
-                    return weight
-                # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the
-                # coset of the vector, with b appended, and the words with b = 0 are the code
-                # words, which the search excludes.  So the coset weighs one less than the search
-                # finds, and the cutoff is one more.  The vector with b appended weighs weight + 1,
-                # so the search need not look beyond weight.
-                matrix = self.matrix.view(np.ndarray)
-                checks = np.hstack([matrix, (matrix @ vector.view(np.ndarray))[:, None] % 2])
-                code_words = np.hstack(
-                    [self.generator.view(np.ndarray), np.zeros((len(self.generator), 1), int)]
-                )
-                found = get_distance_from_checks(
-                    checks, code_words, cutoff=cutoff + 1, method=method, max_weight=weight
-                )
-                return int(found) - 1
             if self.field is galois.GF2:
-                # The vector is one logical operator modulo the code, so search its coset.
-                return int(
-                    get_distance_from_generators(
-                        [vector], self.generator, cutoff=cutoff, method=method
-                    )
+                return _get_coset_weight(
+                    self.matrix.view(np.ndarray),
+                    self.generator.view(np.ndarray),
+                    vector.view(np.ndarray),
+                    cutoff=cutoff,
+                    method=method,
                 )
             distance = int(np.count_nonzero(vector))
             for word in self.iter_words(skip_zero=True):

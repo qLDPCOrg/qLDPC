@@ -969,6 +969,47 @@ def _get_lifted_automorphisms(
 
 
 ####################################################################################################
+# coset weights of vectors
+
+
+def _get_coset_weight(
+    checks: npt.NDArray[np.uint8],
+    generators: npt.NDArray[np.uint8],
+    vector: npt.NDArray[np.uint8],
+    *,
+    cutoff: int,
+    method: DistanceMethod,
+) -> int:
+    """The minimum weight of the coset of a vector that is not a word of a binary classical code.
+
+    The code has the parity checks ``checks`` and the generators ``generators``, and the syndrome of
+    ``vector`` is nonzero.  ``ClassicalCode.get_distance_exact`` calls this with its ``cutoff`` and
+    ``method``: once a vector of the coset of weight at most ``cutoff`` is found, the search stops
+    and returns its weight, an upper bound.  An automorphism of the code need not map the coset of
+    the vector onto itself, so the searches of the coset use no automorphisms.
+    """
+    if method == "connected_cluster":
+        # The vector itself is within the cutoff, or bounds the weight of its coset.
+        weight = int(np.count_nonzero(vector))
+        if weight <= cutoff:
+            return weight
+        # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the coset
+        # of the vector, with b appended, and the words with b = 0 are the code words, which the
+        # search excludes.  So the coset weighs one less than the search finds, and the cutoff is
+        # one more.  The vector with b appended weighs weight + 1, so the search need not look
+        # beyond weight.
+        augmented_checks = np.hstack([checks, (checks @ vector)[:, None] % 2])
+        code_words = np.hstack([generators, np.zeros((len(generators), 1), dtype=generators.dtype)])
+        found = get_distance_from_checks(
+            augmented_checks, code_words, cutoff=cutoff + 1, method=method, max_weight=weight
+        )
+        return int(found) - 1
+
+    # The vector is one logical operator modulo the code, so search its coset.
+    return int(get_distance_from_generators([vector], generators, cutoff=cutoff, method=method))
+
+
+####################################################################################################
 # method selectors
 
 

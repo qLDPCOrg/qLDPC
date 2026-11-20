@@ -11,7 +11,7 @@ The thresholds, limits, and coefficients of the heuristics are fields of `Search
 
 [README.md](README.md) maps the modules of this directory and the levels in which they import each other; this section says how the searches use them.
 
-The distance functions of [core.py](core.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py).
+The distance functions of [distances.py](distances.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py).
 For BZ, they build an adapted basis ([Section 3.4](brouwer_zimmermann.md#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the sectors to `get_distance_brouwer_zimmermann`, both sectors of a CSS code at once in `get_distance_css`, or only the X sector if `_search_css` finds a qubit permutation that maps each sector onto the other.
 `_search_css` finds only the identity and, with pybliss, permutations that map the nonzero X-type gauge generators, as listed, one to one onto the Z-type ones and back (section "Searching one sector of a CSS code" of [README.md](README.md)).
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the families of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms), with the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
@@ -87,7 +87,7 @@ Each call of its `advance` method advances the search of one remaining sector by
 Preparation returns a result, or a `_SectorSearch` whose `advance` method searches one layer `t`, or only its first `j` search bases if step `(t, j)` certifies `U` ([Section 2.5](brouwer_zimmermann.md#25-the-stopping-certificate)).
 A result of preparation can include a witness from another sector or the bound of a weight limit ([Section 4.5](#45-behavior-spanning-files)), so it need not be the distance of its sector.
 
-| Input or method in [core.py](core.py) | Outcome |
+| Input or method in [distances.py](distances.py) | Outcome |
 | --- | --- |
 | Trivial input | Returns `NO_DISTANCE`, whatever `max_weight` is, for an empty classical code, a quantum problem with no logical rows, or `V = S` |
 | `method="brute_force"` | Runs exhaustive enumeration over an independent basis, adapted to `S ⊆ V` for a quantum problem |
@@ -226,7 +226,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
 ### 4.5 Behavior spanning files
 
 - **Cutoff.**
-  The docstring of `get_distance_from_generators` in [core.py](core.py) states the contracts of `cutoff` and of an early exit, which the other distance functions share.
+  The docstring of `get_distance_from_generators` in [distances.py](distances.py) states the contracts of `cutoff` and of an early exit, which the other distance functions share.
   The default `cutoff=1` gives the exact distance of a nontrivial problem, which is at least one, and a `cutoff` of zero or less never exits early; `_scan_cutoff` clamps negative values to `-1` for the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where `cutoff` is checked.
 - **Weight limit.**
@@ -238,7 +238,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Binary input (`symplectic=False`) is a classical problem, or a pure-X or pure-Z problem with one bit per qubit, and symplectic input (`symplectic=True`) has general Pauli rows.
   For symplectic input, BZ maps rows by `T` ([Section 2.7](brouwer_zimmermann.md#27-pauli-weight-as-hamming-weight)), doubles `cutoff` and the bound of a weight limit, passes `weight_divisor=2`, and halves the result, while `method="brute_force"` uses symplectic weights and the original `cutoff`.
 - **Independence.**
-  `_get_nested_basis` in `core.py` makes the generators of a caller independent, with `get_independent_rows`, or with `get_nested_code_basis` when the caller gives `S`, for every BZ and brute-force search of `_search_generators` and `_search_checks`, including those of `search_by_cost`; `_search_css` calls `get_nested_code_basis` itself for its BZ searches and those of `search_by_cost`.
+  `_get_nested_basis` in `distances.py` makes the generators of a caller independent, with `get_independent_rows`, or with `get_nested_code_basis` when the caller gives `S`, for every BZ and brute-force search of `_search_generators` and `_search_checks`, including those of `search_by_cost`; `_search_css` calls `get_nested_code_basis` itself for its BZ searches and those of `search_by_cost`.
 - **Resumable layers.**
   A compiled scan of a distance search returns after at most `batch_size` supports, or supports and lookups together with completion tables, so that it stays responsive while it skips most supports, and successive batches reuse its `support` and `prefixes` arrays.
   On several threads, each thread has its own arrays, and a chunk of each thread holds at most `batch_size * num_threads` supports and lookups.
@@ -394,7 +394,7 @@ These tests check the requirements, against exhaustive enumeration where they ca
 - [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py): the tables that routes by tails ask for and keep, also when threads choose routes at once.
 - [coset_leaders_test.py](coset_leaders_test.py): `test_min_weights_match_exhaustive_minima`.
 - [logical_counts_test.py](logical_counts_test.py) and [_counting/scan_test.py](_counting/scan_test.py): `test_counting_continues_at_an_equal_lower_bound` and `test_skipping_chunks_stop_at_a_lighter_nontrivial_word`, counts that a stop or a skip at equality would get wrong.
-- [core_test.py](core_test.py): `test_brouwer_zimmermann_random_cross_checks`, on binary and general Pauli problems; `test_max_weight`, on BZ and brute force; and `test_max_weight_caps_cutoff`.
+- [distances_test.py](distances_test.py): `test_brouwer_zimmermann_random_cross_checks`, on binary and general Pauli problems; `test_max_weight`, on BZ and brute force; and `test_max_weight_caps_cutoff`.
 
 Helper tests check current interfaces, and tests of heuristics check that each heuristic decides chosen cases as intended.
 So neither makes a packing order or optimization a requirement, and a deliberate change of a heuristic may need new cases.

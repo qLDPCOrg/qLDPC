@@ -3,7 +3,7 @@
 """Sparser checks with the span of given checks, and light sums of checks to add to them.
 
 ``get_sparser_rows`` makes checks sparser for the coset searches of ``coset.py`` and for the
-distance searches of subsystem codes in ``qldpc.codes.distance.core`` (Sections 3.8 and 3.9 of
+distance searches of subsystem codes in ``qldpc.codes.distance.distances`` (Sections 3.8 and 3.9 of
 ``connected_cluster.md``).  ``get_light_pair_sums`` finds light sums of pairs of rows, which the
 distance searches of ``search.py`` add as redundant checks and known words (Section 3.4).
 """
