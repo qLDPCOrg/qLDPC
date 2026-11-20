@@ -97,6 +97,19 @@ def _class_codewords(
     return class_codewords
 
 
+def _take_class_tuples(
+    lister: _fault_search.FaultLister, fault_weight: int, max_rows: int
+) -> list[tuple[int, ...]]:
+    """The first class tuples, at most ``max_rows`` of them, that a lister lists at a fault weight.
+
+    Taking a bounded number of them makes a listing that does not end fail a test, not hang it.
+    """
+    rows = (
+        tuple(row) for batch in lister._iter_class_tuples(fault_weight) for row in batch.tolist()
+    )
+    return list(itertools.islice(rows, max_rows))
+
+
 def _xor(values: Sequence[int], indices: Sequence[int]) -> int:
     return functools.reduce(operator.xor, (values[jj] for jj in indices))
 
@@ -124,12 +137,14 @@ def _check_faults(
 def _force_walk(monkeypatch: pytest.MonkeyPatch, walk: str | None) -> None:
     """Make listers list every root by the walk by "shared flags" or by "closing sets".
 
-    Forcing the walk by shared flags gives every root a budget that it never uses up.  Forcing the
-    walk by closing sets makes each state cost more than any budget, so that every root is given up
-    before the walk by shared flags starts it, and the work is that of the walk by closing sets.
+    Forcing the walk by shared flags makes the walk by closing sets cost so much more for each
+    lookup that every root with a class codeword gets a budget that it never uses up, and leaves the
+    estimated lookups, for which closing maps wait, as they are.  Forcing the walk by closing sets
+    makes each state cost more than any budget, so that every root is given up before the walk by
+    shared flags starts it, and the work is that of the walk by closing sets.
     """
     if walk == "shared flags":
-        monkeypatch.setattr(_fault_search, "_get_root_lookups", lambda q, s, k: np.full(s, 2.0**62))
+        monkeypatch.setattr(_fault_search, "_PROBES_PER_LOOKUP", 2**40)
     elif walk == "closing sets":
         monkeypatch.setattr(_fault_search, "_PROBES_PER_STATE", 2**62)
 
@@ -242,11 +257,13 @@ def test_walks_list_each_class_codeword_once_in_lexicographic_order(
     shared flags has few candidates and forbids classes at several depths, or dense.  The 15
     classes of every nonzero flag of four bits have class codewords with several classes on the
     bit of their root, which a walk that ignores forbidden classes lists twice, and sets of six
-    classes whose flags sum to zero but have rank four, which a walk lists that skips its last test
-    of independence.  In the other cases, the walk by shared flags has room for two class
+    classes whose flags sum to zero but have rank four, which a walk that skips its last test of
+    independence lists.  In the other cases, the walk by shared flags has room for two class
     codewords, and returns batches of three.  So a full array makes it return the class codewords
     of earlier roots before it finishes a root, and then move those of the root to the start of the
-    array, and it walks a root with more than two class codewords several times.
+    array, and it makes several passes over a root with more than two class codewords.  The test
+    takes at most one class codeword more than brute force lists, so that a listing that does not
+    end fails.
     """
     _force_walk(monkeypatch, walk)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 3)
@@ -267,12 +284,8 @@ def test_walks_list_each_class_codeword_once_in_lexicographic_order(
                 flags, syndromes, errors, 3 * len(flags), False, num_starts, memory_limit
             )
             for fault_weight in range(3, max_fault_weight + 1):
-                listed = [
-                    tuple(row)
-                    for batch in lister._iter_class_tuples(fault_weight)
-                    for row in batch.tolist()
-                ]
-                assert listed == _class_codewords(flags, fault_weight, num_starts)
+                expected = _class_codewords(flags, fault_weight, num_starts)
+                assert _take_class_tuples(lister, fault_weight, len(expected) + 1) == expected
 
 
 def test_roots_far_from_their_budgets_take_the_intended_walk(
@@ -283,8 +296,9 @@ def test_roots_far_from_their_budgets_take_the_intended_walk(
     In a chain of 40 classes, the flags of class ``j`` have bits ``j`` and ``j + 1``, and the
     first class has no candidates after it on bit 0.  So the walk by shared flags lists it in one
     state, far less work than the 741 choices of two more classes of the walk by closing sets at
-    fault weight four without memory for pairs.  Next come the classes of flags 1 and 16, then of
-    every other nonzero flag of four bits, with closing sets of four classes at fault weight six.
+    fault weight four without memory for pairs.  In the second case, the classes of flags 1 and 16
+    come first, then those of every other nonzero flag of four bits, with closing sets of four
+    classes at fault weight six.
     The walk by closing sets makes 15 lookups for the first root, a few states of work, while the
     walk by shared flags has seven candidates at its first state, each with several more.  The
     second root, of flags 16, has no candidates, and a budget of 14 lookups, less than the work
@@ -323,28 +337,23 @@ def test_roots_far_from_their_budgets_take_the_intended_walk(
         lister = _fault_search.FaultLister(
             flags, syndromes, errors, 3 * len(flags), False, num_starts, memory_limit
         )
-        listed = [
-            tuple(row)
-            for batch in lister._iter_class_tuples(fault_weight)
-            for row in batch.tolist()
-        ]
+        expected_rows = _class_codewords(flags, fault_weight, num_starts)
+        listed = _take_class_tuples(lister, fault_weight, len(expected_rows) + 1)
         assert given_up == expected
-        assert listed == _class_codewords(flags, fault_weight, num_starts)
+        assert listed == expected_rows
     assert 4 in sizes_built
 
 
 def _list_class_tuples(
-    flags: Sequence[int], num_starts: int, fault_weight: int
+    flags: Sequence[int], num_starts: int, fault_weight: int, max_rows: int
 ) -> list[tuple[int, ...]]:
-    """The class tuples of a lister of primitive faults with these flags, at a fault weight."""
+    """The first class tuples, at most ``max_rows``, of a lister of faults with these flags."""
     syndromes = [1 << jj for jj in range(len(flags))]
     errors = [0b111 << (3 * jj) for jj in range(len(flags))]
     lister = _fault_search.FaultLister(
         flags, syndromes, errors, 3 * len(flags), False, num_starts, 0
     )
-    return [
-        tuple(row) for batch in lister._iter_class_tuples(fault_weight) for row in batch.tolist()
-    ]
+    return _take_class_tuples(lister, fault_weight, max_rows)
 
 
 @pytest.mark.parametrize("collide", [False, True])
@@ -364,28 +373,29 @@ def test_a_class_codeword_closed_from_two_states_is_listed_once(
         monkeypatch.setattr(
             _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
         )
-    assert _list_class_tuples([4, 5, 6, 7], 1, 4) == [(0, 1, 2, 3)]
-    assert _list_class_tuples([4, 5, 4, 6, 7, 5, 6], 1, 4) == [(0, 1, 2, 3)]
-    assert _list_class_tuples([4, 5, 6, 7], 0, 4) == []
+    assert _list_class_tuples([4, 5, 6, 7], 1, 4, 2) == [(0, 1, 2, 3)]
+    assert _list_class_tuples([4, 5, 4, 6, 7, 5, 6], 1, 4, 2) == [(0, 1, 2, 3)]
+    assert _list_class_tuples([4, 5, 6, 7], 0, 4, 1) == []
 
 
 @pytest.mark.parametrize(
-    ("max_root_codewords", "walked_again"), [(2, True), (27, True), (29, False)]
+    ("max_root_codewords", "tight_budget", "more_passes"),
+    [(2, False, True), (27, False, True), (27, True, True), (29, False, False)],
 )
-def test_a_root_whose_class_codewords_fill_its_array_is_walked_again(
-    max_root_codewords: int, walked_again: bool, monkeypatch: pytest.MonkeyPatch
+def test_a_root_whose_class_codewords_fill_its_array_takes_more_passes(
+    max_root_codewords: int, tight_budget: bool, more_passes: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The walk by shared flags walks a root whose class codewords fill its array again.
+    """The walk by shared flags makes another pass over a root whose class codewords fill its array.
 
     Among the classes of every nonzero flag of four bits, the roots of flags 1, 2, and 3 have 28,
     22, and 16 class codewords of fault weight four.  An array of 27 rows makes the walk keep the
-    smaller half of those of the first root, pass them on, and walk the root again for the rest,
+    first half of those of the first root, release them, and make another pass for the rest,
     while an array of 29 rows holds them all, and makes the walk return those of the first root
     before it records the last of the second.  The listing is that of brute force either way, and
-    the walk gives no root up.
+    the walk gives no root up, also when the budget of the first root is the work of one pass, so
+    that only the first pass may count against it.
     """
     _force_walk(monkeypatch, "shared flags")
-    monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
     given_up: list[int] = []
     list_root = _fault_search._ClosingSetWalk.list_root
 
@@ -395,7 +405,7 @@ def test_a_root_whose_class_codewords_fill_its_array_is_walked_again(
         given_up.append(root)
         return list_root(walk, root, lookups_per_call)
 
-    # Record the work of the walk, which a second walk of a root adds to.
+    # Record the work of the walk, which another pass over a root adds to.
     works: list[int] = []
     list_by_shared_flags = _fault_search._list_by_shared_flags
 
@@ -407,12 +417,18 @@ def test_a_root_whose_class_codewords_fill_its_array_is_walked_again(
     monkeypatch.setattr(_fault_search._ClosingSetWalk, "list_root", record_root)
     monkeypatch.setattr(_fault_search, "_list_by_shared_flags", record_work)
     flags = list(range(1, 16))
-    assert _list_class_tuples(flags, 3, 4) == _class_codewords(flags, 4, 3)
+    expected = _class_codewords(flags, 4, 3)
+    assert _list_class_tuples(flags, 3, 4, len(expected) + 1) == expected
+    one_pass_work = works[-1]
+    if tight_budget:
+        _list_class_tuples(flags, 1, 4, 29)
+        monkeypatch.setattr(_fault_search, "_PROBES_PER_LOOKUP", 16)
+        budgets = [-(-works[-1] // 16), 2.0**62, 2.0**62]
+        monkeypatch.setattr(_fault_search, "_get_root_lookups", lambda q, s, k: np.array(budgets))
+    monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
+    assert _list_class_tuples(flags, 3, 4, len(expected) + 1) == expected
     assert not given_up
-    work = works[-1]
-    monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", 2**20)
-    assert _list_class_tuples(flags, 3, 4) == _class_codewords(flags, 4, 3)
-    assert (work > works[-1]) == walked_again
+    assert (works[-1] > one_pass_work) == more_passes
 
 
 def test_listers_reject_zero_flags() -> None:
@@ -753,8 +769,11 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     # most about one probe of work: one lookup for the walk by closing sets, and one probe for the
     # walk by shared flags, which a call passes by at most a step: a candidate, a state, and the
     # bits of a word of flags.
+    # Also record which walks ran, and whether the walk by shared flags gave a root up or made
+    # another pass over a root.
     listed: list[tuple[str, int, int]] = []
     thread_calls: list[tuple[bool, bool]] = []
+    events: set[str] = set()
 
     def record(name: str, work_entry: int, max_work: int) -> None:
         listing = getattr(_fault_search, name)
@@ -765,6 +784,11 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
             num_codewords = listing(*args)
             work = int(walk_state[work_entry]) - work
             listed.append((name, work, num_codewords))
+            events.add(name)
+            if name == "_list_by_shared_flags" and walk_state[9]:
+                events.add("given up")
+            if name == "_list_by_shared_flags" and walk_state[10]:
+                events.add("another pass")
             if threading.current_thread().name == "qldpc-search":
                 thread_calls.append((args[0].flags.writeable, work <= max_work))
             return num_codewords
@@ -786,7 +810,8 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
 
     monkeypatch.setattr(_fault_search, "iterate_in_order", check_batches)
 
-    # Record the walks by shared flags, to mark the budgets of the roots read-only too.
+    # Record the walks by shared flags, to mark the budgets of the roots read-only too, which the
+    # lister has already marked read-only.
     walks: list[_fault_search._SharedFlagWalk] = []
     init_walk = _fault_search._SharedFlagWalk.__init__
 
@@ -794,25 +819,21 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
         init_walk(walk, *args)
         walks.append(walk)
 
+    def get_shared_arrays(*args: Any, **kwargs: Any) -> list[object]:
+        assert not walks[-1]._root_budgets.flags.writeable
+        names = (
+            "_class_rows",
+            "_bit_index",
+            "_closing_maps",
+            "_class_offsets",
+            "_class_members",
+            "_primitive_rows",
+        )
+        return [vars(in_use[0])[name] for name in names] + [walks[-1]._root_budgets]
+
     monkeypatch.setattr(_fault_search._SharedFlagWalk, "__init__", record_walk)
     in_use: list[_fault_search.FaultLister] = []
-    marked = distance_conftest.check_shared_arrays_on_threads(
-        monkeypatch,
-        lambda *args, **kwargs: (
-            [
-                vars(in_use[0])[name]
-                for name in (
-                    "_class_rows",
-                    "_bit_index",
-                    "_closing_maps",
-                    "_class_offsets",
-                    "_class_members",
-                    "_primitive_rows",
-                )
-            ]
-            + [walks[-1]._root_budgets]
-        ),
-    )
+    marked = distance_conftest.check_shared_arrays_on_threads(monkeypatch, get_shared_arrays)
 
     def check_listing(
         listers: Sequence[_fault_search.FaultLister], fault_weight: int, violating: Collection[int]
@@ -866,6 +887,9 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     if split_probes == 0:
         assert any(marked) and thread_calls
     assert thread_calls == [(False, True)] * len(thread_calls)
+    if walk is None:
+        both = {"_list_by_closing_sets", "_list_by_shared_flags"}
+        assert both | {"given up", "another pass"} <= events
 
 
 def test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads() -> None:
@@ -921,11 +945,11 @@ def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(
     # Seven classes of one member each, with flags 4, 5, 6, 7, 1, 2, and 3 and distinct
     # syndromes, make seven class codewords of fault weight three.  On three threads, a split
     # comes after six probes.  The root 0, of flags 4, takes a state of four probes, a probe for
-    # its one bit, and three for the classes after it with bit 2, so the calling thread lists it
-    # alone.  The threads list the six
-    # roots of equal weights left in ranges of two.  The class codeword of classes 1, 3, and 5 is
-    # in the first range, and that of classes 4, 5, and 6, the last, in the second.  Errors on
-    # disjoint sets of seven qubits leave out no fault.
+    # its one bit, and a probe and a reduction of four probes for each of the three classes after
+    # it with bit 2, so the calling thread lists it alone.  The threads list the six roots of equal
+    # budgets left in ranges of two.  The class codeword of classes 1, 3, and 5 is in the first
+    # range, and that of classes 4, 5, and 6, the last, in the second.  Errors on disjoint sets of
+    # seven qubits leave out no fault.
     flags = [4, 5, 6, 7, 1, 2, 3]
     syndromes = [1 << jj for jj in range(7)]
     errors = [0b1111111 << (7 * jj) for jj in range(7)]
@@ -949,21 +973,21 @@ def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(
     [
         ("closing sets", 0.59, [1, 2, 3]),
         ("closing sets", 0.61, [1, 2]),
-        ("shared flags", 0.59, [1, 2]),
+        ("shared flags", 0.59, [1, 2, 3]),
+        ("shared flags", 0.61, [1, 2]),
     ],
 )
-def test_listing_on_threads_counts_the_lookups_of_one_thread(
+def test_closing_maps_wait_for_the_estimated_lookups_of_every_root(
     walk: str, lookups_per_set: float, expected_sizes: list[int], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """On threads, a lister counts every lookup once, so it builds the closing maps of one thread.
+    """A lister builds the closing maps that the walk by closing sets of every root would need.
 
     With classes of flags 1 to 7, a listing of fault weight four by closing sets makes 21 lookups,
-    one for each pair of classes.  The closing map of the 35 sets of three classes waits for 20.65
-    lookups, or for 21.35, as ``_LOOKUPS_PER_CLOSING_SET`` is 0.59 or 0.61.  The calling thread
-    makes six of them alone, those of the first root.  So the map is built for fault weight five in
-    the first case only if the threads' lookups are counted, and in the second only if lookups are
-    counted more than once.  The walk by shared flags makes no lookups by closing sets, which alone
-    use the map, so it builds no map, although its work is more than that of 21 lookups.
+    one for each pair of classes, as estimated.  The closing map of the 35 sets of three classes
+    waits for 20.65 lookups, or for 21.35, as ``_LOOKUPS_PER_CLOSING_SET`` is 0.59 or 0.61.  So the
+    map is built for fault weight five in the first case and not in the second, whichever walk
+    lists the roots, and on three threads, of which the calling thread lists the first root alone,
+    as on one.
     """
     _force_walk(monkeypatch, walk)
     monkeypatch.setattr(
@@ -1323,8 +1347,10 @@ def test_one_lookup_can_list_many_class_codewords(monkeypatch: pytest.MonkeyPatc
 def test_larger_closing_maps_wait_for_listings_with_many_lookups(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A closing map of three classes is built only after a listing with as many lookups as sets."""
-    _force_walk(monkeypatch, "closing sets")
+    """A closing map of three classes is built only after a listing with as many lookups as sets.
+
+    The lookups are those that the walk by closing sets would make, as estimated for each root.
+    """
     get_closing_map = _fault_search._get_closing_map
     sizes_built: list[int] = []
 
@@ -1346,18 +1372,16 @@ def test_larger_closing_maps_wait_for_listings_with_many_lookups(
         _check_faults(lister, 5, ())
         assert sizes_built == expected, num_lookups
 
-    # With sixteen classes, the map of three has 560 sets.  The listings with pairs look up at most
-    # 120 choices of two classes at fault weight four.  At fault weight five, they look up at most
-    # 560 choices of three, 553 here, since 7 triples are dependent, and at fault weight six 1697
-    # choices of four.  So fault weight seven is the first to build the map of three.  Batches of
-    # one class codeword make each listing pause and resume often, which must keep the count.
-    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
+    # With sixteen classes, the map of three has 560 sets.  The listings with pairs are estimated
+    # to look up 120 choices of two classes at fault weight four, and 560 choices of three at fault
+    # weight five, of which 7 are dependent.  So fault weight six is the first to build the map of
+    # three.
     sizes_built.clear()
     lister = _listing_lister(16, 5, 2**20)
-    for weight in range(2, 7):
+    for weight in range(2, 6):
         _check_faults(lister, weight, ())
     assert 3 not in sizes_built
-    _check_faults(lister, 7, ())
+    _check_faults(lister, 6, ())
     assert 3 in sizes_built
 
 

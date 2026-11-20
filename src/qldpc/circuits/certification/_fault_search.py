@@ -46,11 +46,11 @@ _BYTES_PER_SET = 40
 # codewords, at the cost of another factor in the size of its closing map.
 _MAX_CLOSING_SIZE = 4
 
-# A closing map of sets of more than two classes is built only once the walk by closing sets (see
-# ``FaultLister``) made at least this many lookups for each set of the map in the last listing of
-# class codewords that ran to its end, so that building the map takes time of the order of that
-# walk.  Only that walk uses the map.  A map is wasted if the next fault weight finds a violation at
-# once, which costs about one or two such listings.
+# A closing map of sets of more than two classes is built only once the last listing of class
+# codewords that ran to its end would have made at least this many lookups for each set of the map
+# by the walk by closing sets (see ``FaultLister``), as estimated for each root, so that building
+# the map takes time of the order of that walk.  A map is wasted if the next fault weight finds a
+# violation at once, which costs about one or two such listings.
 _LOOKUPS_PER_CLOSING_SET = 1
 
 # The number of choices of members of a class tuple whose syndromes ``_expand_class_tuples``
@@ -66,8 +66,8 @@ _INITIAL_BATCH_SIZE = 2**6
 _BATCH_SIZE = 2**12
 
 # The number of class codewords (see ``FaultLister``) after which ``_list_by_closing_sets``
-# returns, and after which ``_list_by_shared_flags`` returns once it has finished a root or a walk
-# of a root, to be resumed by their next calls.  A thread passes on its class codewords in batches
+# returns, and after which ``_list_by_shared_flags`` returns once it has finished a pass over a
+# root, to be resumed by their next calls.  A thread hands on its class codewords in batches
 # of at most this many, so that the batches that ``iterate_in_order`` holds take bounded memory.
 _CODEWORD_BATCH_SIZE = 2**10
 
@@ -77,9 +77,10 @@ _CODEWORD_BATCH_SIZE = 2**10
 _PROBES_PER_CALL = 2**20
 
 # The assumed costs of the work of a listing, in probes of a closing map by the walk by shared
-# flags, as "Which walk lists a root" in ``fault_propagation.md`` states them: each state of that
-# walk, and each candidate that it finds dependent, costs this many probes, and each bit of the
-# summed flags that it examines to choose a bit, and each candidate that it tries, one more.
+# flags, as "Listing class codewords by shared flags" in ``fault_propagation.md`` states them: each
+# state of that walk, each candidate that it finds dependent, and each reduction of a candidate
+# whose closing class it finds, costs this many probes, and each bit of the summed flags that it
+# examines to choose a bit, and each candidate that it tries, one each.
 _PROBES_PER_STATE = 64
 
 # A lookup of the walk by closing sets, which reduces the flags of a class and probes a closing map
@@ -87,8 +88,9 @@ _PROBES_PER_STATE = 64
 _PROBES_PER_LOOKUP = 16
 
 # The number of rows of the array into which the walk by shared flags lists the class codewords of
-# a root, which takes at most ``8 m`` MiB for fault weight ``m``.  A root with more class codewords
-# is walked several times, each time listing the next of them that fit.
+# a pass over a root, which takes at most ``8 m`` MiB for fault weight ``m``.  Sorting a full array
+# takes about as much again and 16 MiB more, so about ``16 m + 16`` MiB in all.  A root with more
+# class codewords takes several passes, each listing the next of them that fit.
 _MAX_ROOT_CODEWORDS = 2**20
 
 # A listing of class codewords moves to threads once the calling thread, listing alone, has done
@@ -303,11 +305,11 @@ class FaultLister:
     classes that share a flag bit with the sum of the flags of the classes chosen so far, and looks
     up the last class of each class codeword in the closing map of single classes.  The walk by
     closing sets (``_list_by_closing_sets``) chooses every independent set of classes that comes
-    before a closing set, and looks up the closing sets.  The walk by shared flags gives a root up
-    to the walk by closing sets once its work in its first walk of the root passes the estimated
-    work of the walk by closing sets for the root (see ``_get_root_lookups``).  By these
-    estimates, a root given up costs at most about twice as much as with the cheaper walk.  A
-    listing counts its work in probes (see ``_PROBES_PER_STATE``).
+    before a closing set, and looks up the closing sets.  The walk by shared flags lists a root in
+    one or more passes over it, and gives the root up to the walk by closing sets once its work in
+    its first pass passes the estimated work of the walk by closing sets for the root (see
+    ``_get_root_lookups``).  By these estimates, a root given up costs at most about twice as much
+    as with the cheaper walk.  A listing counts its work in probes (see ``_PROBES_PER_STATE``).
 
     A closing map of a size has two parts: a closing table, which lists the sets of that many
     classes sorted by the hash of their summed flags, and a hash map from each hash to its first
@@ -317,10 +319,10 @@ class FaultLister:
     syndromes of listed faults (see ``find_first``) grows within the rest of the memory limit, up
     to 2**31 syndromes.  With the map of pairs, a fault weight ``m`` may use a closing map of up to
     ``min(m - 2, _MAX_CLOSING_SIZE)`` classes instead: one that was built for an earlier fault
-    weight, or one that is built now because the walk by closing sets made enough lookups in the
-    last listing of class codewords that ran to its end (see ``_LOOKUPS_PER_CLOSING_SET``), if the
-    table of syndromes can give up the room for it and still grow to the same largest size (see
-    ``_take_table_room``).
+    weight, or one that is built now because the walk by closing sets would have made enough lookups
+    in the last listing of class codewords that ran to its end (see ``_LOOKUPS_PER_CLOSING_SET``),
+    if the table of syndromes can give up the room for it and still grow to the same largest size
+    (see ``_take_table_room``).
 
     On several threads, a costly listing of class codewords moves to threads, while the calling
     thread expands the class codewords into faults in the serial order, that of a listing on a
@@ -335,7 +337,8 @@ class FaultLister:
             ``CosetLeaderSearch``.  Lighter Pauli errors let ``find_first`` skip more faults.
         memory_limit: The approximate number of bytes for the closing maps of two or more classes
             and the table of syndromes.  The closing map of pairs has first claim, since it saves
-            more time.
+            more time.  The arrays into which each thread lists class codewords are extra (see
+            ``_MAX_ROOT_CODEWORDS``).
         num_threads: The number of threads of a costly listing, counting the calling thread; with
             fewer than two, the calling thread lists alone.
 
@@ -409,7 +412,8 @@ class FaultLister:
         self._closing_maps: dict[
             int, tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]
         ] = {}
-        # The lookups of the walk by closing sets in the last listing that ran to its end.
+        # The estimated lookups of the walk by closing sets in the last listing that ran to its end,
+        # as if it listed every root.
         self._closing_lookups = 0
         self._syndrome_rows, self._syndrome_slots = _get_empty_syndrome_table(
             self._num_syndrome_words
@@ -541,7 +545,9 @@ class FaultLister:
         # List the class codewords of each root by the walk by shared flags, or give it up to the
         # walk by closing sets once the walk by shared flags has done the estimated work of the walk
         # by closing sets for the root, its budget.  The threads read the budgets, so mark them
-        # read-only.  On one thread, list every root in one walk.
+        # read-only.  Closing maps of more classes wait for the estimated lookups of the walk by
+        # closing sets for every root, as if it listed them all.  On one thread, list every root
+        # with one ``_SharedFlagWalk``.
         closing_map = self._get_closing_map(fault_weight)
         if 1 not in self._closing_maps:
             self._closing_maps[1] = _get_closing_map(self._class_rows[:, 0], 1)
@@ -568,14 +574,14 @@ class FaultLister:
         num_roots = self._num_start_classes
         if self._num_threads < 2:
             yield from walk.list_range(0, num_roots)
-            self._closing_lookups = walk.closing_lookups
+            self._closing_lookups = int(root_lookups.sum())
             return
 
         # On several threads, the work items are the roots.  List the first roots alone, in ranges
         # of 1, 2, 4, and more roots, until the work shows that the listing is costly (see "Threads"
-        # in ``fault_propagation.md``).  If the work left, estimated from the weights of the roots,
-        # is less than ``_SPLIT_PROBES_PER_THREAD`` for each thread, list the rest alone too.  The
-        # weight of a root is the estimated number of lookups of the walk by closing sets for it.
+        # in ``fault_propagation.md``).  If the work left, estimated in proportion to the
+        # estimated lookups of the walk by closing sets for the roots, is less than
+        # ``_SPLIT_PROBES_PER_THREAD`` for each thread, list the rest alone too.
         cumulative_weights = np.cumsum(root_lookups)
         split_work = self._num_threads * _SPLIT_PROBES_PER_THREAD
         num_listed, num_next = 0, 1
@@ -589,16 +595,14 @@ class FaultLister:
             yield from walk.list_range(num_listed, num_roots)
             num_listed = num_roots
 
-        # List the other roots on threads, each with its own walk, and yield their class codewords
-        # in the order of the roots, while the threads list later roots.
-        walks = [walk]
+        # List the other roots on threads, each with its own ``_SharedFlagWalk``, and yield their
+        # class codewords in the order of the roots, while the threads list later roots.
 
         def start_walk(
             stop: threading.Event,
         ) -> Callable[[int, int], Iterator[npt.NDArray[np.int64]]]:
             """Start the walk of a thread, and return how it lists a range of the other roots."""
             thread_walk = make_walk()
-            walks.append(thread_walk)
 
             def list_range(start: int, end: int) -> Iterator[npt.NDArray[np.int64]]:
                 """List the class codewords of a range of the other roots, a batch at a time."""
@@ -620,7 +624,7 @@ class FaultLister:
                 start_walk,
                 cumulative_weights=cumulative_weights[num_listed:] - listed_weight,
             )
-        self._closing_lookups = sum(each.closing_lookups for each in walks)
+        self._closing_lookups = int(root_lookups.sum())
 
     def _get_closing_map(
         self, fault_weight: int
@@ -629,9 +633,9 @@ class FaultLister:
         hashes = self._class_rows[:, 0]
         size = 1 if fault_weight == 3 or not self._should_build_closing_pairs else 2
         while 2 <= size < min(fault_weight - 2, _MAX_CLOSING_SIZE):
-            # Build the next map if the walk by closing sets made enough lookups in the last
-            # listing, and if the table of syndromes can give up the room for it without changing
-            # the largest size it can reach.
+            # Build the next map if the walk by closing sets would have made enough lookups in the
+            # last listing, and if the table of syndromes can give up the room for it without
+            # changing the largest size it can reach.
             if size + 1 not in self._closing_maps:
                 num_sets = math.comb(len(hashes), size + 1)
                 max_syndromes = _take_table_room(
@@ -728,8 +732,8 @@ class _SharedFlagWalk:
 
     ``class_rows`` are the rows of the classes of a ``FaultLister``, ``bit_index`` the index from
     each flag bit to its classes (see ``_get_bit_index``), and ``single_map`` the closing map of
-    single classes.  ``root_budgets`` holds the work, in probes, after which the first walk of each
-    root gives the root up to ``closing_walk``, a walk by closing sets.  A walk lists ranges of
+    single classes.  ``root_budgets`` holds the work, in probes, after which the first pass over
+    each root gives the root up to ``closing_walk``, a walk by closing sets.  A walk lists ranges of
     roots, one range at a time, and counts its work over all of them.
     """
 
@@ -769,12 +773,7 @@ class _SharedFlagWalk:
 
         This counts each lookup of the walk by closing sets as ``_PROBES_PER_LOOKUP`` probes.
         """
-        return int(self._walk_state[4]) + _PROBES_PER_LOOKUP * self.closing_lookups
-
-    @property
-    def closing_lookups(self) -> int:
-        """The number of lookups of the walk by closing sets for all of the roots given up."""
-        return self._closing_walk.num_lookups
+        return int(self._walk_state[4]) + _PROBES_PER_LOOKUP * self._closing_walk.num_lookups
 
     def list_range(
         self, start: int, end: int, probes_per_call: int = 1 << 62
@@ -1204,16 +1203,18 @@ def _list_by_shared_flags(
     of ``FaultLister`` do.  For each root in turn, the listing lists the class codewords of
     ``m = codewords.shape[1]`` classes whose first class is the root, as "Listing class codewords by
     shared flags" in ``fault_propagation.md`` describes.  Each class codeword is a row of classes in
-    increasing order.  The array, of at least two rows, holds the class codewords of one walk of a
-    root, which the listing sorts in lexicographic order once the walk is done.  If they fill it,
-    the listing keeps the smaller half and walks the root again for the others, as "Roots with many
-    class codewords" in ``fault_propagation.md`` describes.
+    increasing order.  The listing makes one or more passes over each root.  The array, of at
+    least two rows, holds the class codewords of one pass, which the listing sorts in lexicographic
+    order once the pass is done.  If they fill the array, the listing keeps the first half of them
+    in lexicographic order, and makes another pass for the others, as "Roots with many class
+    codewords" in ``fault_propagation.md`` describes.
 
     The work of the listing, in probes, counts ``state_cost`` for each class that it chooses or
-    finds dependent, and one for each bit that it examines to choose a bit and for each candidate
-    that it tries.  The first walk of a root gives the root up, and lists none of its class
-    codewords, if ``root_budgets[root]`` is less than ``state_cost``, or once its work for the root
-    passes ``root_budgets[root]``.
+    finds dependent, and for each reduction of a candidate whose closing class it finds, and one
+    each for each bit that it examines to choose a bit and for each candidate that it tries.  The
+    first pass over a root gives the root up, and lists none of its class codewords, if
+    ``root_budgets[root]`` is less than ``state_cost``, or once its work for the root passes
+    ``root_budgets[root]``.
 
     The depth is the index, among the chosen classes, of the last one chosen.  The listing keeps
     its state between calls in the other arrays.  Column ``d`` of ``levels`` holds the class chosen
@@ -1222,21 +1223,22 @@ def _list_by_shared_flags(
     rows of the classes chosen up to depth ``d``, and row ``d`` of ``basis`` and entry ``d`` of
     ``pivots`` hold the reduced flags of the class chosen at depth ``d``, as in ``_reduce_flags``.
     ``unavailable`` is true for the chosen and the forbidden classes, and ``marks`` lists the
-    forbidden classes in the order in which they were forbidden.  ``bounds`` holds the last class
-    codeword passed on of a root walked again, and the first class codeword dropped in this walk.
-    ``walk_state`` holds the root, the end of the roots, the depth (-1 between walks), the number of
-    marks, the work so far, the work at which to pause, the work when the root started, the number
-    of rows that the last call returned, the number of rows of the unfinished walk, which follow
-    them, 1 if the listing gave the root up, 1 if the root is walked again, and 1 if this walk has
-    dropped class codewords.  The state starts with the first root, the end of the roots, the depth
-    -1, ``unavailable`` false, and the other entries of ``walk_state`` zero, apart from the work and
-    the work at which to pause.
+    forbidden classes in the order in which they were forbidden.  ``bounds`` holds the floor, the
+    last class codeword released by an earlier pass over the root, and the ceiling, the first
+    class codeword dropped in this pass.  ``walk_state`` holds (0) the root, (1) the end of the
+    roots, (2) the depth, -1 between passes, (3) the number of marks, (4) the work so far, (5) the
+    work at which to pause, (6) the work when the root started, (7) the number of rows that the last
+    call returned, (8) the number of rows of the unfinished pass, which follow them, (9) 1 if the
+    listing gave the root up, (10) 1 if an earlier pass released class codewords of the root, so
+    that the floor holds, and (11) 1 if this pass has dropped class codewords, so that the ceiling
+    holds.  The state starts with entries 0 and 1, entry 2 at -1, ``unavailable`` false, and the
+    other entries of ``walk_state`` zero, apart from entries 4 and 5.
 
     The listing returns once no root before the end is left, once it has listed at least
-    ``batch_size`` class codewords and finished a walk, once its work reaches the work at which to
-    pause, once the array is full and holds rows of earlier walks, or once it gives a root up,
-    which it then leaves in ``walk_state``.  It returns the rows of the walks that it has finished,
-    and its next call moves the rows of an unfinished walk to the start of the array.  Threads run
+    ``batch_size`` class codewords and finished a pass, once its work reaches the work at which to
+    pause, once the array is full and holds rows of earlier passes, or once it gives a root up,
+    which it then leaves in ``walk_state``.  It returns the rows of the passes that it has finished,
+    and its next call moves the rows of an unfinished pass to the start of the array.  Threads run
     this without the global interpreter lock, each with its own state and arrays (see "Threads" in
     ``fault_propagation.md``).
     """
@@ -1250,7 +1252,7 @@ def _list_by_shared_flags(
     key_rows = closing_keys.reshape((len(closing_keys), 1))
     no_words = closing_keys[:0]
 
-    # Move the rows of an unfinished walk to the start of the array.
+    # Move the rows of an unfinished pass to the start of the array.
     root, end_root, depth, num_marks = walk_state[0], walk_state[1], walk_state[2], walk_state[3]
     work, max_work, root_work = walk_state[4], walk_state[5], walk_state[6]
     num_pending, walked_again, dropped = walk_state[8], walk_state[10], walk_state[11]
@@ -1259,9 +1261,9 @@ def _list_by_shared_flags(
     num_ready = 0
     gave_up = 0
     while work < max_work:
-        # Start the next walk, if a root is left and the batch is not done, by choosing the root
+        # Start the next pass, if a root is left and the batch is not done, by choosing the root
         # and the bit whose candidates come next.  Give the root up at once if its budget is below
-        # a state, and in its first walk once its work passes its budget.
+        # a state, and in its first pass once its work exceeds its budget.
         if depth < 0:
             if root >= end_root or num_ready >= batch_size:
                 break
@@ -1285,9 +1287,9 @@ def _list_by_shared_flags(
             break
 
         # Once every candidate after a chosen class is tried, allow the classes forbidden since it
-        # was chosen again, and forbid it in the candidates after it.  Once the walk of the root is
-        # done, sort its class codewords, and walk the root again after the last of them if the
-        # walk dropped any.
+        # was chosen again, and forbid it in the candidates after it, or, for the root, allow it
+        # again for the next pass.  Once the pass over the root is done, sort its class codewords,
+        # and make another pass for those after the last of them if the pass dropped any.
         if levels[1, depth] == levels[2, depth]:
             for index in range(levels[3, depth], num_marks):
                 unavailable[marks[index]] = False
@@ -1311,8 +1313,9 @@ def _list_by_shared_flags(
             continue
 
         # A probe adds at most one class codeword.  If the array has no room for it, return the
-        # rows of earlier walks, or else keep the smaller half of the rows of this walk, and record
-        # only class codewords before the first row dropped from now on.
+        # rows of earlier passes, or else keep the first half of the rows of this pass in
+        # lexicographic order, rounded down, and record only class codewords before the first row
+        # dropped from now on.
         if depth == last_depth and num_ready + num_pending == len(codewords):
             if num_ready:
                 break
@@ -1333,9 +1336,9 @@ def _list_by_shared_flags(
         # flags, and check every class with this hash.  Record a class codeword for a class that
         # has exactly these flags, since different flags can share a hash, comes after the root, is
         # neither chosen nor forbidden, and closes chosen classes that the candidate keeps
-        # independent, if the class codeword comes after the last one passed on of a root walked
-        # again and before the first one dropped in this walk.  The classes have distinct flags,
-        # so at most one class is recorded.
+        # independent, if the class codeword comes after the floor of a later pass and before the
+        # ceiling of a pass that has dropped class codewords.  The classes have distinct flags, so
+        # at most one class is recorded.
         if depth == last_depth:
             key = chosen_row_sums[depth, 0] ^ class_rows[candidate, 0]
             entry = closing_slots[_find_syndrome_slot(key, no_words, key_rows, closing_slots)]
@@ -1346,20 +1349,24 @@ def _list_by_shared_flags(
                 for word in range(1, num_words):
                     summed = chosen_row_sums[depth, word] ^ class_rows[candidate, word]
                     closes = closes and summed == class_rows[closing_class, word]
-                if closes and (
-                    _reduce_flags(class_rows[candidate, 1:], basis[: depth + 1], pivots, reduced)
-                    >= 0
+                if not closes:
+                    continue
+                work += state_cost
+                pivot = _reduce_flags(
+                    class_rows[candidate, 1:], basis[: depth + 1], pivots, reduced
+                )
+                if pivot < 0:
+                    continue
+                for level in range(depth + 1):
+                    row[level] = levels[0, level]
+                row[depth + 1] = candidate
+                row[depth + 2] = closing_class
+                row.sort()
+                if (not walked_again or _comes_before(bounds[0], row)) and (
+                    not dropped or _comes_before(row, bounds[1])
                 ):
-                    for level in range(depth + 1):
-                        row[level] = levels[0, level]
-                    row[depth + 1] = candidate
-                    row[depth + 2] = closing_class
-                    row.sort()
-                    if (not walked_again or _comes_before(bounds[0], row)) and (
-                        not dropped or _comes_before(row, bounds[1])
-                    ):
-                        codewords[num_ready + num_pending] = row
-                        num_pending += 1
+                    codewords[num_ready + num_pending] = row
+                    num_pending += 1
             continue
 
         # Otherwise choose the candidate, and the bit whose candidates come next, if it keeps the
