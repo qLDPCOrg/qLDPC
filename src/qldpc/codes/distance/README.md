@@ -7,7 +7,8 @@ Users reach it through the public functions and classes below, which take plain 
 
 ## The grid
 
-The package solves a few problems, each by several methods, which the `method` argument of its functions and classes names, on one thread or several.
+The package solves a few problems, each by several methods, on one thread or several.
+The `method` argument of its functions and classes names the method.
 Each cell of the table below says whether a problem takes a method, and how it runs:
 
 - **threads:** the costly work runs on `num_threads` threads (see [Threads](#threads)); for coset leaders, only batch queries do, and a single query runs on one thread;
@@ -47,7 +48,7 @@ Where the code, guide, and tests of each supported cell live:
 | Distance, `auto` | `core.py` and `_auto.py` | [Choosing a method](#choosing-a-method) | `core_test.py` and `_auto_test.py` |
 | Coset weight of a vector, every method | `src/qldpc/codes/common.py` | the comments in the vector branch of `ClassicalCode.get_distance_exact` | `src/qldpc/codes/common_test.py` |
 | Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | Sections 3.9 and 3.10 of `brouwer_zimmermann.md`, and Section 4.5 of `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
-| Coset leaders, `connected_cluster` | `_connected_cluster/coset.py` | Sections 3.8 and 3.11 of `connected_cluster.md` | `_connected_cluster/coset_test.py` and `coset_leaders_test.py` |
+| Coset leaders, `connected_cluster` | `_connected_cluster/coset.py` | Sections 3.8, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/coset_test.py` and `coset_leaders_test.py` |
 | Logical counts, `brute_force` and `brouwer_zimmermann` | `logical_counts.py` and `_counting/scan.py` | Section 3.11 of `brouwer_zimmermann.md` | `_counting/scan_test.py` and `logical_counts_test.py` |
 | Logical counts, `macwilliams` | `logical_counts.py` and `_counting/macwilliams.py` | "The MacWilliams method" in Section 3.11 of `brouwer_zimmermann.md` | `_counting/macwilliams_test.py` and `logical_counts_test.py` |
 

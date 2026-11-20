@@ -92,12 +92,11 @@ def test_every_cell_answers_as_brute_force(
     monkeypatch: pytest.MonkeyPatch,
     pytestconfig: pytest.Config,
 ) -> None:
-    """Every supported cell gives the answers of brute force, and uses threads only in that mode.
+    """Every supported cell gives brute force's answers, using threads exactly in "threads" mode.
 
-    ``"auto"`` never enumerates here, so that it takes the routes of the other methods.  A cell
-    that runs on threads, in that mode, and a cell that always runs on one thread, are given two
-    threads and chunks of one unit of work, so that the searches and batches of small instances
-    split onto threads wherever they can.
+    ``"auto"`` never enumerates here, so that it takes the routes of the other methods.  In the
+    "threads" mode, and in every "one thread" cell, the test allows two threads and search chunks
+    of one unit, so that the searches of small instances split wherever they can.
     """
     threads = mode == "threads"
     if threads or _GRID[problem][method] == "one thread":
@@ -196,7 +195,8 @@ def _check_vector_cosets(method: Any, rng: np.random.Generator, threads: bool) -
 
     # On threads, a fixed code and vector whose coset weighs five, so that its BZ search reaches a
     # layer of three rows, which splits onto threads; a small random case may stop earlier.  Its
-    # 2**16 code words come from its generator, which the random cases check independently.
+    # expected weight comes from the span of the code's generator, which the library computes; the
+    # random cases above use an oracle independent of the library.
     if threads:
         fixed_rng = np.random.default_rng(0)
         code = codes.ClassicalCode(fixed_rng.integers(2, size=(14, 30), dtype=np.uint8))
@@ -234,8 +234,8 @@ def _check_counts(method: Any, rng: np.random.Generator, threads: bool) -> None:
     code = get_random_css_code(rng, 7, 2, 2)
     counts_x, counts_z, distance, full = enumerate_logical_ops(code)
 
-    # A count at its default weight runs a distance search, which can use threads (see "The grid"
-    # in the README), so it runs on one thread here.
+    # A count by brouwer_zimmermann at its default weight runs a distance search, which can use
+    # threads (see "The grid" in the README), so the default-weight count runs on one thread here.
     count_pauli = method != "macwilliams" or code.is_self_dual
     with _tuning.use_tuning(num_threads=1):
         counts = count_logical_ops_css(
