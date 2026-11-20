@@ -460,9 +460,10 @@ def get_distance_pauli(
 
     stabilizers = get_pauli_stabilizers(gauge)
 
-    # get_pauli_stabilizers returns gauge itself unless the code is a subsystem code, whose gauge
-    # generators that commute with every gauge generator are stabilizers, which join the checks of a
-    # connected-cluster search (Section 3.9 of connected_cluster.md).
+    # For a subsystem code, a connected-cluster search takes sparser checks that span the derived
+    # stabilizers, joined by the gauge generators that are stabilizers (Section 3.9 of
+    # connected_cluster.md).  get_pauli_stabilizers returns gauge itself for a stabilizer code.  The
+    # code has one sector, so the count of sectors to search needs no slicing.
     def get_cluster_sectors(
         count: int,
     ) -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]]:
@@ -524,7 +525,7 @@ def _search_css(
         method=method,
         get_automorphisms=get_automorphisms,
         tuning=tuning,
-        get_cluster_sectors=lambda count: _get_cluster_sectors(
+        get_cluster_sectors=lambda count: _get_css_cluster_sectors(
             gauge_x, gauge_z, paulis[:count], sectors[:count], subsystem, tuning
         ),
         has_sector_map=has_sector_map if len(sectors) == 2 and tuning.sector_maps else None,
@@ -547,74 +548,84 @@ def _search(
 ) -> int | Literal[NoDistance.NAN]:
     """Search the nontrivial words of the sectors of a code, and return their least weight.
 
-    Each sector is a pair ``(checks, excluded)``, whose words satisfy the checks, and are trivial if
-    they are in the row space of the excluded rows, which satisfy the checks.  The sectors are those
-    of one code, so either all of them or none have nontrivial words.  If ``from_generators`` is
-    True, the only sector is a pair ``(generators, excluded)`` instead, whose words are the sums of
-    rows of both matrices, and ``method`` is not ``"connected_cluster"``.  ``symplectic`` is as for
-    ``get_distance_from_checks``.  ``get_cluster_sectors(count)`` returns the first ``count``
-    sectors with the checks that a connected-cluster search takes, by default the sectors
-    themselves.  ``has_sector_map``, if given, tells whether a qubit permutation maps the first of
-    two sectors onto the second, which leaves only the first to search.  The other arguments are as
-    for ``_search_css``.
+    Each sector is a pair ``(checks, excluded)``.  Its words satisfy the checks, and are trivial if
+    they are in the row space of ``excluded``, whose rows satisfy the checks.  The sectors are those
+    of one code, so either all of them or none have nontrivial words.
+
+    If ``from_generators`` is True, the only sector is a pair ``(generators, excluded)`` instead.
+    Its words are the sums of rows of both matrices, and ``method`` is not ``"connected_cluster"``.
+
+    ``get_cluster_sectors(count)`` returns the first ``count`` sectors with the checks that a
+    connected-cluster search takes.  By default, a connected-cluster search takes the sectors
+    themselves.
+
+    ``has_sector_map``, if given, tells whether a qubit permutation maps the first of two sectors
+    onto the second.  Then only the first is searched.
+
+    ``symplectic`` is as for ``get_distance_from_checks``, and the other arguments are as for
+    ``_search_css``.
     """
     width = sectors[0][1].shape[1]
     nested_bases: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
 
     # Brute force and the Brouwer-Zimmermann method search nested bases of the words of the sectors.
-    # get_nested_basis returns None for a sector without nontrivial words.
-    def get_nested_basis(index: int) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None:
+    # get_sector_basis returns None for a sector without nontrivial words, and get_sector_bases
+    # builds the bases of the sectors left to search.
+    def get_sector_basis(index: int) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None:
         matrix, excluded = sectors[index]
         if from_generators:
             return _get_nested_basis(matrix, excluded)
         kernel = get_kernel(swap_pauli_halves(matrix) if symplectic else matrix)
         return _get_nested_basis(kernel, excluded)
 
-    def get_nested_bases() -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]]:
+    def get_sector_bases() -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]]:
         for index in range(len(nested_bases), len(sectors)):
-            nested = get_nested_basis(index)
+            nested = get_sector_basis(index)
             assert nested is not None
             nested_bases.append(nested)
         return nested_bases
 
-    # The nontrivial words of each sector of a code, modulo trivial ones, span a space whose
-    # dimension is the number of logical qubits, so the first sector shows whether any sector has a
-    # nontrivial word.  A connected-cluster search builds no nested basis.  The words that satisfy
-    # the checks span a space of dimension checks.shape[1] - rank(checks), which holds the row space
-    # of the excluded rows, so equal dimensions leave no nontrivial word.
+    # Return NO_DISTANCE if the first sector has no nontrivial word.  The nontrivial words of the
+    # sectors of one code, modulo trivial ones, span spaces of one dimension (the number of logical
+    # qubits of a CSS code), so the first sector shows whether any has one.  A connected-cluster
+    # search builds no nested basis.  The words that satisfy the checks span a space of dimension
+    # width - rank(checks), which holds the row space of the excluded rows, so equal dimensions
+    # leave no nontrivial word.
     if method == "connected_cluster":
         checks, excluded = sectors[0]
         if width - len(get_independent_rows(checks)) == len(get_independent_rows(excluded)):
             return NO_DISTANCE
     else:
-        nested = get_nested_basis(0)
+        nested = get_sector_basis(0)
         if nested is None:
             return NO_DISTANCE
         nested_bases.append(nested)
 
-    # "auto" enumerates the words if that is cheap.
+    # "auto" enumerates the words if that is cheap.  The basis of the first sector is built, and the
+    # others are measured by rank, since a sector map may leave them unsearched.
     if method == "auto":
         dimensions = [len(nested_bases[0][0])]
         dimensions += [width - len(get_independent_rows(checks)) for checks, _ in sectors[1:]]
         if is_cheap_to_enumerate(dimensions, width, tuning):
             method = "brute_force"
 
-    # Brute force never looks for a sector map, so that it searches each sector as given: it is
-    # meant for small codes and for independent checks of the other methods, and auto takes it only
-    # when enumerating is cheap.
+    # Search only the first sector if a qubit permutation maps it onto the second.  The later steps
+    # build bases and checks only for the sectors left here.  Brute force never looks, so that it
+    # searches each sector as given: it is meant for small codes and for independent checks of the
+    # other methods, and auto takes it only when enumerating is cheap.
     if method != "brute_force" and has_sector_map is not None and has_sector_map():
         sectors = sectors[:1]
 
-    # If "auto" did not take brute force, it takes the Brouwer-Zimmermann method for generators,
-    # and for binary words if no sector excludes a nonzero word, as for a classical code.  It
-    # searches other sectors by cost, with a connected-cluster search that may switch to the
-    # Brouwer-Zimmermann method.
+    # If "auto" did not take brute force, it takes the Brouwer-Zimmermann method for a search of
+    # generators, or of binary words when no sector excludes a nonzero word, as for a classical
+    # code.  It searches all other sectors by cost, which starts as a connected-cluster search and
+    # may switch to the Brouwer-Zimmermann method.
     by_cost = False
     if method == "auto":
         by_cost = not from_generators and (
             symplectic or any(np.any(excluded) for _, excluded in sectors)
         )
-        method = "brouwer_zimmermann" if not by_cost else "connected_cluster"
+        method = "connected_cluster" if by_cost else "brouwer_zimmermann"
 
     # Search the sectors at once, except by brute force, which searches each in turn.
     if method == "brute_force":
@@ -627,11 +638,11 @@ def _search(
                 upper_bound=upper_bound,
                 tuning=tuning,
             )
-            for basis, labels in get_nested_bases()
+            for basis, labels in get_sector_bases()
         )
     if method == "brouwer_zimmermann":
         problem = _get_brouwer_zimmermann_problem(
-            get_nested_bases(), symplectic=symplectic, get_automorphisms=get_automorphisms
+            get_sector_bases(), symplectic=symplectic, get_automorphisms=get_automorphisms
         )
         scale = problem.weight_scale
         distance = get_distance_brouwer_zimmermann(
@@ -653,7 +664,7 @@ def _search(
         return search_by_cost(
             cluster_sectors,
             _get_brouwer_zimmermann_problem(
-                get_nested_bases(), symplectic=symplectic, get_automorphisms=get_automorphisms
+                get_sector_bases(), symplectic=symplectic, get_automorphisms=get_automorphisms
             ),
             symplectic=symplectic,
             cutoff=cutoff,
@@ -671,7 +682,7 @@ def _search(
     )
 
 
-def _get_cluster_sectors(
+def _get_css_cluster_sectors(
     gauge_x: npt.NDArray[np.uint8],
     gauge_z: npt.NDArray[np.uint8],
     paulis: list[PauliXZ],

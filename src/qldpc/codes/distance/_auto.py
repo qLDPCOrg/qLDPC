@@ -88,10 +88,10 @@ def search_by_cost(
     The function runs a connected-cluster search, probes with a BZ search, and may switch to one, as
     the section "Choosing a method" of ``README.md`` describes.  The sectors and other arguments,
     and the result, are those of ``get_distance_connected_cluster``.  ``brouwer_zimmermann_problem``
-    holds the same sectors, in the same order, for a BZ search.  Each caller builds it as its own
-    route builds a BZ search, so it is an argument rather than derived here.  Every sector must have
-    a witness: ``ConnectedClusterSearch`` keeps only the sectors that do, and its searches must be
-    numbered as the sectors of ``brouwer_zimmermann_problem``.
+    holds the same sectors, in the same order, for a BZ search.  The caller builds it as it builds a
+    BZ search (``_search`` of ``distances.py``), so it is an argument rather than derived here.
+    Every sector must have a witness: ``ConnectedClusterSearch`` keeps only the sectors that do, and
+    its searches must be numbered as the sectors of ``brouwer_zimmermann_problem``.
     """
     clusters = ConnectedClusterSearch(
         cluster_sectors,

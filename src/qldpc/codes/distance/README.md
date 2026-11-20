@@ -171,7 +171,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecat
 The distance of a CSS code is the smaller of the distances of its two sectors, so a search of the distance normally searches both.
 Let `G_X` and `G_Z` be the X-type and Z-type gauge generators of the code, which are its checks if it is a stabilizer code, and let `S_X` and `S_Z` be the spaces of its X-type and Z-type stabilizers.
 The X sector holds the words of `S_Z^⊥` outside `rowspan(G_X)`, and the Z sector those of `S_X^⊥` outside `rowspan(G_Z)` (Section 3.1 of `connected_cluster.md`).
-`_search_css` and `_search` in `distances.py` search only the X sector of a CSS code if they find a qubit permutation `π` that maps `rowspan(G_X)` onto `rowspan(G_Z)` and `rowspan(G_Z)` onto `rowspan(G_X)`.
+`_search_css` in `distances.py` searches only the X sector if it finds a qubit permutation `π` that maps `rowspan(G_X)` onto `rowspan(G_Z)` and `rowspan(G_Z)` onto `rowspan(G_X)`.
 The two sectors then have the same distance, so the result is the same, and so are the meanings of `cutoff` and `upper_bound`, since one sector has a word of a given weight exactly when the other does.
 
 The proof: `π` preserves weights and dot products, so it maps the orthogonal complement of a space onto that of its image.
@@ -180,7 +180,8 @@ So `π(S_Z) = rowspan(G_X) ∩ rowspan(G_Z)^⊥ = S_X`, and `π` maps a word of 
 The inverse of `π` swaps the row spaces too, and so maps the Z sector into the X sector, which makes the map onto.
 For a stabilizer code, `S_X = rowspan(G_X)` and `S_Z = rowspan(G_Z)`, and the proof is the same.
 
-Only `_search_css` looks for such a permutation, through the `has_sector_map` that it passes to `_search`, with `get_sector_map` in `_sector_maps.py`, and it finds only two kinds.
+Only `_search_css` looks for such a permutation, in the `has_sector_map` that it passes to `_search`.
+It calls `get_sector_map` in `_sector_maps.py`, which finds only two kinds.
 The first is the identity, which swaps the row spaces if they are equal.
 For the second, color the X-type and Z-type gauge generators of the Tanner graph differently.
 With the optional pybliss package, bliss compares the canonical forms of this graph and of the graph with the colors swapped, and an isomorphism between them gives the second kind.
