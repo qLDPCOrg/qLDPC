@@ -29,7 +29,7 @@ from qldpc.codes.distance import (
     get_distance_pauli,
 )
 
-from . import _threads, _tuning, coset_leaders, distances, logical_counts
+from . import _threads, _tuning, core, coset_leaders, logical_counts
 from .conftest import (
     assert_exact_answers,
     enumerate_logical_ops,
@@ -76,7 +76,7 @@ def test_the_grid_lists_every_problem_and_the_methods_that_it_takes() -> None:
     """The table has a column for each method, and each problem takes the methods of its cells."""
     assert set(_GRID) == set(_ACCEPTS) == set(_CHECKS)
     methods = {
-        *get_args(distances.DistanceMethod),
+        *get_args(core.DistanceMethod),
         *get_args(coset_leaders.CosetMethod),
         *get_args(logical_counts.LogicalCountMethod),
     }

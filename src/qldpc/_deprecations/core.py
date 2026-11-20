@@ -114,12 +114,12 @@ ALIASES: dict[str, dict[str, str]] = {
         "QCCode": "qldpc.codes.quantum:MBCode",
         "code_capacity": "qldpc.codes._code_capacity",
         "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
-        "validate_distance_method": "qldpc.codes.distance.distances:_validate_distance_method",
+        "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.distance": {
         "DistanceBackend": "qldpc.codes:DistanceBackend",
         "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
-        "validate_distance_method": "qldpc.codes.distance.distances:_validate_distance_method",
+        "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.monte_carlo": {
         "OneOrManyFloats": "qldpc._deprecations.core:OneOrManyFloats",

@@ -26,7 +26,7 @@ from qldpc import _num_threads, codes
 from qldpc._binary import get_kernel
 from qldpc.objects import PAULIS_XZ, Pauli
 
-from . import _tuning, distances
+from . import _tuning, core
 from . import logical_counts as lc
 from ._brouwer_zimmermann import distance as bz
 from ._connected_cluster import search as connected_cluster
@@ -360,7 +360,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "lp_minimum_work",
         "lp_max_denominator",
     )
-    record(distances, "get_nested_distance_brute_force", "batch_exponent", prefix="distances ")
+    record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="core ")
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
@@ -372,9 +372,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "stabilizer_overlap_cuts",
         "pair_sum_checks",
     )
-    record(distances, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
-    record(distances, "is_cheap_to_enumerate", "tuning", prefix="auto ")
-    record(distances, "search_by_cost", "tuning", prefix="auto ")
+    record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
+    record(core, "is_cheap_to_enumerate", "tuning", prefix="auto ")
+    record(core, "search_by_cost", "tuning", prefix="auto ")
     original_prepare = bz._prepare_sector_search
 
     def prepare(*args: Any, **kwargs: Any) -> Any:
@@ -418,8 +418,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         counter.count_logical_ops()
         counter.count_logical_ops(method="brute_force")
         lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(method="macwilliams")
-        distances.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
-        distances.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
+        core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
+        core.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
         # A search that scans layers, rather than finish while it prepares, scans with batches of
         # 2**search_chunk_exponent supports, on num_threads threads, and passes its tuning to its
         # certificate and to its choices of completion tables.
@@ -431,7 +431,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "tuning": {tuning},
         "lp_minimum_work": {0},
         "lp_max_denominator": {97},
-        "distances batch_exponent": {6},
+        "core batch_exponent": {6},
         "count batch_exponent": {6},
         "shared_walk_rank": {5},
         "chunk_size": {1000, 1001},

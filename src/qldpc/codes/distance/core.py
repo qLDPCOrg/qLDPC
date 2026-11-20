@@ -969,46 +969,6 @@ def _get_lifted_automorphisms(
 
 
 ####################################################################################################
-# coset weights of vectors
-
-
-def _get_coset_weight(
-    checks: npt.NDArray[np.uint8],
-    generators: npt.NDArray[np.uint8],
-    vector: npt.NDArray[np.uint8],
-    *,
-    cutoff: int,
-    method: DistanceMethod,
-) -> int:
-    """The minimum weight of the coset of a vector that is not a word of a binary classical code.
-
-    The code has the parity checks ``checks`` and the generators ``generators``.  Callers pass both
-    because they already have them.  The syndrome of ``vector`` must be nonzero.  A search of the
-    coset stops at the first vector that weighs at most ``cutoff``, and returns that weight, an
-    upper bound.  An automorphism of the code need not map the coset of the vector onto itself, so
-    the searches of the coset use no automorphisms.
-    """
-    if method == "connected_cluster":
-        # The vector itself is within the cutoff, or bounds the weight of its coset.
-        weight = int(np.count_nonzero(vector))
-        if weight <= cutoff:
-            return weight
-        # With H the checks, v the vector, and G_C the generators, the distance search of the checks
-        # [H | Hv] and the excluded rows [G_C | 0] finds the weight of the coset plus one (Section
-        # 3.8 of connected_cluster.md).
-        augmented_checks = np.hstack([checks, (checks @ vector)[:, None] % 2])
-        code_words = np.hstack([generators, np.zeros((len(generators), 1), dtype=generators.dtype)])
-        found = get_distance_from_checks(
-            augmented_checks, code_words, cutoff=cutoff + 1, method=method, max_weight=weight
-        )
-        return int(found) - 1
-
-    # Search the words v + c, for code words c: the vector is the only generator, and the code words
-    # are excluded.
-    return int(get_distance_from_generators([vector], generators, cutoff=cutoff, method=method))
-
-
-####################################################################################################
 # method selectors
 
 
