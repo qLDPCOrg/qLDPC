@@ -286,7 +286,7 @@ The walk by shared flags costs little when the candidates are few, and can cost 
 The walk by shared flags is charged `64` for the root and for each reduction of the flags of a candidate, whether the candidate becomes a state, is found dependent, or completes a class codeword, and one each for each bit of the sum of the flags that it examines to choose a bit and for each candidate that it tries, including those that it skips as chosen or forbidden.
 These charges are assumed costs in **probes** of a closing map (`_PROBES_PER_STATE` in `_fault_search.py`), the unit in which the search counts the work of both walks, and each lookup of the walk by closing sets costs `16` probes (`_PROBES_PER_LOOKUP`).
 The **budget** of a root `r` is `16` probes for each of the at most `C(q - 1 - r, k - 1)` lookups that the walk by closing sets makes for it, for `q` classes and `k` classes chosen before each lookup.
-In its first pass over a root, the walk by shared flags gives the root up to the walk by closing sets once its work for the root exceeds the budget, or before it starts if the budget is less than one state.
+In its first pass over a root, the walk by shared flags gives the root up to the walk by closing sets once its work for the root exceeds the budget, or before it starts if the budget is less than 64 probes, the charge for the root.
 By these estimates, a root given up costs at most about twice as much as with the cheaper walk.
 A root that is not given up takes `w` passes, at most `1 + n/⌊R/2⌋` for `n` class codewords, each costing as much as its first, which is at most about the budget.
 So it can cost up to about `w` budgets, which the bound of about twice does not cover.
@@ -349,7 +349,7 @@ The search lists the class codewords [root by root](#listing-class-codewords-by-
 Each pass over a root by the walk by shared flags, and the walk by closing sets of a root given up, starts with only the root chosen and no class forbidden, so the listing of a root, its work, and its class codewords depend only on the root.
 So the listings of consecutive ranges of roots list the class codewords in the serial order, and the work of all the ranges adds up to that of a single thread.
 The search estimates the work of each root by its budget, the estimated work of the walk by closing sets for it.
-A root given up costs at most about twice its budget, and a root with `w` passes about `w` budgets.
+A root given up costs at most about twice its budget, and a root with `w` passes up to about `w` budgets.
 A root is never split between threads, so a listing with fewer start classes than threads, or with one root much costlier than the others, runs on fewer threads for part of its time.
 The calling thread also lists the first root alone, however costly it is, before any thread starts.
 

@@ -888,12 +888,11 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
                     check_listing(pair, fault_weight, violating)
     if split_probes == 0:
         assert any(marked) and thread_calls
-    assert thread_calls == [(False, True)] * len(thread_calls)
 
     # With both walks, list a fixed instance that gives a root up and makes another pass over
     # another: the classes of flags 4, 5, 6, 7, 1, 2, and 3 at fault weight three.  The first root
     # has three class codewords, more than the array holds, and the second has a budget of five
-    # lookups, which its first state and its first reduction pass.
+    # lookups, which its first state and its first reduction together exceed.
     if walk is None:
         root_lookups = [24.0, 5.0] + [24.0] * 5
         monkeypatch.setattr(
@@ -908,6 +907,7 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
         )
         both = {"_list_by_closing_sets", "_list_by_shared_flags"}
         assert both | {"given up", "another pass"} <= events
+    assert thread_calls == [(False, True)] * len(thread_calls)
 
 
 def test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads() -> None:
@@ -1044,7 +1044,7 @@ def test_closing_maps_wait_for_the_estimated_lookups_of_every_root(
             results.append((checked, list(sizes)))
 
     distance_conftest.run_on_a_thread(check, timeout=_COMPILE_TIMEOUT)
-    assert iterations
+    assert iterations == [6, 6, 6]
     assert results[0] == results[1]
     assert results[0][1] == expected_sizes
 
