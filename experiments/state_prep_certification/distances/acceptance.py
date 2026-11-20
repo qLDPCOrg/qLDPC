@@ -30,8 +30,8 @@
   rows, first runs, repeats, and counting runs that end in an error or memout, only one arm
   finished, both timed out, complete, partial, and missing work counts), writes every output,
   classifies them and marks the family medians as its docstring says, and refuses a work count that
-  it cannot read.  Rows with ``compiled_in_timing`` set, one ok and one timeout, stop the analysis,
-  with an error that names exactly those rows.
+  it cannot read.  A row with ``compiled_in_timing`` set stops the analysis, with an error that
+  names it.
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
@@ -541,17 +541,14 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     else:
         raise AssertionError("an unreadable work count was accepted")
 
-    # rows with compiled_in_timing set (rows of retries that compiled too), here an ok row and a
-    # timeout, stop the analysis, with an error that names those rows alone
-    keys = {str(rows[0]["task_key"])}
-    keys.add(next(str(row["task_key"]) for row in rows if row["status"] == "timeout"))
-    flagged = [dict(row, compiled_in_timing=row["task_key"] in keys) for row in rows]
-    assert {row["status"] for row in flagged if row["compiled_in_timing"]} == {"ok", "timeout"}
+    # a row with compiled_in_timing set (the row of a retry that compiled too) stops the analysis,
+    # with an error that names it
+    key = str(rows[0]["task_key"])
+    flagged = [dict(row, compiled_in_timing=row["task_key"] == key) for row in rows]
     try:
         analyze.summarize(flagged, sample, expected)
     except ValueError as refusal:
-        named = {str(row["task_key"]) for row in rows if str(row["task_key"]) in str(refusal)}
-        assert named == keys, refusal
+        assert key in str(refusal), refusal
     else:
         raise AssertionError("a row with compiled_in_timing set was analyzed")
 

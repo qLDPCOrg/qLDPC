@@ -70,12 +70,12 @@ The final circuit, which can equal the parent, is then certified at K = t by CC,
 `margin` and the deletion arms send each completed step, a fault weight or a tried qubit, to the runner as a partial result, so that a run killed at its limit keeps its steps; the circuit of a killed deletion run is not a result.
 
 The runner retries any run whose measured call compiled, as the [shared README](../README.md#runs) describes.
-No run warms up before timing, apart from `ground_truth`, whose task process first compiles galois's GF(2) arithmetic, untimed ([`common/galois_gf2.py`](../common/galois_gf2.py)).
+No run warms up before timing, apart from `ground_truth`, whose task process first compiles galois's GF(2) arithmetic, untimed (`_compile_galois` in [`counting.py`](counting.py)).
 The count and ground-truth arms take their DEM from an untimed certification at fault weight 1.
 This certification is preparation, not a warm-up, but it also compiles, or loads from the cache, the code that their measured calls share with it.
 The experiment's own compiled code, in `counting.py` and `baseline.py`, is cached on disk.
 
-A row with `compiled_in_timing` set (see the [shared README](../README.md#runs)) stops `analyze.py` with an error that names it, before it writes any table.
+A row with `compiled_in_timing` set (see the [shared README](../README.md#runs)) stops `analyze.py` with an error that names it.
 
 ## Workflow
 
@@ -105,7 +105,7 @@ If a label does not match its `circuits.json` and the working tree's `config.jso
 Its outputs include `listing_table.csv`, the listed faults and oracle rows against all accepted combinations per family and weight; and `counterexamples.json`, every counterexample and the box of three example counterexamples.
 It reports every task without a row as missing, and leaves every circuit with a disagreement out of the verdict counts, medians and maxima, `listing_table.csv`, and the box.
 Where A_m was not computed, `listing_table.csv` divides by C(N_0, m) instead, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
-The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, disagreements with the baseline and the ground truth, a task without a row, and rows with `compiled_in_timing` set, one ok and one timeout.
+The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, disagreements with the baseline and the ground truth, a task without a row, and a row with `compiled_in_timing` set.
 
 `analyze_applications.py` adds the margins and the deletions.
 `summary.csv` gives each circuit's combined margin: the m* or "all" that `cert_bz`, `cert_cc`, and `margin` determine, or, if none determines it, "m* > k" for the largest certified fault weight k.

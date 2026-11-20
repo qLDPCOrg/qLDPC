@@ -31,9 +31,9 @@ child and the runner in ``active/<task_key>``, and watches the child:
   killed.
 * **Compilation:** while the measured call runs, the child listens to numba's documented event
   ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and reports
-  the first compilation to the parent at once.  numba does not send this event when it compiles a
+  the first compilation to the parent.  numba does not send this event when it compiles a
   ``numba.vectorize`` or ``numba.guvectorize`` ufunc or a ``numba.cfunc``, such as galois's ufuncs
-  (see ``galois_gf2.py``), so such a compilation in a measured call goes unreported.
+  (see ``certification/counting.py``), so such a compilation in a measured call goes unreported.
 
   The parent discards a run whose measured call compiled, whatever its status.  The discarded run is
   not stopped early, since numba writes compiled code to its cache only after the compilation ends,
@@ -48,11 +48,11 @@ child and the runner in ``active/<task_key>``, and watches the child:
   T include a compilation that numba reports.  That happens for code whose compilation was lost when
   the discarded run was killed at its limit or memory cap or ended in an error, for code that the
   discarded run never reached, and for code that numba does not cache on disk, such as galois's
-  ``numba.jit`` functions that ``galois_gf2.py`` does not compile first.  It can also happen when
+  ``numba.jit`` functions when a task does not compile them first.  It can also happen when
   processes compile different versions of one function at once, since one can overwrite the cache
-  entry that another wrote (numba/numba#10862; see the comment in ``certification/counting.py``).
-  Such a row is kept so that it is visible.  ``compiled_in_timing`` is the flag that the analyses
-  test, and ``compiled_function`` names the first function compiled, to show what to look into.
+  entry that another wrote (numba/numba#10862).  Such a row is kept so that it is visible.
+  ``compiled_in_timing`` is the flag that the analyses test, and ``compiled_function`` names the
+  first function compiled, to show what to look into.
 
 ``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
 during or between its runs, kills any current run, waits up to the grace for its processes to go,
@@ -597,7 +597,7 @@ def timed(function: Callable[..., _ReturnType], *args: Any, **kwargs: Any) -> _R
 
     T is the wall time by ``time.perf_counter``, and the CPU time includes child processes.  While
     the function runs, the first compilation that numba reports in this process, on any thread, is
-    reported to the runner at once (see the module docstring).
+    reported to the runner (see the module docstring).
     """
     # numba is imported here, in the child, so that the runner's own process does not load it
     from numba.core import event

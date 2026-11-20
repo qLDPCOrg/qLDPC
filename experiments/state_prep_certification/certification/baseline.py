@@ -66,9 +66,8 @@ _INITIAL_SLOTS = 2**12
 # An odd 64-bit constant, near 2**64 divided by the golden ratio, that mixes the words of a hash.
 _HASH_MULTIPLIER = np.uint64(0x9E3779B97F4A7C15)
 
-# Compiled with numba.njit(cache=True), on the conditions that the comment of counting.py states:
-# these functions call only each other, in this file, and NumPy, and each has one set of argument
-# types.
+# Compiled with numba.njit(cache=True), on the condition that the comment of counting.py states:
+# these functions call only each other, in this file, and NumPy.
 
 
 ####################################################################################################
@@ -342,7 +341,8 @@ def _enumerate_combinations(
     if prefix_length == 0 and closing < 0 and next_candidate[0] == 0:
         # weight 1: the closing scan of the empty prefix, from the first mechanism of zero flags
         next_candidate[0] = 1
-        # np.int64, not a literal 0, so that _lower_bound has one set of argument types
+        # np.int64, not a literal 0, so that _lower_bound has one set of argument types: processes
+        # that compile different ones at once can mix up its cache files (numba/numba#10862)
         closing = _lower_bound(sorted_flags, order, flag_sums[0], np.int64(0))
     while written < combinations.shape[0]:
         if closing >= 0:

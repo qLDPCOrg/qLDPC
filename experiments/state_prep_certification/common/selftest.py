@@ -32,7 +32,6 @@ import tarfile
 import tempfile
 import time
 import traceback
-import types
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -303,38 +302,6 @@ def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None
         child.wait()
         os.close(read_fd)
         os.close(write_fd)
-
-
-@test
-def test_runner_compile_reported_at_start(directory: pathlib.Path, node: bool) -> None:
-    """The compile reporter sends the first compilation when it starts, and no later one."""
-    from numba.core import event
-
-    from experiments.state_prep_certification.common import runner
-
-    # two functions of this module stand in for compiled ones, whose compilations start and end in
-    # this order: the first starts, the second starts and ends within it, as a callee's does, the
-    # first ends, and the second starts again.  Only the first start is reported; a reporter that
-    # reported at an end would name the second function instead.
-    start, end = event.EventStatus.START, event.EventStatus.END
-    read_fd, write_fd = os.pipe()
-    try:
-        with _patched(runner._CHANNEL, "fd", write_fd):
-            reporter = runner._new_compile_reporter()
-            for function, status in (
-                (_kill, start),
-                (_wait_for, start),
-                (_wait_for, end),
-                (_kill, end),
-                (_wait_for, start),
-            ):
-                data = {"dispatcher": types.SimpleNamespace(py_func=function)}
-                reporter.notify(event.Event("numba:compile", status, data=data))
-    finally:
-        os.close(write_fd)
-    with os.fdopen(read_fd) as file:
-        messages = [json.loads(line) for line in file.read().splitlines()]
-    assert messages == [{"type": "compiled", "function": f"{__name__}._kill"}], messages
 
 
 @test

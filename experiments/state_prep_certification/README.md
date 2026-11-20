@@ -19,7 +19,7 @@ Times measured on a workstation are never used as results.
 - [`node.sh`](node.sh) is the node's entry point: a preflight check of the node, an offline install from the bundle, and then `run_node.py`.
 - [`bundle.py`](bundle.py) builds the offline bundle on the workstation.
 - [`pins.json`](pins.json) pins the qLDPC commit, CPython, the Linux platform of the wheels, and GNU parallel.
-- [`common/`](common/) holds the task runner (`runner.py` and `run_task.py`), the result store (`store.py`), the task lists (`tasks.py`), the galois helper (`galois_gf2.py`), the label and manifest (`manifest.py`), and the plug-in interface (`plugin.py`).
+- [`common/`](common/) holds the task runner (`runner.py` and `run_task.py`), the result store (`store.py`), the task lists (`tasks.py`), the label and manifest (`manifest.py`), and the plug-in interface (`plugin.py`).
   `common/selftest.py` tests them locally.
 
 ### Labels and results
@@ -43,7 +43,7 @@ The runner discards a run whose measured call compiled, whatever its status, and
 A run's T includes loading from the cache any compiled code that its process first reaches in its measured call, and the other first-call work of a fresh process.
 The task's one row is that of its kept run, which records any discarded run in `discarded_run`.
 A row has `compiled_in_timing` set when its run is a retry that compiled too, and only then does its T include a compilation that numba reports; [`common/runner.py`](common/runner.py) says when that happens.
-numba does not report the compilation of a `numba.vectorize` ufunc, such as those of galois's GF(2) arithmetic, which some measured calls reach ([`common/galois_gf2.py`](common/galois_gf2.py)), so an unflagged row's T can still include such a compilation.
+numba does not report the compilation of a `numba.vectorize` ufunc, such as those of galois's GF(2) arithmetic, which ranking's measured calls reach, so an unflagged row's T can still include such a compilation.
 A row with `compiled_in_timing` set is kept so that it is visible, but its T enters no analysis.
 Each experiment's analysis stops with an error that names such rows.
 The ranking analysis, which admits circuits by certification's verdicts, still reads the verdicts of flagged certification rows.

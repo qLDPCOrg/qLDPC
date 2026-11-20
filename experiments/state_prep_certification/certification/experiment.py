@@ -39,7 +39,7 @@ The count and ground-truth arms take the DEM from an untimed certification with 
 and their measured call is the counting itself, so that the runner's limit applies to it.  The
 runner retries any run whose measured call compiled (``common/runner.py``).  No run warms up before
 timing, apart from ``ground_truth``, which first compiles galois's arithmetic, untimed
-(``common/galois_gf2.py``).  A run of ``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in
+(``counting._compile_galois``).  A run of ``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in
 under ``repeats.below_s`` gets ``repeats.count`` more runs (``repeat_tasks``).
 """
 
@@ -57,7 +57,7 @@ import numpy.typing as npt
 import stim
 
 from experiments.state_prep_certification.certification import baseline, counting, instrument
-from experiments.state_prep_certification.common import galois_gf2, runner
+from experiments.state_prep_certification.common import runner
 from qldpc import circuits as qldpc_circuits
 from qldpc import math as qldpc_math
 from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod
@@ -374,8 +374,8 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     elif arm == "count_listing":
         fields |= runner.timed(_listing, reduced, stabilizers, reference.css_weight, weight_limit)
     else:
-        # the ground truth uses galois's GF(2) arithmetic, which galois_gf2 compiles first
-        galois_gf2.compile_arithmetic()
+        # the ground truth uses galois's GF(2) arithmetic, which this compiles first
+        counting._compile_galois()
         fields |= runner.timed(counting.brute_force, reduced, stabilizers, max_weight)
     return fields
 

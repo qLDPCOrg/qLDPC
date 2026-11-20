@@ -44,12 +44,6 @@ _BUFFER = 4096
 # qLDPC's private always_compiled, which code outside qLDPC does not use.  numba checks only the
 # function's own source file for changes, which suffices here, since these functions call only each
 # other, in this file, and NumPy, never qLDPC's compiled code.
-#
-# Each function is also compiled for one set of argument types only, so that on one machine its
-# cache holds one compiled version.  Processes that compile different versions of a function at
-# once can mix up its cache files (numba/numba#10862); one version per function rules this out on
-# one machine.  numba also keys each version to the CPU, so machines with different CPUs that share
-# a cache, such as through a shared results directory, could still meet the issue.
 
 
 ####################################################################################################
@@ -437,6 +431,19 @@ def _multiply(a: list[int], b: list[int], degree: int) -> list[int]:
 
 ####################################################################################################
 # brute force
+
+
+def _compile_galois() -> None:
+    """Compile the galois arithmetic of ``residual_weight_table``, untimed, before a measured call.
+
+    galois compiles its GF(2) arithmetic in each process that uses it, and does not cache it on
+    disk: creating the field compiles ``numba.jit`` functions, and row reduction compiles
+    ``numba.vectorize`` ufuncs.  The runner's retry cannot remove these compilations from a measured
+    call, so ``ground_truth`` calls this first.
+    """
+    import galois
+
+    galois.GF(2)([[1, 1, 0], [0, 1, 1]]).null_space()
 
 
 def residual_weight_table(stabilizers: npt.NDArray[np.uint8]) -> npt.NDArray[np.int64]:

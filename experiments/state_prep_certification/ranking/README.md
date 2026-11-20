@@ -51,4 +51,4 @@ A bundle for ranking must also name `certification`, whose entry carries the inp
 `analyze.py --archive PATH --certification-archive PATH` reads the ranking archive and the certification archive of subset `main` that come back, checks the certification archive's provenance, and writes CSV and JSON tables; its docstring lists them.
 A row of the ranking archive with `compiled_in_timing` set (see the [shared README](../README.md#runs)) stops the analysis with an error that names it.
 The analysis admits circuits by the verdicts of the certification archive's rows, whatever their `compiled_in_timing`, although a flagged certification timeout may have timed out only because it compiled.
-An unflagged row's CPU seconds can still include a compilation of galois's ufuncs, which numba does not report ([`common/galois_gf2.py`](../common/galois_gf2.py)).
+An unflagged row's CPU seconds can still include a compilation of galois's ufuncs, which ranking's measured calls reach through qLDPC and `consumer.py`, and which numba does not report.
