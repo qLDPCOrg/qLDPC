@@ -982,8 +982,8 @@ def _get_coset_weight(
 ) -> int:
     """The minimum weight of the coset of a vector that is not a word of a binary classical code.
 
-    The code has the parity checks ``checks`` and the generators ``generators``, which callers pass
-    because they already have them, and the syndrome of ``vector`` is nonzero.  Once the search
+    The code has the parity checks ``checks`` and the generators ``generators``.  Callers pass both
+    because they already have them.  The syndrome of ``vector`` is nonzero.  Once the search
     finds a vector of the coset that weighs at most ``cutoff``, it stops and returns that weight, an
     upper bound.  An automorphism of the code need not map the coset of the vector onto itself, so
     the searches of the coset use no automorphisms.
@@ -993,9 +993,9 @@ def _get_coset_weight(
         weight = int(np.count_nonzero(vector))
         if weight <= cutoff:
             return weight
-        # The distance search of the checks [H | Hv], with H the checks and v the vector, and of the
-        # excluded rows [G | 0], with G the generators, finds the weight of the coset plus one
-        # (Section 3.8 of connected_cluster.md).
+        # With H the checks, v the vector, and G_C the generators, the distance search of the checks
+        # [H | Hv] and the excluded rows [G_C | 0] finds the weight of the coset plus one (Section
+        # 3.8 of connected_cluster.md).
         augmented_checks = np.hstack([checks, (checks @ vector)[:, None] % 2])
         code_words = np.hstack([generators, np.zeros((len(generators), 1), dtype=generators.dtype)])
         found = get_distance_from_checks(

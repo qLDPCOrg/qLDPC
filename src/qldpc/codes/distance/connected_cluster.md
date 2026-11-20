@@ -151,7 +151,7 @@ Setting `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py` to `False` t
 
 For a CSS code, the known words of the search of X-type logical operators are its X-type stabilizer generators, and those of a subsystem code its gauge generators.
 The distance search of a classical code has no known words, since its `G` is empty, so the cuts change nothing there.
-The search for the distance of a vector from a classical code (see [Section 4](#4-guide-to-the-source-code)) excludes the rows of the generator matrix of the code, which are rows of `G`, so it cuts by them, and the argument above applies.
+The search for the distance of a vector from a classical code (see "The distance of a vector from a classical code" in [Section 3.8](#38-vectors-with-a-given-syndrome)) excludes the rows of the generator matrix of the code, which are rows of `G`, so it cuts by them, and the argument above applies.
 The half-overlap rule is a property of minimum-weight vectors of a coset; the search programs Qubitserf (`cpp/distfind/cc.cpp`, which also leaves out the first variable of each even word), QEDist (`cssdist/native_css/exact.cpp`), public-regular-logical-frames (`src/lp_exclusion.cpp`) of J. Y. Lee, and tropidist (`cdist/gmitm.c`) prune by it ([references](#references)).
 The cuts made the searches of surface, toric, and color codes, whose stabilizers are much lighter than their distances, visit about 4 to over 1000 times fewer states, and those of bivariate bicycle codes up to 3 times fewer.
 For pair-partition and quantum Tanner codes, the cuts changed the number of states visited by at most about 5 percent, and for lifted-product codes by up to about a quarter either way.
@@ -350,15 +350,16 @@ A distance search, whose checks are usually sparse, recomputes both, since the b
 It also computes the overlap of every symbol of an unsatisfied check, available or not.
 It then takes the `m_c` of the check ([Section 3.4](#34-pruning)) and its number of available symbols without branching on availability, since the processor often mispredicts that branch, which costs more than the extra overlaps.
 
-
 **The distance of a vector from a classical code.**
+The least weight of a vector with a given syndrome can also come from a distance search rather than a syndrome query.
 `ClassicalCode.get_distance_exact(vector=v)` finds the least weight of `v + c` over the words `c` of a classical code with checks `H` and generator matrix `G_C`, the weight of the coset of `v`.
 By the connected-cluster method, it runs a distance search with one more bit `b`, the checks `[H | Hv]`, and the excluded rows `[G_C | 0]`.
 A vector `(x, b)` satisfies these checks exactly when `Hx = b Hv`.
 So with `b = 1`, `x` is in the coset of `v`, and with `b = 0`, `x` is a word of the code, which the excluded rows span.
-The nontrivial words of the search are therefore the vectors of the coset with `b = 1` appended, and each weighs one more than its vector: the coset weighs one less than the distance of the search, and a cutoff of the coset weight is a cutoff one higher in the search.
+The witnesses of the search are therefore the vectors of the coset with `b = 1` appended, and each weighs one more than its vector: the coset weighs one less than the distance of the search, and a cutoff of the coset weight is a cutoff one higher in the search.
 `v` itself is in its coset, so the coset weighs at most `wt(v)`.
-If `wt(v)` is at most the cutoff, `v` itself answers, and otherwise the search is limited to weight `wt(v)`: a search that finds no word within it shows that the coset weighs `wt(v)`.
+If `wt(v)` is at most the cutoff, the weight `wt(v)` is returned without a search.
+Otherwise the search is limited to weight `wt(v)`, and a search that finds no witness within it shows that the coset weighs `wt(v)`.
 
 ### 3.9 Sparser stabilizers of subsystem codes
 

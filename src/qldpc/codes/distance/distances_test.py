@@ -807,6 +807,15 @@ def test_coset_weights_of_vectors(
         # With the cutoff at the weight of the vector, the search may stop at any vector within it.
         assert expected <= search(cutoff=weight) <= weight
 
+    # A cutoff between zero and the weight of the vector ends the search at the first vector of the
+    # coset within it: here every coset of the [7, 4] Hamming code weighs at most one.
+    hamming = qldpc.codes.HammingCode(3)
+    checks = hamming.matrix.view(np.ndarray).astype(np.uint8)
+    generators = hamming.generator.view(np.ndarray).astype(np.uint8)
+    vector = np.array([0, 0, 1, 0, 0, 1, 1], dtype=np.uint8)
+    assert np.any(checks @ vector % 2)
+    assert distances._get_coset_weight(checks, generators, vector, cutoff=1, method=method) == 1
+
 
 def test_max_weight() -> None:
     """A weight limit returns the smaller of the distance and max_weight + 1, on every route."""

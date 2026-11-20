@@ -624,9 +624,9 @@ class ClassicalCode(AbstractCode):
                 self._distance = int(distance)
 
         else:
-            # The distance of the vector from the code: zero for a code word, the weight of its
-            # coset for a binary code, and otherwise the least distance to a code word.  The
-            # searches of the coset take a vector with a nonzero syndrome.
+            # The distance of the vector from the code, the least weight of its coset: zero for a
+            # code word, from a search of the coset for a binary code, and otherwise from every
+            # code word.  The searches of the coset take a vector with a nonzero syndrome.
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
