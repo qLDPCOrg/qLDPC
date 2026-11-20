@@ -3,8 +3,8 @@
 """Exact counts of the logical operators of a given weight in binary CSS codes.
 
 :class:`CSSLogicalCounter` states the conventions of the counts.  Section 3.11 of
-``brouwer_zimmermann.md`` explains the default and MacWilliams methods, full Pauli counts, and the
-counters of deformed codes.
+``brouwer_zimmermann.md`` explains the Brouwer-Zimmermann and MacWilliams methods, full Pauli
+counts, and the counters of deformed codes.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ _Sector = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 LogicalCountMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute_force"]
 """The methods of exact counts of logical operators.
 
-- ``"auto"`` (the default): a choice of the methods below.  It takes ``"brouwer_zimmermann"``; the
+- ``"auto"`` (the default): a choice of the methods below.  It takes ``"brouwer_zimmermann"``.  The
   choice can depend on the version of qLDPC.
 - ``"brouwer_zimmermann"``: a scan of the words of each weight in several information sets.
 - ``"macwilliams"``: the weight distributions of the spaces of the checks, through the MacWilliams

@@ -54,9 +54,9 @@ CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
   the syndrome through them, so it can be fast only if those generators are sparse (see the
   `connected-cluster guide
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
-  It weighs errors by CSS weight only on CSS states.  For a class without an error within a positive
-  maximum weight, its lower bound is that maximum weight plus one, whereas
-  ``"brouwer_zimmermann"`` often proves a higher one.
+  It weighs errors by CSS weight only on CSS states.  For a syndrome whose errors all weigh more
+  than a positive maximum weight, the lower bound that it gives is that maximum weight plus one,
+  whereas ``"brouwer_zimmermann"`` often proves a higher one.
 """
 
 ####################################################################################################

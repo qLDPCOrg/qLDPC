@@ -118,9 +118,9 @@ def certify_bounded_fault_propagation(
             ``residual_weight_lower_bound`` of a counterexample can differ (see
             ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, the
             ``output_pauli`` and ``residual_weight_lower_bound`` can also change between versions
-            of qLDPC when the searches that find them are costly, and with ``"auto"`` also when its
-            choice changes.
-            Whether the circuit is certified, and its smallest violating fault, never change.
+            of qLDPC when the searches that find them are costly.  With ``"auto"``, they can change
+            in that case, and also when its choice of method changes.  Whether the circuit is
+            certified, and its smallest violating fault, never change.
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
@@ -271,8 +271,8 @@ class BoundedFaultPropagationCounterexample:
 
     No fault that passes post-selection and has a smaller fault weight violates the bound.
     Equivalence, fault weight, Pauli weight, output error, residual weight, and the bound are as
-    defined in ``certify_bounded_fault_propagation``.  With the method ``"brouwer_zimmermann"``, or
-    ``"auto"``, which takes it here, the ``output_pauli`` and ``residual_weight_lower_bound`` of a
+    defined in ``certify_bounded_fault_propagation``.  With the method ``"auto"`` or
+    ``"brouwer_zimmermann"``, the ``output_pauli`` and ``residual_weight_lower_bound`` of a
     counterexample can change between versions of qLDPC, as the searches that find them change (see
     ``method`` in ``certify_bounded_fault_propagation``).
 

@@ -130,7 +130,7 @@ class BruteForce:
         max_weight: int | None,
         css_weight: bool,
         memory_limit: int = 2**30,
-        method: CosetMethod = "brouwer_zimmermann",
+        method: CosetMethod = "auto",
     ) -> Violation | None:
         """Find a violating accepted fault of the smallest fault weight by brute force, or None.
 
@@ -257,7 +257,7 @@ def brute_force_smallest_violation(
     max_weight: int | None,
     css_weight: bool,
     memory_limit: int = 2**30,
-    method: CosetMethod = "brouwer_zimmermann",
+    method: CosetMethod = "auto",
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight by brute force, or None.
 

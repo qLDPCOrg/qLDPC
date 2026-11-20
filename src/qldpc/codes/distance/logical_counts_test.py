@@ -321,7 +321,9 @@ def test_counters_remember_the_distance_of_each_method() -> None:
     expected = counter.count_logical_ops(count_pauli=True)
     with mock.patch.object(lc, "_get_distance", wraps=lc._get_distance) as search:
         assert counter.count_logical_ops(count_pauli=True) == expected
-        assert counter.count_logical_ops(method="auto") == replace(expected, count_pauli=None)
+        assert counter.count_logical_ops(method="brouwer_zimmermann") == replace(
+            expected, count_pauli=None
+        )
         assert search.call_count == 0
         assert counter.count_logical_ops(method="brute_force", count_pauli=True) == expected
         assert search.call_count == 1

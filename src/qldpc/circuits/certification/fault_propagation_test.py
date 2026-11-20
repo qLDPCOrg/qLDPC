@@ -579,10 +579,11 @@ def test_the_connected_cluster_method_finds_the_same_fault() -> None:
     )
     assert automatic == brouwer_zimmermann
     _assert_valid_counterexample(connected_cluster, circuit)
-    found, cluster_found = brouwer_zimmermann.counterexample, connected_cluster.counterexample
-    assert found is not None and cluster_found is not None
-    assert cluster_found.fault_indices == found.fault_indices == (0, 1)
-    assert cluster_found.residual_weight_lower_bound == cluster_found.fault_weight + 1
+    bz_counterexample = brouwer_zimmermann.counterexample
+    cc_counterexample = connected_cluster.counterexample
+    assert bz_counterexample is not None and cc_counterexample is not None
+    assert cc_counterexample.fault_indices == bz_counterexample.fault_indices == (0, 1)
+    assert cc_counterexample.residual_weight_lower_bound == cc_counterexample.fault_weight + 1
 
     # The +1 eigenstate of Y is not CSS, so the connected-cluster search cannot weigh its errors by
     # CSS weight, but the Brouwer-Zimmermann search, which "auto" takes, can.  This shows that
@@ -601,7 +602,8 @@ def test_every_coset_method_searches_residual_weights() -> None:
     """The method check accepts every coset method, and no other method."""
     for method in typing.get_args(CosetMethod):
         fault_propagation._check_coset_search_method(method)
-    for unknown in ("brute_force", "gap"):
+    # A one-element array of a method's name compares equal to it, but is not a name.
+    for unknown in ("brute_force", "gap", np.array(["auto"])):
         with pytest.raises(ValueError, match="Unknown coset method"):
             fault_propagation._check_coset_search_method(cast(Any, unknown))
     # The method is checked before the circuit, which has no unmeasured qubit.
