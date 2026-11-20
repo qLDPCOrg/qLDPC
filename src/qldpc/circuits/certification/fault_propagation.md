@@ -166,7 +166,7 @@ While all the primitive faults that it has chosen are light, it skips the rest o
 For fault weight two, it chooses two primitive faults from a start class in order, the first of them heavy.
 This lists each irreducible accepted fault that contains a heavy primitive fault once, and lists nothing else.
 
-The search looks up the closing class in a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash, where linear means that the hash of a sum of flags is the sum of their hashes.
+The search looks up the closing class in the **closing map of single classes**, a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash, where linear means that the hash of a sum of flags is the sum of their hashes.
 Different flags can share a hash, so the search compares the flags of every class that it finds with the sum of the prefix flags.
 Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing the last `s` classes `c_{m-s+1} < ... < c_m` together, as a **closing set** of `s` classes, for some `s` from 2 to `m - 2`.
 A closing class is a closing set of one class, and a **closing pair** is a closing set of two.
@@ -194,7 +194,7 @@ The walk by closing sets chooses every independent set of the classes `c_1 < ...
 When each flag bit is set by few classes, nearly none of these sets closes a class codeword, and listing them all is out of reach for fault weights of four or five on circuits with tens of thousands of classes.
 The **walk by shared flags** visits far fewer sets.
 It adds to the classes chosen so far only a class that shares a flag bit with the sum of their flags, as the depth-first search of [connected_cluster.md](../../codes/distance/connected_cluster.md#33-the-depth-first-search) does for the codewords of a sparse code.
-There, the variables are the classes and the checks are the flag bits, and a class codeword is a set of variables whose flags sum to zero and none of whose proper nonempty subsets has flags that sum to zero.
+In its terms, the variables are the classes and the checks are the flag bits, and a class codeword is a set of variables whose flags sum to zero and none of whose proper nonempty subsets has flags that sum to zero.
 
 For a set `A` of classes, let `σ(A)` be the sum of their flags, and `f(c)` the flags of a class `c`.
 The flags of the classes are nonzero and pairwise distinct, since each class holds all the kept primitive faults with its nonzero flags.
@@ -208,7 +208,8 @@ The **candidates** of the state are the available classes whose flags have bit `
 
 - If `|A| ≤ m - 3`, the candidate `x` is a **child** if `A ∪ {x}` is independent, and then the walk visits the state `A ∪ {x}` with `F(A ∪ {x})` the union of `F(A)` and the candidates of `A` before `x`.
   So once the walk has tried a candidate, it is forbidden in the states of the later candidates and in their descendants.
-- If `|A| = m - 2`, the walk records the class codeword `A ∪ {x, z}` for each class `z` with flags `σ(A) + f(x)` that is available, that is, after `r`, not in `A`, and not forbidden, if `A ∪ {x}` is independent.
+- If `|A| = m - 2`, the walk records the class codeword `A ∪ {x, z}` if `A ∪ {x}` is independent, for each class `z` with flags `σ(A) + f(x)` that is available.
+  That is, `z` comes after `r`, is not in `A`, and is not forbidden.
   The classes have distinct flags, so there is at most one such `z`.
 
 The bit `b` can be any bit of `σ(A)`, and the arguments below hold for any choice.
@@ -218,12 +219,13 @@ An index from each bit to the classes that have it, in their order, gives the cl
 **The walk records only class codewords with root `r`.**
 When it records `A ∪ {x, z}`, the `m - 1` classes of `A ∪ {x}` are independent and `z` has the sum of their flags.
 `z` is not in `A`, since it is available, and it is not `x`, since `σ(A)` is not zero.
-So, as [above](#listing-each-irreducible-accepted-fault-once), these `m` classes form a class codeword.
+So these `m` classes have flags of rank `m - 1` that sum to zero, and the only nonempty subset of them whose flags sum to zero is the whole set, which makes them a class codeword.
 Every class of it other than `r` was available at the state where the walk added it or recorded the class codeword, so it comes after `r`, and `r` is its root.
 
 **The walk records every class codeword with root `r`.**
 Let `C` be such a class codeword, so that `r` is its least class.
-Call a state **on the way to** `C` if `A` is contained in `C`, which makes `A` independent and its classes other than `r` come after `r`, and no class of `C \ A` is in `F(A)`.
+Call a state **on the way to** `C` if `A` is contained in `C` and no class of `C \ A` is in `F(A)`.
+Then `A` is independent, as every state is, and its classes other than `r` come after `r`, as every class of `C` does.
 The first state, `A = {r}`, is on the way to `C`.
 At a state on the way to `C`, every class of `C \ A` is available, since it comes after `r` and is neither in `A` nor forbidden.
 `σ(C) = 0`, so `σ(C \ A) = σ(A)`, and every bit of `σ(A)`, the chosen bit `b` among them, is set in an odd number of classes of `C \ A`, and so in at least one.
@@ -253,11 +255,22 @@ It is not `x'`, which is available at `A'`, and it is not `z'`, since the walk r
 So `u` is not in `C`, a contradiction, and the walk records no class codeword twice.
 
 **Order.**
-The walk writes each class codeword that it records as a row of its classes in increasing order, and sorts the rows of each root in lexicographic order once the root is done.
-The search passes on the class codewords of a root only once all of them are listed: if the walk by shared flags gives the root up, the search discards the rows that it recorded for the root, and the walk by closing sets lists the whole root again, in lexicographic order.
+The walk writes each class codeword that it records as a row of its classes in increasing order, and sorts the rows of each walk of a root in lexicographic order once that walk is done.
+The search passes on the class codewords that the walk by shared flags lists for a root only once that walk of the root is done, and a root that this walk gives up is listed whole by the walk by closing sets, in lexicographic order, after the search discards the rows recorded for it.
+A root with more class codewords than fit in the walk's array is walked several times, each time passing on the next of them in lexicographic order, as the next paragraph shows.
 The search lists the roots in order, and the root is the first class of each of its class codewords, so whichever walk lists each root, the search lists the same class codewords in the same order as the walk by closing sets alone, the lexicographic order.
 The expansion into faults, the table of syndromes, the faults skipped, the batches sent to the oracle, and so the result depend on the listing only through this sequence of class codewords, since the calling thread computes them from it alone (see [threads](#listing-class-codewords-on-threads)).
 So they are the same with either walk.
+
+**Roots with many class codewords.**
+The walk by shared flags records the class codewords of a walk of a root in an array of a fixed number `K ≥ 2` of rows.
+If they fill it, the walk sorts them, keeps the smaller half, and from then on records only class codewords that come before the first one dropped, its **ceiling**, which it lowers each time the array fills again.
+A root walked again also has a **floor**, the last class codeword passed on before, and the walk records only class codewords after it.
+At each moment of a walk, the array holds exactly the class codewords that the walk has recorded so far between the floor and the ceiling: a class codeword enters only if it lies between them, and filling the array drops exactly those at or after the new ceiling.
+The walk records each class codeword of the root once, so when the walk is done, the array holds every class codeword of the root between the floor and the ceiling, and the search passes them on in order.
+If the walk dropped none, these are all the class codewords of the root after the floor, and the root is done.
+Otherwise the last one passed on becomes the new floor, and the walk walks the root again, which lists the class codewords after it.
+Each walk that drops class codewords passes on at least `K/2` of them, so a root with `n` class codewords takes at most `1 + 2n/K` walks.
 
 **The probes.**
 To find the classes `z` with flags `σ(A) + f(x)`, the walk probes the closing map of single classes with the hash of these flags, as the walk by closing sets does.
@@ -267,11 +280,14 @@ These are the checks of the definition, applied only when a probe finds a class,
 
 **Which walk lists a root.**
 The walk by shared flags costs little when the candidates are few, and can cost more than the walk by closing sets when many classes share each bit, or when that walk uses closing sets of two or more classes.
-So the search gives a root up to the walk by closing sets once the walk by shared flags has done the estimated work of the walk by closing sets for that root, or before it starts if that work is less than one state.
-It also gives up a root whose class codewords fill its array of class codewords, which has a fixed size.
+The search counts the work of both in **probes** of a closing map, at assumed costs (`_PROBES_PER_STATE` and `_PROBES_PER_LOOKUP` in `_fault_search.py`).
+For the walk by shared flags, each state and each candidate found dependent costs `64` probes, each bit of the sum of the flags that it examines to choose a bit costs one, and each candidate that it tries, including those that it skips as chosen or forbidden, costs one.
+Each lookup of the walk by closing sets costs `16` probes.
+The **budget** of a root is the work of the lookups that the walk by closing sets would make for it at most: the number of ways to choose, after the root, the other classes that this walk chooses before each lookup, at `16` probes each.
+In its first walk of a root, the walk by shared flags gives the root up to the walk by closing sets once its work for the root passes the budget, or before it starts if the budget is less than one state.
 By these estimates, a root given up costs at most about twice as much as with the cheaper walk.
-As shown under **Order** above, the listing does not depend on which walk lists each root.
-`FaultLister` in `_fault_search.py` says how the search estimates the work of each walk.
+A root that is not given up is walked `w` times, at most `1 + 2n/K` for `n` class codewords, at the cost of its first walk each time, which is at most the budget.
+At fault weight five on the BB [[144,12,12]] circuit of the state-preparation experiment, a sample of 500 of its 17 995 start classes had at most 13 537 class codewords, against `K = 2^20`, so every root takes one walk there.
 
 ### Skipping faults whose syndromes are listed
 
@@ -317,8 +333,8 @@ If the search finds no violation, steps 1 to 3 show that no violating accepted f
 
 ### Listing class codewords on threads
 
-A listing of class codewords counts its work in lookups of the walk by closing sets, and counts each probe of the [walk by shared flags](#listing-class-codewords-by-shared-flags) as `1/16` of a lookup and each state that it visits, or each candidate that it finds dependent, as `4` lookups, its assumed costs.
-A listing is **costly** if, once the calling thread, listing alone, has done the work of `2^14` lookups for each thread, at least as much work for each thread is estimated to be left, as described below.
+A listing of class codewords counts its work in probes, at the costs that [which walk lists a root](#listing-class-codewords-by-shared-flags) states.
+A listing is **costly** if, once the calling thread, listing alone, has done `2^18` probes of work for each thread, the work of `2^14` lookups of the walk by closing sets, at least as much work for each thread is estimated to be left, as described below.
 A costly listing runs on `SearchTuning.num_threads` threads, as the oracle's searches do.
 [Threads](../../codes/distance/README.md#threads) in the README of the distance package gives the default of that number.
 Only listing class codewords moves to threads, since it takes most of the lister's time: in trials, four fifths or more whenever the lister took over half a second.
@@ -326,21 +342,24 @@ The calling thread expands the class codewords into faults in the order in which
 So the search looks up and skips the same faults, keeps the same table of syndromes, and sends the oracle the same syndromes in the same batches as on one thread, and its result does not depend on the number of threads.
 
 The search lists the class codewords [root by root](#listing-class-codewords-by-shared-flags), so its **work items** are the roots.
-The walk of a root, by shared flags or by closing sets, starts with only the root chosen and no class forbidden, and its work and its class codewords depend only on the root.
+Each walk of a root, by shared flags or by closing sets, starts with only the root chosen and no class forbidden, and the walks of a root, their work, and their class codewords depend only on the root.
 So the walks of consecutive ranges of roots list the class codewords in the serial order, and the work of all the ranges adds up to that of a single thread.
-The weight of a root, which estimates its work, is the number of lookups that the walk by closing sets would make for it at most: the number of ways to choose the classes after the root that this walk chooses before each lookup.
+The **weight** of a root is the number of lookups that the walk by closing sets would make for it at most, its budget in lookups, which bounds the work of a root given up by about twice.
+A root is never split between threads, so a listing with fewer start classes than threads, or with one root much costlier than the others, runs on fewer threads for part of its time.
 
-The calling thread first lists the first roots alone, in ranges of 1, 2, 4, and more roots, until it has done the work of `2^14` lookups for each thread.
-If the work left, estimated as its work times the ratio of the weights of the other roots to those of its own, is less than that of `2^14` lookups for each thread, it lists the other roots alone too.
+The calling thread first lists the first roots alone, in ranges of 1, 2, 4, and more roots, until it has done `2^18` probes of work for each thread.
+If the work left, estimated as its work times the ratio of the weights of the other roots to those of its own, is less than `2^18` probes for each thread, it lists the other roots alone too.
 Otherwise the listing is costly, and the other roots move to threads.
 Threads cost, from their start until the calling thread takes their last class codewords, about as much as `2^13` lookups for each thread, so small listings never start them.
 On `n` threads, `iterate_in_order` in `qldpc/codes/distance/_threads.py` splits the roots that move to threads into ranges, each of the fewest roots whose weights reach `1 / (32 t)` of those of all these roots, for `t = min(n - 1, number of these roots)` threads.
 The threads claim the ranges in order, and the calling thread takes the class codewords of each range in turn, as its thread lists them.
+A thread passes them on in batches of at most `2^10` class codewords, so that the batches that `iterate_in_order` holds take bounded memory.
+Each call of either walk on a thread returns after about `2^20` probes of work, so that the thread checks often whether to stop.
 
 The expansion is that of a single thread, since it gets the same class codewords in the serial order, and how they are split into batches of class codewords does not change it.
 Batches of class codewords split only between class codewords; the expansion starts each class codeword with no remembered choices, and keeps its table of syndromes and its batch of faults from one class codeword to the next, within a batch of class codewords and across batches.
 So it pauses at the same faults, where its batch of faults is full or its table of syndromes should grow.
-The search counts the work of the threads with its own, and so builds the [closing maps](#listing-each-irreducible-accepted-fault-once) of a single thread, which wait for listings with enough lookups.
+The search counts the lookups of the walks by closing sets of the threads with its own, and so builds the [closing maps](#listing-each-irreducible-accepted-fault-once) of a single thread, which wait for that walk to make enough lookups, since only it uses them.
 The threads can list class codewords after the first violation, which the calling thread never expands.
 An exception on a thread, such as a `MemoryError`, can be raised before the calling thread reaches a violation that one thread would have found first.
 
@@ -355,17 +374,20 @@ Changes to the listing must keep these requirements.
 - **Expand class codewords only on the calling thread, in the serial order.**
   The table of syndromes, the remembered choices of `_expand_class_tuples`, and the batches of faults depend on the order of the faults, and [skipping faults](#skipping-faults-whose-syndromes-are-listed) relies on the table holding the syndrome of each earlier fault.
   Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks the faults of one thread.
-  In `_fault_search_test.py`, `test_listing_on_threads_checks_the_faults_of_one_thread` compares listings on 2, 3, and 8 threads with one thread, also with tables of syndromes that fill up, with violations that stop a listing, and with listings that the calling thread starts alone.
+  In `_fault_search_test.py`, `test_listing_on_threads_checks_the_faults_of_one_thread` compares listings on 2, 3, and 8 threads with one thread, with either walk or both, also with roots given up after pausing in them, roots walked several times, tables of syndromes that fill up, violations that stop a listing, and listings that the calling thread starts alone.
   `test_listing_on_threads_keeps_the_order_whichever_range_ends_first` lists a later range before the first, after the calling thread has listed roots alone.
-- **Split the listing only between roots, start the walk of each root with only the root chosen and no class forbidden, and count the work of every thread.**
-  The walk of a root, and its choice of walk, must stay a function of the root.
-  `test_listing_on_threads_counts_the_lookups_of_one_thread` checks the count of lookups, and that a closing map that waits for it is built as on one thread, and `test_only_costly_listings_move_to_threads` checks when a listing starts threads.
-- **Keep `_list_cluster_codewords` and `_list_class_codewords` writing only to the arrays of their walk, and `_expand_class_tuples` only to the arrays of the calling thread**, since all three run without the global interpreter lock while threads list.
+- **Split the listing only between roots, start each walk of a root with only the root chosen and no class forbidden, and count the lookups of every thread.**
+  The walks of a root, and its choice of walk, must stay a function of the root, also when a thread pauses within a root.
+  `test_listing_on_threads_checks_the_faults_of_one_thread` checks that the work of the threads adds up to that of one thread, and `test_roots_far_from_their_budgets_take_the_intended_walk` that each root's budget counts only its own work.
+  `test_listing_on_threads_counts_the_lookups_of_one_thread` checks the count of lookups of the walk by closing sets, and that a closing map that waits for it is built as on one thread, and `test_only_costly_listings_move_to_threads` checks when a listing starts threads.
+- **Keep `_list_by_shared_flags` and `_list_by_closing_sets` writing only to the arrays of their walk, and `_expand_class_tuples` only to the arrays of the calling thread**, since all three run without the global interpreter lock while threads list.
   The threads read the rows of the classes, the index of their flag bits, the closing maps, and the budgets of the roots, which the calling thread builds before the listing starts, and changes only after every thread has returned.
-  `test_listing_on_threads_checks_the_faults_of_one_thread` runs the threads with the rows of the classes and of the primitive faults, the members of the classes, the index of their flag bits, and the closing maps read-only, so that numba rejects a write to them in any branch of compiled code, and checks that they do not change.
+  `test_listing_on_threads_checks_the_faults_of_one_thread` runs the threads with the rows of the classes and of the primitive faults, the members of the classes, the index of their flag bits, the closing maps, and the budgets of the roots read-only, so that numba rejects a write to them in any branch of compiled code, and checks that they do not change.
+  The budgets stay read-only for every listing.
   Review checks the writes that the read-only marking misses, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway, and those on paths that the tests do not run.
 - **Stop the threads whenever a listing ends, also by an exception.**
   `find_first` closes the batches of class tuples that it takes, and `iterate_in_order` then stops the threads and waits for them; `test_listing_on_threads_stops_its_threads_when_an_exception_is_raised` checks this, and the tests of `iterate_in_order` in `qldpc/codes/distance/_threads_test.py` check its order, its cap on held batches of class codewords (`64 t` on `t` threads that list, and one more for the range that the calling thread reads), and how it stops.
+  Each batch that a thread passes on holds at most `2^10` class codewords, so that the held batches take bounded memory.
 - **Call no numba-parallel code on threads, and read the tuning only on the calling thread.**
   The search reads its number of threads before it lists, and `test_certifications_list_on_the_threads_of_the_search_tuning` checks that a certification lists on the number of threads of the tuning that it runs within.
   The fixture `check_code_on_threads` of `qldpc/codes/distance/conftest.py`, which `conftest.py` here imports, fails each test of this package whose threads call numba-parallel code from Python or read the tuning through `get_tuning`, as `test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads` checks.
