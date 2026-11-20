@@ -95,14 +95,13 @@ The consumer runs a **window**, a short run of consecutive steps.
 The block under test enters the window as the fresh block of its **entry step**.
 The window starts with the logical qubits on an ideal **data block** in logical `|0>`.
 For `basis="Z"`, the following table numbers the steps of the window relative to the entry step.
-The [window section](#the-window) explains its last two rows.
+The [window section](#the-window) explains its last row.
 
 | Step | −2 | −1 | 0 (entry) | +1 | +2 |
 | --- | --- | --- | --- | --- | --- |
 | Kind | Z-correction | X-correction | Z-correction | X-correction | Z-correction |
 | Fresh block | logical 0 | logical + | block under test | logical + | logical 0 |
 | Errors of the block under test that this step decodes | none | none | Z, first decoding | X | Z, second decoding |
-| Decodings of the block's errors that this step's mechanisms reach | 0 | 0, +1 | 0, +1, +2 | +1, +2 | +2 |
 
 The steps do not apply the logical Pauli corrections that teleportation calls for.
 Instead, each observable includes the logical outcomes that the steps measure, which tracks these corrections in software.
@@ -113,68 +112,23 @@ The consumer's `correctable_weight` defaults to `t = ⌊(d - 1) / 2⌋` for a co
 
 ### The window
 
-A step **decodes** an error when the error, or a copy of it that an earlier CNOT made, is on the block that the step measures, and the measurement detects its type.
-An X-basis measurement detects Z errors, and a Z-basis measurement detects X errors.
-The decoder then sees the error in the step's syndrome.
-An error on the block under test can change whether the consumer fails only through the steps that decode it.
-The consumer's own error mechanisms also leave errors, and some of them are decoded in the same steps.
-We say that these errors **reach** those decodings.
-There, they add to the block's errors, and together the two can exceed what the decoder corrects, even when it corrects each alone.
-The window therefore contains the steps that decode the block's errors, and every step whose error mechanisms leave errors that reach those decodings.
-
+A step decodes an error on the block under test when the block that it measures carries the error, or a copy that a CNOT made, and its measurement detects the error's type.
 A transversal CNOT copies X errors from its control block to its target block, and Z errors from its target block to its control block.
-A fresh `|0>` block is the target of the CNOT of its entry step, so this rule gives its errors three decodings:
+So for `basis="Z"`, steps 0 and +2 both decode the block's Z errors, and step +1 decodes its X errors, as the table above shows.
+For `basis="X"`, X and Z are exchanged.
+No error on the block under test reaches the steps before entry or the final readout.
 
-- **Step 0 decodes its Z errors for the first time.**
-  The entry CNOT copies the Z errors of the block under test onto the current block, and step 0 decodes them when it measures that block in the X basis.
-  The original Z errors stay on the block under test.
-- **Step +1 decodes its X errors.**
-  The entry CNOT does not copy X errors from its target, so they stay on the block under test, which is now the current block.
-  Step +1, an X-correction step, measures this block in the Z basis, which decodes its X errors and removes them.
-- **Step +2 decodes its Z errors a second time.**
-  The CNOT of step +1 copies the Z errors of the block under test onto the fresh `|+>` block of step +1.
-  The Z-basis measurement of step +1 does not detect the Z errors that stay on the block under test.
-  Step +2 measures the fresh `|+>` block of step +1 in the X basis, and so decodes the same Z errors again.
+Without faults of the consumer, the two decodings of the twice-decoded errors see the same syndrome, so their predictions cancel.
+Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
 
-Without faults, the two decodings of the Z errors see the same syndrome and predict the same logical flips.
-Both predictions enter the same logical X observables, so they cancel.
-The Z errors also flip the measured logical X outcomes of both steps, and these flips cancel too.
-Z errors on a fresh `|0>` block therefore never cause a failure without faults of the consumer.
-They cause a failure only together with faults that make the two decodings differ.
-For a fresh `|+>` block, X and Z are exchanged.
-
-An error mechanism in a step leaves errors on the two blocks of the step.
-The step itself decodes those of its errors that are on the block that it measures.
-Those on its fresh block travel like the errors of the block under test, so that the next step or the one after it decodes them.
-The errors of a mechanism in step `s` can therefore be decoded only in steps `s`, `s + 1`, and `s + 2`.
-The errors of the block under test are decoded in steps 0, +1, and +2.
-These two ranges overlap only for `s` from −2 to +2, so the window runs these five noisy steps, with the noise that they have in a repeating cycle.
-Mechanisms in step −3 or earlier leave errors that step −1 or an earlier step decodes.
-Mechanisms in step +3 or later occur after step +2, the last decoding of the block's errors.
-The last row of the table above lists, for each step of the window, the decodings of the block's errors that the errors of its mechanisms reach.
-For `basis="Z"`, three examples show how they reach them:
-
-- A mechanism in step −2 can leave a Z error on the fresh `|0>` block of that step.
-  The CNOT of step −1 copies it onto the fresh `|+>` block of step −1.
-  The entry step measures that block in the X basis, and decodes the copied error together with the Z errors of the block under test.
-- A mechanism in step −1 can leave an X error on the fresh `|+>` block of that step.
-  The entry CNOT copies it onto the block under test.
-  Step +1 decodes it together with the block's own X errors.
-- A mechanism in step +1 can leave a Z error on the fresh `|+>` block of that step.
-  Step +2 decodes it together with the second copy of the Z errors of the block under test.
-  This error can then make the second decoding of the block's Z errors differ from the first.
+The errors that a fault leaves are decoded in the fault's own step or in one of the next two steps.
+So faults in steps −2 to +2 can share a decoding with the errors of the block under test, and faults outside these steps cannot.
+The window runs these five steps, with the noise that they have in a repeating cycle.
+With a decoder that decodes each step on its own and corrects every fault of weight one, further noisy steps before or after the window change the calibration only at second order in the consumer's error probabilities.
+The default decoder is such a decoder for a code of distance at least 3.
+With a decoder of the whole window, or a code of distance less than 3, the calibration can depend on the length of the window.
 
 After the five steps, the checks of the last block are measured without noise to define detectors.
-No error on the block under test reaches this readout.
-
-This choice of window assumes a decoder that decodes each step on its own, as the [default decoder](#decoders) does, and that corrects every fault of weight one.
-A single error mechanism outside the window then shares no decoding with the block's errors, and the decoder corrects it.
-It therefore leaves the cost of the block's errors unchanged.
-Further noisy steps before or after the window change this cost only at second order in the consumer's error probabilities.
-The cost therefore does not depend on how the steps of a computation are grouped into cycles.
-For a code of distance less than 3, the default decoder does not correct every fault of weight one.
-A decoder of the whole window, such as one built from its detector error model, can combine syndromes of different steps.
-With such a code or decoder, the calibration can depend on the length of the window.
 
 ### What a calibration measures
 
@@ -182,7 +136,7 @@ A calibration of the consumer measures the cost of one imperfect fresh block in 
 It makes these approximations of how the consumer stands in for a larger computation:
 
 - The window is finite: it starts from an ideal data block and ends with a noiseless readout.
-  For a decoder that decodes each step on its own and corrects every fault of weight one, [the window](#the-window) is long enough that this matters only at second order in the consumer's error probabilities.
+  [The window](#the-window) says when this matters only at second order in the consumer's error probabilities.
 - The consumer prepares the data block and every fresh block other than the block under test without noise, with `circuits.get_encoding_circuit`, so they are ideal.
   The block under test also starts in its ideal state, and the calibration adds its errors.
 - Only one fresh block is imperfect at a time, so the calibration neglects the interplay of errors on several fresh blocks.

@@ -428,6 +428,20 @@ def test_steane_swap_window(basis: PauliXZ) -> None:
                 )
 
 
+@pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
+def test_steane_swap_twice_decoded_errors(basis: PauliXZ) -> None:
+    """Errors that the window decodes twice cause no failure without faults of the consumer.
+
+    The window decodes the Z errors of a fresh |0> block (X errors of a fresh |+> block) twice, from
+    the same syndrome, so the two predictions cancel.  It decodes errors of the other type once, so
+    an error of that type with weight two, which the Steane code cannot correct, makes it fail.
+    """
+    consumer = get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(1e-3), basis=basis)
+    # entry 0 of each row is the mean change in failure without faults of the consumer
+    assert _get_excess_terms(consumer, basis)[:, 0].tolist() == [0, 0]
+    assert _get_excess_terms(consumer, basis.swap_xz())[:, 0].tolist() == [0, 1]
+
+
 def test_steane_swap_noise() -> None:
     """The noise model applies to the measurements of the steps, and not to the final readout.
 
