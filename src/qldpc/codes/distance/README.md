@@ -28,7 +28,7 @@ Each cell of the table below says whether a problem takes a method, and how it r
 - **Coset weight of a vector** is the minimum distance between a vector and a word of a binary classical code, which `ClassicalCode.get_distance_exact(vector=...)` in `src/qldpc/codes/common.py` finds by a distance search.
 - **Coset leaders** are the lightest Pauli errors with a given syndrome on a stabilizer state: `CosetLeaderSearch` in `coset_leaders.py`.
 - **Logical counts** are the numbers of logical operators of a given weight in a CSS code: `CSSLogicalCounter` in `logical_counts.py`.
-  A count by `brouwer_zimmermann` that finds its default weight runs a distance search, which can use threads.
+  A count by `brouwer_zimmermann` or `auto` that finds its default weight runs a distance search, which can use threads.
 
 The cells that are empty, or on one thread only:
 
@@ -108,7 +108,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | To change… | Look in (this directory) |
 | --- | --- |
 | A method, or the validation of method names | the method type of each problem and its validator: `DistanceMethod` in `core.py`, `CosetMethod` in `coset_leaders.py`, and `LogicalCountMethod` in `logical_counts.py`; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; where `logical_counts.py` and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name, and where `get_distance` validates it; and the `brute_force` flag that `logical_counts.py` passes to `_counting/scan.py` |
-| The automatic choice of a method (`method="auto"`): which searches take which method, and when a connected-cluster search switches to the BZ method | `core.py`, where the distance functions dispatch on the method; `_auto.py`, which estimates and compares the costs; `_get_coset_search_method` of `coset_leaders.py`, where coset searches take BZ; and `_validate_logical_count_method` of `logical_counts.py`, where counts take BZ |
+| The automatic choice of a method (`method="auto"`): which searches take which method, and when a connected-cluster search switches to the BZ method | `core.py`, where the distance functions dispatch on the method; `_auto.py`, which estimates and compares the costs; `_get_coset_search_method` of `coset_leaders.py`, where coset searches take BZ; and `_get_logical_count_method` of `logical_counts.py`, where counts take BZ |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The coset-leader search, which `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` use, and how its queries split into coset searches | `coset_leaders.py` |
 | The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
@@ -143,7 +143,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 
 From the top:
 
-1. `logical_counts.py`, which takes `NoDistance` from `core.py`, and `coset_leaders.py`.
+1. `coset_leaders.py`, and `logical_counts.py`, which takes `NoDistance` from `core.py`.
 2. `core.py`.
 3. `_auto.py`, the automatic choice of a method.
 4. The methods `_brouwer_zimmermann/`, `_connected_cluster/`, `_counting/`, and `_brute_force.py`.
@@ -210,10 +210,10 @@ Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qu
 
 ## Choosing a method
 
-`method="auto"` is the default of the distance functions, of `get_distance` and `get_distance_exact` of the code classes, and of `get_fault_distance`.
+Each problem's method type has its own `"auto"`, which chooses among that problem's methods: the coset searches of `CosetLeaderSearch` take the BZ method for it (`_get_coset_search_method` of `coset_leaders.py`), and so do counts (`_get_logical_count_method` of `logical_counts.py`).
+For distances, `method="auto"` is the default of the distance functions, of `get_distance` and `get_distance_exact` of the code classes, and of `get_fault_distance`.
 It chooses a method for each search, in `_search_css`, `_search_checks`, and `_search_generators` of `core.py`.
 A code class that searches other codes, as `HGPCode` searches its seed codes, passes the method down, so each of those searches chooses too.
-Each problem's method type has its own `"auto"`, which chooses among that problem's methods: the coset searches of `CosetLeaderSearch` take the BZ method for it (`_get_coset_search_method` of `coset_leaders.py`), and so do counts (`_validate_logical_count_method` of `logical_counts.py`).
 The rule aims to avoid a method that is very slow on a search, not to find the fastest one, and it decides from the shapes of the sectors and from the progress of the searches, without fitted thresholds.
 
 1. Brute force runs if `is_cheap_to_enumerate` finds that it examines at most `auto_brute_force_max_words` packed 64-bit integers.

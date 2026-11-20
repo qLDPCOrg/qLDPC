@@ -39,8 +39,8 @@ from qldpc.codes.distance import (
 
 from .proposals import CODE_TYPES, CodeType, propose
 
-# Exact counting methods of the library, and ``auto``, which picks one at every epoch (see
-# ``_select_method``).
+# The library's exact counting methods, apart from its own ``"auto"``, and this search's ``auto``,
+# which races them at every epoch (see ``_select_method``).
 SearchMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute_force"]
 METHODS = get_args(SearchMethod)
 
@@ -678,7 +678,7 @@ def score_rank(score: Score) -> tuple[int, int]:
 
 
 def _get_library_method(config: SearchConfig) -> LogicalCountMethod:
-    """The library method of a count outside a chain, where ``auto`` means the default."""
+    """The library method of a count outside a chain, the default for this search's ``auto``."""
     return _DEFAULT_LIBRARY_METHOD if config.method == "auto" else config.method
 
 

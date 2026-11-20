@@ -227,7 +227,7 @@ The residual weight of the fault is the smallest weight of that Pauli error afte
 Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
 The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance certificates notebook <examples/logical_error_rates/5_fault_tolerance_certificates>` applies it to a flagged preparation circuit.
-The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: Brouwer-Zimmermann by default, or the connected-cluster search that the exact distances also offer.
+The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: by default ``"auto"``, which takes the Brouwer-Zimmermann search, or the connected-cluster search that the exact distances also offer.
 :class:`qldpc.codes.distance.CosetLeaderSearch <qldpc.codes.distance.coset_leaders.CosetLeaderSearch>` offers both searches: it takes the stabilizers of a state as a binary matrix, and decides for any syndrome whether some Pauli error with that syndrome has at most a given weight.
 For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
 The same notebook illustrates why this circuit property need not equal the code distance.

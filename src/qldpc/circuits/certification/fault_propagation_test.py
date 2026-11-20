@@ -561,7 +561,7 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
 
 
 def test_the_connected_cluster_method_finds_the_same_fault() -> None:
-    """The connected-cluster search finds the fault that the default search finds."""
+    """The connected-cluster search finds the fault that the Brouwer-Zimmermann search finds."""
     # Two primitive faults that each fire the detector pass only together, so the search must
     # combine them.
     circuit = stim.Circuit("""
@@ -571,19 +571,18 @@ def test_the_connected_cluster_method_finds_the_same_fault() -> None:
         M 4
         DETECTOR rec[-1]
     """)
-    default, automatic, result = (
+    brouwer_zimmermann, automatic, connected_cluster = (
         circuits.certify_bounded_fault_propagation(
             circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
         )
         for method in ("brouwer_zimmermann", "auto", "connected_cluster")
     )
-    assert automatic == default
-    _assert_valid_counterexample(result, circuit)
-    assert default.counterexample is not None and result.counterexample is not None
-    assert result.counterexample.fault_indices == default.counterexample.fault_indices == (0, 1)
-    assert (
-        result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
-    )
+    assert automatic == brouwer_zimmermann
+    _assert_valid_counterexample(connected_cluster, circuit)
+    found, cluster_found = brouwer_zimmermann.counterexample, connected_cluster.counterexample
+    assert found is not None and cluster_found is not None
+    assert cluster_found.fault_indices == found.fault_indices == (0, 1)
+    assert cluster_found.residual_weight_lower_bound == cluster_found.fault_weight + 1
 
     # The +1 eigenstate of Y is not CSS, so the connected-cluster search cannot weigh its errors by
     # CSS weight, but the Brouwer-Zimmermann search, which "auto" takes, can.  This shows that

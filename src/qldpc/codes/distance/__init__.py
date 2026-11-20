@@ -38,12 +38,12 @@ binary codes.
 
 Matrices are binary: NumPy arrays, nested lists, ``galois`` arrays over GF(2), or SciPy sparse
 matrices, and a single vector is one row.  A Pauli string on ``n`` qubits is a row ``[P_x|P_z]`` of
-``2 n`` entries, the supports of its X and Z parts.  The ``method`` argument of the distance
-searches takes a :data:`~qldpc.codes.distance.DistanceMethod`, that of the coset-leader search a
-:data:`~qldpc.codes.distance.CosetMethod`, and that of counts a
-:data:`~qldpc.codes.distance.LogicalCountMethod`; each lists only the methods of its problem, and
-its ``"auto"`` chooses one of them.  A search without a nontrivial word returns
-:data:`~qldpc.codes.distance.NO_DISTANCE`.
+``2 n`` entries, the supports of its X and Z parts.  The ``method`` argument takes a
+:data:`~qldpc.codes.distance.DistanceMethod` in the distance searches, a
+:data:`~qldpc.codes.distance.CosetMethod` in the coset-leader search, and a
+:data:`~qldpc.codes.distance.LogicalCountMethod` in counts.  Each type lists only the methods of
+its problem, and its ``"auto"`` chooses one of them.  A distance search without a nontrivial word
+returns :data:`~qldpc.codes.distance.NO_DISTANCE`.
 
 Numba compiles the inner loops of the searches on first use, and caches them on disk in a
 directory named by a hash of qLDPC's source files, inside that of the ``NUMBA_CACHE_DIR``

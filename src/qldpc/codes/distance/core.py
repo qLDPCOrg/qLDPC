@@ -47,11 +47,10 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   probe may give the result first, or cap the connected-cluster search (`Choosing a method
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`_
   in the guide to the distance package).  Functions that take generators choose between
-  ``"brute_force"`` and ``"brouwer_zimmermann"``.  Every method
-  gives the same result unless the search exits early.  Which method runs, and so which weight an
-  early exit at a ``cutoff`` returns, can depend on the tuning and on the version of qLDPC.  For a
-  ``"brouwer_zimmermann"`` search on more than one thread, that weight can also depend on the
-  timing of the threads.
+  ``"brute_force"`` and ``"brouwer_zimmermann"``.  Every method gives the same result unless the
+  search exits early.  Which method runs, and so which weight an early exit at a ``cutoff``
+  returns, can depend on the tuning and on the version of qLDPC.  For a ``"brouwer_zimmermann"``
+  search on more than one thread, that weight can also depend on the timing of the threads.
 - ``"brouwer_zimmermann"``: the `Brouwer-Zimmermann algorithm
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
   which enumerates words of increasing weight in several information sets, and stops once a lower

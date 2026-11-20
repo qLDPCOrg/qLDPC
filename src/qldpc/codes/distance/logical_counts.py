@@ -48,9 +48,8 @@ LogicalCountMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute
   choice can depend on the version of qLDPC.
 - ``"brouwer_zimmermann"``: a scan of the words of each weight in several information sets.
 - ``"macwilliams"``: the weight distributions of the spaces of the checks, through the MacWilliams
-  identities.  It does not support subsystem codes, full
-  Pauli counts of codes that are not self-dual, or X or Z checks of rank above 63 in codes that
-  encode qubits.
+  identities.  It does not support subsystem codes, full Pauli counts of codes that are not
+  self-dual, or X or Z checks of rank above 63 in codes that encode qubits.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 """
 
@@ -279,8 +278,8 @@ class CSSLogicalCounter:
                 ``within_distance`` is set, or if the MacWilliams method does not support the code
                 or the request.
         """
-        # Validate the inputs, resolving method aliases.
-        method = _validate_logical_count_method(method)
+        # Validate the inputs, and choose a method for "auto".
+        method = _get_logical_count_method(method)
         if weight is not None:
             weight = as_integer(weight, "weight")
             if not 0 <= weight <= self.num_qubits:
@@ -703,7 +702,7 @@ def compile_search_setup() -> None:
         raise
 
 
-def _validate_logical_count_method(method: LogicalCountMethod) -> _ChosenLogicalCountMethod:
+def _get_logical_count_method(method: LogicalCountMethod) -> _ChosenLogicalCountMethod:
     """Validate a logical-count method, and return the method that the count runs."""
     if not isinstance(method, str) or method not in get_args(LogicalCountMethod):
         raise ValueError(

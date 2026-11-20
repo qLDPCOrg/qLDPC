@@ -58,7 +58,7 @@ def get_fault_distance(
         ValueError: If the method is unknown, or if Stim cannot convert the circuit to a DEM.
     """
     # Check the method before the costly analysis of the circuit.
-    if method not in get_args(DistanceMethod):
+    if not isinstance(method, str) or method not in get_args(DistanceMethod):
         raise ValueError(
             f"Unknown distance method {method!r}; choose from"
             f" {', '.join(map(repr, get_args(DistanceMethod)))}."

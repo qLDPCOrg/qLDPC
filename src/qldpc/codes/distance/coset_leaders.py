@@ -46,8 +46,7 @@ CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
 """The methods of exact searches of coset leaders, such as those of :class:`CosetLeaderSearch`.
 
 - ``"auto"`` (the default): a choice of the methods below.  It takes ``"brouwer_zimmermann"``,
-  whose coset searches often prove higher lower bounds on the weights of coset leaders; the choice
-  can depend on the version of qLDPC.
+  whose lower bounds are often higher.  The choice can depend on the version of qLDPC.
 - ``"brouwer_zimmermann"``: searches the cosets of binary codes by information sets (see the
   `Brouwer-Zimmermann guide
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
@@ -55,6 +54,9 @@ CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
   the syndrome through them, so it can be fast only if those generators are sparse (see the
   `connected-cluster guide
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
+  It weighs errors by CSS weight only on CSS states.  For a class without an error within a positive
+  maximum weight, its lower bound is that maximum weight plus one, whereas
+  ``"brouwer_zimmermann"`` often proves a higher one.
 """
 
 ####################################################################################################
@@ -115,17 +117,15 @@ class CosetLeaderSearch:
             its physical weight.
         method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, or ``"connected_cluster"``
             (see :data:`CosetMethod`).  ``"connected_cluster"`` weighs errors by CSS weight only on
-            CSS states.  For a class without an error within a positive maximum weight, its lower
-            bound is that maximum weight plus one, whereas the Brouwer-Zimmermann method often
-            proves a higher one.
+            CSS states.
 
     Raises:
         TypeError: If ``stabilizers`` is not array-like, as when a code is given instead of a
             matrix.
         ValueError: If the stabilizers are not a binary matrix with ``2 n`` columns, or are not
             ``n`` independent commuting stabilizers, as when they define a code that encodes
-            qubits; if the method is unknown; or if the connected-cluster
-            method would weigh errors on a state that is not CSS by their CSS weight.
+            qubits; if the method is unknown; or if the connected-cluster method would weigh errors
+            on a state that is not CSS by their CSS weight.
     """
 
     def __init__(

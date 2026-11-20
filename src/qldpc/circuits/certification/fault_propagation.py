@@ -116,9 +116,10 @@ def certify_bounded_fault_propagation(
             :data:`~qldpc.codes.distance.CosetMethod`).  The methods certify the same circuits,
             and find the same smallest violating fault, but the ``output_pauli`` and
             ``residual_weight_lower_bound`` of a counterexample can differ (see
-            ``BoundedFaultPropagationCounterexample``).  With ``"auto"`` or
-            ``"brouwer_zimmermann"``, the ``output_pauli`` and ``residual_weight_lower_bound`` can
-            also change between versions of qLDPC when the searches that find them are costly.
+            ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, the
+            ``output_pauli`` and ``residual_weight_lower_bound`` can also change between versions
+            of qLDPC when the searches that find them are costly, and with ``"auto"`` also when its
+            choice changes.
             Whether the circuit is certified, and its smallest violating fault, never change.
 
     Returns:
@@ -443,7 +444,7 @@ def _check_coset_search_method(method: CosetMethod) -> None:
     Raises:
         ValueError: If the method is unknown.
     """
-    if method not in typing.get_args(CosetMethod):
+    if not isinstance(method, str) or method not in typing.get_args(CosetMethod):
         raise ValueError(
             f"Unknown coset method {method!r}; choose from"
             f" {', '.join(map(repr, typing.get_args(CosetMethod)))}."

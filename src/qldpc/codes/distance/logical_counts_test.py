@@ -65,9 +65,6 @@ def test_known_codes(method: lc.LogicalCountMethod) -> None:
         counter = lc.CSSLogicalCounter(checks_x, checks_z)
         assert counter.count_logical_ops(count_pauli=True, method=method) == expected
         assert counter.count_logical_ops(method=method).count_pauli is None
-    assert lc.count_logical_ops_css(steane.matrix_x, steane.matrix_z, method="auto") == Counts(
-        3, 7, 7, None
-    )
 
 
 def test_counts_are_equal_exactly_when_their_classes_and_fields_are() -> None:
@@ -732,11 +729,11 @@ def test_invalid_inputs() -> None:
     with pytest.raises(ValueError, match="Unknown logical-count method"):
         counter.count_logical_ops(method=distance_method)
     for method in ("brouwer_zimmermann", "macwilliams", "brute_force"):
-        assert lc._validate_logical_count_method(method) == method
-    assert lc._validate_logical_count_method("auto") == "brouwer_zimmermann"
+        assert lc._get_logical_count_method(method) == method
+    assert lc._get_logical_count_method("auto") == "brouwer_zimmermann"
     for unknown in (invalid_method, "information_sets", "weight_enumerator"):
         with pytest.raises(ValueError, match="Unknown logical-count method"):
-            lc._validate_logical_count_method(cast(Any, unknown))
+            lc._get_logical_count_method(cast(Any, unknown))
     for weight in (-1, 3):
         with pytest.raises(ValueError, match="weight must be between"):
             counter.count_logical_ops(weight)

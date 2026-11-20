@@ -60,7 +60,7 @@ from experiments.state_prep_certification.certification import baseline, countin
 from experiments.state_prep_certification.common import runner
 from qldpc import circuits as qldpc_circuits
 from qldpc import math as qldpc_math
-from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod
+from qldpc.codes.distance import CosetLeaderSearch, CosetMethod
 
 NAME = "certification"
 EXTRA_WHEELS: list[str] = []
@@ -90,7 +90,7 @@ ARMS: tuple[str, ...] = (
     "prune",
     "prune_sensitivity",
 )
-METHODS: dict[str, DistanceMethod] = {
+METHODS: dict[str, CosetMethod] = {
     "cert_bz": "brouwer_zimmermann",
     "cert_cc": "connected_cluster",
 }
@@ -285,7 +285,7 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     fields: dict[str, Any] = {"id": entry["id"], "family": entry["family"], "K": max_weight}
 
     if arm in METHODS or arm == "shadow":
-        method: DistanceMethod = METHODS.get(arm, "brouwer_zimmermann")
+        method: CosetMethod = METHODS.get(arm, "brouwer_zimmermann")
         calls_file = None
         if arm == "shadow":
             (label_dir / "oracle_calls").mkdir(exist_ok=True)
