@@ -112,23 +112,27 @@ The consumer's `correctable_weight` defaults to `t = ⌊(d - 1) / 2⌋` for a co
 
 ### The window
 
+After the last step, a noiseless **final readout** measures the checks of the last block to define detectors.
+
 A step decodes an error on the block under test when the block that it measures carries the error, or a copy that a CNOT made, and its measurement detects the error's type.
 A transversal CNOT copies X errors from its control block to its target block, and Z errors from its target block to its control block.
-So for `basis="Z"`, steps 0 and +2 both decode the block's Z errors, and step +1 decodes its X errors, as the table above shows.
+So for `basis="Z"`, steps 0 and +2 both decode the block's Z errors, and step +1 decodes its X errors, as the last row of the table lists.
 For `basis="X"`, X and Z are exchanged.
 No error on the block under test reaches the steps before entry or the final readout.
 
-Without faults of the consumer, the two decodings of the twice-decoded errors see the same syndrome, so their predictions cancel.
+Take a decoder that decodes each step on its own, such as the default decoder.
+Without faults of the consumer, the two decodings of the twice-decoded errors see the same syndrome, so they make the same prediction, and the two predictions cancel in the observables.
+The errors also flip the logical outcomes that the two steps measure, and these flips cancel too.
 Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
 
-The errors that a fault leaves are decoded in the fault's own step or in one of the next two steps.
-So faults in steps −2 to +2 can share a decoding with the errors of the block under test, and faults outside these steps cannot.
-The window runs these five steps, with the noise that they have in a repeating cycle.
-With a decoder that decodes each step on its own and corrects every fault of weight one, further noisy steps before or after the window change the calibration only at second order in the consumer's error probabilities.
-The default decoder is such a decoder for a code of distance at least 3.
-With a decoder of the whole window, or a code of distance less than 3, the calibration can depend on the length of the window.
-
-After the five steps, the checks of the last block are measured without noise to define detectors.
+The errors that an error mechanism leaves are decoded in its own step or in one of the next two steps.
+So mechanisms in steps −2 to +2 can share a decoding with the errors of the block under test, and mechanisms outside these steps cannot.
+The window runs these five steps, each with the noise of the noise model.
+A decoder that decodes each step on its own and corrects every fault of weight one corrects a single mechanism outside these steps without changing the cost of the block's errors.
+Further noisy steps before or after the window therefore change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
+The default decoder corrects every fault of weight one for a code of distance at least 3.
+For a code of distance less than 3, it does not, and the excesses can depend on the length of the window.
+A decoder built from a decoder specification decodes the syndromes of the whole window together, so neither the cancellation above nor this second-order bound is guaranteed for it.
 
 ### What a calibration measures
 
@@ -372,9 +376,9 @@ Check the histogram's `num_samples` when an error looks too small.
   Their difference estimates the X–Z interaction neglected by approximation 2.
   With the same `seed`, the three runs share their shots, so the difference has a much smaller error than the quadrature sum of their reported standard errors.
   Suppose that the consumer keeps X-type and Z-type errors on separate detectors and observables, as the built-in consumer does, and that its decoder decodes the two Pauli types independently.
-  Then each shot contributes `−δ_X δ_Z`.
-  Here `δ_Z` is the change, `−1`, `0`, or `1`, that the Z part of the error makes to whether any logical X observable is mispredicted, and `δ_X` is the same for the X part and the logical Z observables.
-  The difference therefore counts only shots in which both parts change whether the observables of their type are mispredicted, and it is usually negative.
+  Let `δ_Z` be the change, `−1`, `0`, or `1`, that the Z part of the error makes to whether any observable that Z errors flip is mispredicted, and `δ_X` the same for the X part and the observables that X errors flip.
+  Then each shot contributes `−δ_X δ_Z` to the difference.
+  The difference therefore counts only shots in which `δ_X` and `δ_Z` are both nonzero, and it is usually negative.
 - **Fault tolerance of the consumer.**
   For a consumer that tolerates `t` faults in total, the calibrated excesses `Δ_s(m, g)` with `m + g ≤ t` should vanish.
 - **Truncation and coverage.**

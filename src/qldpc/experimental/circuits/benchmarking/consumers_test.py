@@ -430,11 +430,13 @@ def test_steane_swap_window(basis: PauliXZ) -> None:
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
 def test_steane_swap_twice_decoded_errors(basis: PauliXZ) -> None:
-    """Errors that the window decodes twice cause no failure without faults of the consumer.
+    """With the default decoder, twice-decoded errors cause no failure without consumer faults.
 
-    The window decodes the Z errors of a fresh |0> block (X errors of a fresh |+> block) twice, from
-    the same syndrome, so the two predictions cancel.  It decodes errors of the other type once, so
-    an error of that type with weight two, which the Steane code cannot correct, makes it fail.
+    The window decodes the Z errors of a fresh |0> block twice, and likewise the X errors of a fresh
+    |+> block.  The default decoder decodes each step on its own, so the two decodings see the same
+    syndrome and make the same prediction, and both the predictions and the errors' flips of the
+    measured logical outcomes cancel.  The window decodes errors of the other type once, so such an
+    error of weight two, which the Steane code cannot correct, makes the window fail.
     """
     consumer = get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(1e-3), basis=basis)
     # entry 0 of each row is the mean change in failure without faults of the consumer
@@ -456,8 +458,8 @@ def test_steane_swap_noise() -> None:
     def first_qubit_readout(operation: stim.CircuitInstruction) -> circuits.NoiseRule | None:
         if operation.name not in ("M", "MX"):
             return None
-        first_qubit = operation.targets_copy()[0].qubit_value == 0
-        return circuits.NoiseRule(readout_error=probability if first_qubit else 0.0)
+        on_qubit_zero = operation.targets_copy()[0].qubit_value == 0
+        return circuits.NoiseRule(readout_error=probability if on_qubit_zero else 0.0)
 
     for noise_model, num_mechanisms in [
         (circuits.NoiseModel(readout_error=probability), 5 * _NUM_QUBITS),
@@ -493,6 +495,28 @@ def test_steane_swap_window_length(basis: PauliXZ) -> None:
         variant = Consumer(preparation, circuit, decoder, block_qubits=qubits)
         variant_terms = [_get_excess_terms(variant, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
         assert np.allclose(first_order_terms, variant_terms, rtol=1e-9, atol=0) == same
+
+
+def test_steane_swap_distance_two() -> None:
+    """For a code of distance 2, the excesses of the window can depend on its length.
+
+    The default decoder cannot correct every fault of weight one of the distance-2 surface code, so
+    a further noisy step before or after the window changes the first-order terms of the excesses.
+    """
+    code = codes.SurfaceCode(2)
+    model = circuits.DepolarizingNoiseModel(1e-3)
+    reference = get_steane_swap_consumer(code, model)
+    with pytest.raises(AssertionError):
+        _assert_decodes_single_faults(reference)
+    first_order_terms = [_get_excess_terms(reference, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
+    for num_before, num_after in [(3, 2), (2, 3)]:
+        preparation, circuit, qubits, bases = consumers._get_steane_swap_window(
+            code, model, Pauli.Z, num_before, num_after
+        )
+        decoder = consumers._SteaneSwapDecoder(code, bases)
+        variant = Consumer(preparation, circuit, decoder, block_qubits=qubits)
+        variant_terms = [_get_excess_terms(variant, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)]
+        assert not np.allclose(first_order_terms, variant_terms, rtol=1e-9, atol=0)
 
 
 def test_steane_swap_symmetry() -> None:
@@ -576,8 +600,9 @@ def test_steane_swap_decoders() -> None:
     assert with_spec.decoder is spec
     default = get_steane_swap_consumer(_CODE, model)
     assert with_spec.description != default.description
-    surface = get_steane_swap_consumer(codes.SurfaceCode(3), model)
-    assert surface.description != default.description
+    # this copy of the Steane code has the same [[n,k]] but another name
+    renamed = get_steane_swap_consumer(codes.CSSCode(_CODE.matrix_x, _CODE.matrix_z), model)
+    assert renamed.description != default.description
     other_noise = get_steane_swap_consumer(_CODE, circuits.NoiseModel())
     assert other_noise.description != default.description
     assert get_steane_swap_consumer(_CODE, model, basis="X").description != default.description

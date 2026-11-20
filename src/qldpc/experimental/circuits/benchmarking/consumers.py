@@ -827,10 +827,11 @@ def get_steane_swap_consumer(
             code whose checks give a matching graph, such as a surface code.  The consumer builds
             the decoder from the detector error model of the window, as for ``Consumer``.
             Default: None, for the default decoder described above.  The window suits a decoder
-            that decodes each step on its own and corrects every fault of weight one; see
-            ``consumer_calibration.md``.  For a code of distance less than 3, the default decoder
-            does not correct every such fault, and the calibration can depend on the length of the
-            window.
+            that decodes each step on its own and corrects every fault of weight one, such as the
+            default decoder for a code of distance at least 3; see ``consumer_calibration.md``.
+            For a code of distance less than 3, the default decoder does not correct every such
+            fault, and the calibration can depend on the length of the window.  A decoder built
+            from a specification decodes the whole window together instead.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
             ``(d - 1) // 2`` for the distance ``d`` of the code.  If the code does not know its
