@@ -141,7 +141,9 @@ def _force_walk(monkeypatch: pytest.MonkeyPatch, walk: str | None) -> None:
     lookup that every root with a class codeword gets a budget that it never uses up, and leaves the
     estimated lookups, for which closing maps wait, as they are.  Forcing the walk by closing sets
     makes each state cost more than any budget, so that every root is given up before the walk by
-    shared flags starts it, and the work is that of the walk by closing sets.
+    shared flags starts it, and the work is that of the walk by closing sets.  So each changes a
+    cost, ``_PROBES_PER_LOOKUP`` or ``_PROBES_PER_STATE``, which tests that rely on it must allow
+    for.
     """
     if walk == "shared flags":
         monkeypatch.setattr(_fault_search, "_PROBES_PER_LOOKUP", 2**40)
@@ -420,11 +422,16 @@ def test_a_root_whose_class_codewords_fill_its_array_takes_more_passes(
     expected = _class_codewords(flags, 4, 3)
     assert _list_class_tuples(flags, 3, 4, len(expected) + 1) == expected
     one_pass_work = works[-1]
+    # For a tight budget, measure the work of one pass over the first root alone, and give that
+    # root a budget of that many probes, rounded up to whole lookups of 16 probes by the negated
+    # floor division, so that only its first pass fits within it.
     if tight_budget:
         _list_class_tuples(flags, 1, 4, 29)
         monkeypatch.setattr(_fault_search, "_PROBES_PER_LOOKUP", 16)
-        budgets = [-(-works[-1] // 16), 2.0**62, 2.0**62]
-        monkeypatch.setattr(_fault_search, "_get_root_lookups", lambda q, s, k: np.array(budgets))
+        root_lookups = [-(-works[-1] // 16), 2.0**62, 2.0**62]
+        monkeypatch.setattr(
+            _fault_search, "_get_root_lookups", lambda q, s, k: np.array(root_lookups)
+        )
     monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
     assert _list_class_tuples(flags, 3, 4, len(expected) + 1) == expected
     assert not given_up
@@ -747,10 +754,11 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     one probe of work, and one held batch for each thread, so that the threads pause and wait
     often.  With both walks, each root has a budget of a few states, so that the walk by shared
     flags gives some roots up after pausing in them, and an array of two class codewords, so that
-    it walks some roots several times.  This holds with a full table of syndromes too, and when a
-    violation stops a listing, which leaves no thread running.  The threads run with the arrays of
-    the lister in use that they read read-only, and leave them unchanged.  The calling thread
-    consumes the listing on a thread of its own, so that a deadlock fails the test.
+    it makes several passes over some roots, as one fixed instance always does.  This holds with a
+    full table of syndromes too, and when a violation stops a listing, which leaves no thread
+    running.  The threads run with the arrays of the lister in use that they read read-only, and
+    leave them unchanged.  The calling thread consumes the listing on a thread of its own, so that
+    a deadlock fails the test.
     """
     _force_walk(monkeypatch, walk)
     if walk is None:
@@ -810,8 +818,8 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
 
     monkeypatch.setattr(_fault_search, "iterate_in_order", check_batches)
 
-    # Record the walks by shared flags, to mark the budgets of the roots read-only too, which the
-    # lister has already marked read-only.
+    # Record the walks by shared flags, to check that the lister marked the budgets of the roots
+    # read-only before the threads start, and to mark them read-only in the check too.
     walks: list[_fault_search._SharedFlagWalk] = []
     init_walk = _fault_search._SharedFlagWalk.__init__
 
@@ -887,7 +895,23 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     if split_probes == 0:
         assert any(marked) and thread_calls
     assert thread_calls == [(False, True)] * len(thread_calls)
+
+    # With both walks, list a fixed instance that gives a root up and makes another pass over
+    # another: the classes of flags 4, 5, 6, 7, 1, 2, and 3 at fault weight three.  The first root
+    # has three class codewords, more than the array holds, and the second has a budget of five
+    # lookups, which its first state and its first reduction pass.
     if walk is None:
+        root_lookups = [24.0, 5.0] + [24.0] * 5
+        monkeypatch.setattr(
+            _fault_search, "_get_root_lookups", lambda q, s, k: np.array(root_lookups[:s])
+        )
+        flags = [4, 5, 6, 7, 1, 2, 3]
+        errors = [0b1111111 << (7 * jj) for jj in range(7)]
+        args = (flags, [1 << jj for jj in range(7)], errors, 49, False, 7, 0)
+        events.clear()
+        check_listing(
+            [_fault_search.FaultLister(*args), _fault_search.FaultLister(*args, num_threads)], 3, ()
+        )
         both = {"_list_by_closing_sets", "_list_by_shared_flags"}
         assert both | {"given up", "another pass"} <= events
 
@@ -916,6 +940,7 @@ def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(
     ranges, the lister finds the first, as one thread does.
     """
     _force_walk(monkeypatch, "shared flags")
+    monkeypatch.setattr(_fault_search, "_get_root_lookups", lambda q, s, k: np.full(s, 1.0))
     monkeypatch.setattr(_fault_search, "_PROBES_PER_STATE", 4)
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 2)
     monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 2)
@@ -986,14 +1011,20 @@ def test_closing_maps_wait_for_the_estimated_lookups_of_every_root(
     one for each pair of classes, as estimated.  The closing map of the 35 sets of three classes
     waits for 20.65 lookups, or for 21.35, as ``_LOOKUPS_PER_CLOSING_SET`` is 0.59 or 0.61.  So the
     map is built for fault weight five in the first case and not in the second, whichever walk
-    lists the roots, and on three threads, of which the calling thread lists the first root alone,
-    as on one.
+    lists the roots, and on three threads, which start after the calling thread lists the first
+    root alone, as on one.
     """
     _force_walk(monkeypatch, walk)
-    monkeypatch.setattr(
-        _fault_search, "_SPLIT_PROBES_PER_THREAD", 2 * _fault_search._PROBES_PER_LOOKUP
-    )
+    monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 1)
     monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", lookups_per_set)
+    iterations: list[int] = []
+    iterate_in_order = _fault_search.iterate_in_order
+
+    def count_iterations(*args: Any, **kwargs: Any) -> Iterator[npt.NDArray[np.int64]]:
+        iterations.append(args[0])
+        return iterate_in_order(*args, **kwargs)
+
+    monkeypatch.setattr(_fault_search, "iterate_in_order", count_iterations)
     sizes: list[int] = []
     get_closing_map = _fault_search._get_closing_map
 
@@ -1019,6 +1050,7 @@ def test_closing_maps_wait_for_the_estimated_lookups_of_every_root(
             results.append((checked, list(sizes)))
 
     distance_conftest.run_on_a_thread(check, timeout=_COMPILE_TIMEOUT)
+    assert iterations
     assert results[0] == results[1]
     assert results[0][1] == expected_sizes
 

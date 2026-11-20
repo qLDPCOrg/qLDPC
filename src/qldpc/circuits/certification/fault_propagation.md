@@ -256,24 +256,24 @@ So `u` is not in `C`, a contradiction, and the walk records no class codeword tw
 
 **Order.**
 The walk by shared flags lists a root in one or more **passes**, each a walk of the states from the root.
-It writes each class codeword that it records as a row of its classes in increasing order, and sorts the rows of a pass in lexicographic order once the pass is done.
-The search releases the class codewords that a pass records only once the pass is done.
+A pass records class codewords in an array of a fixed number `R ≥ 2` of rows, outside the memory limit.
+It writes each class codeword that it records as a row of its classes in increasing order, and sorts the rows of the pass in lexicographic order once the pass is done.
+Only then does the search **release** them, passing them on to be expanded into faults.
 The walk gives a root up only in its first pass, before any of its class codewords are released, and the search then discards the rows recorded for it, and the walk by closing sets lists the whole root, in lexicographic order.
-A root with more class codewords than fit in the array of the walk by shared flags takes several passes, each releasing the next of them in lexicographic order, as the next paragraph shows.
+A root with more class codewords than fit in the array takes several passes, each releasing the next of them in lexicographic order, as the next paragraph shows.
 The search lists the roots in order, and the root is the first class of each of its class codewords, so whichever walk lists each root, the search lists the same class codewords in the same order as the walk by closing sets alone, the lexicographic order.
 The expansion into faults, the table of syndromes, the faults skipped, the batches sent to the oracle, and so the result depend on the listing only through this sequence of class codewords, since the calling thread computes them from it alone (see [threads](#listing-class-codewords-on-threads)).
 So they are the same with either walk.
 
 **Roots with many class codewords.**
-The walk by shared flags records the class codewords of a pass in an array of a fixed number `R ≥ 2` of rows.
-If they fill it, the walk sorts them, keeps the first `⌊R/2⌋` of them in lexicographic order, and from then on records only class codewords that come before the first one dropped, its **ceiling**, which it lowers each time the array fills again.
+If the class codewords of a pass fill the array, the walk sorts them, keeps the first `⌊R/2⌋` of them in lexicographic order, and from then on records only class codewords that come before the first one dropped, its **ceiling**, which it lowers each time the array fills again.
 A later pass over a root also has a **floor**, the last class codeword released by the pass before, and records only class codewords after it.
 At each moment of a pass, the array holds exactly the class codewords that the pass has recorded so far between the floor and the ceiling: a class codeword enters only if it lies between them, and filling the array drops exactly those at or after the new ceiling.
 A pass records each class codeword of the root once, so when it is done, the array holds every class codeword of the root between the floor and the ceiling, and the search releases them in order.
 If the pass dropped none, these are all the class codewords of the root after the floor, and the root is done.
 Otherwise the last one released becomes the new floor, and the walk makes another pass, which lists the class codewords after it.
 Each pass that drops class codewords releases at least `⌊R/2⌋` of them, so a root with `n` class codewords takes at most `1 + n/⌊R/2⌋` passes.
-Like the array, the memory that sorting a full array takes, about as much again, is outside the memory limit (see `_MAX_ROOT_CODEWORDS` in `_fault_search.py`).
+Sorting a full array takes about as much memory again, which is also outside the memory limit (see `_MAX_ROOT_CODEWORDS` in `_fault_search.py`).
 
 **The probes.**
 To find the classes `z` with flags `σ(A) + f(x)`, the walk probes the closing map of single classes with the hash of these flags, as the walk by closing sets does.
@@ -283,16 +283,15 @@ These are the checks of the definition, applied only when a probe finds a class,
 
 **Which walk lists a root.**
 The walk by shared flags costs little when the candidates are few, and can cost more than the walk by closing sets when many classes share each bit, or when that walk uses closing sets of two or more classes.
-The search counts the work of both in **probes** of a closing map, at assumed costs (`_PROBES_PER_STATE` and `_PROBES_PER_LOOKUP` in `_fault_search.py`).
-For the walk by shared flags, each state, each candidate found dependent, and each reduction of a candidate whose closing class it finds costs `64` probes, and each bit of the sum of the flags that it examines to choose a bit and each candidate that it tries, including those that it skips as chosen or forbidden, costs one each.
-Each lookup of the walk by closing sets costs `16` probes.
-The **budget** of a root `r` is `16` probes for each of the at most `C(q − 1 − r, k − 1)` lookups that the walk by closing sets makes for it, for `q` classes and `k` classes chosen before each lookup.
-In its first pass over a root, the walk by shared flags gives the root up to the walk by closing sets once its work for the root passes the budget, or before it starts if the budget is less than one state.
+The walk by shared flags is charged `64` for the root and for each reduction of the flags of a candidate, whether the candidate becomes a state, is found dependent, or completes a class codeword, and one each for each bit of the sum of the flags that it examines to choose a bit and for each candidate that it tries, including those that it skips as chosen or forbidden.
+These charges are assumed costs in **probes** of a closing map (`_PROBES_PER_STATE` in `_fault_search.py`), the unit in which the search counts the work of both walks, and each lookup of the walk by closing sets costs `16` probes (`_PROBES_PER_LOOKUP`).
+The **budget** of a root `r` is `16` probes for each of the at most `C(q - 1 - r, k - 1)` lookups that the walk by closing sets makes for it, for `q` classes and `k` classes chosen before each lookup.
+In its first pass over a root, the walk by shared flags gives the root up to the walk by closing sets once its work for the root exceeds the budget, or before it starts if the budget is less than one state.
 By these estimates, a root given up costs at most about twice as much as with the cheaper walk.
 A root that is not given up takes `w` passes, at most `1 + n/⌊R/2⌋` for `n` class codewords, each costing as much as its first, which is at most about the budget.
 So it can cost up to about `w` budgets, which the bound of about twice does not cover.
 The closing maps of three or four classes wait for the estimated lookups of the walk by closing sets for every root, whichever walk lists it, so the search builds them as if the walk by closing sets listed every root, or sooner, since the estimates also count dependent choices of classes (see `_LOOKUPS_PER_CLOSING_SET`).
-So the budgets compare the walk by shared flags with the walk by closing sets as it would run without it.
+So the budgets do not depend on which walk lists the roots, and compare against a walk by closing sets with at least the closing maps that it would build if it listed every root.
 
 ### Skipping faults whose syndromes are listed
 
@@ -347,9 +346,10 @@ The calling thread expands the class codewords into faults in the order in which
 So the search looks up and skips the same faults, keeps the same table of syndromes, and sends the oracle the same syndromes in the same batches as on one thread, and its result does not depend on the number of threads.
 
 The search lists the class codewords [root by root](#listing-class-codewords-by-shared-flags), so its **work items** are the roots.
-Each walk of a root, by shared flags or by closing sets, starts with only the root chosen and no class forbidden, and the walks of a root, their work, and their class codewords depend only on the root.
-So the walks of consecutive ranges of roots list the class codewords in the serial order, and the work of all the ranges adds up to that of a single thread.
-The search estimates the work of each root by its budget, the estimated work of the walk by closing sets for it, which also bounds the work of a root given up, to about twice the budget.
+Each pass over a root by the walk by shared flags, and the walk by closing sets of a root given up, starts with only the root chosen and no class forbidden, so the listing of a root, its work, and its class codewords depend only on the root.
+So the listings of consecutive ranges of roots list the class codewords in the serial order, and the work of all the ranges adds up to that of a single thread.
+The search estimates the work of each root by its budget, the estimated work of the walk by closing sets for it.
+A root given up costs at most about twice its budget, and a root with `w` passes about `w` budgets.
 A root is never split between threads, so a listing with fewer start classes than threads, or with one root much costlier than the others, runs on fewer threads for part of its time.
 The calling thread also lists the first root alone, however costly it is, before any thread starts.
 
