@@ -48,17 +48,15 @@ _BATCH_SIZE = 2**12
 # holds take bounded memory.
 _CODEWORD_BATCH_SIZE = 2**10
 
-# The work, in probes (see ``_PROBES_PER_STATE``), after which ``_list_by_shared_flags`` also
-# returns on threads, so that a thread checks often whether to stop (see "Threads" in
+# The work (see ``_PROBES_PER_REDUCTION``) after which ``_list_by_shared_flags`` also returns on
+# threads, so that a thread checks often whether to stop (see "Threads" in
 # ``fault_propagation.md``).
 _PROBES_PER_CALL = 2**20
 
-# The walk by shared flags counts its work in probes of the map of classes by hash (see
-# ``FaultLister``).  It is charged this much for the root and for each reduction of the flags of a
-# candidate, and one each for each bit of the summed flags that it examines to choose a bit and for
-# each candidate that it tries, as "Listing class codewords on threads" in ``fault_propagation.md``
-# states.
-_PROBES_PER_STATE = 64
+# The walk by shared flags counts its work in probes of the map of classes by hash, and counts a
+# reduction of flags as this many probes ("Listing class codewords on threads" in
+# ``fault_propagation.md`` lists what the walk is charged for).
+_PROBES_PER_REDUCTION = 64
 
 # The number of rows of the array into which the walk by shared flags lists the class codewords of
 # a pass over a root, which takes at most ``8 m`` MiB for fault weight ``m``.  Sorting a full array
@@ -67,9 +65,8 @@ _PROBES_PER_STATE = 64
 _MAX_ROOT_CODEWORDS = 2**20
 
 # A listing of class codewords moves to threads once the calling thread, listing alone, has done
-# this much work for each thread, in probes, and the work left is estimated to be at least as much.
-# Starting threads and draining them costs about as much as half this work for each thread, so small
-# listings never start them.
+# this much work for each thread, in probes, and the work left is estimated to be at least as much,
+# so that small listings never start threads.
 _SPLIT_PROBES_PER_THREAD = 2**18
 
 # The number of syndromes that the table of listed syndromes starts with room for.
@@ -260,8 +257,8 @@ class FaultLister:
     The lister refers to each primitive fault by its position in the arguments.  Every primitive
     fault must have nonzero flags, and the first ``num_starts`` are the start members.  The search
     passes its heavy primitive faults first, as the start members.  "Listing each irreducible
-    accepted fault once" in ``fault_propagation.md`` defines flag classes, start classes, class
-    codewords, and closing classes, and proves that each such fault is listed once.
+    accepted fault once" in ``fault_propagation.md`` defines flag classes, start classes, and class
+    codewords, and proves that each such fault is listed once.
     The classes are numbered in the order of their first members.  A class tuple is a row of classes
     from which the lister expands faults: a start class twice for fault weight two, and a class
     codeword that starts with a start class for larger fault weights.
@@ -274,12 +271,12 @@ class FaultLister:
     For fault weights of three or more, the lister lists the class codewords of each start class,
     the root, in the order of the roots, by the walk by shared flags (``_list_by_shared_flags``).
     The walk adds only classes that share a flag bit with the sum of the flags of the classes chosen
-    so far, and finds the last class of each class codeword in the map of classes by hash: the
-    classes sorted stably by the hash of their flags, with a hash map from each hash to its first
-    entry ("Listing class codewords by shared flags" in ``fault_propagation.md``).  It lists the
-    class codewords of each root in lexicographic order, in one or more passes over the root.  The
-    table of syndromes of listed faults (see ``find_first``) grows within the memory limit, up to
-    2**31 syndromes.
+    so far, and finds the class that completes each class codeword in the map of classes by hash:
+    the classes sorted stably by the hash of their flags, with a hash map from each hash to its
+    first entry ("Listing class codewords by shared flags" in ``fault_propagation.md``).  It lists
+    the class codewords of each root in lexicographic order, in one or more passes over the root.
+    The table of syndromes of listed faults (see ``find_first``) grows within the memory limit, up
+    to 2**31 syndromes.
 
     On several threads, a costly listing of class codewords moves to threads, while the calling
     thread expands the class codewords into faults in the serial order, that of a listing on a
@@ -537,7 +534,8 @@ class FaultLister:
                 """List the class codewords of a range of the other roots, a batch at a time."""
                 # Copy each batch in slices of at most ``_CODEWORD_BATCH_SIZE`` class codewords,
                 # since the walk overwrites its array while the calling thread reads earlier ones,
-                # and the batches that ``iterate_in_order`` holds should take little memory.
+                # and the batches that ``iterate_in_order`` holds should take little memory.  Pass
+                # on an empty batch too, so that the thread checks often whether to stop.
                 for class_codewords in thread_walk.list_range(
                     num_listed + start, num_listed + end, _PROBES_PER_CALL
                 ):
@@ -602,8 +600,11 @@ class _SharedFlagWalk:
 
         The class codewords of each root come in lexicographic order.  Each batch is a view of an
         array that a later batch can overwrite.  A call of ``_list_by_shared_flags`` returns once
-        it has done ``probes_per_call`` work, so that a batch can be empty.
+        it has done ``probes_per_call`` work, so that a batch can be empty.  Each range must be
+        listed to its end before the next starts, since the walk then leaves every class allowed.
         """
+        # Start before the first pass over the root ``start``, with no rows held and no floor or
+        # ceiling.
         walk_state = self._walk_state
         walk_state[0], walk_state[1], walk_state[2] = start, end, -1
         walk_state[6:] = 0
@@ -618,7 +619,7 @@ class _SharedFlagWalk:
                 map_keys,
                 map_classes,
                 map_slots,
-                _PROBES_PER_STATE,
+                _PROBES_PER_REDUCTION,
                 _CODEWORD_BATCH_SIZE,
                 self._levels,
                 self._chosen_row_sums,
@@ -638,22 +639,21 @@ def _get_root_weights(
 ) -> npt.NDArray[np.float64]:
     """Weigh the roots of a listing of class codewords by an estimate of the work of each.
 
-    The weights decide only how the roots are split between threads, never what is listed.  A
-    class codeword of fault weight ``m`` whose root is ``r`` has its other ``m - 1`` classes after
-    ``r``, and the last of them is fixed by the others.  So each root is weighed by
-    ``C(q - 1 - r, m - 2)``, for ``q`` classes, the number of choices of its classes but the root
-    and the last.  The candidates of every state of the walk by shared flags come after ``r``, so
-    its work for ``r`` falls about as fast with ``r`` as long as the classes that share each flag
-    bit are spread over the order of the classes.  The weight is the product of the factors
-    ``(q - 1 - r - j) / (m - 2 - j)``, in floats, which do not overflow.  Once
-    ``q - 1 - r < m - 2``, a factor is zero, and clamping the negative factors at zero keeps the
-    product zero rather than negative.
+    The weights decide whether a listing moves to threads and how its roots are split between them,
+    never what is listed.  A class codeword of fault weight ``m`` whose root is ``r`` has its other
+    ``m - 1`` classes after ``r``, and the walk chooses all of them but the one that closes it.  So
+    each root is weighed by ``C(q - 1 - r, m - 2)``, for ``q`` classes, the number of these choices.
+    The candidates of every state of the walk by shared flags come after ``r``, so the work of a
+    root falls with ``r`` about as fast as this weight does if the classes that share each flag bit
+    are spread over the order of the classes.  The weights are divided by ``C(q - 1, m - 2)``, so
+    that each is the product of the factors ``(q - 1 - r - j) / (q - 1 - j)`` for ``j < m - 2``,
+    each from 0 to 1, and never overflows.  A weight is zero if ``q - 1 - r < m - 2``.
     """
     remaining = num_classes - 1 - np.arange(num_roots, dtype=np.float64)
-    factors = (remaining[:, None] - np.arange(fault_weight - 2)) / (
-        fault_weight - 2 - np.arange(fault_weight - 2)
-    )
-    return np.prod(np.maximum(factors, 0.0), axis=1)
+    offsets = np.arange(fault_weight - 2, dtype=np.float64)
+    numerators = np.maximum(remaining[:, None] - offsets, 0.0)
+    denominators = np.maximum(num_classes - 1 - offsets, 1.0)
+    return np.prod(numerators / denominators, axis=1)
 
 
 @always_compiled
@@ -775,7 +775,7 @@ def _list_by_shared_flags(
     map_keys: npt.NDArray[np.uint64],
     map_classes: npt.NDArray[np.int64],
     map_slots: npt.NDArray[np.int64],
-    state_cost: int,
+    reduction_cost: int,
     batch_size: int,
     levels: npt.NDArray[np.int64],
     chosen_row_sums: npt.NDArray[np.uint64],
@@ -787,7 +787,7 @@ def _list_by_shared_flags(
     walk_state: npt.NDArray[np.int64],
     codewords: npt.NDArray[np.int64],
 ) -> int:
-    """List the class codewords of roots by shared flags into an array, and return their number.
+    """List class codewords of roots by shared flags into an array, and return how many are ready.
 
     ``class_rows`` holds the row of each class (see ``FaultLister``), ``bit_offsets`` and
     ``bit_classes`` index the classes by their flag bits (see ``_get_bit_index``), and ``map_keys``,
@@ -797,14 +797,13 @@ def _list_by_shared_flags(
     first class is the root, as "Listing class codewords by shared flags" in
     ``fault_propagation.md`` describes.  Each class codeword is a row of classes in increasing
     order.  The listing makes one or more passes over each root.  The array, of at least two rows,
-    holds the class codewords of one pass, which the listing sorts in lexicographic order once the
-    pass is done.  If they fill the array, the listing keeps the first half of them in
-    lexicographic order, and makes another pass for the others, as "Roots with many class
-    codewords" in ``fault_propagation.md`` describes.
-
-    The listing is charged ``state_cost`` for the root and for each reduction of the flags of a
-    candidate, and one each for each bit that it examines to choose a bit and for each candidate
-    that it tries.  Its work is in probes.
+    holds the class codewords that the listing keeps in the pass, which it sorts in lexicographic
+    order once the pass is done, after any rows of earlier passes that it has not yet returned.  If
+    the kept class codewords fill the array when the listing tries another candidate at the last
+    level, it keeps the first ``⌊D/2⌋`` of them in lexicographic order, for ``D`` rows, and makes
+    another pass for the others, as "Roots with many class codewords" in ``fault_propagation.md``
+    describes.  The listing counts its work in probes, as "Listing class codewords on threads" in
+    ``fault_propagation.md`` describes, with ``reduction_cost`` probes for each reduction of flags.
 
     The listing keeps its state between calls in the other arrays.  The depth is the index, among
     the chosen classes, of the last one chosen, and the chosen classes are the state ``A`` of the
@@ -815,13 +814,13 @@ def _list_by_shared_flags(
     of the class chosen at depth ``d``, as in ``_reduce_flags``.  ``marks`` lists, in the order in
     which they were forbidden, the classes of ``F(A)`` and, if ``|A| < m - 2``, the candidates of
     ``A`` that the listing has tried, which are forbidden in the states of later candidates.
-    ``unavailable`` is true for the classes of ``marks`` and of ``A``.  ``bounds`` holds
-    the floor, the last class codeword released by an earlier pass over the root, and the ceiling,
-    the first class codeword dropped in this pass.  ``walk_state`` holds (0) the root, (1) the end
-    of the roots, (2) the depth, -1 between passes, (3) the number of marks, (4) the work so far,
-    (5) the work at which to pause, (6) the number of rows that the last call returned, (7) the
-    number of rows of the unfinished pass, which follow them, (8) 1 if an earlier pass released
-    class codewords of the root, so that the floor holds, and (9) 1 if this pass has dropped class
+    ``unavailable`` is true for the classes of ``marks`` and of ``A``.  ``bounds`` holds the floor,
+    the last class codeword released by an earlier pass over the root, and the ceiling, the least
+    class codeword that this pass has dropped.  ``walk_state`` holds (0) the root, (1) the end of
+    the roots, (2) the depth, -1 between passes, (3) the number of marks, (4) the work so far, (5)
+    the work at which to pause, (6) the number of rows that the last call returned, (7) the number
+    of rows of the unfinished pass, which follow them, (8) 1 if an earlier pass released class
+    codewords of the root, so that the floor holds, and (9) 1 if this pass has dropped class
     codewords, so that the ceiling holds.  The state starts with entry 0 at the first root, entry 1
     at the end of the roots, entry 2 at -1, ``unavailable`` false, and the other entries of
     ``walk_state`` zero, apart from entries 4 and 5.
@@ -864,13 +863,13 @@ def _list_by_shared_flags(
             levels[1, 0], levels[2, 0], num_bits = _choose_bit(
                 class_rows[root, 1:], root, bit_offsets, bit_classes
             )
-            work += state_cost + num_bits
+            work += reduction_cost + num_bits
             chosen_row_sums[0] = class_rows[root]
             pivots[0] = _reduce_flags(class_rows[root, 1:], basis[:0], pivots, basis[0])
             continue
 
-        # Once every candidate after a chosen class is tried, allow the classes forbidden since it
-        # was chosen again, and forbid it in the candidates after it, or, for the root, allow it
+        # Once every candidate after a chosen class is tried, allow again the classes forbidden
+        # since it was chosen, and forbid it in the candidates after it, or, for the root, allow it
         # again for the next pass.  Once the pass over the root is done, sort its class codewords,
         # and make another pass for those after the last of them if the pass dropped any.
         if levels[1, depth] == levels[2, depth]:
@@ -897,8 +896,8 @@ def _list_by_shared_flags(
 
         # A probe adds at most one class codeword.  If the array has no room for it, return the
         # rows of earlier passes, or else keep the first half, rounded down, of the rows of this
-        # pass in lexicographic order, and record only class codewords before the first row dropped
-        # from now on.
+        # pass in lexicographic order, and from now on keep only class codewords before the first
+        # row dropped.
         if depth == last_depth and num_ready + num_pending == len(codewords):
             if num_ready:
                 break
@@ -915,13 +914,13 @@ def _list_by_shared_flags(
         if unavailable[candidate]:
             continue
 
-        # With all classes but the last chosen, probe the map of classes with the hash of the summed
-        # flags, and check every class with this hash.  Record a class codeword for a class that
-        # has exactly these flags, since different flags can share a hash, comes after the root, is
-        # neither chosen nor forbidden, and closes chosen classes that the candidate keeps
-        # independent, if the class codeword comes after the floor, if the pass has one, and before
-        # the ceiling, if it has one.  The classes have distinct flags, so at most one class is
-        # recorded.
+        # With all classes but one of a class codeword chosen, probe the map of classes with the
+        # hash of the summed flags, and check every class with this hash, comparing its flags in
+        # full, since different flags can share a hash.  A class with exactly these flags that comes
+        # after the root and is neither chosen nor forbidden closes a class codeword if the
+        # candidate keeps the chosen classes independent.  Keep the class codeword if it comes after
+        # the floor, if the pass has one, and before the ceiling, if it has one.  The classes have
+        # distinct flags, so at most one class closes a class codeword.
         if depth == last_depth:
             key = chosen_row_sums[depth, 0] ^ class_rows[candidate, 0]
             entry = map_slots[_find_syndrome_slot(key, no_words, key_rows, map_slots)]
@@ -934,7 +933,7 @@ def _list_by_shared_flags(
                     closes = closes and summed == class_rows[closing_class, word]
                 if not closes:
                     continue
-                work += state_cost
+                work += reduction_cost
                 pivot = _reduce_flags(
                     class_rows[candidate, 1:], basis[: depth + 1], pivots, reduced
                 )
@@ -954,7 +953,7 @@ def _list_by_shared_flags(
 
         # Otherwise choose the candidate, and the bit whose candidates come next, if it keeps the
         # chosen classes independent, and else forbid it in the candidates after it.
-        work += state_cost
+        work += reduction_cost
         pivot = _reduce_flags(class_rows[candidate, 1:], basis[: depth + 1], pivots, reduced)
         if pivot < 0:
             unavailable[candidate] = True
