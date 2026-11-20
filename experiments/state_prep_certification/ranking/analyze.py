@@ -84,6 +84,11 @@ circuits exactly when delta_a <= k delta_b; ``break_even`` gives the outcome, k*
 the sign of delta_b.  k* is computed only where every component of the group's costs is projected.
 b_unc, the per-circuit cost of Phi_unc, is reported beside them.
 
+A row of the ranking label with ``compiled_in_timing`` set (see ``common/runner.py``) stops the
+analysis with an error that names it.  The admission reads only the verdicts of the certification
+archive's rows, whatever their ``compiled_in_timing``, although a flagged timeout there may have
+timed out only because it compiled.
+
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory): ``admission.csv``,
 ``candidates.csv`` (with each circuit's projected and achieved costs), ``pairs.csv``,
 ``agreement.csv``, ``kendall.csv``, ``gate.json``, ``groups.csv``, ``cost_table.csv``,
@@ -1221,10 +1226,20 @@ def leading_order_rows(
 
 
 def _ranking_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    """The final rows of the label by key, and every expected task without an ``ok`` row."""
+    """The final rows of the label by key, and every expected task without an ``ok`` row.
+
+    Raises:
+        ValueError: If a row has ``compiled_in_timing`` set, since its CPU seconds include a
+            compilation.
+    """
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {label_dir.name}: {problem}")
+    compiled = sorted(key for key, row in final.items() if row.get("compiled_in_timing"))
+    if compiled:
+        raise ValueError(
+            f"rows whose retry compiled in its measured call (compiled_in_timing): {compiled}"
+        )
     expected = (
         task_store.load_tasks(label_dir) if (label_dir / task_store.TASKS_FILE).exists() else {}
     )

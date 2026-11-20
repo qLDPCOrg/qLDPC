@@ -40,7 +40,7 @@ Each experiment in the table below holds a CSV summary in its results directory,
 | Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
 | Distance tuning | `results/trials.jsonl`: one line per trial of a comparison; `results/constants/`: the measurements of `constants.py` | `results/summary-<tag>.csv`: times of both arms of a comparison on each workload, and their ratios |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
-| State preparation certification | `results/<experiment>/<label>/runs.jsonl`: one row per run | the CSV summaries of each experiment's `analyze.py` |
+| State preparation certification | `results/<experiment>/<label>/runs.jsonl`: one row per task | the CSV summaries of each experiment's `analyze.py` |
 
 [The code-annealing guide](code_annealing/README.md#what-the-scripts-write) lists its results.
 

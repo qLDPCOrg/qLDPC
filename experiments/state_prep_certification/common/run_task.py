@@ -3,14 +3,14 @@
 """Run one task of a label: the command that GNU parallel invokes once per task.
 
     python experiments/state_prep_certification/common/run_task.py --label-dir D [--local] \
-        [--job-slot S]
-        [--cpu C] KEY
+        [--job-slot S] [--cpu C] KEY
 
 It exits at once with status 0 if ``D/runs.jsonl`` already has a final row for the task.  Otherwise
-it runs the task in a fresh child process under the limits of ``runner.py``, appends one final row,
-and exits with status 0; it exits with a nonzero status only if it wrote no final row, as after
-SIGTERM.  With ``--cpu``, the child pins itself to that logical CPU (Linux only).  With
-``--child``, this script is that child process, which the runner starts.
+it runs the task in one or two fresh child processes (see ``runner.py``), under the runner's
+limits, appends one final row, and exits with status 0; it exits with a nonzero status only if it
+wrote no final row, as after SIGTERM.  With ``--cpu``, each child pins itself to that logical CPU
+(Linux only).  With ``--child``, this script is one of those child processes, which the runner
+starts.
 """
 
 from __future__ import annotations

@@ -14,7 +14,13 @@ Each task's ``input`` is a list of steps that ``run`` performs in order:
 * ``["post", s]``: after the measured call, send the result and post-process for s seconds;
 * ``["value", v]``: the measured call returns v;
 * ``["garbage", s]``: the measured call writes a line that is not a message to the runner, then
-  sleeps s seconds.
+  sleeps s seconds;
+* ``["compile", cache]``: the measured call compiles ``_add_one`` with numba, cached on disk if
+  ``cache`` is true, and calls it;
+* ``["compile_on_thread", cache]``: the same, on a thread that the measured call starts and joins;
+* ``["compile_untimed"]``: ``_add_one`` is compiled, not cached, before the measured call, and again
+  after it (after ``send_result``, if there is a ``post`` step);
+* ``["die"]``: the measured call kills its own process with SIGKILL.
 
 Every result also holds the child's process id and the wall-clock interval of its measured call,
 with which the tests check that concurrent runs use different CPUs.
@@ -24,8 +30,10 @@ from __future__ import annotations
 
 import os
 import pathlib
+import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
@@ -76,17 +84,24 @@ def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, An
 def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     """Perform the task's steps."""
     steps = [tuple(step) for step in task["input"]]
+    compile_untimed = ("compile_untimed",) in steps
     for step in steps:
         if step[0] == "startup":
             time.sleep(step[1])
+    if compile_untimed:
+        _compile(False)
     start = time.time()
     value = runner.timed(_measured, steps)
     fields = {"value": value, "pid": os.getpid(), "wall": [start, time.time()]}
     for step in steps:
         if step[0] == "post":
             runner.send_result(fields)
+            if compile_untimed:
+                _compile(False)
             time.sleep(step[1])
             return {"post": "done"}
+    if compile_untimed:
+        _compile(False)
     return fields
 
 
@@ -120,4 +135,24 @@ def _measured(steps: list[tuple[Any, ...]]) -> Any:
         elif step[0] == "garbage":
             os.write(int(os.environ["FTSP_CHANNEL_FD"]), b"not a message\n")
             time.sleep(step[1])
+        elif step[0] == "compile":
+            _compile(step[1])
+        elif step[0] == "compile_on_thread":
+            thread = threading.Thread(target=_compile, args=(step[1],))
+            thread.start()
+            thread.join()
+        elif step[0] == "die":
+            os.kill(os.getpid(), signal.SIGKILL)
     return value
+
+
+def _compile(cache: bool) -> None:
+    """Compile ``_add_one`` with numba, cached on disk if ``cache`` is true, and call it."""
+    import numba
+
+    numba.njit(cache=cache)(_add_one)(1)
+
+
+def _add_one(number: int) -> int:
+    """The function that the compiling steps compile."""
+    return number + 1

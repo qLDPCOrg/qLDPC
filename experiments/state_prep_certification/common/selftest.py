@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests of the shared code of the experiments: store, runner, task lists, run_node, and bundle.
+"""Tests of the shared code of the experiments, with a stand-in experiment.
 
     python experiments/state_prep_certification/common/selftest.py [--node] [--only NAME ...] \
         [--keep]
@@ -11,8 +11,7 @@ this session.  With ``--node`` (Linux only), the tests of the runner, of GNU par
 ``--cleanup`` run in node mode instead: each run in a new session, killed by process group, with its
 child pinned to a CPU and its runner on other CPUs; ``run_node.py`` runs them before the node's
 acceptance tests.  The test of ``bundle.check_tree``, which needs git, runs only without
-``--node``.  The
-tests of GNU parallel need ``parallel`` on the ``PATH``.
+``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``.
 
 The script prints one line per test and exits with status 1 if any test failed.
 """
@@ -195,6 +194,7 @@ def test_runner_ok(directory: pathlib.Path, node: bool) -> None:
     assert 0.3 <= row["T"] < 2 and row["T_cpu"] >= 0 and row["peak_rss_gib"] > 0
     assert row["partial"] == [{"index": 0}, {"index": 1}, {"index": 2}]
     assert row["post_status"] is None and row["error"] is None
+    assert not row["compiled_in_timing"] and row["discarded_run"] is None, row
     assert (directory / "logs" / f"{row['run_id']}.txt").exists()
 
     # a task with a final row is not run again
@@ -267,11 +267,13 @@ def test_runner_messages_at_exit(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None:
-    """A partial result written just before a kill is kept, and a result is not."""
+    """A partial result and a compilation written just before a kill are kept; a result is not."""
     from experiments.state_prep_certification.common import runner
 
     task = _task("killed", [], mem_cap_gib=0.1)
-    watcher = runner._Watcher(directory, task, local=not node, job_slot=None, cpu=None)
+    watcher = runner._Watcher(
+        directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+    )
     command = [sys.executable, "-c", "import time; time.sleep(30)"]
     child = subprocess.Popen(command, start_new_session=node)
     watcher.root = child.pid
@@ -282,6 +284,7 @@ def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None
     def poll() -> tuple[int, None]:
         for message in (
             {"type": "partial", "fields": {"index": 0}},
+            {"type": "compiled", "function": "f"},
             {"type": "result", "fields": {}},
         ):
             os.write(write_fd, (json.dumps(message) + "\n").encode())
@@ -292,12 +295,141 @@ def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None
         reason, _ = watcher._watch(child, read_fd, time.monotonic())
         row = watcher._row(reason, None, "", "")
         assert row["status"] == "memout" and row["partial"] == [{"index": 0}], row
+        assert row["compiled_in_timing"] and row["compiled_function"] == "f", row
         assert row["result"] == {}, row
     finally:
         child.kill()
         child.wait()
         os.close(read_fd)
         os.close(write_fd)
+
+
+@test
+def test_runner_compile_retry(directory: pathlib.Path, node: bool) -> None:
+    """A run whose measured call compiles is discarded; its retry, which loads the code, is kept."""
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        row = _run(directory, _task("compiles", [["compile", True], ["value", 3]]), node)
+    assert row["status"] == "ok" and row["result"]["value"] == 3, row
+    assert not row["compiled_in_timing"] and row["compiled_function"] is None, row
+    discarded = row["discarded_run"]
+    assert discarded["status"] == "ok" and discarded["run_id"] != row["run_id"], row
+    assert discarded["compiled_function"].endswith("selftest_plugin._add_one"), discarded
+    assert len(store.read_rows(directory)[0]) == 1
+    assert len(list((directory / "logs").iterdir())) == 2
+
+
+@test
+def test_runner_compile_every_time(directory: pathlib.Path, node: bool) -> None:
+    """A task whose retry compiles too keeps the retry's row, flagged ``compiled_in_timing``."""
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        row = _run(directory, _task("uncached", [["compile", False], ["value", 4]]), node)
+    assert row["status"] == "ok" and row["result"]["value"] == 4, row
+    assert row["compiled_in_timing"] and row["compiled_function"].endswith("_add_one"), row
+    assert row["discarded_run"]["compiled_function"] == row["compiled_function"], row
+    assert len(store.read_rows(directory)[0]) == 1
+    assert len(list((directory / "logs").iterdir())) == 2
+
+
+@test
+def test_runner_compile_on_thread(directory: pathlib.Path, node: bool) -> None:
+    """A compilation on a thread other than the main one is reported too."""
+    task = _task("threaded", [["compile_on_thread", True], ["value", 2]])
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        row = _run(directory, task, node)
+    assert row["status"] == "ok" and not row["compiled_in_timing"], row
+    assert row["discarded_run"]["compiled_function"].endswith("_add_one"), row
+
+
+@test
+def test_runner_compile_untimed(directory: pathlib.Path, node: bool) -> None:
+    """Compilations before and after the measured call, even uncached, are not reported."""
+    task = _task("untimed", [["compile_untimed"], ["value", 6], ["post", 0.5]])
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        row = _run(directory, task, node)
+    assert row["status"] == "ok" and row["post_status"] == "ok", row
+    assert not row["compiled_in_timing"] and row["discarded_run"] is None, row
+
+
+@test
+def test_runner_compile_then_timeout(directory: pathlib.Path, node: bool) -> None:
+    """A run killed at its limit after it compiled is discarded too, and the task retried."""
+    task = _task("slow", [["compile", True], ["sleep", 30]], limit_s=10.0)
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        row = _run(directory, task, node)
+    assert row["status"] == "timeout" and not row["compiled_in_timing"], row
+    discarded = row["discarded_run"]
+    assert discarded["status"] == "timeout" and discarded["T"] >= 10.0, row
+    assert discarded["compiled_function"].endswith("_add_one"), discarded
+
+
+@test
+def test_runner_compile_then_killed(directory: pathlib.Path, node: bool) -> None:
+    """A run killed by a signal after it compiled is discarded too, and the task retried."""
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        row = _run(directory, _task("dies", [["compile", True], ["die"]]), node)
+    assert row["status"] == "error" and not row["compiled_in_timing"], row
+    discarded = row["discarded_run"]
+    assert discarded["status"] == "error" and discarded["error"], row
+    assert discarded["compiled_function"].endswith("_add_one"), discarded
+
+
+@test
+def test_runner_compile_then_stopped(directory: pathlib.Path, node: bool) -> None:
+    """A task stopped by SIGTERM after it compiled has no row, and resumes without compiling."""
+    task = _task("stopped", [["compile", True], ["sleep", 3], ["value", 5]])
+    tasks.write_pass1(directory, [task])
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        process = subprocess.Popen(_run_task_command(directory, "stopped", node))
+        try:
+            # numba writes a function's compiled code, after its index, once it has compiled it
+            _wait_for(lambda: any((directory / "numba").rglob("*.nbc")))
+            process.send_signal(signal.SIGTERM)
+            assert process.wait(timeout=40) == 2
+        finally:
+            _kill(process)
+        assert store.read_rows(directory) == ([], [])
+        row = _run(directory, task, node)
+    assert row["status"] == "ok" and row["result"]["value"] == 5, row
+    assert not row["compiled_in_timing"] and row["discarded_run"] is None, row
+    assert len(store.read_rows(directory)[0]) == 1
+
+
+@test
+def test_runner_stop_during_retry(directory: pathlib.Path, node: bool) -> None:
+    """On SIGTERM during the retry, the runner kills it, writes no row, and exits with status 2."""
+    tasks.write_pass1(directory, [_task("retried", [["compile", False], ["sleep", 3]])])
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        process = subprocess.Popen(_run_task_command(directory, "retried", node))
+        try:
+            # the retry has started once it has a log of its own
+            _wait_for(lambda: len(list((directory / "logs").glob("*"))) == 2)
+            process.send_signal(signal.SIGTERM)
+            assert process.wait(timeout=40) == 2
+        finally:
+            _kill(process)
+    assert store.read_rows(directory) == ([], [])
+    assert not (directory / "active" / "retried").exists()
+    assert not _processes_matching(str(directory)), _processes_matching(str(directory))
+
+
+@test
+def test_local_runs_reject_compiled(directory: pathlib.Path, node: bool) -> None:
+    """``local_runs.run_locally`` fails if a row with status ok has ``compiled_in_timing`` set.
+
+    A flagged row of another status, here a timeout, is accepted.
+    """
+    from experiments.state_prep_certification.common import local_runs
+
+    with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
+        try:
+            local_runs.run_locally(directory / "label", [_task("uncached", [["compile", False]])])
+        except AssertionError as error:
+            assert "uncached" in str(error), error
+        else:
+            raise AssertionError("a row with compiled_in_timing set was accepted")
+        task = _task("slow", [["compile", False], ["sleep", 30]], limit_s=3.0)
+        row = local_runs.run_locally(directory / "timeout", [task])["slow"]
+    assert row["status"] == "timeout" and row["compiled_in_timing"], row
 
 
 @test
@@ -337,10 +469,18 @@ def test_tasks_write_once(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_tasks_ceiling_and_cores(directory: pathlib.Path, node: bool) -> None:
-    """The ceiling needs an approval that covers it; job slots get one CPU per physical core."""
+    """The ceiling, with repeats and retries, needs an approval; job slots get a CPU per core."""
     task_list = [_task(f"t{i}", [], limit_s=1800.0) for i in range(10)]
+    task_list += [
+        _task(f"u{i}", [], limit_s=1800.0, startup_cap_s=60.0, post_s=600.0) for i in range(5)
+    ]
     ceiling = tasks.ceiling_hours(task_list, lambda task: 3 * (120 + task["limit_s"] + 30))
-    assert abs(ceiling - 10 * 3 * 1950 / 3600) < 1e-9
+    # each task costs S, the most that one run at its first run's limit can take, plus twice its
+    # worst case of three runs.  S is the sum of its start-up cap, limit, post-processing allowance,
+    # and grace of 5 s, where the runner's defaults are STARTUP_CAP_S = 120 and FINISH_S = 30.
+    default_cost = (120 + 1800 + 30 + 5) + 2 * 3 * 1950
+    own_cost = (60 + 1800 + 600 + 5) + 2 * 3 * 1950
+    assert abs(ceiling - (10 * default_cost + 5 * own_cost) / 3600) < 1e-9
     for approved in (None, ceiling - 1):
         try:
             tasks.check_approval(ceiling, approved)
@@ -770,6 +910,13 @@ def _processes_matching(text: str) -> list[str]:
     return [line for line in output.splitlines() if text in line and "ps -A" not in line]
 
 
+def _kill(process: subprocess.Popen[bytes]) -> None:
+    """Kill a process that a test started, if it is still running, and reap it."""
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+
+
 def _wait_for(condition: Callable[[], bool], timeout: float = 60) -> None:
     """Wait until a condition holds, or fail after the timeout."""
     deadline = time.monotonic() + timeout
@@ -801,6 +948,20 @@ def _affinity(cpus: list[int]) -> Iterator[None]:
         yield
     finally:
         os.sched_setaffinity(0, previous)
+
+
+@contextlib.contextmanager
+def _environment(name: str, value: str) -> Iterator[None]:
+    """Set an environment variable, which the runs that the block starts inherit, for the block."""
+    previous = os.environ.get(name)
+    os.environ[name] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            del os.environ[name]
+        else:
+            os.environ[name] = previous
 
 
 @contextlib.contextmanager
