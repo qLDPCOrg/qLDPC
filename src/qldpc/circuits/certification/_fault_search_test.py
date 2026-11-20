@@ -312,6 +312,76 @@ def test_roots_far_from_their_budgets_take_the_intended_walk(
         assert given_up == expected
 
 
+def _list_class_tuples(
+    flags: Sequence[int], num_starts: int, fault_weight: int
+) -> list[tuple[int, ...]]:
+    """The class tuples of a lister of primitive faults with these flags, at a fault weight."""
+    syndromes = [1 << jj for jj in range(len(flags))]
+    errors = [0b111 << (3 * jj) for jj in range(len(flags))]
+    lister = _fault_search.FaultLister(
+        flags, syndromes, errors, 3 * len(flags), False, num_starts, 0
+    )
+    return [
+        tuple(row) for batch in lister._iter_class_tuples(fault_weight) for row in batch.tolist()
+    ]
+
+
+@pytest.mark.parametrize("collide", [False, True])
+def test_a_class_codeword_closed_from_two_states_is_listed_once(
+    collide: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The walk by shared flags lists a class codeword once, also with members and hashes shared.
+
+    Of the classes 0 to 3 with flags 4, 5, 6, and 7, the walk from root 0 closes the class
+    codeword of all four at the state of classes 0 and 1, and could close it again at the state of
+    classes 0 and 2, where class 1 is forbidden ("Listing class codewords by shared flags" in
+    ``fault_propagation.md``).  Classes of several members, and zero hashes, which make every class
+    share each probe's hash, change nothing, and with no start class nothing is listed.
+    """
+    _force_walk(monkeypatch, "shared flags")
+    if collide:
+        monkeypatch.setattr(
+            _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
+        )
+    assert _list_class_tuples([4, 5, 6, 7], 1, 4) == [(0, 1, 2, 3)]
+    assert _list_class_tuples([4, 5, 4, 6, 7, 5, 6], 1, 4) == [(0, 1, 2, 3)]
+    assert _list_class_tuples([4, 5, 6, 7], 0, 4) == []
+
+
+def test_a_root_whose_class_codewords_fill_its_array_is_listed_by_closing_sets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A root whose class codewords fill the array of the walk by shared flags is given up.
+
+    The root of flags 1 among the classes of every nonzero flag of four bits has 28 class codewords
+    of fault weight four.  An array of two rows gives the root up to the walk by closing sets,
+    which lists them all, and the default array does not.
+    """
+    _force_walk(monkeypatch, "shared flags")
+    given_up: list[int] = []
+    list_root = _fault_search._CodewordWalk.list_root
+
+    def record_root(
+        walk: _fault_search._CodewordWalk, root: int, lookups_per_call: int
+    ) -> Iterator[npt.NDArray[np.int64]]:
+        given_up.append(root)
+        return list_root(walk, root, lookups_per_call)
+
+    monkeypatch.setattr(_fault_search._CodewordWalk, "list_root", record_root)
+    flags = list(range(1, 16))
+    expected = _class_codewords(flags, 4, 1)
+    assert len(expected) == 28
+    assert _list_class_tuples(flags, 1, 4) == expected and not given_up
+    monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", 2)
+    assert _list_class_tuples(flags, 1, 4) == expected and given_up == [0]
+
+
+def test_listers_reject_zero_flags() -> None:
+    """A lister rejects a primitive fault with zero flags, which no flag class can hold."""
+    with pytest.raises(ValueError, match="nonzero flags"):
+        _fault_search.FaultLister([1, 0], [1, 2], [1, 2], 2, False, 1, 0)
+
+
 @pytest.mark.parametrize("size", [1, 2, 3, 4])
 def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest.Config) -> None:
     """A closing table sorts its sets by hash, keeping lexicographic order among equal hashes."""

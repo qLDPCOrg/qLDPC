@@ -336,6 +336,9 @@ class FaultLister:
             more time.
         num_threads: The number of threads of a costly listing, counting the calling thread; with
             fewer than two, the calling thread lists alone.
+
+    Raises:
+        ValueError: If a primitive fault has zero flags.
     """
 
     def __init__(
@@ -350,7 +353,11 @@ class FaultLister:
         num_threads: int = 1,
     ) -> None:
         # Group the primitive faults into classes by their flags, each with its members in order,
-        # and order the classes by their first members, so that the start classes come first.
+        # and order the classes by their first members, so that the start classes come first.  So
+        # the classes have pairwise distinct flags, which both walks need, as they need nonzero
+        # flags (see "Listing each irreducible accepted fault once" in ``fault_propagation.md``).
+        if not all(flags):
+            raise ValueError("Every primitive fault of a fault lister must have nonzero flags")
         member_lists_by_flags: dict[int, list[int]] = {}
         for position, flag in enumerate(flags):
             member_lists_by_flags.setdefault(flag, []).append(position)
@@ -1176,7 +1183,8 @@ def _list_cluster_codewords(
     ``class_rows`` holds the row of each class (see ``FaultLister``), ``bit_offsets`` and
     ``bit_classes`` index the classes by their flag bits (see ``_get_bit_index``), and
     ``closing_keys``, ``closing_sets``, and ``closing_slots`` are the closing map of single classes
-    from ``_get_closing_map``.  For each root in turn, the listing lists the class codewords of
+    from ``_get_closing_map``.  The classes must have nonzero and pairwise distinct flags, as those
+    of ``FaultLister`` do.  For each root in turn, the listing lists the class codewords of
     ``m = codewords.shape[1]`` classes whose first class is the root, as "Listing class codewords by
     shared flags" in ``fault_propagation.md`` describes.  Each class codeword is a row of classes in
     increasing order, and the rows of a root are sorted in lexicographic order once it is done.
@@ -1286,9 +1294,10 @@ def _list_cluster_codewords(
             continue
 
         # With all classes but the last chosen, probe the closing map with the hash of the summed
-        # flags.  On a hit, record a class codeword if the class found has exactly these flags,
-        # comes after the root, is neither chosen nor forbidden, and if the candidate keeps the
-        # chosen classes independent.  The classes have distinct flags, so at most one is found.
+        # flags, and check every class with this hash.  Record a class codeword for a class that
+        # has exactly these flags, since different flags can share a hash, comes after the root, is
+        # neither chosen nor forbidden, and closes chosen classes that the candidate keeps
+        # independent.  The classes have distinct flags, so at most one class is recorded.
         if depth == last_depth:
             work += 1
             key = chosen_row_sums[depth, 0] ^ class_rows[candidate, 0]
@@ -1296,16 +1305,11 @@ def _list_cluster_codewords(
             while entry >= 0 and entry < len(closing_keys) and closing_keys[entry] == key:
                 closing_class = closing_sets[entry, 0]
                 entry += 1
-                closes = True
+                closes = closing_class > root and class_states[closing_class] == 0
                 for word in range(1, num_words):
                     summed = chosen_row_sums[depth, word] ^ class_rows[candidate, word]
-                    if summed != class_rows[closing_class, word]:
-                        closes = False
-                        break
-                if not closes:
-                    continue
-                available = closing_class > root and class_states[closing_class] == 0
-                if available and (
+                    closes = closes and summed == class_rows[closing_class, word]
+                if closes and (
                     _reduce_flags(class_rows[candidate, 1:], basis[: depth + 1], pivots, reduced)
                     >= 0
                 ):
@@ -1316,7 +1320,6 @@ def _list_cluster_codewords(
                     row.sort()
                     codewords[num_ready + num_pending] = row
                     num_pending += 1
-                break
             continue
 
         # Otherwise choose the candidate, and the bit whose candidates come next, if it keeps the

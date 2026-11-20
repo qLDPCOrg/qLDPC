@@ -197,6 +197,8 @@ It adds to the classes chosen so far only a class that shares a flag bit with th
 There, the variables are the classes and the checks are the flag bits, and a class codeword is a set of variables whose flags sum to zero and none of whose proper nonempty subsets has flags that sum to zero.
 
 For a set `A` of classes, let `σ(A)` be the sum of their flags, and `f(c)` the flags of a class `c`.
+The flags of the classes are nonzero and pairwise distinct, since each class holds all the kept primitive faults with its nonzero flags.
+The walk relies on both.
 The **root** of a class codeword is its first class, and the walk lists the class codewords of fault weight `m ≥ 3` whose root is a given start class `r`.
 It visits **states**, each an independent set `A` of classes that contains `r`, with a set `F(A)` of **forbidden** classes.
 It starts at `A = {r}` with no class forbidden.
@@ -206,7 +208,8 @@ The **candidates** of the state are the available classes whose flags have bit `
 
 - If `|A| ≤ m - 3`, the candidate `x` is a **child** if `A ∪ {x}` is independent, and then the walk visits the state `A ∪ {x}` with `F(A ∪ {x})` the union of `F(A)` and the candidates of `A` before `x`.
   So once the walk has tried a candidate, it is forbidden in the states of the later candidates and in their descendants.
-- If `|A| = m - 2`, the walk records the class codeword `A ∪ {x, z}` if some class `z` has flags `σ(A) + f(x)`, `z` is available, and `A ∪ {x}` is independent.
+- If `|A| = m - 2`, the walk records the class codeword `A ∪ {x, z}` for each class `z` with flags `σ(A) + f(x)` that is available, that is, after `r`, not in `A`, and not forbidden, if `A ∪ {x}` is independent.
+  The classes have distinct flags, so there is at most one such `z`.
 
 The bit `b` can be any bit of `σ(A)`, and the arguments below hold for any choice.
 The walk chooses the bit set by the fewest classes after `r`, and the lowest of these, since that gives the fewest candidates as long as few classes are forbidden.
@@ -219,43 +222,55 @@ So, as [above](#listing-each-irreducible-accepted-fault-once), these `m` classes
 Every class of it other than `r` was available at the state where the walk added it or recorded the class codeword, so it comes after `r`, and `r` is its root.
 
 **The walk records every class codeword with root `r`.**
-Let `C` be such a class codeword.
-Call a state **on the way to** `C` if `A ⊊ C` and no class of `C` is in `F(A)`, as for the first state, `A = {r}`.
+Let `C` be such a class codeword, so that `r` is its least class.
+Call a state **on the way to** `C` if `A` is contained in `C`, which makes `A` independent and its classes other than `r` come after `r`, and no class of `C \ A` is in `F(A)`.
+The first state, `A = {r}`, is on the way to `C`.
 At a state on the way to `C`, every class of `C \ A` is available, since it comes after `r` and is neither in `A` nor forbidden.
-`σ(C) = 0`, so `σ(C \ A) = σ(A)` has bit `b`, and some class of `C \ A` is a candidate.
-Let `x` be the first one.
+`σ(C) = 0`, so `σ(C \ A) = σ(A)`, and every bit of `σ(A)`, the chosen bit `b` among them, is set in an odd number of classes of `C \ A`, and so in at least one.
+So some class of `C \ A` is a candidate; let `x` be the first one.
 If `|A| ≤ m - 3`, then `A ∪ {x}` is a proper subset of `C`, so it is independent, and `x` is a child.
-Its forbidden classes are those of `A` and candidates before `x`, none of which is in `C`, so the state `A ∪ {x}` is on the way to `C` too.
+The classes of `F(A ∪ {x})` are those of `F(A)` and the candidates before `x`, none of which is in `C \ A`, so the state `A ∪ {x}` is on the way to `C` too.
 If `|A| = m - 2`, then `C \ A = {x, z}` for a class `z` with flags `σ(A) + f(x)`, which is available, and `A ∪ {x}` is a proper subset of `C`, so it is independent, and the walk records `C`.
-By induction on `|A|`, starting from `A = {r}`, the walk records `C`.
+By induction on `|A|`, the walk records `C`.
 
 **The walk records each class codeword once.**
-Suppose that it records `C` at two states `A` and `A'`, with candidates `x` and `x'`.
+No two states have the same set of classes: the states at or below a child `A ∪ {u}` of a state `A` all contain `u`, while those at or below a later child `A ∪ {u'}` do not, since `u` is in `F(A ∪ {u'})`, forbidden classes stay forbidden below a state, and the walk adds only available classes.
+That alone does not keep a class codeword from being recorded twice, since the walk could close it from different sets of `m - 1` of its classes, at different states.
+The check that the class that closes it is not forbidden prevents this.
+For example, take the classes 0, 1, 2, and 3 with flags `100`, `101`, `110`, and `111`, fault weight four, and the root 0.
+The walk branches on bit 2, with the candidates 1, 2, and 3.
+At the state `{0, 1}`, with sum `001`, the candidate 3 has bit 0, and class 2 closes `{0, 1, 3}`, so the walk records `{0, 1, 2, 3}`.
+At the state `{0, 2}`, with sum `010`, the candidate 3 has bit 1, and class 1 would close `{0, 2, 3}`, but class 1 is forbidden there, since it was tried before class 2.
+
+In general, suppose that the walk records `C` at two states `A` and `A'`, with candidates `x` and `x'` and closing classes `z` and `z'`.
 If `A = A'`, then `C \ A = {x, z} = {x', z'}`, and since `σ(A) = f(x) + f(z)` has bit `b`, exactly one of `x` and `z` has bit `b`.
-Both `x` and `x'` are candidates, and so have bit `b`, so `x = x'`, and these are the same record.
+Both `x` and `x'` are candidates, and so have bit `b`, so `x = x'` and `z = z'`, and these are the same record.
 Otherwise neither state is below the other, since both have `m - 2` classes.
-Let `B` be the last state that both are below, and `B ∪ {u}` and `B ∪ {u'}` the children of `B` that `A` and `A'` are at or below, with `u` before `u'`, so that `u` is in `F(B ∪ {u'})`.
+Let `B` be the last state that both are below, where their paths first diverge, and `B ∪ {u}` and `B ∪ {u'}` the children of `B` that `A` and `A'` are at or below, with `u` before `u'`, so that `u` is in `F(B ∪ {u'})`, and so in `F(A')`.
 Then `u` is in `A`, and so in `C`.
-But each class of `C` outside `B ∪ {u'}` was available at a state at or below `B ∪ {u'}`, where the walk added it or recorded `C`, so it is not in `F(B ∪ {u'})`, which the forbidden classes of each such state contain.
-And `u` is not in `B ∪ {u'}`, since it was a candidate of `B` and differs from `u'`.
-So `u` is not in `C`, a contradiction, and no class codeword is recorded twice.
+But `u` is not in `A'`: it is not in `B` or `u'`, since it was a candidate of `B`, and the walk adds below `B ∪ {u'}` only classes that are available, and so not forbidden.
+It is not `x'`, which is available at `A'`, and it is not `z'`, since the walk records `C` at `A'` only if `z'` is neither forbidden nor in `A'`.
+So `u` is not in `C`, a contradiction, and the walk records no class codeword twice.
 
 **Order.**
-The search lists the roots in order, and the class codewords of each root in lexicographic order: it sorts those that the walk by shared flags records, and the walk by closing sets lists them in this order.
-The root is the first class of a class codeword, so whichever walk lists each root, the search lists all the class codewords in lexicographic order, the order of the walk by closing sets alone.
+The walk writes each class codeword that it records as a row of its classes in increasing order, and sorts the rows of each root in lexicographic order once the root is done.
+The search passes on the class codewords of a root only once all of them are listed: if the walk by shared flags gives the root up, the search discards the rows that it recorded for the root, and the walk by closing sets lists the whole root again, in lexicographic order.
+The search lists the roots in order, and the root is the first class of each of its class codewords, so whichever walk lists each root, the search lists the same class codewords in the same order as the walk by closing sets alone, the lexicographic order.
+The expansion into faults, the table of syndromes, the faults skipped, the batches sent to the oracle, and so the result depend on the listing only through this sequence of class codewords, since the calling thread computes them from it alone (see [threads](#listing-class-codewords-on-threads)).
+So they are the same with either walk.
 
 **The probes.**
-To test whether some class `z` has flags `σ(A) + f(x)`, the walk probes the closing map of single classes with the hash of these flags, as the walk by closing sets does.
+To find the classes `z` with flags `σ(A) + f(x)`, the walk probes the closing map of single classes with the hash of these flags, as the walk by closing sets does.
 A class with these flags has this hash, so a probe that finds no class with this hash rules out a record.
-So the walk probes first, and checks the flags of the class found, whether it is available, and whether `A ∪ {x}` is independent only when the probe finds a class.
-These are the checks of the definition in another order, so the walk records the same class codewords, while most candidates cost only a probe.
+Otherwise, the walk checks every class with this hash, since different flags can share a hash: it compares their flags in full, never relying on the hash alone, and checks whether each class with these flags is available, and whether `A ∪ {x}` is independent.
+These are the checks of the definition, applied only when a probe finds a class, so the walk records the same class codewords, while most candidates cost only a probe.
 
 **Which walk lists a root.**
 The walk by shared flags costs little when the candidates are few, and can cost more than the walk by closing sets when many classes share each bit, or when that walk uses closing sets of two or more classes.
 So the search gives a root up to the walk by closing sets once the walk by shared flags has done the estimated work of the walk by closing sets for that root, or before it starts if that work is less than one state.
 It also gives up a root whose class codewords fill its array of class codewords, which has a fixed size.
 By these estimates, a root given up costs at most about twice as much as with the cheaper walk.
-The search discards the class codewords that the walk by shared flags recorded for a root that it gives up, and the walk by closing sets lists them all, so the listing does not depend on which walk lists each root.
+As shown under **Order** above, the listing does not depend on which walk lists each root.
 `FaultLister` in `_fault_search.py` says how the search estimates the work of each walk.
 
 ### Skipping faults whose syndromes are listed
