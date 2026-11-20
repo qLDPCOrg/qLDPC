@@ -261,8 +261,8 @@ def test_state_stabilizers_match_flows() -> None:
     """Simulation finds the fixed parities that flows find, on random circuits.
 
     Fixed parities are as the comment in get_state_stabilizers defines them.  The reference,
-    _get_fixed_parities_by_flows, finds them from stim.Circuit.flow_generators instead.  The signs
-    of the stabilizers come from one simulation either way, and are tested on their own.
+    _get_fixed_parities_by_flows, finds them from stim.Circuit.flow_generators instead.  Fixed
+    parities carry no signs, which test_state_stabilizer_signs tests.
     """
     rng = np.random.default_rng(0)
     cases = [_get_random_state_prep_circuit(rng) for _ in range(400)]
@@ -280,13 +280,8 @@ def test_state_stabilizers_match_flows() -> None:
         for instruction in instructions
         for target in instruction.targets_copy()
     ]
-    assert {name for name, target in targets if target.is_measurement_record_target} >= {
-        "CX",
-        "CY",
-        "CZ",
-        "XCZ",
-        "YCZ",
-    }
+    record_users = {name for name, target in targets if target.is_measurement_record_target}
+    assert record_users >= {"CX", "CY", "CZ", "XCZ", "YCZ", "OBSERVABLE_INCLUDE"}
     assert any(target.is_sweep_bit_target for _, target in targets)
     assert any(
         target.is_inverted_result_target
@@ -300,7 +295,10 @@ def test_state_stabilizers_match_flows() -> None:
 
     # the random circuits include Pauli-target observables followed by operations on their qubits,
     # and observables in REPEAT blocks
-    assert sum(_has_pauli_observable_before_use(circuit.flattened()) for circuit, _ in cases)
+    assert any(
+        _count_uses_after_pauli_observables(circuit.flattened().without_noise())
+        for circuit, _ in cases
+    )
     assert any(
         instruction.body_copy().num_observables
         for circuit, _ in cases
@@ -325,7 +323,7 @@ def test_state_stabilizers_match_flows() -> None:
 @pytest.mark.parametrize(
     ("circuit", "qubits", "expected"),
     [
-        ("CX sweep[0] 0\nX 1", [0, 1], ["+Z_", "-_Z"]),
+        ("CX sweep[0] 0", [0], ["+Z"]),
         ("M !0\nCX rec[-1] 1", [1], ["-Z"]),
         ("MPAD 1\nCX rec[-1] 0", [0], ["-Z"]),
         ("HERALDED_ERASE(0.1) 0\nCX rec[-1] 1", [1], ["+Z"]),
@@ -428,12 +426,12 @@ def _get_random_circuit(
 ) -> stim.Circuit:
     """A random circuit, which may follow the given number of measurements.
 
-    The circuit draws from _GATES; MPP, SPP, and SPP_DAG; detectors; observables with
+    Its instructions come from _GATES; MPP, SPP, and SPP_DAG; detectors; observables with
     measurement-record and Pauli targets; Paulis controlled by measurement records or sweep bits;
-    MPAD; annotations; noise, including heralded noise; and, outside a REPEAT block, REPEAT
-    blocks.  Measurement results may be inverted.  Each
-    gate and Pauli product has one or two groups of targets, drawn with replacement across groups,
-    so that targets repeat on purpose.
+    MPAD; annotations; noise, including heralded noise; and, outside a REPEAT block, REPEAT blocks.
+    Measurement results may be inverted.  Each gate has one or two groups of targets, and each MPP,
+    SPP, or SPP_DAG one or two Pauli products, each from one group.  The groups are drawn with
+    replacement, so that targets repeat on purpose.
     """
     circuit = stim.Circuit()
     for _ in range(int(rng.integers(1, 6 if in_repeat_block else 25))):
@@ -473,10 +471,10 @@ def _get_random_circuit(
             paulis = [
                 stim.target_pauli(qubit, rng.choice(["X", "Y", "Z"])) for qubit in groups[0][:2]
             ]
+            targets = [*paulis, *records]
+            order = rng.permutation(len(targets))[: rng.integers(1, 4)]
             circuit.append(
-                "OBSERVABLE_INCLUDE",
-                [*paulis, *records][: rng.integers(1, 4)],
-                int(rng.integers(2)),
+                "OBSERVABLE_INCLUDE", [targets[index] for index in order], int(rng.integers(2))
             )
         elif kind < 0.78:
             control = (
@@ -517,19 +515,23 @@ def _repeats_target(instruction: stim.CircuitInstruction) -> bool:
     return len(set(values)) < len(values)
 
 
-def _has_pauli_observable_before_use(circuit: stim.Circuit) -> bool:
-    """Whether an operation acts on a qubit after an observable with a Pauli target on it."""
+def _count_uses_after_pauli_observables(circuit: stim.Circuit) -> int:
+    """The number of operations on a qubit that an earlier observable has a Pauli target on.
+
+    Operations are Clifford gates, resets, and measurements, and the circuit must be flat.
+    """
     observed: set[int] = set()
+    count = 0
     for instruction in circuit:
-        qubits = {target.value for target in instruction.targets_copy() if target.is_qubit_target}
-        qubits |= {
-            target.value for target in instruction.targets_copy() if target.pauli_type != "I"
-        }
+        targets = instruction.targets_copy()
+        qubits = {target.value for target in targets if target.is_qubit_target}
+        qubits |= {target.value for target in targets if target.pauli_type != "I"}
+        data = stim.gate_data(instruction.name)
         if instruction.name == "OBSERVABLE_INCLUDE":
             observed |= qubits
-        elif qubits & observed:
-            return True
-    return False
+        elif data.is_unitary or data.is_reset or data.produces_measurements:
+            count += bool(qubits & observed)
+    return count
 
 
 def _get_fixed_parities(
@@ -550,6 +552,7 @@ def _get_fixed_parities(
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
     detectors, rows = encoding._get_fixed_parities_by_simulation(circuit, simulator, state_qubits)
+    assert np.array_equal(get_independent_rows(rows), rows)
     left_out = np.setdiff1d(np.arange(circuit.num_detectors), detectors)
     matrix = np.zeros(
         (len(rows) + len(left_out), circuit.num_detectors + 2 * len(qubits)), np.uint8
