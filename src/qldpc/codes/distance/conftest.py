@@ -472,7 +472,7 @@ def assert_exact_answers(
 
 @pytest.fixture(autouse=True)
 def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make the workers of ``run_work_items`` fail if they break a rule on threads, in every test.
+    """Fail workers of ``run_work_items`` on Python calls of ``get_tuning`` or numba-parallel code.
 
     Section 5 of each method's guide, ``brouwer_zimmermann_code.md`` or ``connected_cluster.md``,
     states the rules, and "Threads" in ``qldpc/circuits/certification/fault_propagation.md`` those

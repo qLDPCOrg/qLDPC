@@ -32,6 +32,52 @@ def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
                 assert path.name == "_compilation.py", f"{path.name} caches without it"
 
 
+def test_only_compilation_calls_numba_jit() -> None:
+    """Numba code uses the decorators of ``_compilation``, which the tests of the rules read."""
+    for path, tree in _get_source_trees():
+        if path.name == "_compilation.py":
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("numba"):
+                names = {alias.name for alias in node.names}
+            elif isinstance(node, ast.Attribute):
+                names = {node.attr}
+            else:
+                continue
+            assert not names & {"njit", "jit"}, (
+                f"{path.name}:{node.lineno} uses numba's njit or jit"
+            )
+
+
+def test_compiling_decorators_are_used_only_as_decorators() -> None:
+    """``conftest.get_compiled_functions`` sees the decorators only where ``@`` applies them."""
+    for path, tree in _get_source_trees():
+        if path.name == "_compilation.py":
+            continue
+
+        # The names under which the module imports the decorators.
+        names = {"always_compiled", "compiled_on_request"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                names |= {
+                    alias.asname for alias in node.names if alias.name in names and alias.asname
+                }
+
+        # Each use of those names applies a decorator to a function.
+        decorators = {
+            decorator.func if isinstance(decorator, ast.Call) else decorator
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            for decorator in node.decorator_list
+        }
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name | ast.Attribute):
+                name = node.id if isinstance(node, ast.Name) else node.attr
+                assert name not in names or node in decorators, (
+                    f"{path.name}:{node.lineno} uses {name} other than as a decorator"
+                )
+
+
 def test_nothing_asks_numba_for_parallel_code() -> None:
     """Threads run compiled code, and two that run numba-parallel code at once abort the process.
 

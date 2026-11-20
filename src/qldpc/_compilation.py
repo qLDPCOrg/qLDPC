@@ -52,7 +52,10 @@ them only in :mod:`qldpc.codes.distance`, whose tests CI runs with them compiled
 is neither runs as plain Python.  A small always-compiled helper that hot loops call can be marked
 ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function may call
 always-compiled and compiled-on-request functions.  An always-compiled function may call only
-always-compiled functions, since it is compiled and cached by itself.
+always-compiled functions, since it is compiled and cached by itself.  The tests of these rules find
+compiled functions by their decorators, so outside tests, use :func:`always_compiled` and
+:func:`compiled_on_request`, or a name that ``from ... import ... as`` gives them in the same
+module, only right after ``@`` above a function, as in ``@always_compiled(nogil=True)``.
 
 Pass ``nogil=True`` to :func:`always_compiled` only for an entry point that runs while other threads
 run compiled code: one that several threads run at once, such as the scan of a work item of a
@@ -71,7 +74,8 @@ which tests check them, and for the certifier's fault lister, "Threads" in
 ``qldpc/codes/distance/_thread_rules_test.py`` checks that Section 5 names each such entry point of
 that package, and ``qldpc/circuits/certification/_fault_search_test.py`` that the certifier's guide
 names those of the certifier.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of
-qLDPC asks numba for parallel code, and that ``nogil`` is passed as a literal ``True`` or ``False``,
+qLDPC asks numba for parallel code, that no module of the library other than this one and tests
+calls numba's ``njit`` or ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``,
 the only form that the tests read.  A compiled function without ``nogil=True`` keeps the lock when
 Python calls it while it is compiled, so threads that call it at once from Python take turns.
 
