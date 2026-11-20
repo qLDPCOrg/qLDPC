@@ -75,7 +75,8 @@ def certify_bounded_fault_propagation(
 
     Costly parts of the search run on several threads, as many as the ``num_threads`` field of the
     search tuning says: by default, the environment variable ``QLDPC_NUM_THREADS`` if it was set
-    when qLDPC was imported, or else one for each CPU that numba counts.  The result does not
+    when qLDPC was imported, or else ``numba.config.NUMBA_NUM_THREADS``, by default one for each
+    CPU that numba counts.  The result does not
     depend on the number of threads.  Programs that run certifications in several processes or
     threads at once should keep each on one thread, with ``QLDPC_NUM_THREADS=1`` set before Python
     starts, or by calling this function within ``use_tuning(num_threads=1)`` (see

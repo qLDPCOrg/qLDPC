@@ -48,10 +48,9 @@ Start from a symptom
        For every search of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method, raise :attr:`~SearchTuning.coset_route_minimum_work`, so that a search builds its extra families later or not at all, and, as a rule, in its searches by physical weight or on a CSS state, fewer queries build completion tables.
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
-   * - A distance search by the Brouwer-Zimmermann or connected-cluster method, or a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch`, uses too many or too few cores, as when several processes run searches at once
-     - By default, a search uses one thread for each CPU that numba counts.
+   * - A distance search by the Brouwer-Zimmermann or connected-cluster method, a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch`, or a certification of bounded fault propagation (:func:`~qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation`) uses too many or too few cores, as when several processes run searches at once
+     - By default, a search uses one thread for each CPU that numba counts, unless the environment variable ``NUMBA_NUM_THREADS`` sets another number.
        Set the environment variable ``QLDPC_NUM_THREADS`` before Python starts, which sets the default number of threads, or set :attr:`~SearchTuning.num_threads`.
-       Without ``QLDPC_NUM_THREADS``, the environment variable ``NUMBA_NUM_THREADS`` sets the default.
        A :class:`~qldpc.codes.distance.CosetLeaderSearch` reads ``num_threads`` when it is built.
        Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example with ``QLDPC_NUM_THREADS=1``.
        Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota rounded down, or to 1 if the quota is below 1.
@@ -176,6 +175,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.search_chunk_exponent`, :attr:`SearchTuning.connected_cluster_split_shift`
      -
      - `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__
+   * - Certifications of bounded fault propagation: when a costly fault listing moves to threads, and how many
+     - :attr:`SearchTuning.num_threads`
+     -
+     - `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md#threads>`__ of ``fault_propagation.md``
    * - Counts by the Brouwer-Zimmermann or brute-force method: time before a keyboard interrupt takes effect
      - :attr:`SearchTuning.scan_chunk_size`, :attr:`SearchTuning.scan_chunks_per_call`
      -

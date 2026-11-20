@@ -502,7 +502,7 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     fails the test.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_LOOKUPS_PER_THREAD", split_lookups)
-    monkeypatch.setattr(_fault_search, "_ITEMS_PER_THREAD", items_per_thread)
+    monkeypatch.setattr(_fault_search, "_WALK_ITEMS_PER_THREAD", items_per_thread)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CALL", 1)
     monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
@@ -596,7 +596,7 @@ def test_walk_items_split_the_walk_in_order_into_few_items(pytestconfig: pytest.
 
     The weight of an item is the number of ways to choose the other chosen classes after the second,
     summed over its range of second classes, and the items are at most the start classes plus
-    ``_ITEMS_PER_THREAD`` for each thread, however many classes there are.
+    ``_WALK_ITEMS_PER_THREAD`` for each thread, however many classes there are.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(7, 7, 2, 3), (48, 16, 8, 8), (10, 3, 3, 2), (5, 5, 4, 2), (6, 1, 6, 2)]
@@ -608,7 +608,7 @@ def test_walk_items_split_the_walk_in_order_into_few_items(pytestconfig: pytest.
         firsts, seconds, cumulative = _fault_search._get_walk_items(
             num_classes, num_starts, num_chosen, num_threads
         )
-        assert len(firsts) <= num_starts + _fault_search._ITEMS_PER_THREAD * num_threads
+        assert len(firsts) <= num_starts + _fault_search._WALK_ITEMS_PER_THREAD * num_threads
         assert sorted(set(firsts.tolist())) == list(range(num_starts))
         items = list(zip(firsts.tolist(), seconds.tolist(), strict=True))
         assert items == sorted(set(items))
@@ -628,7 +628,7 @@ def test_walk_items_split_the_walk_in_order_into_few_items(pytestconfig: pytest.
 
     # A walk with very many classes still has few items.
     firsts, _, _ = _fault_search._get_walk_items(131894, 127, 6, 8)
-    assert len(firsts) <= 127 + _fault_search._ITEMS_PER_THREAD * 8
+    assert len(firsts) <= 127 + _fault_search._WALK_ITEMS_PER_THREAD * 8
 
 
 def test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads() -> None:

@@ -37,9 +37,9 @@ from qldpc.codes.distance._tuning import get_tuning
 # closing table is built, before the slots, each set takes at most 8 more for a bucket count, so the
 # peak is 40 bytes plus 4 for each class: 48 for a pair.  This leaves out the extra memory of merge
 # sorting a bucket (a range of the table whose keys share their top bits) of more than 32 sets that
-# is out of order (see ``_sort_bucket``), and the array into which ``_list_class_codewords`` lists
-# class codewords, whose rows have room for all the class codewords of one lookup (see
-# ``FaultLister._iter_class_tuples``).
+# is out of order (see ``_sort_bucket``), and the arrays into which ``_list_class_codewords`` lists
+# class codewords, one for each thread that lists, whose rows have room for all the class codewords
+# of one lookup (see ``_CodewordWalk``).
 _BYTES_PER_SET = 40
 
 # The largest number of classes in a closing set (see ``FaultLister``).  Each class that a closing
@@ -74,14 +74,15 @@ _CODEWORD_BATCH_SIZE = 2**10
 _LOOKUPS_PER_CALL = 2**16
 
 # A listing of class codewords moves to threads once the calling thread, listing alone, has made
-# this many lookups for each thread, and the lookups left are estimated to be as many.  So small
-# listings never start threads, which costs about as much as half this many lookups, from starting
-# the threads to taking the last class codewords from them.
+# this many lookups for each thread, and the lookups left are estimated to be at least as many.
+# Starting threads and draining them costs about as much as half this many lookups for each thread,
+# so small listings never start them.
 _SPLIT_LOOKUPS_PER_THREAD = 2**14
 
 # The number of work items into which a listing on threads splits its walk for each thread, about
-# eight for each range of ``iterate_in_order``, so that the ranges hold about equal work.
-_ITEMS_PER_THREAD = 256
+# ``_WALK_ITEMS_PER_THREAD / RANGES_PER_THREAD`` for each range of ``iterate_in_order``, so that the
+# ranges hold about equal work.
+_WALK_ITEMS_PER_THREAD = 256
 
 # A walk end (see ``_list_class_codewords``) after every class codeword.
 _NO_WALK_END = (1 << 62, 0)
@@ -289,9 +290,10 @@ class FaultLister:
     grow to the same largest size (see ``_take_table_room``).
 
     On several threads, a costly listing of class codewords moves to threads, while the calling
-    thread expands the class codewords into faults in the order of one thread, so that the lister
-    checks the same faults as on one thread ("Threads" in ``fault_propagation.md``).  Each thread
-    allocates arrays for its listing as large as the calling thread's.
+    thread expands the class codewords into faults in the serial order, that of a listing on a
+    single thread, so that the lister checks the same faults as on one thread ("Threads" in
+    ``fault_propagation.md``).  Each thread allocates arrays for its listing as large as the calling
+    thread's.
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -301,7 +303,8 @@ class FaultLister:
         memory_limit: The approximate number of bytes for the closing maps of two or more classes
             and the table of syndromes.  The closing map of pairs has first claim, since it saves
             more time.
-        num_threads: The number of threads that list class codewords.
+        num_threads: The number of threads of a costly listing, counting the calling thread; with
+            fewer than two, the calling thread lists alone.
     """
 
     def __init__(
@@ -484,7 +487,7 @@ class FaultLister:
 
         For fault weight two, each class tuple is ``(c, c)`` for a start class ``c`` with at least
         two members.  For larger fault weights, the class tuples are the class codewords that start
-        with a start class, in the order of one thread.  Each batch is a view of an array that a
+        with a start class, in the serial order.  Each batch is a view of an array that a
         later batch can overwrite.  On several threads, closing the iterator stops its threads.
         """
         if fault_weight == 2:
@@ -506,7 +509,8 @@ class FaultLister:
         # On several threads, split the walk into work items, and list the first items alone, in
         # ranges of 1, 2, 4, and more items, until the lookups show that the listing is costly (see
         # "Threads" in ``fault_propagation.md``).  If the lookups left, estimated from the weights
-        # of the items, are fewer, list the rest alone too.
+        # of the items, are fewer than ``_SPLIT_LOOKUPS_PER_THREAD`` for each thread, list the rest
+        # alone too.
         firsts, seconds, cumulative_weights = _get_walk_items(
             len(self._class_rows), self._num_start_classes, num_chosen, self._num_threads
         )
@@ -547,6 +551,8 @@ class FaultLister:
             def list_range(start: int, end: int) -> Iterator[npt.NDArray[np.int64]]:
                 """List the class codewords of a range of the other items, a batch at a time."""
                 prefixes = get_prefix(num_listed + start), get_prefix(num_listed + end)
+                # Copy each batch, since the walk overwrites its array while the calling thread
+                # reads earlier ones.
                 for class_codewords in thread_walk.list_range(*prefixes, _LOOKUPS_PER_CALL):
                     yield class_codewords.copy()
 
@@ -689,10 +695,11 @@ def _get_walk_items(
     whose second is in a range ``[b, e)`` of later classes.  Its weight estimates its lookups: the
     number of ways to choose the other ``k - 2`` classes after the second, summed over the range,
     which is ``C(q - b, k - 1) - C(q - e, k - 1)`` for ``q`` classes.  The classes after each start
-    class are split into the fewest ranges whose weights are about ``1 / (_ITEMS_PER_THREAD *
-    num_threads)`` of the total or less, so that the number of items grows with the number of start
-    classes and of threads, not of classes.  Return the first two classes of each item, in the
-    order of the walk, and the total weight of the items up to each.
+    class are split into the fewest ranges whose weights are about
+    ``1 / (_WALK_ITEMS_PER_THREAD * num_threads)`` of the total or less, so that the number of
+    items grows with the number of start classes and of threads, not of classes.  Return the first
+    two classes of each item, in the order of the walk, and the total weight of the items up to
+    each.
     """
     # ``suffix[c]`` is the weight of the pairs of a start class before ``c`` and a class from ``c``
     # on, ``C(q - c, k - 1)``, as a float, which is zero once ``q - c < k - 1``.
@@ -707,9 +714,13 @@ def _get_walk_items(
     # left is at most ``1 - j / G`` of that of ``c1``.
     firsts = np.arange(num_start_classes, dtype=np.int64)
     first_weights = suffix[firsts + 1]
-    target = first_weights.sum() / (_ITEMS_PER_THREAD * num_threads) if num_start_classes else 0.0
+    target = (
+        first_weights.sum() / (_WALK_ITEMS_PER_THREAD * num_threads) if num_start_classes else 0.0
+    )
     num_ranges = np.ones(num_start_classes, dtype=np.int64)
     if target > 0:
+        # A start class with no later class has the upper bound zero, which ``np.clip`` returns
+        # when it is below the lower bound, so give it one range again.
         num_ranges = np.clip(np.ceil(first_weights / target), 1, num_classes - 1 - firsts)
         num_ranges = np.maximum(num_ranges, 1).astype(np.int64)
     item_firsts = np.repeat(firsts, num_ranges)
@@ -1068,11 +1079,10 @@ def _list_class_codewords(
     the level of the next choice, the number of lookups made so far, the end of the walk (two
     classes ``e1`` and ``e2``), and a number of lookups at which to pause.  The state starts as
     zeros, apart from the end and the lookups at which to pause, or as the state just after
-    choosing a start class at level 0 (see ``_CodewordWalk.list_range``).  The walk ends, with the
-    level -1, before it would choose at level 0 a class after ``e1``, or at level 1, after choosing
-    ``e1``, a class at or after ``e2``, so that it lists the class codewords whose first two classes
-    come before ``(e1, e2)`` in lexicographic order.  The other ``s - 1`` rows of ``basis`` and
-    ``pivots`` hold the closing classes being checked.
+    choosing a start class at level 0 (see ``_CodewordWalk.list_range``).  The walk lists the class
+    codewords whose first two classes come before ``(e1, e2)`` in lexicographic order, then sets the
+    level to -1.  The other ``s - 1`` rows of ``basis`` and ``pivots`` hold the closing classes
+    being checked.
 
     The listing pauses once at most ``C(num_classes, s - 1)`` rows of the array are free, since one
     lookup adds at most that many class codewords (see "Listing each irreducible accepted fault
