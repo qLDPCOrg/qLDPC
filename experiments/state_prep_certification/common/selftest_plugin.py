@@ -18,6 +18,8 @@ Each task's ``input`` is a list of steps that ``run`` performs in order:
 * ``["compile", cache]``: the measured call compiles ``_add_one`` with numba, cached on disk if
   ``cache`` is true, and calls it;
 * ``["compile_on_thread", cache]``: the same, on a thread that the measured call starts and joins;
+* ``["vectorize"]``: the measured call compiles ``_add_one`` as a ufunc with ``numba.vectorize``,
+  not cached on disk, and calls it;
 * ``["compile_untimed"]``: ``_add_one`` is compiled, not cached, before the measured call, and again
   after it (after ``send_result``, if there is a ``post`` step);
 * ``["die"]``: the measured call kills its own process with SIGKILL.
@@ -36,6 +38,8 @@ import sys
 import threading
 import time
 from typing import Any
+
+import numpy as np
 
 from experiments.state_prep_certification.common import runner
 
@@ -141,6 +145,10 @@ def _measured(steps: list[tuple[Any, ...]]) -> Any:
             thread = threading.Thread(target=_compile, args=(step[1],))
             thread.start()
             thread.join()
+        elif step[0] == "vectorize":
+            import numba
+
+            numba.vectorize(["int64(int64)"])(_add_one)(np.arange(2))
         elif step[0] == "die":
             os.kill(os.getpid(), signal.SIGKILL)
     return value

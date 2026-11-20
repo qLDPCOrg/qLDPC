@@ -37,6 +37,7 @@ The X checks of this consumer have no detectors, so Z errors on the block change
 [`experiment.py`](experiment.py) describes the arms and their seeds, and [`config.json`](config.json) holds the rates, sample sizes, limits, and the circuits of `exact`, `mc_check`, and `repro`.
 The `histogram` and `direct` tasks record the CPU seconds of their setup, their exactly listed strata, and their sampled strata, and `calib` those of its setup and its sampled cells, for the cost comparison.
 The scores are computed by the analysis from the stored histograms and calibrations.
+Every arm reaches galois's GF(2) arithmetic, which galois compiles in each process without caching it on disk, so every task first compiles it, untimed (`_compile_galois` in [`experiment.py`](experiment.py)).
 
 ## Commands
 
@@ -51,4 +52,3 @@ A bundle for ranking must also name `certification`, whose entry carries the inp
 `analyze.py --archive PATH --certification-archive PATH` reads the ranking archive and the certification archive of subset `main` that come back, checks the certification archive's provenance, and writes CSV and JSON tables; its docstring lists them.
 A row of the ranking archive with `compiled_in_timing` set (see the [shared README](../README.md#runs)) stops the analysis with an error that names it.
 The analysis admits circuits by the verdicts of the certification archive's rows, whatever their `compiled_in_timing`, although a flagged certification timeout may have timed out only because it compiled.
-An unflagged row's CPU seconds can still include a compilation of galois's ufuncs, which ranking's measured calls reach through qLDPC and `consumer.py`, and which numba does not report.
