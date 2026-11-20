@@ -203,7 +203,7 @@ def test_state_stabilizer_failure_regressions() -> None:
     assert len(circuits.get_logical_state_stabilizers(code, prep, qids)) == code.dimension
 
 
-def test_state_stabilizer_signs_must_be_determined() -> None:
+def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPatch) -> None:
     """Raise when a stabilizer on the requested qubits needs post-selection on random detectors."""
     # Z1 is a stabilizer only after post-selecting on the random outcome of M 0.  With a third
     # qubit, Z1 Z2 is a stabilizer with a fixed sign, but Z1 and Z2 need that post-selection.
@@ -213,6 +213,16 @@ def test_state_stabilizer_signs_must_be_determined() -> None:
         circuits.get_state_stabilizers(measured_bell, [1])
     with pytest.raises(ValueError, match=r"stabilizer Z[12] .*detectors \[0\]"):
         circuits.get_state_stabilizers(measured_ghz, [1, 2])
+
+    # The error names the random detector by its index in the circuit, after a deterministic
+    # detector, which the simulation route leaves out of its matrix.
+    circuit = stim.Circuit("M 0\nDETECTOR rec[-1]\nH 1\nCX 1 2\nM 1\nDETECTOR rec[-1]")
+    for force_flows in [False, True]:
+        with monkeypatch.context() as context:
+            if force_flows:
+                context.setattr(encoding, "_takes_simulation_route", lambda *_args: False)
+            with pytest.raises(ValueError, match=r"stabilizer Z2 .*detectors \[1\]"):
+                circuits.get_state_stabilizers(circuit, [2])
 
     # the error names a logical stabilizer by its logical qubit, here on physical qubit 2
     qubit_ids = circuits.QubitIDs(data=(2,))
@@ -232,27 +242,14 @@ def test_state_stabilizer_signs_must_be_determined() -> None:
 
 def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyPatch) -> None:
     """Simulation gives the stabilizers, signs, and errors that flows give, on random circuits."""
-    # the cases of test_state_stabilizer_signs_must_be_determined
-    cases: list[tuple[stim.Circuit, list[int]]] = [
-        (stim.Circuit(text), qubits)
-        for text, qubits in [
-            ("H 0\nCX 0 1\nM 0\nDETECTOR rec[-1]", [1]),
-            ("H 0\nCX 0 1\nCX 0 2\nM 0\nDETECTOR rec[-1]", [1, 2]),
-            ("H 0\nCX 0 1\nM 0\nDETECTOR rec[-1]", [2]),
-            ("X 0\nCX 0 1\nM 1\nDETECTOR rec[-1]\nH 2\nM 2\nDETECTOR rec[-1]", [0, 1]),
-            ("H 0\nCX 0 1\nCX 0 2\nM 0 1\nDETECTOR rec[-2] rec[-1]", [2]),
-        ]
-    ]
-
     # random circuits of every instruction that get_state_stabilizers simulates, with some noise
     non_gates = {"MPP", "DETECTOR", "TICK", "QUBIT_COORDS", "SHIFT_COORDS"}
     gates = sorted(encoding._SIMULATED_INSTRUCTIONS - non_gates)
     one_qubit_gates = [gate for gate in gates if stim.gate_data(gate).is_single_qubit_gate]
     two_qubit_gates = [gate for gate in gates if stim.gate_data(gate).is_two_qubit_gate]
     assert len(one_qubit_gates) + len(two_qubit_gates) == len(gates)
-    num_explicit_cases = len(cases)
     rng = np.random.default_rng(0)
-    cases += [
+    cases = [
         _get_random_state_prep_circuit(rng, one_qubit_gates, two_qubit_gates) for _ in range(400)
     ]
 
@@ -260,7 +257,7 @@ def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyP
     # target, which Stim's flows get wrong unless they are split
     measurements = [
         instruction
-        for circuit, _ in cases[num_explicit_cases:]
+        for circuit, _ in cases
         for instruction in circuit
         if isinstance(instruction, stim.CircuitInstruction)
         and instruction.name in ("M", "MX", "MY", "MR", "MRX", "MRY")
@@ -285,10 +282,9 @@ def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyP
         outcomes.append(outcome)
     assert simulate.call_count == len(cases)
 
-    # the random cases include nonempty lists of stabilizers, and undetermined signs
-    random_outcomes = outcomes[num_explicit_cases:]
-    assert any(isinstance(outcome, list) and outcome for outcome in random_outcomes)
-    assert any(isinstance(outcome, tuple) for outcome in random_outcomes)
+    # the cases include nonempty lists of stabilizers, and undetermined signs
+    assert any(isinstance(outcome, list) and outcome for outcome in outcomes)
+    assert any(isinstance(outcome, tuple) for outcome in outcomes)
 
 
 @pytest.mark.parametrize(
@@ -298,7 +294,6 @@ def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyP
         ("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]", [0], ["+Z"]),
         ("M 0\nCX rec[-1] 1", [1], ["+Z"]),
         ("HERALDED_ERASE(0.1) 0", [0], ["+Z"]),
-        ("MPAD 1", [0], ["+Z"]),
         ("MXX 0 1", [0, 1], ["+ZZ"]),
         ("SPP Z0", [0], ["+Z"]),
         ("MPP !Z0", [0], ["+Z"]),
@@ -335,15 +330,14 @@ def test_state_stabilizers_with_repeated_reset_measurements(
 ) -> None:
     """Both routes handle MR, MRX, and MRY with a repeated target, whose flows Stim gets wrong.
 
-    After ``H 0; CX 0 1``, the first result of ``MR 0 0`` is random and gives the sign of Z on
-    qubit 1, while the second result is 0, so a detector on it is deterministic, and only Z on the
+    After ``H 0; CX 0 1``, the first result of ``MR 0 0`` is random.  It gives the sign of Z on
+    qubit 1.  The second result is 0, so a detector on it is deterministic.  So only Z on the
     untouched qubit 2 has a fixed sign.  A detector on the first result instead leaves the sign of
-    Z on qubit 1 undetermined.  MRX and MRY act alike in their own bases, as does the first MR of a
-    REPEAT block, and so does ``MR[t] 0 0`` after ``MR 0``, whose first result is 0 instead.
-    Stim's flows of ``MR 0 0`` attribute the first result to the second
-    (https://github.com/quantumlib/Stim/issues/1109), which would tie the sign of Z on qubit 1 to a
-    detector on the second result, and raise an error for it.  The REPEAT block takes the flows
-    route either way.
+    Z on qubit 1 undetermined.  MRX and MRY act alike in their own bases.  So does the first
+    ``MR 0 0`` of a REPEAT block, which takes the flows route either way.  In ``MR 0; MR[t] 0 0``,
+    the first result is random and the rest are 0.  Stim's flows of ``MR 0 0`` attribute the first
+    result to the second (https://github.com/quantumlib/Stim/issues/1109).  That would tie the sign
+    of Z on qubit 1 to a detector on the second result, and raise an error for it.
     """
     for force_flows in [False, True]:
         with monkeypatch.context() as context:

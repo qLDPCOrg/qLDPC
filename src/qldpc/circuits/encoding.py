@@ -21,12 +21,12 @@ from .transforms import with_remapped_qubits
 
 # The instructions of the noiseless circuits whose state stabilizers get_state_stabilizers finds by
 # simulation; its tests compare simulation with flows on random circuits of these instructions.
-# Circuits with other features take the flows route:
+# Circuits with other features use stim.Circuit.flow_generators (the flows route):
 #   - OBSERVABLE_INCLUDE, since Stim's detector error model rejects a random observable even with
 #     gauge detectors allowed;
-#   - REPEAT blocks, classically controlled gates, and inverted results, which simulation has not
-#     been compared on yet;
-#   - MPAD, which heralded noise becomes without noise, and has not been compared on yet;
+#   - REPEAT blocks, classically controlled gates, and inverted result targets, such as M !0,
+#     which simulation has not been compared on yet;
+#   - MPAD, which without_noise makes of heralded noise, and which has not been compared on yet;
 #   - pair measurements, such as MXX, and SPP, which have not been compared on yet;
 #   - any other instruction, such as Clifford gates missing from this list, for the same reason.
 _SIMULATED_INSTRUCTIONS = frozenset(
@@ -395,8 +395,8 @@ def _takes_simulation_route(circuit: stim.Circuit, state_qubits: npt.NDArray[np.
     It does if the requested qubits are distinct and nonnegative, and each instruction of the
     circuit is in _SIMULATED_INSTRUCTIONS, with targets that are qubits, or Pauli products for MPP,
     and no inverted results.  So classically controlled gates, such as ``CX rec[-1] 0``, take the
-    flows route.  Repeated or negative requested qubits take the flows route too, so that their
-    results stay those of the flows.
+    flows route.  Repeated or negative requested qubits take the flows route too, since simulation
+    has not been compared on them.
     """
     if len(np.unique(state_qubits)) < len(state_qubits) or np.any(state_qubits < 0):
         return False
@@ -433,12 +433,13 @@ def _get_fixed_parities_by_simulation(
 
     # In a stabilizer circuit, measurement outcomes change only the signs of the final stabilizers.
     # Up to sign, these are the images T(Z_i), where T is the inverse of the simulator's inverse
-    # tableau V.  The inverse of a symplectic matrix S is Ω Sᵀ Ω, so T(Z_i) has X part z2x[:, i]
-    # and Z part x2x[:, i] of V, and V need not be inverted.
+    # tableau V.  The inverse of a symplectic matrix S is Ω Sᵀ Ω, where Ω = [[0, I], [I, 0]], so
+    # T(Z_i) has X part z2x[:, i] and Z part x2x[:, i] of V, and V need not be inverted.
     x2x, _, z2x, *_ = simulator.current_inverse_tableau().to_numpy()
 
-    # Row-reduce the final stabilizers with the qubits not requested first.  The rows that vanish on
-    # these qubits span the candidates: the stabilizers on the requested qubits, up to sign.
+    # Row-reduce the final stabilizers with the columns of the qubits not requested first.  The rows
+    # that vanish on these columns span the candidates: the stabilizers on the requested qubits, up
+    # to sign.
     other_qubits = np.setdiff1d(np.arange(num_qubits), state_qubits)
     generators = np.concatenate(
         [z2x[other_qubits], x2x[other_qubits], z2x[state_qubits], x2x[state_qubits]]
@@ -580,10 +581,15 @@ def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
     This works around https://github.com/quantumlib/Stim/issues/1109: for such an instruction, such
     as ``MR 0 0``, ``stim.Circuit.flow_generators`` attributes the outcome of one measurement to
     another.  The issue also gives MPAD wrong flows, but they differ only in sign, which
-    get_state_stabilizers ignores, so MPAD needs no split.  The single-target instructions keep the
-    original tag, so that they do not merge with a neighbor that has a different tag, and TICK
-    instructions between them stop Stim from merging them with each other.  The measurements keep
+    get_state_stabilizers ignores, so MPAD needs no split.  TICK instructions before, between, and
+    after the single-target instructions stop Stim from merging them with each other or with their
+    neighbors, and the single-target instructions keep the original tag.  The measurements keep
     their order.
+
+    Once qLDPC requires a stim release that fixes this issue, delete this function, its call in
+    _get_fixed_parities_by_flows, and the cases of
+    test_state_stabilizers_with_repeated_reset_measurements that only it needs, such as the tagged
+    MR and the REPEAT block.
     """
     split_circuit = stim.Circuit()
     for instruction in circuit:
@@ -594,6 +600,7 @@ def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
         targets = instruction.targets_copy()
         qubits = [target.value for target in targets]
         if instruction.name in ("MR", "MRX", "MRY") and len(set(qubits)) < len(qubits):
+            split_circuit.append("TICK")
             for target in targets:
                 split_circuit.append(
                     instruction.name, [target], instruction.gate_args_copy(), tag=instruction.tag
