@@ -816,36 +816,51 @@ def test_a_thread_of_a_listing_hands_on_no_empty_batch_and_stops_when_asked(
 ) -> None:
     """A thread of a listing hands on only nonempty batches, and returns once its stop event is set.
 
-    With calls of one probe of work, most calls of the walk list no class codeword.  A function
-    that ``start_walk`` returns lists a range of every root as one thread would, in batches that
-    are never empty; with its stop event set, it returns after its first call, before the class
-    codewords of the range.
+    With calls of one probe of work, most calls of the walk list no class codeword.  The function
+    that a listing on threads gives ``iterate_in_order`` for each thread lists the range of all the
+    roots, as one thread would, in batches that are never empty.  With its stop event set, it
+    returns after one call of the walk, which lists no class codeword.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
     monkeypatch.setattr(_fault_search, "_PROBES_PER_CALL", 1)
-    listed: dict[str, list[tuple[int, ...]]] = {}
+    start_workers: list[Callable[..., Any]] = []
+    iterate_in_order = _fault_search.iterate_in_order
 
-    def fake_iterate(
+    def record_start_worker(
         num_items: int, num_threads: int, start_worker: Callable[..., Any], **kwargs: Any
     ) -> Iterator[npt.NDArray[np.int64]]:
-        stop = threading.Event()
-        batches = list(start_worker(stop)(0, num_items))
-        assert all(len(batch) for batch in batches)
-        listed["running"] = [tuple(row) for batch in batches for row in batch.tolist()]
-        stop.set()
-        stopped = list(start_worker(stop)(0, num_items))
-        listed["stopped"] = [tuple(row) for batch in stopped for row in batch.tolist()]
-        yield from batches
+        start_workers.append(start_worker)
+        return iterate_in_order(num_items, num_threads, start_worker, **kwargs)
 
-    monkeypatch.setattr(_fault_search, "iterate_in_order", fake_iterate)
+    calls: list[int] = []
+    list_by_shared_flags = _fault_search._list_by_shared_flags
+
+    def count_calls(*args: Any) -> int:
+        calls.append(1)
+        return list_by_shared_flags(*args)
+
+    monkeypatch.setattr(_fault_search, "iterate_in_order", record_start_worker)
+    monkeypatch.setattr(_fault_search, "_list_by_shared_flags", count_calls)
     flags = list(range(1, 16))
     syndromes = [1 << jj for jj in range(15)]
     errors = [0b111 << (3 * jj) for jj in range(15)]
     lister = _fault_search.FaultLister(flags, syndromes, errors, 45, False, 15, 0, 3)
     expected = _class_codewords(flags, 3, 15)
-    assert _take_class_tuples(lister, 3, len(expected) + 1) == expected
-    assert listed["running"] == expected
-    assert listed["stopped"] == []
+    listed = distance_conftest.run_on_a_thread(
+        functools.partial(_take_class_tuples, lister, 3, len(expected) + 1),
+        timeout=_COMPILE_TIMEOUT,
+    )
+    assert listed == expected and len(start_workers) == 1
+
+    # Run the function of a thread on this thread, as a thread would.
+    batches = list(start_workers[0](threading.Event())(0, lister._num_start_classes))
+    assert all(len(batch) for batch in batches)
+    assert [tuple(row) for batch in batches for row in batch.tolist()] == expected
+    stop = threading.Event()
+    stop.set()
+    calls.clear()
+    assert not list(start_workers[0](stop)(0, lister._num_start_classes))
+    assert len(calls) == 1
 
 
 def test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads() -> None:

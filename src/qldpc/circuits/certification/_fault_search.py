@@ -539,8 +539,9 @@ class FaultLister:
                 # Copy each batch in slices of at most ``_CODEWORD_BATCH_SIZE`` class codewords,
                 # since the walk overwrites its array while the calling thread reads earlier ones,
                 # and the batches that ``iterate_in_order`` holds should take little memory.  Hand
-                # on no empty batch, since the batches that it holds are capped: check the stop
-                # event after each call of the walk instead.
+                # on no empty batch, since empty batches would count toward its cap on held batches
+                # and stall the threads that list ahead; check the stop event after each call of the
+                # walk instead.
                 for class_codewords in thread_walk.list_range(
                     num_listed + start, num_listed + end, _PROBES_PER_CALL
                 ):

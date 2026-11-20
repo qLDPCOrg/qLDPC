@@ -798,21 +798,15 @@ def test_a_worker_that_raises_as_it_starts_stops_the_others() -> None:
 def test_closing_the_iterator_sets_the_stop_event_of_its_threads() -> None:
     """Closing the iterator sets the stop event of its threads, so a range without outputs ends.
 
-    Of two threads, the first lists range 0, of one output, and the second range 1, which adds no
-    output and waits for the stop event, as an iterator that checks it between chunks of its work
-    would.  The calling thread takes the output of range 0, waits until both workers have started
-    and range 1 waits, and closes the iterator, which sets the event, so that the second thread
-    returns and the close does not wait for a timeout.
+    Of two ranges, range 0 has one output, and range 1 has none and waits for the stop event, as
+    the iterator of a range that checks it between chunks of its work would.  The calling thread
+    takes the output of range 0, waits until a thread runs range 1, and closes the iterator, which
+    sets the event, so that the close does not wait for the timeout of that wait.
     """
     waited: list[bool] = []
-    waiting, both_started = threading.Event(), threading.Event()
-    starts: list[int] = []
+    waiting = threading.Event()
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[str]]:
-        starts.append(threading.get_ident())
-        if len(starts) == 2:
-            both_started.set()
-
         def run_range(start: int, end: int) -> Iterator[str]:
             if start == 0:
                 yield "first"
@@ -827,7 +821,6 @@ def test_closing_the_iterator_sets_the_stop_event_of_its_threads() -> None:
             monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 1)
             outputs = _threads.iterate_in_order(2, 3, start_worker)
             assert next(outputs) == "first"
-            assert both_started.wait(timeout=THREAD_TIMEOUT)
             assert waiting.wait(timeout=THREAD_TIMEOUT)
             started = time.perf_counter()
             outputs.close()
