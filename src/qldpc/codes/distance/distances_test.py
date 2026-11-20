@@ -781,7 +781,7 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
         assert distance == expected
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster"])
 def test_coset_weights_of_vectors(
     method: distances.DistanceMethod, pytestconfig: pytest.Config
 ) -> None:
@@ -792,9 +792,11 @@ def test_coset_weights_of_vectors(
     words = (np.arange(1 << num_bits)[:, None] >> np.arange(num_bits)) & 1
     powers = 1 << np.arange(len(checks))
     syndromes = (words @ checks.T % 2) @ powers
-    # The vectors are not code words, whose cosets ``ClassicalCode`` handles itself.
+    # The vectors are not code words, whose cosets ``ClassicalCode`` handles itself.  A vector of
+    # weight one, whose coset weighs one, tests the limit of the search at the weight of the vector.
     outside = np.flatnonzero(syndromes)
-    for index in rng.choice(outside, size=6):
+    unit = int(np.flatnonzero(syndromes[1 << np.arange(num_bits)])[0])
+    for index in [1 << unit, *rng.choice(outside, size=6)]:
         vector, syndrome = words[index].astype(np.uint8), syndromes[index]
         expected = int(words[syndromes == syndrome].sum(axis=1).min())
         weight = int(vector.sum())

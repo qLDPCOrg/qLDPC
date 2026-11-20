@@ -283,7 +283,7 @@ def test_distance_classical(bits: int = 3) -> None:
 
     # trivial (null) codes have an undefined distance
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
-    random_vector = np.random.randint(2, size=len(trivial_code))
+    random_vector = np.random.default_rng(0).integers(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
     assert trivial_code.get_distance_exact() is codes.NO_DISTANCE
     assert trivial_code.get_distance_bound() is codes.NO_DISTANCE

@@ -982,22 +982,20 @@ def _get_coset_weight(
 ) -> int:
     """The minimum weight of the coset of a vector that is not a word of a binary classical code.
 
-    The code has the parity checks ``checks`` and the generators ``generators``, and the syndrome of
-    ``vector`` is nonzero.  ``ClassicalCode.get_distance_exact`` calls this with its ``cutoff`` and
-    ``method``: once a vector of the coset of weight at most ``cutoff`` is found, the search stops
-    and returns its weight, an upper bound.  An automorphism of the code need not map the coset of
-    the vector onto itself, so the searches of the coset use no automorphisms.
+    The code has the parity checks ``checks`` and the generators ``generators``, which callers pass
+    because they already have them, and the syndrome of ``vector`` is nonzero.  Once the search
+    finds a vector of the coset that weighs at most ``cutoff``, it stops and returns that weight, an
+    upper bound.  An automorphism of the code need not map the coset of the vector onto itself, so
+    the searches of the coset use no automorphisms.
     """
     if method == "connected_cluster":
         # The vector itself is within the cutoff, or bounds the weight of its coset.
         weight = int(np.count_nonzero(vector))
         if weight <= cutoff:
             return weight
-        # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the coset
-        # of the vector, with b appended, and the words with b = 0 are the code words, which the
-        # search excludes.  So the coset weighs one less than the search finds, and the cutoff is
-        # one more.  The vector with b appended weighs weight + 1, so the search need not look
-        # beyond weight.
+        # The distance search of the checks [H | Hv], with H the checks and v the vector, and of the
+        # excluded rows [G | 0], with G the generators, finds the weight of the coset plus one
+        # (Section 3.8 of connected_cluster.md).
         augmented_checks = np.hstack([checks, (checks @ vector)[:, None] % 2])
         code_words = np.hstack([generators, np.zeros((len(generators), 1), dtype=generators.dtype)])
         found = get_distance_from_checks(
@@ -1005,7 +1003,8 @@ def _get_coset_weight(
         )
         return int(found) - 1
 
-    # The vector is one logical operator modulo the code, so search its coset.
+    # Search the words v + c, for code words c: the vector is the only generator, and the code words
+    # are excluded.
     return int(get_distance_from_generators([vector], generators, cutoff=cutoff, method=method))
 
 

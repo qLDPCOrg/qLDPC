@@ -624,15 +624,17 @@ class ClassicalCode(AbstractCode):
                 self._distance = int(distance)
 
         else:
-            # A vector in the code is at distance zero from it.
+            # The distance of the vector from the code: zero for a code word, the weight of its
+            # coset for a binary code, and otherwise the least distance to a code word.  The
+            # searches of the coset take a vector with a nonzero syndrome.
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
             if self.field is galois.GF2:
                 return _get_coset_weight(
-                    self.matrix.view(np.ndarray),
-                    self.generator.view(np.ndarray),
-                    vector.view(np.ndarray),
+                    self.matrix.view(np.ndarray).astype(np.uint8),
+                    self.generator.view(np.ndarray).astype(np.uint8),
+                    vector.view(np.ndarray).astype(np.uint8),
                     cutoff=cutoff,
                     method=method,
                 )
