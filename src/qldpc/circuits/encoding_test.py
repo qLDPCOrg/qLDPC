@@ -262,7 +262,9 @@ def test_state_stabilizers_match_flows() -> None:
 
     Fixed parities are as the comment in get_state_stabilizers defines them.  The reference,
     _get_fixed_parities_by_flows, finds them from stim.Circuit.flow_generators instead.  Fixed
-    parities carry no signs, which test_state_stabilizer_signs tests.
+    parities carry no signs; test_state_stabilizer_signs tests the signs of the stabilizers.  The
+    test also checks that simulation returns the fixed parities in reduced row echelon form, which
+    get_state_stabilizers relies on.
     """
     rng = np.random.default_rng(0)
     cases = [_get_random_state_prep_circuit(rng) for _ in range(400)]
@@ -282,6 +284,11 @@ def test_state_stabilizers_match_flows() -> None:
     ]
     record_users = {name for name, target in targets if target.is_measurement_record_target}
     assert record_users >= {"CX", "CY", "CZ", "XCZ", "YCZ", "OBSERVABLE_INCLUDE"}
+    assert any(
+        all(target.is_measurement_record_target for target in instruction.targets_copy())
+        for instruction in instructions
+        if instruction.name == "OBSERVABLE_INCLUDE"
+    )
     assert any(target.is_sweep_bit_target for _, target in targets)
     assert any(
         target.is_inverted_result_target
@@ -296,7 +303,7 @@ def test_state_stabilizers_match_flows() -> None:
     # the random circuits include Pauli-target observables followed by operations on their qubits,
     # and observables in REPEAT blocks
     assert any(
-        _count_uses_after_pauli_observables(circuit.flattened().without_noise())
+        _uses_qubit_after_pauli_observable(circuit.flattened().without_noise())
         for circuit, _ in cases
     )
     assert any(
@@ -429,9 +436,9 @@ def _get_random_circuit(
     Its instructions come from _GATES; MPP, SPP, and SPP_DAG; detectors; observables with
     measurement-record and Pauli targets; Paulis controlled by measurement records or sweep bits;
     MPAD; annotations; noise, including heralded noise; and, outside a REPEAT block, REPEAT blocks.
-    Measurement results may be inverted.  Each gate has one or two groups of targets, and each MPP,
-    SPP, or SPP_DAG one or two Pauli products, each from one group.  The groups are drawn with
-    replacement, so that targets repeat on purpose.
+    Measurement results may be inverted.  Each instruction from _GATES targets one or two groups of
+    distinct qubits, and each MPP, SPP, or SPP_DAG has one or two Pauli products, each on one
+    group.  The groups are drawn independently, so that targets repeat on purpose.
     """
     circuit = stim.Circuit()
     for _ in range(int(rng.integers(1, 6 if in_repeat_block else 25))):
@@ -472,9 +479,9 @@ def _get_random_circuit(
                 stim.target_pauli(qubit, rng.choice(["X", "Y", "Z"])) for qubit in groups[0][:2]
             ]
             targets = [*paulis, *records]
-            order = rng.permutation(len(targets))[: rng.integers(1, 4)]
+            chosen = rng.permutation(len(targets))[: rng.integers(1, 4)]
             circuit.append(
-                "OBSERVABLE_INCLUDE", [targets[index] for index in order], int(rng.integers(2))
+                "OBSERVABLE_INCLUDE", [targets[index] for index in chosen], int(rng.integers(2))
             )
         elif kind < 0.78:
             control = (
@@ -515,13 +522,14 @@ def _repeats_target(instruction: stim.CircuitInstruction) -> bool:
     return len(set(values)) < len(values)
 
 
-def _count_uses_after_pauli_observables(circuit: stim.Circuit) -> int:
-    """The number of operations on a qubit that an earlier observable has a Pauli target on.
+def _uses_qubit_after_pauli_observable(circuit: stim.Circuit) -> bool:
+    """Whether a gate, reset, or measurement acts on a qubit after a Pauli observable on that qubit.
 
-    Operations are Clifford gates, resets, and measurements, and the circuit must be flat.
+    A Pauli observable is an observable with a Pauli target.  The circuit must be flat and
+    noiseless.  MPAD acts on no qubit, although Stim stores its results as qubit targets.
     """
     observed: set[int] = set()
-    count = 0
+    uses = False
     for instruction in circuit:
         targets = instruction.targets_copy()
         qubits = {target.value for target in targets if target.is_qubit_target}
@@ -529,9 +537,11 @@ def _count_uses_after_pauli_observables(circuit: stim.Circuit) -> int:
         data = stim.gate_data(instruction.name)
         if instruction.name == "OBSERVABLE_INCLUDE":
             observed |= qubits
-        elif data.is_unitary or data.is_reset or data.produces_measurements:
-            count += bool(qubits & observed)
-    return count
+        elif instruction.name != "MPAD" and (
+            data.is_unitary or data.is_reset or data.produces_measurements
+        ):
+            uses |= bool(qubits & observed)
+    return uses
 
 
 def _get_fixed_parities(
@@ -552,6 +562,8 @@ def _get_fixed_parities(
     simulator = stim.TableauSimulator()
     simulator.do(circuit)
     detectors, rows = encoding._get_fixed_parities_by_simulation(circuit, simulator, state_qubits)
+
+    # get_state_stabilizers relies on these rows being in reduced row echelon form
     assert np.array_equal(get_independent_rows(rows), rows)
     left_out = np.setdiff1d(np.arange(circuit.num_detectors), detectors)
     matrix = np.zeros(
