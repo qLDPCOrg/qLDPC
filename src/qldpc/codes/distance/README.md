@@ -125,7 +125,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
 | The bound for one syndrome that the coset-leader search and its coset searches give (`MinWeightBound`) | `min_weight_bounds.py` |
-| Which sectors a distance search of a CSS code searches, and the qubit permutations that map one sector onto the other | `_search_css` of `distances.py`, and `_sector_maps.py`, which calls `get_matrix_isomorphism` of `src/qldpc/external/_bliss.py` |
+| Which sectors a distance search of a CSS code searches, and the qubit permutations that map one sector onto the other | `_search_css` and `_search` of `distances.py`, and `_sector_maps.py`, which calls `get_matrix_isomorphism` of `src/qldpc/external/_bliss.py` |
 | The parts that the coset searches of both methods share: words with unit syndromes, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
 | How basis families are built | `_information_sets/basis_families.py` |
 | Certificates, and how searches plan their steps: where they stop, and the work of the steps up to there | `_information_sets/certificates.py` |
@@ -171,7 +171,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecat
 The distance of a CSS code is the smaller of the distances of its two sectors, so a search of the distance normally searches both.
 Let `G_X` and `G_Z` be the X-type and Z-type gauge generators of the code, which are its checks if it is a stabilizer code, and let `S_X` and `S_Z` be the spaces of its X-type and Z-type stabilizers.
 The X sector holds the words of `S_Z^⊥` outside `rowspan(G_X)`, and the Z sector those of `S_X^⊥` outside `rowspan(G_Z)` (Section 3.1 of `connected_cluster.md`).
-`_search_css` in `distances.py` searches only the X sector if it finds a qubit permutation `π` that maps `rowspan(G_X)` onto `rowspan(G_Z)` and `rowspan(G_Z)` onto `rowspan(G_X)`.
+A distance search of a CSS code, by `_search_css` and `_search` in `distances.py`, searches only the X sector if it finds a qubit permutation `π` that maps `rowspan(G_X)` onto `rowspan(G_Z)` and `rowspan(G_Z)` onto `rowspan(G_X)`.
 The two sectors then have the same distance, so the result is the same, and so are the meanings of `cutoff` and `upper_bound`, since one sector has a word of a given weight exactly when the other does.
 
 The proof: `π` preserves weights and dot products, so it maps the orthogonal complement of a space onto that of its image.
@@ -180,7 +180,7 @@ So `π(S_Z) = rowspan(G_X) ∩ rowspan(G_Z)^⊥ = S_X`, and `π` maps a word of 
 The inverse of `π` swaps the row spaces too, and so maps the Z sector into the X sector, which makes the map onto.
 For a stabilizer code, `S_X = rowspan(G_X)` and `S_Z = rowspan(G_Z)`, and the proof is the same.
 
-Only `_search_css` looks for such a permutation, with `get_sector_map` in `_sector_maps.py`, and it finds only two kinds.
+Only a distance search of a CSS code looks for such a permutation, with `get_sector_map` in `_sector_maps.py`, and it finds only two kinds.
 The first is the identity, which swaps the row spaces if they are equal.
 For the second, color the X-type and Z-type gauge generators of the Tanner graph differently.
 With the optional pybliss package, bliss compares the canonical forms of this graph and of the graph with the colors swapped, and an isomorphism between them gives the second kind.
@@ -212,7 +212,7 @@ Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qu
 
 Each problem's method type has its own `"auto"`, which chooses among that problem's methods: the coset searches of `CosetLeaderSearch` take the BZ method for it (`_get_coset_search_method` of `coset_leaders.py`), and so do counts (`_get_logical_count_method` of `logical_counts.py`).
 For distances, `method="auto"` is the default of the distance functions, of `get_distance` and `get_distance_exact` of the code classes, and of `get_fault_distance`.
-It chooses a method for each search, in `_search_css`, `_search_checks`, and `_search_generators` of `distances.py`.
+It chooses a method for each search, in `_search` of `distances.py`, which every distance function calls.
 A code class that searches other codes, as `HGPCode` searches its seed codes, passes the method down, so each of those searches chooses too.
 The rule aims to avoid a method that is very slow on a search, not to find the fastest one, and it decides from the shapes of the sectors and from the progress of the searches, without fitted thresholds.
 

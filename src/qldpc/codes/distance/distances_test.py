@@ -310,7 +310,9 @@ def test_brute_force_never_looks_for_sector_maps(monkeypatch: pytest.MonkeyPatch
     )
     searched: list[str] = []
     monkeypatch.setattr(
-        distances, "_search_checks", _record_call(searched, "sector", distances._search_checks)
+        distances,
+        "_search_by_brute_force",
+        _record_call(searched, "sector", distances._search_by_brute_force),
     )
     steane_code = qldpc.codes.SteaneCode()
     for method in ("brute_force", "auto"):
@@ -566,7 +568,7 @@ def test_connected_cluster_searches_take_the_active_tuning(
     """CSS and Pauli distances search by connected clusters with the active tuning.
 
     ``get_distance_css`` searches through ``_search_css``, and ``get_distance_pauli``, whose
-    searches are symplectic, through ``_search_checks``.  Each search takes both of its switches
+    searches are symplectic, through ``_search`` alone.  Each search takes both of its switches
     from the active tuning, whether they are on or off.
     """
     switches: list[tuple[bool, bool, bool]] = []
