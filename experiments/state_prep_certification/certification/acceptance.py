@@ -19,12 +19,12 @@
   fault search makes.  On E-chen, the shadow oracle answers each query that the counters count,
   with one threshold-1 query per reduced zero-flag mechanism and one per distinct syndrome of the
   flagged ones, and an oracle whose answers are shifted raises ``ShadowDisagreement``.
-* **AT4:** ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on the
-  first of the five B-cat circuits of largest K and size that qualifies.  A circuit qualifies if its
-  last weight takes at least 0.5 s in a full run, which compiles nothing in its measured call, and
-  if a run stopped a tenth of the way into that weight completes a weight but not that one.  The
-  stopped run ends as a timeout with T at least the limit, reports its completed weights as
-  consecutive weights from 2 without a violation, and is not rerun when its task is run again.
+* **AT4:** ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on a
+  B-cat circuit with t = 2 and K = 3, and sleeps 2 s after it reports each completed weight
+  (``weight_delay_s``).  The limit falls 1 s after the end of the next-to-last weight of a full run,
+  which compiles nothing in its measured call.  The stopped run ends as a timeout with T at least
+  the limit, reports its completed weights as consecutive weights from 2 without a violation, and is
+  not rerun when its task is run again.
   A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance of
   1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
   its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
@@ -395,51 +395,27 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
-    """Limits, the post-processing allowance, repeats, worst cases, and resume."""
-    # the first of the five cat circuits of largest K and size that completes a weight but not the
-    # last weight of its full run when stopped a tenth of the way into that weight.  The kept full
-    # run compiles nothing in its measured call, since the runner retries a run that does, and
-    # run_locally fails if the retry compiled too, so that its weights' times exclude compilation.
-    # A run that ends after its limit is a timeout even if it completed the weight, so a run that
-    # does is no use, and the next circuit is tried.  The runner checks the limit every 0.2 s or so,
-    # and its kill took effect about 0.1-0.25 s after the limit in measured runs, so only circuits
-    # whose last weight takes at least 0.5 s are tried.  These are bcat.w19.t9 and bcat.w18.t9,
-    # whose last weights took about 0.9 s and 0.6 s on the machine that this was written on.  So AT4
-    # uses bcat.w19.t9, passes or fails by chance on a machine about 1.7 to 1.9 times as fast, and
-    # fails on a faster one.
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
-    candidates = [e for e in entries if e["family"] == "B-cat" and e["status"] == "ok"]
-    candidates.sort(key=lambda e: (e["options"]["max_weight"], e["num_mechanisms"]), reverse=True)
-    candidates = candidates[:5]
-    too_short: list[str] = []
-    for circuit in candidates:
-        task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
-        full = local_runs.run_locally(directory / "full" / circuit["id"], [task])[task["key"]]
-        assert full["status"] == "ok" and full["T"] is not None, full
-        ends = [record["T_cumulative"] for record in full["partial"]]
-        assert None not in ends, full["partial"]
-        if len(ends) < 2:
-            too_short.append(f"{circuit['id']} (fewer than two weights)")
-            continue
-        last_weight_seconds = ends[-1] - ends[-2]
-        if last_weight_seconds < 0.5:
-            too_short.append(f"{circuit['id']} ({last_weight_seconds:.2f} s)")
-            continue
-        limit = ends[-2] + last_weight_seconds / 10
-        task = experiment._task("cert_bz", circuit, 0, limit)
-        row = local_runs.run_locally(directory / circuit["id"], [task])[task["key"]]
-        weights = [record["m"] for record in row["partial"]]
-        if row["status"] == "timeout" and weights and weights[-1] < full["partial"][-1]["m"]:
-            break
-    else:
-        if len(too_short) == len(candidates):
-            raise AssertionError(
-                "each of the five largest cat circuits tried completes fewer than two weights, or"
-                " its last weight takes under 0.5 s on this machine, too little to stop a run"
-                f" during it: {', '.join(too_short)}"
-            )
-        raise AssertionError("no cat circuit completes a weight but not the search in its limit")
-    assert row["T"] >= limit, row
+    """Limits, the post-processing allowance, repeats, and resume."""
+    # a circuit with t = 2, so that weight 2 has no violation, and K = 3, so that the full run
+    # reports two weights.  Each run sleeps after reporting each weight, and the limit falls in the
+    # middle of the sleep after the next-to-last weight.  The runner checks the limit every 0.2 s or
+    # so, and its kill took effect 0.1-0.25 s after the limit in measured runs, well within the
+    # sleep.  The full run compiles nothing in its measured call, since run_locally fails if it
+    # does.
+    circuit, delay = experiment._entry("bcat.w13.t2"), 2.0
+    task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
+    task["weight_delay_s"] = delay
+    full = local_runs.run_locally(directory / "full", [task])[task["key"]]
+    assert full["status"] == "ok" and full["T"] is not None, full
+    ends = [record["T_cumulative"] for record in full["partial"]]
+    assert len(ends) >= 2 and None not in ends, full["partial"]
+    limit = ends[-2] + delay / 2
+    task = experiment._task("cert_bz", circuit, 0, limit)
+    task["weight_delay_s"] = delay
+    row = local_runs.run_locally(directory / circuit["id"], [task])[task["key"]]
+    weights = [record["m"] for record in row["partial"]]
+    assert row["status"] == "timeout" and row["T"] >= limit, row
+    assert weights and weights[-1] < full["partial"][-1]["m"], (weights, full["partial"])
 
     # the partial results are the completed weights, in order from 2, each without a violation
     assert weights == list(range(2, 2 + len(weights))), weights
