@@ -205,11 +205,14 @@ def get_state_stabilizers(
         the requested-qubit frame: position ``i`` refers to ``qubits[i]`` in the input circuit.
 
     Raises:
-        ValueError: If a requested qubit is negative or repeated.
+        ValueError: If a requested qubit is negative or repeated, or if qubits is a negative
+            integer.
         ValueError: If the sign of a stabilizer on the requested qubits depends on detectors whose
             combined outcome is random, as for Z on qubit 1 after
             ``H 0; CX 0 1; M 0; DETECTOR rec[-1]``.
     """
+    if isinstance(qubits, int) and qubits < 0:
+        raise ValueError(f"The number of requested qubits must be nonnegative, not {qubits}")
     state_qubits = (
         np.arange(qubits, dtype=int) if isinstance(qubits, int) else np.asarray(qubits, dtype=int)
     )

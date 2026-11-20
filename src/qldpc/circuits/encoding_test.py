@@ -188,14 +188,14 @@ def test_state_stabilizers(pytestconfig: pytest.Config, monkeypatch: pytest.Monk
         circuits.get_state_stabilizers(stim.Circuit("H 0"), [0])
 
 
-@pytest.mark.parametrize("qubits", [[0, 1, 0], [-1]])
-def test_state_stabilizers_of_invalid_qubits(qubits: list[int]) -> None:
-    """Requested qubits must be nonnegative and distinct.
+@pytest.mark.parametrize("qubits", [[0, 1, 0], [-1], -1])
+def test_state_stabilizers_of_invalid_qubits(qubits: list[int] | int) -> None:
+    """Requested qubits must be nonnegative and distinct, and their number nonnegative.
 
     Position i of a returned string refers to qubits[i], so with qubits [0, 1, 0] after
     ``H 0; CX 0 1``, a returned XXX would stand for X0 X1 X0 = X1, which is not a stabilizer.
     """
-    with pytest.raises(ValueError, match="nonnegative and distinct"):
+    with pytest.raises(ValueError, match="must be nonnegative"):
         circuits.get_state_stabilizers(stim.Circuit("H 0\nCX 0 1"), qubits)
 
 
