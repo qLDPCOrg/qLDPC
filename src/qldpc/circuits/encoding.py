@@ -592,10 +592,10 @@ def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
     carries the same tags.  The measurements keep their order.  A circuit with nothing to split is
     returned unchanged.
 
-    Once qLDPC requires a stim release that fixes this issue, delete this function, its call in
-    _get_fixed_parities_by_flows, and the cases of
-    test_state_stabilizers_with_repeated_reset_measurements that only it needs, such as the tagged
-    MR and the REPEAT block.
+    Once qLDPC requires a stim release that fixes this issue, delete this function, its helper
+    _repeats_reset_target, and its call in _get_fixed_parities_by_flows.  The cases of
+    test_state_stabilizers_with_repeated_reset_measurements check correct answers, so they still
+    pass and may stay.
     """
     if not any(_repeats_reset_target(instruction) for instruction in circuit):
         return circuit
