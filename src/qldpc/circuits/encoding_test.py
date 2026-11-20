@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import re
 import unittest.mock
 
 import numpy as np
@@ -12,8 +14,18 @@ import pytest
 import stim
 
 from qldpc import circuits, codes, math
+from qldpc._binary import get_independent_rows
 from qldpc.circuits import encoding
 from qldpc.objects import Pauli
+
+# Stim's one- and two-qubit Clifford gates, resets, and measurements, other than heralded noise
+_GATES = sorted(
+    name
+    for name, data in stim.gate_data().items()
+    if (data.is_single_qubit_gate or data.is_two_qubit_gate)
+    and (data.is_unitary or data.is_reset or data.produces_measurements)
+    and 0 in data.num_parens_arguments_range
+)
 
 
 def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
@@ -203,7 +215,7 @@ def test_state_stabilizer_failure_regressions() -> None:
     assert len(circuits.get_logical_state_stabilizers(code, prep, qids)) == code.dimension
 
 
-def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_state_stabilizer_signs_must_be_determined() -> None:
     """Raise when a stabilizer on the requested qubits needs post-selection on random detectors."""
     # Z1 is a stabilizer only after post-selecting on the random outcome of M 0.  With a third
     # qubit, Z1 Z2 is a stabilizer with a fixed sign, but Z1 and Z2 need that post-selection.
@@ -214,16 +226,12 @@ def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPat
     with pytest.raises(ValueError, match=r"stabilizer Z[12] .*detectors \[0\]"):
         circuits.get_state_stabilizers(measured_ghz, [1, 2])
 
-    # Here a deterministic detector precedes the random one.  The simulation route leaves the
+    # Here a deterministic detector precedes the random one.  The simulation leaves the
     # deterministic one out of its matrix, but the error still names the random one by its index in
     # the circuit.
     circuit = stim.Circuit("M 0\nDETECTOR rec[-1]\nH 1\nCX 1 2\nM 1\nDETECTOR rec[-1]")
-    for force_flows in [False, True]:
-        with monkeypatch.context() as context:
-            if force_flows:
-                context.setattr(encoding, "_takes_simulation_route", lambda *_args: False)
-            with pytest.raises(ValueError, match=r"stabilizer Z2 .*detectors \[1\]"):
-                circuits.get_state_stabilizers(circuit, [2])
+    with pytest.raises(ValueError, match=r"stabilizer Z2 .*detectors \[1\]"):
+        circuits.get_state_stabilizers(circuit, [2])
 
     # the error names a logical stabilizer by its logical qubit, here on physical qubit 2
     qubit_ids = circuits.QubitIDs(data=(2,))
@@ -241,78 +249,53 @@ def test_state_stabilizer_signs_must_be_determined(monkeypatch: pytest.MonkeyPat
     assert circuits.get_state_stabilizers(circuit, [2]) == []
 
 
-def test_state_stabilizers_by_simulation_match_flows(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Simulation gives the stabilizers, signs, and errors that flows give, on random circuits."""
-    # random circuits of every instruction that get_state_stabilizers simulates, with some noise
-    non_gates = {"MPP", "DETECTOR", "TICK", "QUBIT_COORDS", "SHIFT_COORDS"}
-    gates = sorted(encoding._SIMULATED_INSTRUCTIONS - non_gates)
-    one_qubit_gates = [gate for gate in gates if stim.gate_data(gate).is_single_qubit_gate]
-    two_qubit_gates = [gate for gate in gates if stim.gate_data(gate).is_two_qubit_gate]
-    assert len(one_qubit_gates) + len(two_qubit_gates) == len(gates)
-    rng = np.random.default_rng(0)
-    cases = [
-        _get_random_state_prep_circuit(rng, one_qubit_gates, two_qubit_gates) for _ in range(400)
-    ]
+def test_state_stabilizers_match_flows() -> None:
+    """Simulation gives the stabilizers, signs, and errors that flows give, on random circuits.
 
-    # the random circuits include multi-target measurements, and MR, MRX, or MRY with a repeated
-    # target, which Stim's flows get wrong unless they are split
-    measurements = [
-        instruction
+    The flows reference, _get_fixed_parities_by_flows, finds the fixed parities that
+    get_state_stabilizers finds by simulation, but from stim.Circuit.flow_generators instead.
+    """
+    rng = np.random.default_rng(0)
+    cases = [_get_random_state_prep_circuit(rng) for _ in range(400)]
+
+    # the random circuits include every feature that the generator draws from
+    instructions = [
+        instruction for circuit, _ in cases for instruction in circuit.flattened().without_noise()
+    ]
+    names = {instruction.name for instruction in instructions}
+    assert names >= {*_GATES, "MPP", "SPP", "SPP_DAG", "MPAD", "DETECTOR", "OBSERVABLE_INCLUDE"}
+    assert any(
+        isinstance(instruction, stim.CircuitRepeatBlock)
         for circuit, _ in cases
         for instruction in circuit
-        if isinstance(instruction, stim.CircuitInstruction)
-        and instruction.name in ("M", "MX", "MY", "MR", "MRX", "MRY")
+    )
+    targets = [
+        (instruction.name, target)
+        for instruction in instructions
+        for target in instruction.targets_copy()
     ]
-    assert any(len(instruction.targets_copy()) > 1 for instruction in measurements)
+    assert any(
+        name == "OBSERVABLE_INCLUDE" and target.pauli_type != "I" for name, target in targets
+    )
+    assert any(name == "CX" and target.is_measurement_record_target for name, target in targets)
+    assert any(target.is_sweep_bit_target for _, target in targets)
+    assert any(target.is_inverted_result_target for _, target in targets)
     assert any(
         instruction.name in ("MR", "MRX", "MRY") and _repeats_target(instruction)
-        for instruction in measurements
+        for instruction in instructions
     )
-
-    # by default, get_state_stabilizers simulates every case
-    simulate = unittest.mock.Mock(wraps=encoding._get_fixed_parities_by_simulation)
-    monkeypatch.setattr(encoding, "_get_fixed_parities_by_simulation", simulate)
+    assert any(len(set(qubits)) < len(qubits) for _, qubits in cases)
 
     # compare with flows
     outcomes = []
     for circuit, qubits in cases:
         outcome = _get_state_stabilizer_outcome(circuit, qubits)
-        with monkeypatch.context() as context:
-            context.setattr(encoding, "_takes_simulation_route", lambda *_args: False)
-            assert outcome == _get_state_stabilizer_outcome(circuit, qubits)
+        assert outcome == _get_state_stabilizer_outcome(circuit, qubits, by_flows=True)
         outcomes.append(outcome)
-    assert simulate.call_count == len(cases)
 
     # the cases include nonempty lists of stabilizers, and undetermined signs
     assert any(isinstance(outcome, list) and outcome for outcome in outcomes)
     assert any(isinstance(outcome, tuple) for outcome in outcomes)
-
-
-@pytest.mark.parametrize(
-    ("circuit", "qubits", "expected"),
-    [
-        ("REPEAT 2 {\n    H 0\n}", [0], ["+Z"]),
-        ("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]", [0], ["+Z"]),
-        ("M 0\nCX rec[-1] 1", [1], ["+Z"]),
-        ("HERALDED_ERASE(0.1) 0", [0], ["+Z"]),
-        ("MXX 0 1", [0, 1], ["+ZZ"]),
-        ("SPP Z0", [0], ["+Z"]),
-        ("MPP !Z0", [0], ["+Z"]),
-        ("M !0", [0], ["+Z"]),
-        ("H 0", [0, 0], None),
-        ("H 0", [-1], None),
-    ],
-)
-def test_state_stabilizers_by_flows(
-    monkeypatch: pytest.MonkeyPatch, circuit: str, qubits: list[int], expected: list[str] | None
-) -> None:
-    """Circuits that simulation does not cover, and repeated or negative qubits, use flows."""
-    use_flows = unittest.mock.Mock(wraps=encoding._get_fixed_parities_by_flows)
-    monkeypatch.setattr(encoding, "_get_fixed_parities_by_flows", use_flows)
-    stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
-    assert use_flows.called
-    if expected is not None:
-        assert stabilizers == [stim.PauliString(string) for string in expected]
 
 
 @pytest.mark.parametrize(
@@ -327,34 +310,31 @@ def test_state_stabilizers_by_flows(
     ],
 )
 def test_state_stabilizers_with_repeated_reset_measurements(
-    monkeypatch: pytest.MonkeyPatch, circuit: str, qubits: list[int], expected: list[str] | str
+    circuit: str, qubits: list[int], expected: list[str] | str
 ) -> None:
-    """Both routes handle MR, MRX, and MRY with a repeated target, whose flows Stim gets wrong.
+    """Simulation and flows handle MR, MRX, and MRY with a repeated target.
 
     Stim's flows of ``MR 0 0`` attribute the first result to the second
-    (https://github.com/quantumlib/Stim/issues/1109).  After ``H 0; CX 0 1``, that would tie the
-    sign of Z on qubit 1 to a detector on the second result, and raise an error for it.
+    (https://github.com/quantumlib/Stim/issues/1109), so the flows reference splits such
+    instructions.  Without the split, after ``H 0; CX 0 1``, flows would tie the sign of Z on qubit
+    1 to a detector on the second result, and raise an error for it.
 
     In fact, the first result of ``MR 0 0`` is random, and gives the sign of Z on qubit 1.  The
     second result is 0, so a detector on it is deterministic.  So only Z on the untouched qubit 2
     has a fixed sign.  A detector on the first result instead leaves the sign of Z on qubit 1
     undetermined.
 
-    MRX and MRY act alike in their own bases.  So does the first ``MR 0 0`` of a REPEAT block,
-    which takes the flows route either way.  In ``MR 0; MR[t] 0 0``, the first result is random and
-    the rest are 0.  This case guards against the single-target pieces of ``MR[t] 0 0`` merging
-    with the preceding ``MR 0`` into another repeated-target MR.
+    MRX and MRY act alike in their own bases, and so does the first ``MR 0 0`` of a REPEAT block.
+    In ``MR 0; MR[t] 0 0``, the first result is random and the rest are 0.  This case guards against
+    the single-target pieces of ``MR[t] 0 0`` merging with the preceding ``MR 0`` into another
+    repeated-target MR.
     """
-    for force_flows in [False, True]:
-        with monkeypatch.context() as context:
-            if force_flows:
-                context.setattr(encoding, "_takes_simulation_route", lambda *_args: False)
-            if isinstance(expected, str):
-                with pytest.raises(ValueError, match=expected):
-                    circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
-            else:
-                stabilizers = circuits.get_state_stabilizers(stim.Circuit(circuit), qubits)
-                assert stabilizers == [stim.PauliString(string) for string in expected]
+    for by_flows in [False, True]:
+        outcome = _get_state_stabilizer_outcome(stim.Circuit(circuit), qubits, by_flows=by_flows)
+        if isinstance(expected, str):
+            assert isinstance(outcome, tuple) and re.search(expected, outcome[2])
+        else:
+            assert outcome == expected
 
 
 def test_deprecated_logical_state_stabilizers_argument_order() -> None:
@@ -394,53 +374,104 @@ def test_get_logical_tableau_from_code_data() -> None:
         )
 
 
-def _get_random_state_prep_circuit(
-    rng: np.random.Generator, one_qubit_gates: list[str], two_qubit_gates: list[str]
-) -> tuple[stim.Circuit, list[int]]:
-    """A random circuit, and a random list of distinct qubits to request.
+def _get_random_state_prep_circuit(rng: np.random.Generator) -> tuple[stim.Circuit, list[int]]:
+    """A random circuit, and a random list of qubits to request.
 
-    The circuit has the given gates, MPP, detectors, annotations, and noise.  Each gate and MPP has
-    one or two groups of targets, drawn with replacement across groups, so that targets repeat on
-    purpose.
+    The requested qubits come in a random order, and may include a qubit that the circuit leaves
+    untouched, or a repeated qubit.
     """
     num_qubits = int(rng.integers(2, 6))
+    circuit = _get_random_circuit(rng, num_qubits, num_measurements_before=0, in_repeat_block=False)
+    num_requested = int(rng.integers(0, num_qubits + 2))
+    requested = rng.choice(num_qubits + 1, size=num_requested, replace=False).tolist()
+    if requested and rng.random() < 0.1:
+        requested.append(requested[0])
+    return circuit, requested
+
+
+def _get_random_circuit(
+    rng: np.random.Generator, num_qubits: int, num_measurements_before: int, in_repeat_block: bool
+) -> stim.Circuit:
+    """A random circuit, which may follow the given number of measurements.
+
+    The circuit draws from every one- and two-qubit gate of Stim that needs no argument; MPP, SPP,
+    and SPP_DAG; detectors; observables with measurement-record and Pauli targets; Paulis
+    controlled by measurement records or sweep bits; MPAD; annotations; noise, including heralded
+    noise; and, outside a REPEAT block, REPEAT blocks.  Measurement results may be inverted.  Each
+    gate and Pauli product has one or two groups of targets, drawn with replacement across groups,
+    so that targets repeat on purpose.
+    """
     circuit = stim.Circuit()
-    for _ in range(int(rng.integers(1, 25))):
-        kind = rng.random()
+    for _ in range(int(rng.integers(1, 6 if in_repeat_block else 25))):
+        num_measurements = num_measurements_before + circuit.num_measurements
+        size = int(rng.integers(1, min(3, num_measurements) + 1)) if num_measurements else 0
+        records = [
+            stim.target_rec(-int(lookback) - 1)
+            for lookback in rng.choice(num_measurements, size=size, replace=False)
+        ]
         groups = [rng.permutation(num_qubits).tolist() for _ in range(rng.integers(1, 3))]
-        if kind < 0.35:
-            targets = [group[0] for group in groups]
-            circuit.append(str(rng.choice(one_qubit_gates)), targets)
-        elif kind < 0.6:
-            targets = [qubit for group in groups for qubit in group[:2]]
-            circuit.append(str(rng.choice(two_qubit_gates)), targets)
-        elif kind < 0.7:
+        kind = rng.random()
+        if kind < 0.45:
+            name = str(rng.choice(_GATES))
+            data = stim.gate_data(name)
+            width = 1 if data.is_single_qubit_gate else 2
+            targets = [
+                stim.target_inv(qubit)
+                if data.produces_measurements and rng.random() < 0.3
+                else qubit
+                for group in groups
+                for qubit in group[:width]
+            ]
+            circuit.append(name, targets)
+        elif kind < 0.55:
             products: list[stim.GateTarget] = []
             for group in groups:
                 paulis = ["_"] * num_qubits
                 for qubit in group[: rng.integers(1, 4)]:
                     paulis[qubit] = str(rng.choice(["X", "Y", "Z"]))
-                products += stim.target_combined_paulis(stim.PauliString("".join(paulis)))
-            circuit.append("MPP", products)
+                pauli_string = stim.PauliString("".join(paulis))
+                products += stim.target_combined_paulis(pauli_string, bool(rng.random() < 0.3))
+            circuit.append(str(rng.choice(["MPP", "SPP", "SPP_DAG"])), products)
+        elif kind < 0.67:
+            if records:
+                circuit.append("DETECTOR", records)
+        elif kind < 0.72:
+            paulis = [
+                stim.target_pauli(qubit, rng.choice(["X", "Y", "Z"])) for qubit in groups[0][:2]
+            ]
+            circuit.append(
+                "OBSERVABLE_INCLUDE",
+                [*paulis, *records][: rng.integers(1, 4)],
+                int(rng.integers(2)),
+            )
+        elif kind < 0.78:
+            control = (
+                records[0]
+                if records and rng.random() < 0.7
+                else stim.target_sweep_bit(int(rng.integers(2)))
+            )
+            circuit.append(str(rng.choice(["CX", "CY", "CZ"])), [control, groups[0][0]])
+        elif kind < 0.8:
+            circuit.append("MPAD", [int(rng.integers(2))])
         elif kind < 0.85:
-            num_measurements = circuit.num_measurements
-            if num_measurements:
-                size = int(rng.integers(1, min(3, num_measurements) + 1))
-                lookbacks = (rng.choice(num_measurements, size=size, replace=False) + 1).tolist()
-                circuit.append("DETECTOR", [stim.target_rec(-lookback) for lookback in lookbacks])
+            if not in_repeat_block:
+                body = _get_random_circuit(rng, num_qubits, num_measurements, in_repeat_block=True)
+                if len(body):
+                    circuit.append(stim.CircuitRepeatBlock(int(rng.integers(1, 4)), body))
         elif kind < 0.9:
             circuit.append("TICK")
             circuit.append("QUBIT_COORDS", groups[0][:1], [0, 1])
             circuit.append("SHIFT_COORDS", [], [1])
-        elif kind < 0.95:
-            circuit.append("X_ERROR", groups[0][:1], 0.1)
         else:
-            circuit.append("DEPOLARIZE2", groups[0][:2], 0.1)
-
-    # request distinct qubits in a random order, which may include a qubit that the circuit misses
-    num_requested = int(rng.integers(0, num_qubits + 2))
-    requested = rng.choice(num_qubits + 1, size=num_requested, replace=False).tolist()
-    return circuit, requested
+            noise = [
+                ("X_ERROR", 1, [0.1]),
+                ("DEPOLARIZE2", 2, [0.1]),
+                ("HERALDED_ERASE", 1, [0.1]),
+                ("HERALDED_PAULI_CHANNEL_1", 1, [0.1, 0.1, 0, 0]),
+            ]
+            name, width, args = noise[rng.integers(len(noise))]
+            circuit.append(name, groups[0][:width], args)
+    return circuit
 
 
 def _repeats_target(instruction: stim.CircuitInstruction) -> bool:
@@ -450,13 +481,125 @@ def _repeats_target(instruction: stim.CircuitInstruction) -> bool:
 
 
 def _get_state_stabilizer_outcome(
-    circuit: stim.Circuit, qubits: list[int]
+    circuit: stim.Circuit, qubits: list[int], *, by_flows: bool = False
 ) -> list[str] | tuple[str, list[int], str]:
     """The stabilizers that get_state_stabilizers returns, or its error for an undetermined sign.
 
-    The error is given by the stabilizer and detectors that it names, and its message.
+    The error is given by the stabilizer and detectors that it names, and its message.  If by_flows
+    is True, get_state_stabilizers finds the fixed parities with _get_fixed_parities_by_flows
+    instead of by simulation.
     """
-    try:
-        return [str(stabilizer) for stabilizer in circuits.get_state_stabilizers(circuit, qubits)]
-    except encoding._UndeterminedSignError as error:
-        return str(error.stabilizer), error.detectors, str(error)
+    with contextlib.ExitStack() as stack:
+        if by_flows:
+            stack.enter_context(
+                unittest.mock.patch.object(
+                    encoding,
+                    "_get_fixed_parities_by_simulation",
+                    lambda circuit, _simulator, qubits: _get_fixed_parities_by_flows(
+                        circuit, qubits
+                    ),
+                )
+            )
+        try:
+            stabilizers = circuits.get_state_stabilizers(circuit, qubits)
+        except encoding._UndeterminedSignError as error:
+            return str(error.stabilizer), error.detectors, str(error)
+    return [str(stabilizer) for stabilizer in stabilizers]
+
+
+def _get_fixed_parities_by_flows(
+    circuit: stim.Circuit, state_qubits: npt.NDArray[np.int_]
+) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.uint8]]:
+    """Find the fixed parities of a circuit from its flows, as a reference for simulation.
+
+    Fixed parities are as the comment in get_state_stabilizers defines them.  The circuit must be
+    noiseless and reset every qubit first, so each of its flows has the form ``1 -> P xor M``, for
+    a Pauli string P and a set M of measurements.  Stim's flows ignore observables.  Returns all
+    detectors of the circuit, and the reduced row echelon form of the fixed parities.
+    """
+    flow_generators = _split_repeated_reset_measurements(circuit).flow_generators()
+
+    # identify some useful numbers
+    num_qubits = circuit.num_qubits
+    num_measurements = circuit.num_measurements
+    num_columns = 2 * num_qubits + num_measurements
+    num_detectors = circuit.num_detectors
+    num_rows = len(flow_generators) + num_detectors
+
+    # build a matrix of stabilizers for the entire circuit output, determined by the flows
+    matrix = np.zeros((num_rows, num_columns), dtype=np.uint8)
+    for gg, flow in enumerate(flow_generators):
+        pauli_string = flow.output_copy()
+        if pauli_string:
+            xs, zs = pauli_string.to_numpy()
+            matrix[gg, :num_qubits] = xs
+            matrix[gg, num_qubits : 2 * num_qubits] = zs
+        for measurement in flow.measurements_copy():
+            matrix[gg, -num_measurements + measurement] = 1
+
+    # add stabilizers defined by detectors in the circuit
+    detector_counter = 0
+    measurement_counter = 0
+    for instruction in circuit.flattened():
+        measurement_counter += instruction.num_measurements
+        if instruction.name == "DETECTOR":
+            row = len(flow_generators) + detector_counter
+            for target in instruction.targets_copy():
+                col = -num_measurements + measurement_counter + target.value
+                matrix[row, col] ^= 1
+            detector_counter += 1
+
+    # Row reduction must eliminate unwanted support before selecting a basis supported on the
+    # requested qubits.  Natural column order would instead preserve state-qubit pivots and lose
+    # stabilizers that are sums of the original flow rows.  Columns q and num_qubits + q hold the X
+    # and Z parts on qubit q.  Columns between the unwanted and state columns record which detector
+    # rows each row is a sum of.
+    other_qubits = np.array([qq for qq in range(num_qubits) if qq not in state_qubits], dtype=int)
+    unwanted_columns = np.concatenate(
+        [other_qubits, other_qubits + num_qubits, np.arange(2 * num_qubits, num_columns, dtype=int)]
+    )
+    state_columns = np.concatenate([state_qubits, state_qubits + num_qubits])
+    detector_columns = np.zeros((num_rows, num_detectors), dtype=np.uint8)
+    detector_columns[len(flow_generators) :] = np.eye(num_detectors, dtype=np.uint8)
+    reordered_matrix = np.hstack(
+        [matrix[:, unwanted_columns], detector_columns, matrix[:, state_columns]]
+    )
+
+    # Identify the fixed parities.  The unwanted columns come first, so the rows of the reduced row
+    # echelon form with pivots on detectors or requested qubits vanish on these columns.  These
+    # rows span every fixed parity, since a sum of rows is nonzero at the pivot of each row in the
+    # sum.
+    rows = get_independent_rows(reordered_matrix)
+    num_unwanted_columns = len(unwanted_columns)
+    on_others = np.any(rows[:, :num_unwanted_columns], axis=1)
+    return np.arange(num_detectors), rows[~on_others, num_unwanted_columns:]
+
+
+def _split_repeated_reset_measurements(circuit: stim.Circuit) -> stim.Circuit:
+    """Split each MR, MRX, or MRY instruction that repeats a target into single-target instructions.
+
+    This works around https://github.com/quantumlib/Stim/issues/1109: for such an instruction, such
+    as ``MR 0 0``, ``stim.Circuit.flow_generators`` attributes the outcome of one measurement to
+    another.  The issue also gives MPAD wrong flows, but they differ only in sign, which
+    _get_fixed_parities_by_flows ignores, so MPAD needs no split.  TICK instructions before,
+    between, and after the single-target instructions stop Stim from merging them with each other
+    or with their neighbors.
+
+    Once qLDPC requires a stim release that fixes this issue, delete this function and its call in
+    _get_fixed_parities_by_flows.
+    """
+    split_circuit = stim.Circuit()
+    for instruction in circuit:
+        if isinstance(instruction, stim.CircuitRepeatBlock):
+            body = _split_repeated_reset_measurements(instruction.body_copy())
+            split_circuit.append(stim.CircuitRepeatBlock(instruction.repeat_count, body))
+        elif instruction.name in ("MR", "MRX", "MRY") and _repeats_target(instruction):
+            split_circuit.append("TICK")
+            for target in instruction.targets_copy():
+                split_circuit.append(
+                    instruction.name, [target], instruction.gate_args_copy(), tag=instruction.tag
+                )
+                split_circuit.append("TICK")
+        else:
+            split_circuit.append(instruction)
+    return split_circuit
