@@ -587,7 +587,9 @@ def test_outputs_come_in_the_order_of_the_items(num_threads: int) -> None:
     """The calling thread gets the outputs of every item once, in order, on any number of threads.
 
     Each item is in one range, and the calling thread runs no item unless it runs them all, as one
-    range.  Otherwise at most ``num_threads - 1`` threads run the ranges.
+    range.  Otherwise at most ``num_threads - 1`` threads run the ranges.  Item 1 weighs as much as
+    50 others, more than the share of a range on any of these numbers of threads, so that the range
+    that holds it overshoots its share.
     """
     weights = np.array([1.0, 50.0] + [1.0] * 198)
     ranges: list[tuple[int, int, int]] = []
@@ -737,13 +739,13 @@ def test_an_exception_of_a_thread_stops_a_thread_that_waits() -> None:
     run_on_a_thread(iterate)
 
 
-def test_a_thread_that_fails_to_start_stops_the_others() -> None:
-    """If a thread raises as it starts, the others stop, also one that waits to add an output.
+def test_a_worker_that_raises_as_it_starts_stops_the_others() -> None:
+    """If a worker raises as it starts, the others stop, also one that waits to add an output.
 
-    Of three threads, the first claims range 0 and waits to list it until the stop event is set,
-    and the second, with one output held for each thread, adds three outputs of range 1 and waits
-    with its fourth.  Then the third raises as it starts, which sets the stop event, and only the
-    first can then wake the second.
+    Of three threads, the first claims range 0, and the second, with one output held for each
+    thread, adds three outputs of range 1 and waits with its fourth.  Then the third raises as it
+    starts, which stops the threads and wakes the second.  The first lists only once the stop event
+    is set, so it adds no output.
     """
     starts: list[int] = []
     lock = threading.Lock()
@@ -818,28 +820,18 @@ def test_the_thread_of_the_range_that_the_calling_thread_reads_keeps_the_cap() -
     assert outputs == list(range(50))
 
 
-def test_a_thread_whose_start_fails_stops_a_thread_that_waits(
+def test_a_thread_that_cannot_be_started_stops_a_thread_that_waits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If a new thread fails to start, a thread that waits to add an output stops too.
+    """If a new thread cannot be started, a thread that waits to add an output stops too.
 
     Of four threads, the first claims range 0 and lists it only once the stop event is set, and
     the second, with one output held for each thread, adds four outputs of range 1 and waits with
-    its fifth.  Then the start of the third raises, which sets the stop event but wakes no thread.
+    its fifth.  Then the third cannot be started, which sets the stop event but wakes no thread.
+    The waiting thread checks the events again only after a long timeout here, so the first wakes
+    it when it stops.
     """
     claimed, waiting = threading.Event(), threading.Event()
-    num_starts = 0
-    original_start = threading.Thread.start
-
-    def fail_third_start(thread: threading.Thread) -> None:
-        nonlocal num_starts
-        if thread.name == "qldpc-search":
-            num_starts += 1
-            # The helper of ``iterate_in_order`` starts first, then two threads of its own.
-            if num_starts == 4:
-                assert waiting.wait(timeout=THREAD_TIMEOUT)
-                raise RuntimeError("can't start new thread")
-        original_start(thread)
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
         def run_range(start: int, end: int) -> Iterator[int]:
@@ -860,15 +852,88 @@ def test_a_thread_whose_start_fails_stops_a_thread_that_waits(
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
             patch.setattr(_threads, "RANGES_PER_THREAD", 1)
+            patch.setattr(_threads, "_HALT_CHECK_SECONDS", 10 * THREAD_TIMEOUT)
             with pytest.raises(RuntimeError, match="can't start new thread"):
                 list(_threads.iterate_in_order(8, 5, start_worker))
 
-    monkeypatch.setattr(threading.Thread, "start", fail_third_start)
+    # The fourth search thread is the third that ``run_work_items`` starts.
+    monkeypatch.setattr(threading.Thread, "start", _fail_search_thread_start(4, waiting))
+    run_on_a_thread(iterate)
+
+
+def test_a_thread_that_cannot_be_started_stops_the_thread_of_the_range_being_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If a new thread cannot be started, a waiting thread that nothing wakes stops by itself.
+
+    Of three threads, only the first starts, and it lists range 0, which the calling thread reads.
+    With one output held for each thread, it adds three outputs after the one that the calling
+    thread takes, and waits with its fifth.  Then the second cannot be started, which sets the stop
+    event but wakes no thread, and the calling thread takes no more outputs, which would wake it.
+    """
+    taken, waiting = threading.Event(), threading.Event()
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
+        def run_range(start: int, end: int) -> Iterator[int]:
+            yield 0
+            assert taken.wait(timeout=THREAD_TIMEOUT)
+            for output in range(1, 10):
+                if output == 4:
+                    waiting.set()
+                yield output
+
+        return run_range
+
+    def iterate() -> None:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+            patch.setattr(_threads, "RANGES_PER_THREAD", 1)
+            iterator = _threads.iterate_in_order(3, 4, start_worker)
+            with contextlib.closing(iterator):
+                assert next(iterator) == 0
+                taken.set()
+                assert waiting.wait(timeout=THREAD_TIMEOUT)
+                deadline = time.monotonic() + THREAD_TIMEOUT / 2
+                for thread in threading.enumerate():
+                    if thread.name == "qldpc-search":
+                        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+                        assert not thread.is_alive()
+                with pytest.raises(RuntimeError, match="can't start new thread"):
+                    next(iterator)
+
+    # The third search thread is the second that ``run_work_items`` starts.  It fails a moment after
+    # the first starts to wait, so that the first waits before the stop event is set.
+    monkeypatch.setattr(threading.Thread, "start", _fail_search_thread_start(3, waiting, delay=0.2))
     run_on_a_thread(iterate)
 
 
 ####################################################################################################
 # helpers
+
+
+def _fail_search_thread_start(
+    number: int, ready: threading.Event, delay: float = 0.0
+) -> Callable[[threading.Thread], None]:
+    """A ``Thread.start`` that raises at a given start of a search thread, once an event is set.
+
+    The search threads are named ``qldpc-search``: the helper of ``iterate_in_order`` starts first,
+    then the threads that ``run_work_items`` starts.  The start numbered ``number`` among them waits
+    for the event, then for ``delay`` seconds, and raises.  Other starts run as usual.
+    """
+    original_start = threading.Thread.start
+    num_starts = 0
+
+    def start(thread: threading.Thread) -> None:
+        nonlocal num_starts
+        if thread.name == "qldpc-search":
+            num_starts += 1
+            if num_starts == number:
+                assert ready.wait(timeout=THREAD_TIMEOUT)
+                time.sleep(delay)
+                raise RuntimeError("can't start new thread")
+        original_start(thread)
+
+    return start
 
 
 def _get_worker_that_records_starts(

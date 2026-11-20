@@ -344,13 +344,16 @@ def run_blocks(
 # threads better at the end, and fewer ranges cost fewer calls; the number changes no output.
 RANGES_PER_THREAD = 32
 
-# The number of outputs for each thread that the threads of ``iterate_in_order`` hold, beyond which
-# only one more output can be held (see its docstring).  More let them run further ahead of the
-# calling thread, at the cost of memory; the number changes no output.
+# The number of outputs for each thread, plus one in total, that the threads of ``iterate_in_order``
+# hold at most (see its docstring).  More let them run further ahead of the calling thread, at the
+# cost of memory; the number changes no output.
 OUTPUTS_PER_THREAD = 64
 
 # The seconds after which a thread of ``iterate_in_order`` that waits to add an output checks again
-# whether to stop, in case an interrupt kept it from being woken.
+# whether to stop.  Nothing wakes it when a thread cannot be started, or when a second interrupt
+# comes before the threads are notified.  So the timeout makes it stop promptly after a failed
+# start, rather than when the calling thread next takes an output, and it is needed for it to stop
+# at all after a second interrupt.
 _HALT_CHECK_SECONDS = 0.5
 
 
@@ -459,17 +462,18 @@ def iterate_in_order(
                             # Wait while the cap is reached, unless this thread runs the range that
                             # the calling thread reads and the calling thread has taken its outputs,
                             # so that the calling thread can always go on.  Nothing notifies when an
-                            # interrupt or a thread that fails to start sets an event, so check the
-                            # events again after a timeout too.
+                            # interrupt or a thread that cannot be started sets an event, so check
+                            # the events again after a timeout too.
                             while (
                                 num_held >= max_held
                                 and (start != position or record.outputs)
                                 and not (halt.is_set() or stop.is_set())
                             ):
                                 ready.wait(_HALT_CHECK_SECONDS)
+                            # Every thread checks the stop event, so setting it and notifying
+                            # stops them all.
                             if halt.is_set() or stop.is_set():
                                 stop.set()
-                                halt.set()
                                 ready.notify_all()
                                 return
                             record.outputs.append(output)
@@ -480,9 +484,11 @@ def iterate_in_order(
                     # outputs after it, and waits for the exception.
                     stop_all()
                     raise
+                # A range whose iterator ended after a stop may be incomplete, so it is never done.
                 with ready:
-                    record.done = True
-                    ready.notify_all()
+                    if not (halt.is_set() or stop.is_set()):
+                        record.done = True
+                        ready.notify_all()
 
         return hold_outputs
 
