@@ -344,16 +344,16 @@ def run_blocks(
 # threads better at the end, and fewer ranges cost fewer calls; the number changes no output.
 RANGES_PER_THREAD = 32
 
-# The number of outputs for each thread, plus one in total, that the threads of ``iterate_in_order``
-# hold at most (see its docstring).  More let them run further ahead of the calling thread, at the
-# cost of memory; the number changes no output.
+# The threads of ``iterate_in_order`` hold at most this many outputs for each thread, plus one (see
+# its docstring).  More let them run further ahead of the calling thread, at the cost of memory; the
+# number changes no output.
 OUTPUTS_PER_THREAD = 64
 
 # The seconds after which a thread of ``iterate_in_order`` that waits to add an output checks again
-# whether to stop.  Nothing wakes it when a thread cannot be started, or when a second interrupt
-# comes before the threads are notified.  So the timeout makes it stop promptly after a failed
-# start, rather than when the calling thread next takes an output, and it is needed for it to stop
-# at all after a second interrupt.
+# whether to stop.  A thread that cannot be started, or a second interrupt that comes before the
+# threads are notified, sets an event without notifying the waiting threads.  So the timeout makes a
+# waiting thread stop promptly after a failed start even if no other thread wakes it, and it is the
+# only way for the thread to stop after a second interrupt.
 _HALT_CHECK_SECONDS = 0.5
 
 
@@ -393,7 +393,7 @@ def iterate_in_order(
     an exception.  A further interrupt while it waits can leave threads running, in the narrow
     windows that the comment in ``run_work_items`` describes; since the halt event is set first,
     they stop before their next output, or within ``_HALT_CHECK_SECONDS`` if they wait to add one.
-    An exception of a thread, or a thread that fails to start, stops the others, and is raised on
+    An exception of a thread, or a thread that cannot be started, stops the others, and is raised on
     the calling thread once they have returned.  It can be raised before outputs that come before
     it in item order, so before the calling thread reaches what one thread would have reached
     first, such as an output that would have ended the iteration.

@@ -828,8 +828,8 @@ def test_a_thread_that_cannot_be_started_stops_a_thread_that_waits(
     Of four threads, the first claims range 0 and lists it only once the stop event is set, and
     the second, with one output held for each thread, adds four outputs of range 1 and waits with
     its fifth.  Then the third cannot be started, which sets the stop event but wakes no thread.
-    The waiting thread checks the events again only after a long timeout here, so the first wakes
-    it when it stops.
+    The waiting thread checks the events again only after a long timeout here, so that only the
+    first, when it stops, can wake it in time.
     """
     claimed, waiting = threading.Event(), threading.Event()
 
@@ -857,7 +857,7 @@ def test_a_thread_that_cannot_be_started_stops_a_thread_that_waits(
                 list(_threads.iterate_in_order(8, 5, start_worker))
 
     # The fourth search thread is the third that ``run_work_items`` starts.
-    monkeypatch.setattr(threading.Thread, "start", _fail_search_thread_start(4, waiting))
+    monkeypatch.setattr(threading.Thread, "start", _fail_search_thread_start(4, waiting, delay=0.2))
     run_on_a_thread(iterate)
 
 
@@ -877,7 +877,7 @@ def test_a_thread_that_cannot_be_started_stops_the_thread_of_the_range_being_rea
         def run_range(start: int, end: int) -> Iterator[int]:
             yield 0
             assert taken.wait(timeout=THREAD_TIMEOUT)
-            for output in range(1, 10):
+            for output in itertools.count(1):
                 if output == 4:
                     waiting.set()
                 yield output
@@ -901,10 +901,59 @@ def test_a_thread_that_cannot_be_started_stops_the_thread_of_the_range_being_rea
                 with pytest.raises(RuntimeError, match="can't start new thread"):
                     next(iterator)
 
-    # The third search thread is the second that ``run_work_items`` starts.  It fails a moment after
-    # the first starts to wait, so that the first waits before the stop event is set.
+    # The third search thread is the second that ``run_work_items`` starts.  Its start fails a
+    # moment after the first starts to wait, so that the first waits before the stop event is set.
     monkeypatch.setattr(threading.Thread, "start", _fail_search_thread_start(3, waiting, delay=0.2))
     run_on_a_thread(iterate)
+
+
+def test_a_range_that_ends_after_a_stop_is_not_done() -> None:
+    """A range whose iterator ends after the stop event is set yields nothing after it.
+
+    Of three threads, the first lists range 0 only once the stop event is set, and then ends it
+    without an output.  The second adds two outputs of range 1, and then, once the stop event is
+    set, waits a moment before its next output, so that the threads end only after range 0 does.
+    Then the third raises as it starts.  If range 0 counted as done, the calling thread would yield
+    the outputs of range 1 before the exception.
+    """
+    held = threading.Event()
+    lock = threading.Lock()
+    num_starts = 0
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
+        nonlocal num_starts
+        with lock:
+            num_starts += 1
+            index = num_starts - 1
+        if index == 2:
+            assert held.wait(timeout=THREAD_TIMEOUT)
+            raise MemoryError("no room")
+
+        def run_range(start: int, end: int) -> Iterator[int]:
+            if start == 0:
+                assert stop.wait(timeout=THREAD_TIMEOUT)
+                return
+            yield from (start, start + 1)
+            held.set()
+            assert stop.wait(timeout=THREAD_TIMEOUT)
+            time.sleep(0.2)
+            yield start + 2
+
+        return run_range
+
+    received: list[int] = []
+
+    def iterate() -> None:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+            patch.setattr(_threads, "RANGES_PER_THREAD", 1)
+            iterator = _threads.iterate_in_order(6, 4, start_worker)
+            with pytest.raises(MemoryError, match="no room"):
+                while True:
+                    received.append(next(iterator))
+
+    run_on_a_thread(iterate)
+    assert not received
 
 
 ####################################################################################################

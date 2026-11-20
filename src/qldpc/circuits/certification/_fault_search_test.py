@@ -27,8 +27,8 @@ from qldpc.codes.distance.conftest import THREAD_TIMEOUT
 
 from . import _fault_search
 
-# The timeout of a test whose function, on a thread of its own, may compile the lister on a cold
-# cache of compiled code, as for the read-only arrays of the threads.
+# The timeout of a test that runs the lister on a thread of its own, long enough to compile it on a
+# cold cache of compiled code, such as its versions for read-only arrays.
 _COMPILE_TIMEOUT = 6 * THREAD_TIMEOUT
 
 
@@ -715,9 +715,9 @@ def test_listing_on_threads_counts_the_lookups_of_one_thread(
 
     With classes of flags 1 to 7, a listing of fault weight four makes 21 lookups, one for each pair
     of classes.  The closing map of the 35 sets of three classes waits for 20.65 lookups, or for
-    21.35.  The calling thread makes seven of them alone.  So the map is built for fault weight five
-    in the first case only if the threads' lookups are counted, and in the second only if lookups
-    are counted more than once.
+    21.35, as ``_LOOKUPS_PER_CLOSING_SET`` is 0.59 or 0.61.  The calling thread makes seven of them
+    alone.  So the map is built for fault weight five in the first case only if the threads' lookups
+    are counted, and in the second only if lookups are counted more than once.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_LOOKUPS_PER_THREAD", 2)
     monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", lookups_per_set)
