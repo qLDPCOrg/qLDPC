@@ -566,9 +566,8 @@ class ConsumerCalibration:
         without a block error, and ``c_s(m) = c(0) + Σ_{g ≤ G} Pr[g] Δ_s(m, g)`` for the rows ``m``
         of the table of type ``s``.  As for a ``ConsumerProfile``, every heavier residual weight
         counts as certain failure.  ``Φ`` adds, over the Pauli types, the average of
-        ``c_s(m) - c(0)`` over the histogram of that type.  The values are
-        not clipped, so sampling noise in estimated cells, or rounding, can put them slightly
-        outside [0, 1].
+        ``c_s(m) - c(0)`` over the histogram of that type.  The values are not clipped, so sampling
+        noise in estimated cells, or rounding, can put them slightly outside [0, 1].
 
         Args:
             pauli: The Pauli type ``s``, as ``Pauli.X``, ``Pauli.Z``, ``"X"``, or ``"Z"``.

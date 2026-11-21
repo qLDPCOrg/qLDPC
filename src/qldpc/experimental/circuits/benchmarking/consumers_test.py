@@ -1037,8 +1037,8 @@ def test_standard_error_parts_and_differences() -> None:
     The histogram part is the standard error of the score without the errors of the calibration.
     The calibration parts follow from finite differences of the score.  The cell (m, g) = (1, 1)
     of the X table is unsampled, and X-type residual weight two lies beyond the table, so both use
-    the baselines.  No fault weight of a histogram is listed exactly, so the histogram parts are
-    positive.
+    the baselines.  Every positive fault weight of a histogram is sampled, not listed, so the
+    histogram parts are positive.
     """
     calibration = ConsumerCalibration(
         {"X": [[0.2, 0.7]], "Z": [[0.4, 0.5]]},
