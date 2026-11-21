@@ -464,6 +464,61 @@ def test_runner_stop_during_retry(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_registration_failure(directory: pathlib.Path, node: bool) -> None:
+    """A runner that fails to record its run after starting it kills the run before failing."""
+    from experiments.state_prep_certification.common import runner
+
+    watcher = runner._Watcher(
+        directory,
+        _task("unrecorded", []),
+        local=not node,
+        job_slot=None,
+        cpu=None,
+        stop=runner._Stop(),
+    )
+
+    def failing_ps(pid: int) -> str | None:
+        raise RuntimeError("ps failed")
+
+    command = [sys.executable, "-c", "import time; time.sleep(56.25)"]
+    with _patched(runner, "process_start", failing_ps):
+        try:
+            watcher.run(command)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("the runner did not fail")
+    survivors = _processes_matching("time.sleep(56.25)")
+    if survivors:  # the run, still this process's unreaped child, is stopped before failing
+        os.kill(watcher.root, signal.SIGKILL)
+        os.waitpid(watcher.root, 0)
+    assert not survivors, "the unrecorded run survived"
+
+
+@test
+def test_runner_survivors(directory: pathlib.Path, node: bool) -> None:
+    """A process that survives the grace is listed with its command, and its record is kept."""
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("survives", [], startup_cap_s=1.0, grace_s=1.0)
+    watcher = runner._Watcher(
+        directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+    )
+    watcher._kill = lambda: None  # type: ignore[method-assign]  # as for a process in D state
+    try:
+        row = watcher.run([sys.executable, "-c", "import time; time.sleep(57.25)"])
+        assert row is not None and row["status"] == "error", row
+        assert f"{watcher.root} (" in row["error"] and "time.sleep(57.25)" in row["error"], row
+        assert (directory / "active" / row["run_id"]).exists()
+        assert not (directory / "active" / task["key"]).exists()
+    finally:
+        if watcher.root > 0:
+            with contextlib.suppress(ProcessLookupError, ChildProcessError):
+                os.kill(watcher.root, signal.SIGKILL)
+                os.waitpid(watcher.root, 0)
+
+
+@test
 def test_local_runs_reject_compiled(directory: pathlib.Path, node: bool) -> None:
     """``local_runs.run_locally`` fails if a row with status ok has ``compiled_in_timing`` set.
 

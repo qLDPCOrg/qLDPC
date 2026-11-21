@@ -33,8 +33,10 @@ run until after its row is appended, and watches the child:
   which decides the status; a later peak above the cap marks only ``post_status``.
 * **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
   partial results and the report of a compilation that the child wrote before the kill, waits up
-  to ``grace_s`` for the processes to go, and accepts no other message.  On the node, a kill
-  signals the run's process group, whose id cannot be reused while a member lives.  Locally, a
+  to ``grace_s`` for the processes to go, and accepts no other message.  The row's ``error`` lists
+  each process left after the grace, with its command line, and the run's record stays in
+  ``active/``, as ``active/<run_id>``, so that ``run_node.py --cleanup`` finds it.  On the node, a
+  kill signals the run's process group, whose id cannot be reused while a member lives.  Locally, a
   process is killed only if its start time is the one recorded when it was seen, so that a reused
   process id is never killed.
 * **Compilation:** while the measured call runs, the child listens to two of numba's documented
@@ -81,6 +83,7 @@ reported.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pathlib
@@ -284,29 +287,47 @@ class _Watcher:
         env[_CHANNEL_VARIABLE] = str(write_fd)
         if self.cpu is not None:
             env[_CPU_VARIABLE] = str(self.cpu)
-        with open(log_file, "wb") as log:
-            child = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                env=env,
-                pass_fds=(write_fd,),
-                start_new_session=not self.local,
-            )
-        os.close(write_fd)
+        try:
+            with open(log_file, "wb") as log:
+                child = subprocess.Popen(
+                    command,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    pass_fds=(write_fd,),
+                    start_new_session=not self.local,
+                )
+        except BaseException:
+            os.close(read_fd)
+            raise
+        finally:
+            os.close(write_fd)
         self.root = child.pid
-        self.group = os.getpgid(child.pid) if not self.local else None
-        record = {
-            "pid": child.pid,
-            "pid_start": process_start(child.pid),
-            "pgid": self.group,
-            "runner_pid": os.getpid(),
-            "runner_start": process_start(os.getpid()),
-            "host": socket.gethostname(),
-        }
-        # the temporary file is outside active/, whose readers would find it
-        store.write_atomic(active_file, json.dumps(record), self.label_dir)
+
+        # record the run; if that fails, kill the child, which on the node leads its process group,
+        # without the process table, before failing
+        try:
+            self.group = os.getpgid(child.pid) if not self.local else None
+            record = {
+                "pid": child.pid,
+                "pid_start": process_start(child.pid),
+                "pgid": self.group,
+                "runner_pid": os.getpid(),
+                "runner_start": process_start(os.getpid()),
+                "host": socket.gethostname(),
+            }
+            # the temporary file is outside active/, whose readers would find it
+            store.write_atomic(active_file, json.dumps(record), self.label_dir)
+        except BaseException:
+            with contextlib.suppress(ProcessLookupError):
+                if self.local:
+                    os.kill(child.pid, signal.SIGKILL)
+                else:
+                    os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+            os.close(read_fd)
+            raise
 
         # watch the child until it ends, or until a limit or a signal ends it; if this runner
         # fails, kill the run before failing
@@ -316,10 +337,11 @@ class _Watcher:
             stray = self._wait_until_gone(child) if kill_reason or not self.local else []
         except BaseException:
             self._kill()
-            self._wait_until_gone(child)
+            self._keep_record(active_file, self._wait_until_gone(child))
             raise
         finally:
             os.close(read_fd)
+        self._keep_record(active_file, stray)
         _keep_tail(log_file)
         if self.stop.signum is not None:
             return None
@@ -331,9 +353,18 @@ class _Watcher:
             self.child_error = log_file.read_text(errors="replace")[-2000:].strip()
         row = self._row(kill_reason, child.returncode, started_at, finished_at)
         if stray:
-            left = f"processes left after the grace: {stray}"
+            left = f"processes left after the grace: {_describe(stray)}"
             row["error"] = f"{row['error']}; {left}" if row["error"] else left
         return row
+
+    def _keep_record(self, active_file: pathlib.Path, stray: list[int]) -> None:
+        """Keep the run's active record as ``active/<run_id>`` if processes of the run are left.
+
+        ``live_runs`` and ``--cleanup`` of ``run_node.py`` then find them, and the next run of the
+        task cannot overwrite the record.
+        """
+        if stray:
+            active_file.rename(active_file.with_name(self.run_id))
 
     def _watch(
         self, child: subprocess.Popen[bytes], read_fd: int, launch: float
@@ -580,6 +611,8 @@ class _Watcher:
             if not alive and child.returncode is not None:
                 return []
             if time.monotonic() >= deadline:
+                if child.returncode is None and self.root not in alive:
+                    alive.append(self.root)  # the child itself, not yet reaped
                 return alive
             self._kill()
             time.sleep(0.2)
@@ -817,6 +850,18 @@ def _cpu_model() -> str:
     except OSError:
         pass
     return platform.processor()
+
+
+def _describe(pids: list[int]) -> str:
+    """Processes by id, each with its command line, as ``ps`` shows it."""
+    output = subprocess.run(
+        ["ps", "-o", "pid=,command=", "-p", ",".join(str(pid) for pid in pids)],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+    commands = dict(line.split(None, 1) for line in output.splitlines() if len(line.split()) > 1)
+    return ", ".join(f"{pid} ({commands.get(str(pid), 'gone').strip()})" for pid in pids)
 
 
 def _keep_tail(path: pathlib.Path) -> None:
