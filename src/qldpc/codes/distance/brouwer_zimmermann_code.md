@@ -250,7 +250,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   If `BrouwerZimmermannSearch.advance` raises, a witness that the interrupted scan found can stay out of the shared `U`, so build a new search to search again.
 - **Threads.**
   A search scans a layer of a set on `num_threads` threads if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports.
-  `BrouwerZimmermannSearch` resolves `num_threads` once from the tuning, as README.md's [Threads](README.md#threads) section says.
+  `BrouwerZimmermannSearch` resolves `num_threads` once from the tuning; README.md's [Threads](README.md#threads) gives its default.
   Otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
   A **work item** is the set of supports of the layer whose first `k` rows are fixed: `k = 1`, or `k = 2` if fixing one row leaves fewer than 32 items for each thread and `w ≥ 4`.
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.

@@ -483,10 +483,10 @@ class SearchTuning:
     #: queries of ``CosetLeaderSearch`` search the blocks of a batch.  At least 1, and 1 runs on the
     #: calling thread alone.  ``None`` takes the value of the environment variable
     #: ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
-    #: ``numba.config.NUMBA_NUM_THREADS``; the section "Threads" of the README of
-    #: ``qldpc/codes/distance`` says how to set either, when ``QLDPC_NUM_THREADS`` also sets numba's
-    #: own count, and how programs that run searches in several processes or threads at once should
-    #: cap it.  A distance search resolves ``None`` once, when it starts, and a
+    #: ``numba.config.NUMBA_NUM_THREADS``.  The row on cores in "Start from a symptom" of
+    #: :doc:`/exact_search_tuning` says how to set and cap it, and the section "Threads" of the
+    #: README of ``qldpc/codes/distance`` says when ``QLDPC_NUM_THREADS`` also sets numba's own
+    #: count.  A distance search resolves ``None`` once, when it starts, and a
     #: ``CosetLeaderSearch`` when it is built.  A layer of a set runs on the calling thread alone
     #: unless it has at least three rows and more than ``num_threads * 2**search_chunk_exponent``
     #: supports, and a batch until its queries have done that many units of work, in the units that
