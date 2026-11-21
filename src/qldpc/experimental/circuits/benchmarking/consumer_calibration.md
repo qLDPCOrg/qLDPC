@@ -204,6 +204,9 @@ A sample count of zero in `excess_num_samples` marks such a cell.
 Stratifying by `g` computes `Pr[g]` exactly, so only the conditional quantities `Δ_s(m, g)` and `f(0, g)` need estimates.
 Rare fault weights therefore need no naive sampling.
 The conditional quantities can still need many samples when failure within a stratum is rare.
+The properties `fault_weight_probabilities` and `truncated_probability` of a `ConsumerCalibration` give `Pr[g]` for `g ≤ G` and `Pr[g > G]`.
+Its method `get_failure_probabilities(s)` gives `c_s(0), c_s(1), ...` for the rows of the table of type `s`.
+The values are not clipped, so sampling noise in estimated cells, or rounding, can put them slightly outside [0, 1].
 
 A cell `(m, g)` is **exact** if its excess and the baseline `f(0, g)` both have zero standard error, and **estimated** otherwise.
 The failure probability `f(0, g) + Δ_s(m, g)` of an exact cell must lie in [0, 1].

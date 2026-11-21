@@ -1005,6 +1005,29 @@ def test_unsampled_cells() -> None:
     assert value == pytest.approx(0.3 * -0.1 + 0.2 * 0.89)
 
 
+def test_failure_probabilities() -> None:
+    """A calibration's response to each residual weight, and its fault-weight law, give its score.
+
+    With two mechanisms of probability 1/2, Pr[g] = 1/4, 1/2, and 1/4 for g = 0, 1, and 2, and the
+    calibration stops at G = 1.  So c(0) = 0.25 * 0.1 + 0.5 * 0.2 + 0.25 = 0.375, and
+    c_X(1) = c(0) + 0.25 * 0.2 + 0.5 * 0.4 = 0.625.  The Z table has no rows.
+    """
+    calibration = ConsumerCalibration({"X": [[0.2, 0.4]], "Z": []}, [0.1, 0.2], [0.5, 0.5])
+    assert np.allclose(calibration.fault_weight_probabilities, [0.25, 0.5])
+    assert calibration.truncated_probability == pytest.approx(0.25)
+    assert np.allclose(calibration.get_failure_probabilities("X"), [0.375, 0.625])
+    assert np.allclose(calibration.get_failure_probabilities(Pauli.Z), [0.375])
+
+    # residual weights beyond each table cost 1 - c(0)
+    value, _ = calibration.get_excess_failure_probability(
+        _get_histogram([0.5, 0.3, 0.2], "X"), _get_histogram([0.6, 0.4], "Z")
+    )
+    assert value == pytest.approx(0.3 * 0.25 + 0.2 * 0.625 + 0.4 * 0.625)
+
+    with pytest.raises(ValueError, match="no table"):
+        ConsumerCalibration({"X": [[0.2]]}, [0.1]).get_failure_probabilities("Z")
+
+
 def test_standard_error_parts_and_differences() -> None:
     """The parts of a standard error, and the error of a difference, match independent oracles.
 

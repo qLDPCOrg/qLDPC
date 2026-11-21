@@ -521,6 +521,15 @@ class ConsumerCalibration:
             object.__setattr__(self, "state_stabilizers", stabilizers)
 
     @property
+    def fault_weight_probabilities(self) -> npt.NDArray[np.float64]:
+        """The probabilities ``Pr[g]`` that exactly ``g`` error mechanisms of the consumer occur.
+
+        There is one entry for each calibrated fault weight ``g = 0, ..., G``.  These are fault
+        weights of the consumer, not of a preparation circuit, as in a ``ResidualWeightHistogram``.
+        """
+        return self._get_distribution()[0]
+
+    @property
     def truncated_probability(self) -> float:
         """The probability ``Pr[g > G]`` of the fault weights that count as certain failure."""
         return self._get_distribution()[1]
@@ -548,6 +557,34 @@ class ConsumerCalibration:
         return dataclasses.replace(
             self, mechanism_probabilities=scale * probabilities, description=description.strip()
         )
+
+    def get_failure_probabilities(self, pauli: PauliXZLike) -> npt.NDArray[np.float64]:
+        """The failure probabilities ``c_s(m)`` of the consumer for the residual weights of a type.
+
+        Here ``c(0) = c_s(0) = Σ_g Pr[g] f(0, g) + Pr[g > G]`` is the failure probability without a
+        block error, and ``c_s(m) = c(0) + Σ_g Pr[g] Δ_s(m, g)`` for the rows ``m`` of the table of
+        type ``s``.  As for a ``ConsumerProfile``, every heavier residual weight counts as certain
+        failure.  ``Φ`` averages ``c_s(m) - c(0)`` over the histogram of each type.  The values are
+        not clipped, so sampling noise in estimated cells, or rounding, can put them slightly
+        outside [0, 1].
+
+        Args:
+            pauli: The Pauli type ``s``, as ``Pauli.X``, ``Pauli.Z``, ``"X"``, or ``"Z"``.
+
+        Returns:
+            The array ``c(0), c_s(1), ..., c_s(R)``, for ``R`` the number of rows of the table.
+
+        Raises:
+            ValueError: If ``pauli`` is not a calibrated Pauli type.
+        """
+        pauli = Pauli.coerce_xz(pauli)
+        if pauli not in self._tables:
+            raise ValueError(
+                f"The calibration has no table of Pauli type {pauli}, only of"
+                f" {[str(calibrated) for calibrated in self._tables]}"
+            )
+        no_block_error, excesses = self._get_excesses()
+        return no_block_error + np.concatenate([[0.0], excesses[pauli]])
 
     def get_excess_failure_probability(
         self, *histograms: ResidualWeightHistogram
@@ -759,6 +796,17 @@ class ConsumerCalibration:
         probabilities = np.asarray(self.mechanism_probabilities, dtype=float)
         return _get_fault_weight_probabilities(probabilities, num_columns - 1)
 
+    def _get_excesses(self) -> tuple[float, dict[PauliXZ, npt.NDArray[np.float64]]]:
+        """The failure probability ``c(0)``, and the excesses ``c_s(m) - c(0)`` of each table."""
+        distribution, truncated_probability = self._get_distribution()
+        no_block_error = (
+            float(np.asarray(self.baseline_failure_probabilities) @ distribution)
+            + truncated_probability
+        )
+        return no_block_error, {
+            pauli: table @ distribution for pauli, table in self._tables.items()
+        }
+
     def _get_error_terms(
         self, histograms: Sequence[ResidualWeightHistogram]
     ) -> tuple[float, float, npt.NDArray[np.float64]]:
@@ -788,11 +836,8 @@ class ConsumerCalibration:
             )
 
         # score each Pauli type, and collect the derivatives of the score
-        distribution, truncated_probability = self._get_distribution()
-        no_block_error = (
-            float(np.asarray(self.baseline_failure_probabilities) @ distribution)
-            + truncated_probability
-        )
+        distribution, _ = self._get_distribution()
+        no_block_error, excesses = self._get_excesses()
         value = histogram_variance = 0.0
         cell_terms = {pauli: np.zeros(table.shape) for pauli, table in tables.items()}
         # the derivative of the score with respect to each f(0, g) is -Pr[g] times this weight
@@ -809,7 +854,7 @@ class ConsumerCalibration:
             # outcomes: discarded, residual weights 0, ..., max_residual_weight, and overflow
             num_heavier = histogram.max_residual_weight + 1 - num_rows
             outcome_values = np.concatenate(
-                [[0.0, 0.0], table @ distribution, np.full(num_heavier, 1 - no_block_error)]
+                [[0.0, 0.0], excesses[pauli], np.full(num_heavier, 1 - no_block_error)]
             )
             mean, error = histogram._get_conditional_mean(outcome_values)
             value += mean
