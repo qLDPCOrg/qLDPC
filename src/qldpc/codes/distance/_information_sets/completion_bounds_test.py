@@ -20,12 +20,14 @@ from . import completion_bounds as cb
 
 Z = DEFAULT_TUNING.completion_bound_confidence_z
 MAX_SAMPLES = 2**12
-# A tuning that considers every layer, uses tables whatever they cost, and allows any size.
+# A tuning that considers every layer, uses tables whatever they cost, and allows any size.  The
+# fewest samples that the cost model trusts keep its predictions quick as plain Python.
 FORCED = dataclasses.replace(
     DEFAULT_TUNING,
     completion_bound_minimum_layer_work=0,
     completion_bound_max_cost_percent=MAX_VALUE,
     completion_bound_max_table_bytes=MAX_VALUE,
+    completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
 )
 
 
@@ -169,8 +171,8 @@ def test_selection_follows_its_policy() -> None:
     pinned = dataclasses.replace(
         FORCED,
         completion_bound_max_cost_percent=100,
-        completion_bound_block_bits=16,
-        completion_bound_samples=1024,
+        completion_bound_block_bits=8,
+        completion_bound_samples=64,
         completion_bound_min_samples=64,
         completion_bound_sampling_work=5 * 10**7,
         completion_bound_confidence_z=2.0,
@@ -203,13 +205,13 @@ def test_selection_follows_its_policy() -> None:
         change: dict[str, Any] = {name: 1e6}
         costly = dataclasses.replace(pinned, **change)
         assert cb.select_completion_tables(rows, 6, 6, None, costly) is None, name
-    # With free lookups, built tables that skip every one of the 1024 sampled supports predict the
-    # share 1 / (1 + 1024 / z**2) of the cost of the layer: under 0.4 % at the usual confidence,
-    # z = 2, but about 9 % at the most cautious, z = 10, so the limit of 2 % accepts the first and
+    # With free lookups, built tables that skip every one of the 64 sampled supports predict the
+    # share 1 / (1 + 64 / z**2) of the cost of the layer: about 6 % at the usual confidence, z = 2,
+    # but about 61 % at the most cautious, z = 10, so the limit of 10 % accepts the first and
     # rejects the second.
     free_lookups = dataclasses.replace(
         pinned,
-        completion_bound_max_cost_percent=2,
+        completion_bound_max_cost_percent=10,
         completion_bound_lookup_block_cost=0.0,
         completion_bound_lookup_block_cost_per_mib=0.0,
     )

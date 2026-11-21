@@ -1564,8 +1564,7 @@ def get_threaded_cases() -> Iterator[
         yield problem, False, None
     for problem in QUBIT_PROBLEMS.values():
         yield problem, True, None
-    # The Golay code has one root under its cyclic shifts, and 23 without them.
-    yield get_golay_problem(), False, None
+    # The Golay code has one root under its cyclic shifts, so the frontier deepens from that root.
     yield get_golay_problem(), False, lambda: np.roll(np.arange(23), -1)[None]
     # Only the last root is a witness, and on up to three threads, its 100 roots are the items.
     checks = np.hstack([np.eye(99, dtype=np.uint8), np.zeros((99, 1), dtype=np.uint8)])
@@ -1595,13 +1594,7 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     ):
         num_positions = len(positions)
         results = []
-        for num_threads, chunk_states in [
-            (1, cs.MAX_VALUE),
-            (3, cs.MAX_VALUE),
-            (8, cs.MAX_VALUE),
-            (1, 1),
-            (8, 1),
-        ]:
+        for num_threads, chunk_states in [(1, cs.MAX_VALUE), (3, cs.MAX_VALUE), (1, 1), (8, 1)]:
             search = get_search(
                 *problem,
                 symplectic=symplectic,

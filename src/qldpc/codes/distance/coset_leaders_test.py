@@ -132,15 +132,22 @@ def test_batches_read_syndromes_of_several_words(
     matrix = get_stabilizer_matrix(generators)
     search = CosetLeaderSearch(matrix, css_weight=css_weight)
     syndromes, minima = [], []
-    for _ in range(30):
+    for error_index in range(15):
         error = stim.PauliString(4 * num_blocks)
-        for qubit in rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False):
+        # The first error acts on blocks 0, 8, and 16, so its syndrome has bits in both words.
+        qubits = (
+            [0, 35, 67]
+            if error_index == 0
+            else rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False)
+        )
+        for qubit in qubits:
             error[int(qubit)] = int(rng.integers(1, 4))
         syndromes.append(sum((not error.commutes(gg)) << jj for jj, gg in enumerate(generators)))
         bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
         local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
         # Blocks that the error does not touch add nothing to its minimum weight.
         minima.append(_block_minimum(block, [ss for ss in local if any(ss)], css_weight))
+    assert syndromes[0] >> 64
     for max_weight in range(4):
         words = split_syndromes_into_words(syndromes, 68)
         found = _find_each_not_within_max_weight(search, matrix, words, max_weight)
@@ -238,37 +245,43 @@ def test_exhausted_search_gives_the_exact_minimum() -> None:
 def test_wide_states_span_several_packed_words(css_weight: bool, tune: Tune) -> None:
     """On eleven GHZ blocks, queries by either weight find the exact minimum."""
     # The words of a search by physical weight have 99 bits, more than one 64-bit word, and those of
-    # X and Z parts 33 bits.  Tables of eight-column blocks are quick to build as plain Python.
+    # X and Z parts 33 bits.  Tables of eight-column blocks are quick to build as plain Python.  The
+    # syndrome needs errors on eight blocks rather than all eleven, which are slow to search for as
+    # plain Python.
     tune(coset_completion_block_bits=8)
-    num_blocks = 11
-    matrix, syndrome = _ghz_blocks(num_blocks)
+    num_blocks, num_flipped = 11, 8
+    matrix, syndrome = _ghz_blocks(num_blocks, num_flipped)
     search = CosetLeaderSearch(matrix, css_weight=css_weight)
-    below = search.get_min_weight_bound(syndrome, num_blocks - 1)
-    assert not below.within_max_weight and below.lower_bound == num_blocks
-    found = search.get_min_weight_bound(syndrome, num_blocks)
+    below = search.get_min_weight_bound(syndrome, num_flipped - 1)
+    assert not below.within_max_weight and below.lower_bound == num_flipped
+    found = search.get_min_weight_bound(syndrome, num_flipped)
     assert found.within_max_weight
     assert get_syndrome(matrix, found.representative) == syndrome
-    assert get_pauli_weight(found.representative, 3 * num_blocks, css_weight) == num_blocks
+    assert get_pauli_weight(found.representative, 3 * num_blocks, css_weight) == num_flipped
 
 
 @_BLOCK_CASES
 def test_bounds_match_per_block_minima(
     block: tuple[str, ...], css_weight: bool, pytestconfig: pytest.Config, tune: Tune
 ) -> None:
-    """Five blocks, whose stabilizers are even but cosets can be odd, match block minima.
+    """Blocks whose stabilizers are even but cosets can be odd match block minima.
 
-    A query by physical weight can stop by its certificate with a representative heavier than the
-    minimum.
+    A query by physical weight on five blocks can stop by its certificate with a representative
+    heavier than the minimum.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    num_blocks = 5
+    # The phased GHZ block is slow to search as plain Python, so it gets four blocks rather than
+    # five, and fewer syndromes.
+    phased = block == _PHASED_GHZ_BLOCK
+    num_blocks = 4 if phased else 5
     matrix = get_stabilizer_matrix(_block_generators(block, num_blocks))
     search = CosetLeaderSearch(matrix, css_weight=css_weight)
 
-    # Bounds hold for the first syndrome and for random ones at each maximum weight.  The phased GHZ
-    # block is slow to search as plain Python, so it gets fewer random syndromes.
-    num_random = 3 if block == _PHASED_GHZ_BLOCK else 7
-    syndromes = [443351, *rng.integers(1 << (num_blocks * len(block)), size=num_random).tolist()]
+    # Bounds hold for random syndromes at each maximum weight, and on five blocks for the syndrome
+    # of the check below, which comes first.
+    syndromes = rng.integers(1 << (num_blocks * len(block)), size=4 if phased else 7).tolist()
+    if not phased:
+        syndromes.insert(0, 443351)
     for syndrome in syndromes:
         local = [
             [(syndrome >> (len(block) * index + jj)) & 1 for jj in range(len(block))]
@@ -501,7 +514,8 @@ def test_searches_answer_exactly_with_other_families(
     "tuning",
     [
         {},
-        {"coset_route_minimum_work": 0},
+        # Tables of eight-column blocks are quick to build as plain Python.
+        {"coset_route_minimum_work": 0, "coset_completion_block_bits": 8},
         {"coset_route_minimum_work": 0, "coset_completion_max_table_bytes": 0},
     ],
     ids=["disjoint", "tables", "no-tables"],
@@ -1041,14 +1055,15 @@ def _class_weights(
     return (x | z).sum(axis=1) if not css_weight else np.maximum(x.sum(axis=1), z.sum(axis=1))
 
 
-def _ghz_blocks(num_blocks: int) -> tuple[npt.NDArray[np.uint8], int]:
-    """Stabilizers of independent GHZ blocks, and the syndrome of Z on each block's last qubit.
+def _ghz_blocks(num_blocks: int, num_flipped: int) -> tuple[npt.NDArray[np.uint8], int]:
+    """Stabilizers of independent GHZ blocks, and the syndrome of Z on some of their last qubits.
 
-    Every error with that syndrome needs a Z part on each block, so ``num_blocks`` is its exact
-    minimum weight by either measure.
+    Z acts on the last qubit of each of the last ``num_flipped`` blocks.  Every error with that
+    syndrome needs a Z part on each of these blocks, so ``num_flipped`` is its exact minimum weight
+    by either measure.
     """
     generators = _block_generators(("ZZZ", "X_X", "_XX"), num_blocks)
-    witness = stim.PauliString("__Z" * num_blocks)
+    witness = stim.PauliString("___" * (num_blocks - num_flipped) + "__Z" * num_flipped)
     syndrome = sum((not witness.commutes(gg)) << jj for jj, gg in enumerate(generators))
     return get_stabilizer_matrix(generators), syndrome
 

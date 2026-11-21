@@ -197,14 +197,15 @@ def _check_vector_cosets(method: Any, rng: np.random.Generator, threads: bool) -
         expected = int(_get_words_with_syndrome(checks, syndrome).sum(axis=1).min())
         assert code.get_distance_exact(vector=vector, method=method) == expected
 
-    # On threads, a fixed code and vector whose coset weighs five, so that its BZ search reaches a
-    # layer of three rows, which splits onto threads; a small random case may stop earlier.  Its
-    # expected weight comes from the span of the code's generator, which the library computes; the
-    # random cases above use an oracle independent of the library.
+    # On threads, a fixed code and vector whose coset weighs four, and whose BZ search reaches a
+    # layer of three rows, which splits onto threads; a small random case may stop earlier, and may
+    # not split even the connected-cluster search.  Its expected weight comes from the span of the
+    # code's generator, which the library computes; the random cases above use an oracle independent
+    # of the library.
     if threads:
-        fixed_rng = np.random.default_rng(0)
-        code = codes.ClassicalCode(fixed_rng.integers(2, size=(14, 30), dtype=np.uint8))
-        vector = fixed_rng.integers(2, size=(1, 30), dtype=np.uint8)[0]
+        fixed_rng = np.random.default_rng(3)
+        code = codes.ClassicalCode(fixed_rng.integers(2, size=(9, 20), dtype=np.uint8))
+        vector = fixed_rng.integers(2, size=(1, 20), dtype=np.uint8)[0]
         value = sum(int(bit) << jj for jj, bit in enumerate(vector))
         expected = min((word ^ value).bit_count() for word in get_span(code.generator))
         assert code.get_distance_exact(vector=vector, method=method) == expected
