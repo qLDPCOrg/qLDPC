@@ -227,24 +227,20 @@ def test_qdistrnd_over_fields_with_other_polynomials() -> None:
     )
 
 
+# Build fields in the test, not at collection, since galois compiles code for each field.
 @pytest.mark.parametrize(
-    "field",
-    [
-        galois.GF(7),
-        galois.GF(4),
-        galois.GF(9),
-        galois.GF(8, irreducible_poly="x^3 + x^2 + 1"),
-        galois.GF(9, irreducible_poly="x^2 + 1"),
-    ],
+    "order, irreducible_poly",
+    [(7, None), (4, None), (9, None), (8, "x^3 + x^2 + 1"), (9, "x^2 + 1")],
 )
-def test_finite_field_elements(field: type[galois.FieldArray]) -> None:
+def test_finite_field_elements(order: int, irreducible_poly: str | None) -> None:
     """GAP and MAGMA expressions of field elements are those of the elements that galois encodes.
 
     GAP's ``Z(q)`` is a root of the Conway polynomial of ``GF(q)``: ``x``, or the least primitive
     root modulo a prime ``q``.  So reading ``Z(q)^k`` as a power of that root must give a field
     isomorphism, which is the identity on the integers of a field with the Conway polynomial.
     """
-    order, characteristic = field.order, field.characteristic
+    field = galois.GF(order, irreducible_poly=irreducible_poly)
+    characteristic = field.characteristic
     conway_field = galois.GF(order)
     root = (
         conway_field(galois.primitive_root(order))
