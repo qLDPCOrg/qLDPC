@@ -33,7 +33,10 @@ child and the runner in ``active/<task_key>``, and watches the child:
 * **Compilation:** while the measured call runs, the child listens to two of numba's documented
   events: ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and
   ``"numba:run_pass"``, which it sends for each compiler pass of any compilation, including those
-  of ``numba.vectorize`` ufuncs.  The child reports the first compilation to the parent.
+  of ``numba.vectorize`` ufuncs.  The child reports the first compilation to the parent.  A process
+  that the measured call starts with a fresh interpreter, such as by multiprocessing's spawn or as a
+  subprocess, does not listen.  A compilation in such a process goes unreported, though it counts in
+  T if the call waits for the process.
 
   The parent discards a run whose measured call compiled, whatever its status.  The discarded run is
   not stopped early, since numba writes compiled code to its cache only after the compilation ends,
@@ -470,7 +473,7 @@ class _Watcher:
             "run_id": self.run_id,
             "task_key": self.task["key"],
             "arm": self.task["arm"],
-            "mode": self.task.get("mode"),
+            "mode": self.task["mode"],
             "repeat": self.task["repeat"],
             "status": status,
             "post_status": post_status,

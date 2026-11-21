@@ -30,8 +30,11 @@
   its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
   exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
   ``post_s``, and a repeat ends without post-processing or certificate text.
-* **AT5:** every input matches its SHA-256, its recomputed DEM parameters equal those of
-  ``circuits.json``, and each code file passes ``code_files.check_code`` (``circuits.py --check``).
+* **AT5:** every input matches its SHA-256 and prepares a CSS state, its recomputed DEM
+  parameters, prepared state, and output qubits equal those of ``circuits.json``, and each code
+  file passes ``code_files.check_code_file``: the checks of ``circuits.py --check``.  A copy of
+  E-chen's record with another state, other output qubits, ``css_weight`` false, or ``css_weight``
+  set in its options fails exactly the check of that field.
   Every noisy input has only the expected noise, with every measurement noisy.
 * **AT6:** neither ``mqt`` nor ``qiskit`` is loaded by the node's modules.
 * **AT7:** the brute-force baseline, on the ground-truth circuits and on C-goto, its variant, and
@@ -463,6 +466,22 @@ def at5_circuit_data(directory: pathlib.Path, node: bool) -> None:
     circuits.check_inputs()
     allowed = {"DEPOLARIZE1", "DEPOLARIZE2", "X_ERROR", "Z_ERROR"}
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+
+    # a record with one field changed fails that field's check alone; E-chen has no code file, whose
+    # check would also fail on another state
+    entry = next(entry for entry in entries if entry["id"] == "echen")
+    assert circuits._check_input(entry) == [], entry
+    changes = {
+        "other than the recorded": {
+            "stabilizers": ["-" + entry["stabilizers"][0][1:], *entry["stabilizers"][1:]]
+        },
+        "output_qubits is": {"output_qubits": entry["output_qubits"][::-1]},
+        "css_weight is": {"css_weight": False},
+        "options set css_weight": {"options": entry["options"] | {"css_weight": True}},
+    }
+    for message, change in changes.items():
+        problems = circuits._check_input(entry | change)
+        assert len(problems) == 1 and message in problems[0], (message, problems)
     checked = [entry for entry in entries if entry["status"] == "ok"]
     for entry in checked:
         circuit_id = entry["id"]

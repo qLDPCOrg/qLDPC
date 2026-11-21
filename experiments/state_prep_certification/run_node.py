@@ -11,7 +11,8 @@ experiment (``common/manifest.py``), it
 1. refuses a bundle built without a pinned qLDPC commit, unless ``--allow-unfrozen`` is given;
 2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
    label, and stops if they fail;
-3. computes the ceiling of CPU-hours of the task list of pass 1, and refuses to go on unless
+3. refuses a task list in which a task's memory cap exceeds a job slot's memory (``JOB_MEM_GIB``),
+   computes the ceiling of CPU-hours of the task list of pass 1, and refuses to go on unless
    ``--approved-cpu-hours`` covers it;
 4. prepares the inputs (``prepare``), which checks them against the experiment's frozen files, and
    writes the task list;

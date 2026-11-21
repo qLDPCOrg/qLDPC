@@ -71,7 +71,7 @@ AT1_CODES = ("bb72", "pp110", "golay", "qr47", "five_five", "surface9")
 EQUAL_SECTORS = ("golay", "qr47")
 LOCAL_LIMIT_S = 60.0
 # the prior tuning, written out here independently of config.json, which AT5 checks
-PLAN_BZ_PRIOR = {
+EXPECTED_BZ_PRIOR = {
     "partition_max_coverage": 1,
     "overlapping_minimum_work": _tuning.MAX_VALUE,
     "lp_minimum_work": _tuning.MAX_VALUE,
@@ -266,7 +266,7 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     next(entry for entry in changed["anchors"] if entry["name"] == "qr79")["reference_d"] = 13
     assert codes.compare_with_sample(changed) == ["anchors: qr79 has another reference_d"]
     defaults = dataclasses.asdict(_tuning.SearchTuning())
-    prior = dict(defaults, **PLAN_BZ_PRIOR)
+    prior = dict(defaults, **EXPECTED_BZ_PRIOR)
     rows = _run_arms(label_dir, _entries(("golay",)))
     for row in rows.values():
         expected = prior if row["arm"] == "q_bz_prior" else defaults
