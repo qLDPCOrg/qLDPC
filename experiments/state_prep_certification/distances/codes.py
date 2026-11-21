@@ -8,20 +8,22 @@
 recorded with their sources in ``code_data/endpoints.json``.  The four target lengths are
 n_j = n_lo (n_hi / n_lo)^(j / 3) for j = 0, ..., 3, and each target goes to the family's
 admissible parameters whose length is nearest in log n; ties go to the smaller n, then to the
-family's tie-break.  Targets that land on the same parameters merge, and the merge is reported.
-No timing of any kind enters this rule.
+family's tie-break.  Targets that land on the same parameters merge; in the ``ladders`` of
+``code_data/sample.json``, a target that lands on the parameters of an earlier one has ``merged``
+set to true.  No timing of any kind enters this rule.
 
-**Draws.**  For each size, draws i = 0, 1, ... are made until 4 are structurally valid or 100 are
-made.  Draw i of parameters ``params`` of family ``f`` uses ``numpy.random.default_rng(seed)`` with
+**Draws.**  For each size, draws i = 0, 1, ... are made until 4 are kept or 100 are made.  Draw i
+of parameters ``params`` of family ``f`` uses ``numpy.random.default_rng(seed)`` with
 ``seed = int.from_bytes(sha256(json.dumps(["ftsp-distances-1", f, params, i], sort_keys=True,
-separators=(",", ":"))).digest()[:8], "big") >> 1``.  The only screens are structural: the
-construction's own rejection, and ``k = 0``.  A draw is also screened out if it duplicates a kept
-code, an anchor, a CSS code of ``trial.WARM_UP_CODES``, or the Hadamard variant of such a code, by
-the SHA-256 of the reduced row echelon forms of the check matrices.  ``trial.WARM_UP_CODES`` are the
-codes on which ``experiments/distance_tuning`` warms up; no run of this experiment warms up on them,
-but the screen against them is part of the rule that produced the frozen ``sample.json``.  Every
-draw and its outcome goes to ``draws.jsonl``, a size with fewer valid draws than codes goes to
-``shortfalls`` of the sample, and an unexpected exception stops the script.
+separators=(",", ":"))).digest()[:8], "big") >> 1``.  A draw is kept unless the construction
+rejects it, it has ``k = 0``, or it duplicates an earlier code.  Two codes are duplicates if the
+reduced row echelon forms of their check matrices have the same SHA-256.  The earlier codes are
+the kept codes, the anchors, the CSS codes of ``trial.WARM_UP_CODES``, and the Hadamard variants of
+those CSS codes.  ``trial.WARM_UP_CODES`` are the codes on which ``experiments/distance_tuning``
+warms up; no run of this experiment warms up on them, but the screen against them is part of the
+rule that produced the frozen ``sample.json``.  Every draw and its outcome goes to
+``draws.jsonl``, a size with fewer than 4 kept draws goes to ``shortfalls`` of the sample, and an
+unexpected exception stops the script.
 
 **Anchors.**  The named codes of ``ANCHORS``, from ``experiments/distance_tuning/workloads.py``,
 qLDPC's constructors, and the vendored constructions below, with a reference distance where an
@@ -29,11 +31,14 @@ independent source gives one.
 
 **Storage.**  Every code is stored as plain matrices, ``H_X`` and ``H_Z`` for a CSS code and
 ``H = [x | z]`` otherwise, in ``codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of
-the stored arrays.  ``--write-sample`` writes ``code_data/sample.json``, with the Git tree of the
-qLDPC source that generated it (``qldpc_src_tree``), and ``--check`` regenerates the codes and
-compares their ``COMPARED_FIELDS`` with it, among them the anchors' reference distances, which the
-analysis reads from ``sample.json``.  Git ignores ``code_data/``, which the offline bundle
-carries.
+the stored arrays.  ``--write-sample`` writes ``code_data/sample.json``, with ``qldpc_src_tree``,
+the Git tree of this checkout's ``src/`` at ``HEAD``.  That tree is the qLDPC source that generated
+the sample only if the imported ``qldpc`` is this checkout's ``src/``, with no uncommitted or
+untracked changes.  It covers nothing outside ``src/``, such as this experiment's code,
+``experiments/distance_tuning/``, or other packages.  ``--check`` regenerates the codes and
+compares their ``COMPARED_FIELDS`` with ``sample.json``.  These fields include the anchors'
+reference distances, which the analysis reads from the sample.  Git ignores ``code_data/``, which
+the offline bundle carries.
 
 The constructions of the families and of some anchors are vendored, with changes, from an earlier
 unpublished version of this experiment by its authors.

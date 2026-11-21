@@ -27,10 +27,12 @@ The connected-cluster (CC) search is not compared here: the certification experi
 
 `code_data/endpoints.json` records each family's endpoints with its source, and `code_data/sample.json` fixes the name, parameters, seed, and hashes of every code and anchor.
 Git ignores `code_data/`, which lives with the experiment's other data outside qLDPC, and which the offline bundle carries.
+`endpoints.json` is written by hand.
+`codes.py --write-sample` overwrites the frozen `sample.json`, so run it only to refreeze the sample; use `--check` otherwise.
 The node regenerates the codes and stops on any difference in the codes from the sample.
 Each size has 4 target codes and at most 100 draws.
-A size with fewer structurally valid draws keeps fewer codes and is reported as a shortfall, such as a bivariate bicycle size where every draw has k = 0.
-Target lengths that the size rule maps to the same parameters merge, and the merge is reported.
+A size where fewer than 4 draws are kept (see the docstring of `codes.py`) keeps fewer codes and is reported as a shortfall, such as a bivariate bicycle size where every draw has k = 0.
+Sizes whose target lengths land on the same parameters merge (see the docstring of `codes.py`); in the sample's `ladders`, a target that repeats an earlier one has `merged` set to true.
 
 ## Commands
 
