@@ -452,8 +452,8 @@ def refuse_other_cpu(label_dir: pathlib.Path) -> None:
 def live_runs(label_dir: pathlib.Path) -> list[str]:
     """The tasks of ``active/`` whose runner or run is still the recorded process.
 
-    A run is also live if its process group's leader is gone but members of the group remain,
-    which is when ``cleanup`` kills the group.  An unreadable record counts as live, since nothing
+    A run is also live if its process group's leader is gone but members of the group remain, which
+    ``cleanup`` reports without killing them.  An unreadable record counts as live, since nothing
     shows that its run ended; ``cleanup`` removes it.
     """
     live = []
@@ -470,12 +470,7 @@ def live_runs(label_dir: pathlib.Path) -> list[str]:
             start is not None and pid in table and table[pid].start == start
             for pid, start in recorded
         )
-        orphaned_group = (
-            record.get("pgid") is not None
-            and record["pid"] not in table
-            and any(process.pgid == record["pid"] for process in table.values())
-        )
-        if same or orphaned_group:
+        if same or _orphaned_members(table, record):
             live.append(path.name)
     return live
 
@@ -484,10 +479,11 @@ def cleanup(label_dir: pathlib.Path) -> None:
     """Kill every run listed in the label's ``active/`` directory, and remove the files.
 
     Each task runner is killed first, so that it cannot write a row for a run that it lost.  A
-    process is killed only if its start time is the recorded one.  A run's process group is killed
-    only if its leader is that recorded process, or if no process has the leader's id any more but
-    members of the group remain; a process that has reused the id is never killed.  An unreadable
-    record is removed, with a note.
+    process is killed only if its start time is the recorded one, and a run's process group only if
+    its leader is the recorded process, so that a process that has reused an id is never killed.
+    If the leader is gone but members of its group remain, they may belong to a later group that
+    reused the id, since nothing tells the two apart: ``cleanup`` lists them, kills none, and keeps
+    the record.  An unreadable record is removed, with a note.
     """
     for path, record in _active_records(label_dir):
         if record is None:
@@ -498,6 +494,15 @@ def cleanup(label_dir: pathlib.Path) -> None:
             path.unlink(missing_ok=True)
             continue
         _kill_if_same(record["runner_pid"], record["runner_start"], group=False)
+        members = _orphaned_members(runner.process_table(), record)
+        if members:
+            print(
+                f"{path.name}: the leader of its process group {record['pid']} is gone, and its "
+                f"members {runner._describe(members)} may belong to a later group that reused the "
+                f"id, so none was killed.  If they are this run's, run `kill -KILL -- "
+                f"-{record['pid']}` and --cleanup again; if not, delete {path}."
+            )
+            continue
         if record.get("pgid") is not None:
             killed = _kill_if_same(record["pid"], record["pid_start"], group=True)
         else:
@@ -522,6 +527,13 @@ def _active_records(label_dir: pathlib.Path) -> list[tuple[pathlib.Path, dict[st
     return records
 
 
+def _orphaned_members(table: dict[int, runner.Process], record: dict[str, Any]) -> list[int]:
+    """The members of a node run's process group whose leader, the recorded process, is gone."""
+    if record.get("pgid") is None or record["pid"] in table:
+        return []
+    return [pid for pid, process in table.items() if process.pgid == record["pid"]]
+
+
 def _kill_tree_if_same(pid: int, start: str | None) -> bool:
     """Kill a local run's process and its descendants, if it is still the recorded process."""
     table = runner.process_table()
@@ -538,10 +550,7 @@ def _kill_tree_if_same(pid: int, start: str | None) -> bool:
 def _kill_if_same(pid: int, start: str | None, group: bool) -> bool:
     """Kill a process (or the group that it leads) if it is still the one recorded."""
     table = runner.process_table()
-    if pid in table:
-        if start is None or table[pid].start != start:
-            return False
-    elif not group or not any(process.pgid == pid for process in table.values()):
+    if start is None or pid not in table or table[pid].start != start:
         return False
     try:
         if group:

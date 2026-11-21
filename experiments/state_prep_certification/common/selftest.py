@@ -858,7 +858,7 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_cleanup_reused_ids(directory: pathlib.Path, node: bool) -> None:
-    """--cleanup never kills a process that has reused a recorded id, even as a group leader."""
+    """--cleanup never kills a process that has reused a recorded id, even as a group's id."""
     from experiments.state_prep_certification.common import runner
 
     run_node = _run_node_module()
@@ -883,12 +883,16 @@ def test_cleanup_reused_ids(directory: pathlib.Path, node: bool) -> None:
         run_node.cleanup(directory)
         assert not killed, killed
 
-        # a group whose leader is gone, with members left, is killed
+        # a group whose leader is gone, with members left, may be a later group with the same id:
+        # it stays live, and cleanup names its members, kills none, and keeps the record
         table = {reused + 1: runner.Process(1, reused, 0, None, "member")}
         (directory / "active" / "task").write_text(json.dumps(record))
         assert run_node.live_runs(directory) == ["task"]
-        run_node.cleanup(directory)
-        assert ("group", reused) in killed, killed
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            run_node.cleanup(directory)
+        assert not killed, killed
+        assert f"{reused + 1} (" in output.getvalue(), output.getvalue()
+        assert run_node.live_runs(directory) == ["task"]
 
 
 @test
