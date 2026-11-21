@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 from typing import Any
 
 from experiments.state_prep_certification.common import runner
@@ -32,11 +33,16 @@ SMOKE = ("golay", "bb72", "surface9", "five_five")
 
 
 def prepare(label_dir: pathlib.Path) -> None:
-    """Regenerate the codes into the label's directory, and stop if any differs from the sample."""
+    """Regenerate the codes into the label's directory, and stop if any differs from the sample.
+
+    The sample is then copied into the label's directory, so that the run's archive carries the
+    reference distances that ``analyze.py`` reads.
+    """
     sample = codes.generate(label_dir)
     problems = codes.compare_with_sample(sample)
     if problems:
         raise SystemExit("The regenerated codes differ from sample.json:\n" + "\n".join(problems))
+    shutil.copyfile(codes.SAMPLE, label_dir / codes.SAMPLE.name)
 
 
 def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:

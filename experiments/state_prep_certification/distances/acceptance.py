@@ -12,9 +12,10 @@
   are reported rather than checked.
 * **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
   left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
-* **AT5:** regenerated codes match ``sample.json``; ``compare_with_sample`` reports a sample whose
-  reference distance differs from ``sample.json``; each row's tuning is the shipped default, with
-  ``BZ_PRIOR`` for ``q_bz_prior``.
+* **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label's
+  directory, from which the analysis reads it (``analyze.load_sample``); ``compare_with_sample``
+  reports a sample whose reference distance differs from ``sample.json``; each row's tuning is the
+  shipped default, with ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
   ``LOCAL_LIMIT_S``.
@@ -239,13 +240,19 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
 @test
 def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     """Regenerated codes match the sample; rows record the arms' tunings."""
+    from experiments.state_prep_certification.distances import analyze
+
     label_dir = directory
     label_dir.mkdir(parents=True, exist_ok=True)
-    problems = codes.compare_with_sample(codes.generate(label_dir))
-    assert not problems, problems
+    experiment.prepare(label_dir)
+    assert (label_dir / "sample.json").read_bytes() == codes.SAMPLE.read_bytes()
     changed = copy.deepcopy(_sample())
     next(entry for entry in changed["anchors"] if entry["name"] == "qr79")["reference_d"] = 13
     assert codes.compare_with_sample(changed) == ["anchors: qr79 has another reference_d"]
+
+    # the analysis reads the run's copy of the sample, not the working tree's
+    (label_dir / "sample.json").write_text(json.dumps(changed))
+    assert analyze.load_sample(label_dir) == changed
     defaults = dataclasses.asdict(_tuning.SearchTuning())
     prior = dict(defaults, **EXPECTED_BZ_PRIOR)
     rows = _run_arms(label_dir, _entries(("golay",)))

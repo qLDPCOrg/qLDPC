@@ -4,6 +4,10 @@
 
     python analyze.py (--archive PATH | --label-dir DIR) [--out DIR]
 
+It reads the run's copy of ``sample.json``, which ``prepare`` writes into the label's directory, so
+that later changes to the working tree's sample, such as to a reference distance, do not change
+the analysis of an earlier run.
+
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on, where T is the median of a timed run's
 repeats, a repeat that did not finish counting as the limit L.  An arm counts as finished if its
@@ -73,7 +77,7 @@ def main() -> None:
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {problem}")
-    sample = json.loads((pathlib.Path(__file__).parent / "code_data" / "sample.json").read_text())
+    sample = load_sample(label_dir)
     expected = list(tasks.load_tasks(label_dir, pass2=False).values())
     missing = [key for key in tasks.load_tasks(label_dir) if key not in final]
     if missing:
@@ -108,6 +112,12 @@ def _unpack(archive: pathlib.Path) -> pathlib.Path:
 # per code
 
 
+def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
+    """The run's copy of ``sample.json``, which ``experiment.prepare`` writes into its directory."""
+    sample: dict[str, Any] = json.loads((label_dir / "sample.json").read_text())
+    return sample
+
+
 def summarize(
     rows: list[dict[str, Any]], sample: dict[str, Any], expected: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -133,8 +143,8 @@ def summarize(
     unknown = sorted({code_hash for code_hash, _ in grouped if code_hash not in names})
     if unknown:
         raise ValueError(
-            f"{len(unknown)} codes of the run are not in sample.json, such as {unknown[0]}: "
-            "analyze the run with the sample.json that it ran with"
+            f"{len(unknown)} codes of the run are not in the run's sample.json, such as "
+            f"{unknown[0]}"
         )
     records = []
     for (code_hash, arm), modes in sorted(grouped.items()):
