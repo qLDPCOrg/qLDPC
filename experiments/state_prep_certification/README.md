@@ -7,7 +7,7 @@ Each experiment is a subdirectory that plugs into shared code at this level:
 | --- | --- | --- |
 | [`certification/`](certification/) | Exact certification of bounded fault propagation in published state preparation circuits: feasibility, listed faults against all accepted fault combinations, smallest counterexamples, and the cost of the two weight oracles | MQT QECC's shipped and synthesized circuits, Goto's and Chen et al.'s circuits, and weakened variants |
 | [`distances/`](distances/) | Exact code distances with qLDPC's extensions of the Brouwer-Zimmermann search on, against the same search configured with only the techniques that some public exact tool shares with it | Codes drawn by a fixed rule with fixed seeds, and named anchors |
-| [`ranking/`](ranking/) | Whether decoder-free scores of certified preparation circuits order them as stratified direct simulation of a fixed consumer does, and at what cost | The certified t = 1 circuits of the certification experiment, with its code files |
+| [`ranking/`](ranking/) | Exploratory; its results stand apart from those of the other two experiments. Whether decoder-free scores of certified preparation circuits order them as stratified direct simulation of a fixed consumer does, and at what cost | The certified t = 1 circuits of the certification experiment, with its code files |
 
 The experiments run only qLDPC and its Python dependencies, so that they can run on a Linux node without practical network access.
 The shared workflow builds everything that the node needs into one offline bundle on a workstation, runs each experiment on the node with GNU parallel, and brings one archive back for analysis on the workstation.
@@ -66,7 +66,7 @@ Then build the bundle, which carries the data, and note its checksum:
 python experiments/state_prep_certification/bundle.py EXPERIMENT --out /path/to/bundles
 ```
 
-A ranking bundle names certification too, as in `bundle.py certification ranking`, since ranking reads certification's inputs; `bundle.py` refuses a bundle without an experiment's frozen files.
+A bundle names every experiment whose directory holds a frozen file of a named experiment; `bundle.py` refuses a bundle without an experiment's frozen files.
 
 The bundle needs a pinned qLDPC commit in `pins.json`; `--unfrozen` builds a trial bundle without one, which `run_node.py` refuses on the node unless `--allow-unfrozen` is given.
 

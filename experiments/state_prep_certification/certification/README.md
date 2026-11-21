@@ -32,7 +32,7 @@ The synthesized circuits are made outside qLDPC, by the tooling that keeps them,
 The `provenance.json` of each folder of synthesized circuits records each synthesis call, with its code's [[n, k, d]] and the release of MQT QECC that it used; `--build` takes every circuit that it records as synthesized, and `circuits.json` labels each synthesized circuit with its release.
 
 Each A-ft, C-goto, and synthesized entry of `circuits.json` also names its code file, `code_file`, with its SHA-256, `code_sha256`.
-A code file `<code>_code.json` holds the code's `distance` and its matrices `Hx`, `Hz`, `Lx`, and `Lz`, with one column per output qubit, in output-qubit order, so that a consumer of a run's circuits, such as a ranking of them by their residual errors, has each code's matrices.
+A code file `<code>_code.json` holds the code's `distance` and its matrices `Hx`, `Hz`, `Lx`, and `Lz`, with one column per output qubit, in output-qubit order: `circuits.py --check` checks each input's state against these matrices, and the file says which Z-type rows are checks and which are logical operators.
 The state stabilizers of a circuit do not determine these matrices, since the Z-type stabilizers of |0...0>_L span both Hz and Lz; which rows are checks and which are logical operators comes from the code's definition in MQT QECC.
 The code files are made outside qLDPC, like the synthesized circuits: those of the A-ft codes, in `codes/`, from MQT QECC at the commit of `config.json`, and those of the synthesized codes by the synthesis, beside their circuits; C-goto uses the Steane code's file.
 MQT's `RotatedSurfaceCode(5)` at that commit has its X checks where the shipped d = 5 circuits have their Z checks, so its file exchanges Hx with Hz and Lx with Lz.

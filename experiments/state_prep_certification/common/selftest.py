@@ -1471,15 +1471,15 @@ def test_bundle_frozen_files(directory: pathlib.Path, node: bool) -> None:
     certification = types.SimpleNamespace(
         NAME="certification", FROZEN_FILES=["config.json", "data/circuits.json"]
     )
-    ranking = types.SimpleNamespace(
-        NAME="ranking", FROZEN_FILES=["config.json", "../certification/data/circuits.json"]
+    reader = types.SimpleNamespace(
+        NAME="reader", FROZEN_FILES=["config.json", "../certification/data/circuits.json"]
     )
     experiments_dir = directory / "experiments" / "state_prep_certification"
-    for path in ("ranking/config.json", "certification/config.json"):
+    for path in ("reader/config.json", "certification/config.json"):
         (experiments_dir / path).parent.mkdir(parents=True, exist_ok=True)
         (experiments_dir / path).write_text("{}")
     for modules, message in (
-        ([ranking], "ranking needs certification's circuits.json: bundle certification too"),
+        ([reader], "reader needs certification's circuits.json: bundle certification too"),
         ([certification], "certification: its frozen file data/circuits.json is not in the bundle"),
     ):
         try:
@@ -1490,7 +1490,7 @@ def test_bundle_frozen_files(directory: pathlib.Path, node: bool) -> None:
             raise AssertionError(f"no error for {[module.NAME for module in modules]}")
     (experiments_dir / "certification" / "data").mkdir()
     (experiments_dir / "certification" / "data" / "circuits.json").write_text("{}")
-    bundle.check_frozen_files(directory, [certification, ranking])
+    bundle.check_frozen_files(directory, [certification, reader])
 
 
 @test

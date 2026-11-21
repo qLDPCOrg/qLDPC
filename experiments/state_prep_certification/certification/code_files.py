@@ -3,11 +3,11 @@
 """The code files: each code's check matrices and logical operators, in output-qubit order.
 
 A code file ``<code>_code.json`` holds ``distance``, ``Hx``, ``Hz``, ``Lx``, and ``Lz``, with one
-column per output qubit, in the order of the circuit's output qubits, so that a consumer of a run's
-circuits, such as a ranking of them by their residual errors, has each code's matrices.  The signed
-stabilizers of a circuit's state do not give these matrices: the Z-type stabilizers of |0...0>_L
-span both Hz and Lz, and which rows are checks and which are logical operators comes from the code's
-definition.
+column per output qubit, in the order of the circuit's output qubits.  ``circuits.py --check``
+checks each input's state against these matrices, and the file says which Z-type rows are checks
+and which are logical operators.  The signed stabilizers of a circuit's state do not say that: the
+Z-type stabilizers of |0...0>_L span both Hz and Lz, and which rows are checks and which are logical
+operators comes from the code's definition.
 
 Like the circuits, the code files are made outside qLDPC, from MQT QECC's definitions of the codes:
 those of the A-ft codes in ``circuit_data/codes/``, and those of the codes of each family of

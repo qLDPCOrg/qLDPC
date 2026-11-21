@@ -32,13 +32,13 @@ lockfile's hash for it is then replaced by the hash of that wheel, since an inst
 script.
 
 The script refuses a named experiment whose frozen files (``FROZEN_FILES``) are not all in the
-staged tree, before any download; ranking's frozen files include certification's ``circuits.json``,
-so a ranking bundle names certification too.  It refuses a worktree with uncommitted changes to
-tracked files.  It refuses an unpinned
-qLDPC commit (``qldpc_commit`` of ``pins.json`` is null) unless ``--unfrozen`` asks for a trial,
-which ``bundle.json`` then records.  With a pinned commit, it checks that HEAD descends from that
-commit and that ``src/`` and ``pyproject.toml`` are unchanged since, so that the bundle's source,
-its qLDPC wheel, and the run's manifest name one qLDPC commit.
+staged tree, before any download, so that an experiment whose frozen files lie in another
+experiment's directory needs that experiment in the bundle too.  It refuses a worktree with
+uncommitted changes to tracked files.  It refuses an unpinned qLDPC commit (``qldpc_commit`` of
+``pins.json`` is null) unless ``--unfrozen`` asks for a trial, which ``bundle.json`` then records.
+With a pinned commit, it checks that HEAD descends from that commit and that ``src/`` and
+``pyproject.toml`` are unchanged since, so that the bundle's source, its qLDPC wheel, and the run's
+manifest name one qLDPC commit.
 
 Downloads are cached in ``DIR/cache``.  ``--uv-python-platform`` and ``--wheel-platform`` build a
 bundle for another platform.  ``node.sh`` itself runs only on x86-64 Linux, but a bundle for the
@@ -210,8 +210,8 @@ def parse_args() -> argparse.Namespace:
 def check_frozen_files(tree: pathlib.Path, modules: list[Any]) -> None:
     """Stop unless the staged tree holds every frozen file of the named experiments.
 
-    A frozen file in another experiment's directory, such as ranking's copy of certification's
-    ``circuits.json``, travels only in a bundle that names that experiment too.
+    A frozen file in another experiment's directory travels only in a bundle that names that
+    experiment too.
     """
     experiments_dir = tree / "experiments" / "state_prep_certification"
     for module in modules:
