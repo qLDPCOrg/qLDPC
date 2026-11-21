@@ -6,17 +6,25 @@ The script wraps functions of ``qldpc.codes.distance`` in this process only, war
 ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or ``mcount``
 workload once under the given tuning, on one thread: it refuses a tuning that sets ``num_threads``
 to another value, since its counts of work see only the scans of one thread.  It cannot trace
-``ccount`` workloads, whose compiled setup calls the stages past the wrappers.  For a
-Brouwer-Zimmermann (BZ) search, it records each family of information sets, consideration of a
-switch to automorphism images, prediction of the cost of completion tables, comparison of a
-predicted cost with ``completion_bound_max_cost_percent``, and layer, and the first test of each
-number of rows and weight for tables.  For a connected-cluster search, it records each weight limit,
-and for a count by the MacWilliams method, each walk and test.  The wrapper of each event says what
-it records.  Each layer and weight limit numbers its sector, such as the X-type logical operators of
-a CSS code, in a ``sector`` field (see ``wrap_sectors``).  The script prints the events, and with
-``--output`` saves them as JSON with the tuning and a fingerprint of the qLDPC source.  With
-``--setup-only``, it ends the workload before the first layer of a BZ distance search, after its
-setup; workloads of other kinds run in full.
+``ccount`` workloads, whose compiled setup bypasses the wrappers.  It records the following events,
+named in parentheses as in its output, and the wrapper of each event says what the event holds:
+
+- for a Brouwer-Zimmermann (BZ) distance search or count: each disjoint, overlapping, or partitioned
+  family of information sets (``family``), each prediction of the cost of completion tables
+  (``predict``), each comparison of a predicted cost with ``completion_bound_max_cost_percent``
+  (``limit``), and some tests of whether the tuning considers completion tables for a layer
+  (``considers``; ``wrap_considers`` says which);
+- for a BZ distance search, also each consideration of a switch to automorphism images
+  (``automorphisms``) and each layer (``layer``);
+- for a connected-cluster search, each weight limit (``weight limit``);
+- for a count by the MacWilliams method, each walk of a check space (``walk``) and each test of
+  whether the X and Z checks span the same space (``self-dual test``).
+
+Each layer and weight limit numbers its sector, such as the X-type logical operators of a CSS code,
+in a ``sector`` field (see ``wrap_sectors``).  The script prints the events, and with ``--output``
+saves them as JSON with the tuning and a fingerprint of the qLDPC source.  With ``--setup-only``, it
+ends a ``distance`` or ``hadamard`` workload before the first layer of its search, after setup;
+workloads of other kinds run in full.
 
 With ``--compare``, the script instead says whether two saved traces of one workload, such as traces
 under two tunings or of two checkouts, make the same decisions, and prints the first that differs,
@@ -402,9 +410,9 @@ def get_overlapping_gate(
     """The check that ends a call of ``basis_families.get_overlapping_family``, and its work.
 
     The record's ``stage`` names the check of ``basis_families._check_overlapping_family`` that
-    keeps the given family, or is ``built`` if none does, in which case the library builds sets.
-    Its ``estimated_work`` is the work of the given family, or None if the stage is
-    ``no open sets``.
+    keeps the given family, or is ``built`` if none does, in which case the call tries to build an
+    overlapping family that does less work.  Its ``estimated_work`` is the work of the given family,
+    or None if the stage is ``no open sets``.
     """
     check, work, _ = basis_families._check_overlapping_family(
         basis, basis_family, upper_bound, policy
@@ -419,7 +427,12 @@ def get_overlapping_gate(
 
 
 def wrap_considers(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record, for each number of rows and weight, the first test of whether to consider tables."""
+    """Record the first test of whether to consider tables, for each number of rows and weight.
+
+    The event's ``rows`` is the number of rows of a search basis.  Its ``weight`` names a
+    coefficient layer: each candidate word of that layer sums ``weight`` rows of the basis.  Only
+    weights from two to ``rows`` are recorded.
+    """
     seen = set()
 
     @functools.wraps(function)
@@ -572,8 +585,12 @@ def wrap_select(function: Callable[..., Any]) -> Callable[..., Any]:
 def wrap_predict(function: Callable[..., Any]) -> Callable[..., Any]:
     """Record each prediction of the cost of completion tables.
 
-    The cost is a share of the cost of a scan without tables.  ``at`` is the seconds since the
-    workload started, which also time the steps of counts.
+    The cost is a share of the cost of a scan without tables.  ``at`` is the seconds from the start
+    of the workload to the end of the prediction.  A ``count`` workload records no ``layer`` events,
+    and so no timing of its scan alone.  Subtracting consecutive ``at`` values gives the time
+    between the ends of two predictions, which includes scanning and everything else that the
+    workload does in that interval.  A count predicts at most once for each step, a pair of a layer
+    and a set (see ``_StepTables.select`` in ``_counting/scan.py``).
     """
 
     @functools.wraps(function)
@@ -848,7 +865,7 @@ def compare(first: dict[str, Any], second: dict[str, Any]) -> None:
 
 
 def get_decisions(trace: dict[str, Any]) -> list[tuple[Any, ...]]:
-    """The decisions of a trace, in order, with predicted costs rounded to 9 digits."""
+    """The decisions of a trace, in order, with predicted costs rounded to 9 decimal places."""
     decisions: list[tuple[Any, ...]] = []
     for event in trace["events"]:
         kind = event["event"]

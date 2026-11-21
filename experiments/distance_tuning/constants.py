@@ -7,11 +7,12 @@ and assumes the cost of the step to an order of magnitude (see the Retuning sect
 ``_tuning.py``).  The script first measures the cost of each such step on quick searches.  It prints
 a table of these costs beside the field that gates each step, in seconds and in the unit of that
 field (``in units``), to compare with the default of the field.  A second table gives, by field,
-each cost rounded as ``round_to_grid`` does (``derived``) beside the default.  The script then
-measures the coefficients of the cost model of completion tables on the searches of
-``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which together take about three
-hours.  It prints each coefficient, under ``measured``, beside its default.  The functions of this
-script say how it measures each cost.  The script sets no value.
+each cost rounded as ``round_to_grid`` does (``derived``) beside the default.  That table also lists
+``completion_bound_max_cost_percent`` under ``derived`` as 100 without measuring it, since it is a
+limit at equality.  The script then traces the searches of ``COST_DATA_SET`` under each tuning of
+``COST_MODEL_ARMS``, about three hours in all, to measure the coefficients of the cost model of
+completion tables.  It prints each coefficient, under ``measured``, beside its default.  The
+functions of this script say how it measures each cost.  The script sets no value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
@@ -58,8 +59,8 @@ LARGE_LAYER = 10**7
 LARGE_LIMIT = 10**4
 
 # The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop after
-# setup.  Connected-cluster searches ask for automorphisms before their first weight limit, so that
-# each of their traces measures that step.
+# setup.  Connected-cluster traces set ``automorphism_minimum_states`` to zero, so that each
+# measures asking for automorphisms before its first weight limit.
 TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (name, workload, {}, False)
     for name, workload in (
@@ -297,8 +298,7 @@ def report(directory: pathlib.Path) -> None:
         )
 
     # Round the costliest measurement of each step, in the unit of its field, as round_to_grid does,
-    # to print it beside the default.  The cost limit of completion tables is a limit at equality,
-    # 100.
+    # to print it beside the default.
     values = {field: round_to_grid(counts[name]) for field, name in gates.items()}
     values["completion_bound_max_cost_percent"] = 100
     print(f"\n{'field':<38} {'derived':>8} {'default':>8}")
@@ -319,9 +319,11 @@ def round_to_grid(value: float) -> int:
 def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The median, over the traced searches, of their seconds per candidate/set evaluation.
 
-    Each search counts its layers of at least ``LARGE_LAYER`` evaluations without completion tables,
-    less the seconds of choosing tables and, in a layer that may switch to automorphism images, of
-    switching.
+    Each search's rate is the sum of ``seconds - choose_seconds - switch_seconds`` over its layers
+    that have no completion tables and at least ``LARGE_LAYER`` evaluations, divided by the sum of
+    their evaluations.  Here ``choose_seconds`` is the time of choosing tables, and
+    ``switch_seconds`` is the time of considering a switch to automorphism images, or zero in a
+    layer that cannot consider one.
     """
     rates = {}
     for trace in traces.values():
@@ -430,8 +432,8 @@ def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The median, over traced connected-cluster searches, of their seconds per state.
 
-    Each search counts its weight limits of at least ``LARGE_LIMIT`` states, less the seconds of
-    asking for automorphisms before them.
+    Each search's rate is its seconds per state over its weight limits of at least ``LARGE_LIMIT``
+    states, leaving out the seconds of asking for automorphisms before them.
     """
     rates = {}
     for trace in traces.values():

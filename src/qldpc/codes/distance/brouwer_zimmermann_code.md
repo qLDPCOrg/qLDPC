@@ -164,30 +164,40 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   If it packs fewer information sets than `min(2^r - 1, floor(N / r))`, it tries up to `disjoint_random_column_orders` random orders from a fixed seed, a budget of setup effort since each costs another packing, and keeps the family with the lexicographically largest tuple of ranks.
   It also infers the divisor `D = 2` of [Section 3.2](brouwer_zimmermann.md#32-rounding-the-certificate-to-a-proven-weight-multiple).
 - **`prune_family`** loses nothing: it removes a search basis of rank deficiency `d = r - r_i`, whose term `b_i(t)` is zero for `t < d`, when the information sets alone certify `U` by layer `d`.
-- **`get_overlapping_family`** builds search bases on column orders that put the least-used columns first, with ties broken by a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
-  It makes up to `overlapping_attempts_per_set` attempts, each a row reduction, for each set that it may add, up to a family of `max_information_sets` sets, and a repeated pivot set still consumes an attempt; both fields are budgets of setup effort, since more sets can avoid costly layers but take more attempts.
+- **`get_overlapping_family`** builds search bases on column orders that put the least-used columns first, with ties broken by a random number generator, and keeps the cheapest family built.
+  Each call of it gets its own generator with the same fixed seed (`build_overlapping_family_policy`), so every call builds the same family from the same input.
+  It makes up to `overlapping_attempts_per_set` attempts, each a row reduction, for each set that it may add, up to a family of `max_information_sets` sets.
+  A repeated pivot set still consumes an attempt.
+  Both fields are budgets of setup effort, since more sets can avoid costly layers but take more attempts.
   It builds nothing if the family that it is given has no information set, or at least `max_information_sets` of them, or information sets that use every nonzero column, or if no family of at most `max_information_sets` sets could do less work.
   Its gate, `overlapping_minimum_work` on the estimated work of the given family, breaks even with the cost of the attempts.
   `CosetRoutes` passes a minimum work of zero, since `coset_route_minimum_work` gates its families instead.
-- **`get_partitioned_family`** finds the most information sets, up to `m = max_information_sets`, in which no column appears more than `b` times, by the matroid partitioning of Section 5.1 of Lisoněk and Trummer ([References](brouwer_zimmermann.md#references)) in `_information_sets/matroid_partition.py`.
+- **`get_partitioned_family`** finds the largest number of information sets, up to `m = max_information_sets`, in which no column appears more than `b` times.
+  It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer ([References](brouwer_zimmermann.md#references)) in [_information_sets/matroid_partition.py](_information_sets/matroid_partition.py).
   It may try each coverage `b` from two up to `ceil(m*r/N)`, the least at which `m` sets could fit by counting their pivots.
   A search takes the family of least work, if it does less work than the family of the earlier stages.
-  Partitioning at `b` finds at most `m_b = min(m, floor(b*N/r))` sets, since at most `floor(b*N/r)` fit within coverage `b` by counting their pivots.
+  Partitioning at `b` finds at most `k_b = min(m, floor(b*N/r))` sets, since at most `floor(b*N/r)` fit within coverage `b` by counting their pivots.
   A family of `j` information sets puts some column in at least `ceil(j*r/N)` of them, so at each step its coverage-divided certificate is at most that of `j` sets of that coverage.
   The work up to a step depends only on the step and the number of sets, so the family does at least the work of those `j` sets.
   `_estimate_optimistic_work` returns `W(k)`, the least such work over `j` from one to `k`.
-  Partitioning skips each `b` at which `W(m_b)` is at least the work of the best family so far, at first the family of the earlier stages.
+  Partitioning skips each `b` at which `W(k_b)` is at least the work of the best family so far, at first the family of the earlier stages.
   No family that it finds at such a `b` could replace that family, so the search takes the same family as if partitioning tried every `b`.
-  Trying every `b` from two up to `ceil(m*r/N)` costs roughly the sum of `b^2*r^2*N` over them, times a factor that varies between families of codes; the sum grows with the cube of `m`.
-  So a search tries partitioning only if some family of at most `m` sets could do less work, and the search's estimated work is at least `partition_work_ratio` times that sum, a ratio that stands for the cost of one unit of the sum in evaluations.
-  The gate charges that whole sum, though partitioning may skip some `b`.
-  With `B = partition_max_coverage`, a limit for experiments, `m` is capped at `floor(B*N/r)`, the most sets that fit within coverage `B` by counting their pivots, so it tries no coverage above `B`.
-  At `B = 1`, partitioning instead builds the maximum disjoint family of `get_maximum_disjoint_family` (see `CosetRoutes` below), pruned by `prune_family`.
-  `m` does not limit that family, and the sum is `r^2*N`.
+  The cost of trying every `b` from two up to `ceil(m*r/N)` is roughly proportional to `S`, the sum of `b^2*r^2*N` over them, which grows with the cube of `m`.
+  So a search tries partitioning only if some family of at most `m` sets could do less work, and the search's estimated work is at least `partition_work_ratio * S`.
+  `partition_work_ratio` stands for the cost of one unit of `S` in evaluations.
+  The gate charges all of `S`, though partitioning may skip some `b`.
+  This gate is one of the two known weak spots of the heuristics.
+  The actual cost of one unit of `S` varies widely, even between codes of the same size.
+  The estimated work of a search can also far exceed the work that it does ([Section 3.6](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration)), so a search can pay for partitioning and then need little work.
+  The limit for experiments `C_max = partition_max_coverage` caps `m` at `floor(C_max*N/r)`, the largest number of sets that fit within coverage `C_max` by counting their pivots.
+  So partitioning tries no coverage above `C_max`.
+  At `C_max = 1`, partitioning instead builds the maximum disjoint family of `get_maximum_disjoint_family` (see `CosetRoutes` below), but with quotient labels, which that function omits.
+  It prunes the family with `prune_family`.
+  `m` does not limit that family, and `S` is `r^2*N`.
   The test of whether some family could do less work considers the disjoint families that partitioning can build.
   At coverage one, partitioning, like a packing, keeps a rank-deficient block only below `2^r - 1` information sets, so such a family holds at most `min(ceil(N/r), 2^r - 1)` sets, counting that block.
   It does no less work than as many information sets of coverage one, whose certificate is at least as large at each step, since the work up to a step depends only on the step and the number of sets.
-  Let `f = min(floor(N/r), 2^r - 1)`, the most information sets that fit, up to the limit of a packing.
+  Let `f = min(floor(N/r), 2^r - 1)`, the largest number of information sets that fit, up to the limit of a packing.
   The **disjoint rank bound** is `f` information sets and, if `f < 2^r - 1` and `N > f*r`, a rank-deficient block of rank `N - f*r`.
   By counting pivots, it bounds the ranks of every maximum disjoint family lexicographically.
   Partitioning skips coverage one if the family `F` of the earlier stages is disjoint and has the ranks of this bound, pruned for `U` as `prune_family` prunes a family.
@@ -196,34 +206,40 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Once pruned, a maximum disjoint family therefore has the ranks of `F`, does the same work, and cannot replace `F`.
 - **`get_automorphism_family`** row reduces in natural column order and balances the shares of the orbits in `_balance_orbit_shares` ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)).
   The gate `automorphism_minimum_layer_work` of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms) breaks even with the cost of finding automorphisms, verifying them, and building their family.
-  A search gets automorphisms only before costly work: before matroid partitioning that passes `partition_work_ratio`, or before a layer of at least `automorphism_minimum_layer_work` evaluations ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)).
 - **`CosetRoutes`** chooses the route of each maximum weight `ω` of a coset search ([Section 4.1](#41-how-the-searches-use-the-modules)).
   The **predicted examinations** of a query at `ω` with a family, without completion tables, are one more than the largest work at `ω` over its planning buffer's tables, which bounds the words that the query examines or skips ([Section 3.6](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration)).
   1. If the predicted examinations with the disjoint family are below `coset_route_minimum_work`, the route is the disjoint family.
-  2. Otherwise, `CosetRoutes` tries once to build two families, at `ω_T`, the least weight from two at which the predicted examinations with the disjoint family reach the threshold, so that they do not depend on the order of queries.
-     The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`, and below that limit a rank-deficient block of the largest rank ([Section 2.4](brouwer_zimmermann.md#24-search-bases-and-rank-deficient-blocks)) on the other columns.
+  2. Otherwise, `CosetRoutes` tries once to build two families for `ω_T`, the least weight from two at which the predicted examinations with the disjoint family reach the threshold, so that they do not depend on the order of queries.
+     The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the largest number of disjoint information sets, up to the limit of `get_disjoint_family`.
+     If it holds fewer than that limit, it also holds a rank-deficient block of the largest rank on the other columns, if any are left ([Section 2.4](brouwer_zimmermann.md#24-search-bases-and-rank-deficient-blocks)).
      It is kept if it has more information sets, or a rank-deficient block of larger rank, than the greedy packing.
-     Edmonds' matroid partitioning algorithm maximizes the number of columns in its sets, all but the last of which are information sets, so no other choice of as many information sets leaves a block of larger rank.
-     A greedy packing can miss sets: the columns `e1`, `e2`, `e1 + e2`, and `e1 + e2` hold two disjoint information sets, but a greedy packing in natural order takes `e1` and `e2`, and leaves a rank-deficient block of rank one.
-     The second, an overlapping family of `get_overlapping_family` aimed at the Hamming weight `η ω_T + 1`, is kept if it does less work than the family that it starts from: the first, if kept, and otherwise the disjoint family.
-  3. The route is the family of least work at `ω`, summed over its tables, and on ties the disjoint family, then the maximum disjoint one.
+     Edmonds' matroid partitioning algorithm maximizes the number of columns in its independent column sets.
+     All but the last of these sets are information sets, so no other choice of as many information sets leaves a block of larger rank.
+     A greedy packing can miss information sets.
+     For example, the columns `e1 = (1, 0)`, `e2 = (0, 1)`, `e1 + e2`, and `e1 + e2` hold two disjoint information sets, but a greedy packing in natural order takes `e1` and `e2`, and leaves a rank-deficient block of rank one.
+     The second is an overlapping family of `get_overlapping_family`, aimed at the Hamming weight `η ω_T + 1`.
+     It starts from the first family if that was kept, and otherwise from the disjoint family, and it is kept if it does less work than the family that it starts from.
+  3. The route is the family of least work at `ω`, summed over its planning buffer's tables, and on ties the disjoint family, then the maximum disjoint one.
      A search for minimum weights up to `ω` takes the route of `ω`, or of the number of qubits if that is smaller, since no coset has a larger minimum weight.
-  4. In a search by Hamming weight, the route is a route by tails if its own predicted examinations also reach the threshold.
-     Its queries then weigh words by their tails, and skip completions by tables on blocks of `coset_completion_block_bits` columns, for every search basis that they scan in layers of two or more rows, if the tables fit in `coset_completion_max_table_bytes`; the threshold and this limit replace the minimum layer work and the cost model of `select_completion_tables`.
-     Since a route by tails builds these tables without predicting whether they pay, this limit defaults lower than `completion_bound_max_table_bytes`.
-     That field limits the tables of distance searches and counts, which build only the tables that their cost model accepts.
+  4. In a search by Hamming weight ([Terms](README.md#terms) in README.md), the route is a route by tails if its own predicted examinations also reach the threshold.
+     Its queries then weigh words by their tails, and skip completions by tables on blocks of `coset_completion_block_bits` columns, for every search basis that they scan in layers of two or more rows, if the tables fit in `coset_completion_max_table_bytes`.
+     The threshold and this limit replace the minimum layer work and the cost model of `select_completion_tables`.
 
   Building the two families costs a matroid partitioning and the row reductions of an overlapping family; weighing by tails adds a fixed cost to each query, for the tail of its offset in each search basis and the rebuild of its lightest word; and tables cost memory and a build.
   Only queries that examine many words repay these costs.
   The threshold also sets the aim `ω_T`, which no break-even rule covers, so its default is chosen by hand.
-- **`select_completion_tables`** decides, by the steps of [Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables), whether a distance search uses tables on an information set in a layer, or a count on a step.
+- **`select_completion_tables`** decides, by the steps of [Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables), whether a distance search uses tables on a search basis in a layer, or a count on a step.
   Its gate `completion_bound_minimum_layer_work`, which `considers_tables` checks, breaks even with the cost of the prediction, whose sampling stays within the budget of setup effort `completion_bound_sampling_work`.
   The prediction takes the share that tables skip at the lower end of a Wilson score interval of `completion_bound_confidence_z` standard errors, or as zero with fewer than `completion_bound_min_samples` samples, conventions that keep sampling error from choosing tables that cost more than they save.
   The limit `completion_bound_max_cost_percent` compares two estimates in one unit, so it breaks even at 100 percent.
   The rough coefficients of `predict_completion_cost` are the costs `completion_bound_lookup_block_cost`, `completion_bound_lookup_block_cost_per_mib`, `completion_bound_table_byte_cost`, and `completion_bound_build_step_cost`, in scans of one support of a distance search, and the multiplier `completion_bound_kept_first_row_ratio`; a count scans full rows and labels, which cost more, so the model is conservative for it.
-  The widths `completion_bound_block_bits` and `coset_completion_block_bits` default to sixteen, the widest that `CompletionTables.build` accepts, since a wider block never gives a weaker bound.
+  In a layer of `w` rows of a search basis of `r` rows, the model predicts `k (1 - q) binom(r, w - 1) + binom(r, w - 2)` lookups, where `k` is the multiplier and `q` is the predicted share of supports that the tables skip.
+  `measure_layer` of `experiments/distance_tuning/constants.py` measures `k` by solving this for `k`, with the lookups that it counts and the share `q` that the tables skipped: `(lookups - binom(r, w - 2)) / max(1, (1 - q) binom(r, w - 1))`.
+  The model's decisions near break-even rest on these rough coefficients and can go either way, which is the other known weak spot of the heuristics.
+  The widths `completion_bound_block_bits` and `coset_completion_block_bits` default to the widest that `CompletionTables.build` accepts, since a wider block never gives a weaker bound.
   Sampling only predicts the value of tables; every skip rests on a computed bound.
-- **`Certificate.work` and `estimate_automorphism_family_work`** are the estimates of Sections [3.6](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration) and [3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms), both of which `plan_steps` computes.
+- **`Certificate.work` and `estimate_automorphism_family_work`** are the estimates of Sections [3.6](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration) and [3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms).
+  `plan_steps` computes both.
 
 ### 4.5 Behavior spanning files
 

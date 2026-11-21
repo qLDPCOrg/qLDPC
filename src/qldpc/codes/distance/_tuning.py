@@ -5,9 +5,7 @@
 :class:`SearchTuning` collects the values with which a search for an exact distance, a count of
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
-routes to these values.  Section 4.4 of ``brouwer_zimmermann_code.md`` and Sections 3.4, 3.5,
-3.8, 3.9, and 3.11 of ``connected_cluster.md`` explain how searches use the fields, and the section
-"Choosing a method" of ``problems.md`` how ``method="auto"`` uses its fields.
+routes to these values.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -17,14 +15,14 @@ What tuning can and cannot change:
 
 - Tuning never changes an exact distance, a distance limited by ``max_weight``, or a count of
   logical operators.
-- With an early exit (``cutoff`` of two or more), which nontrivial word at or below ``cutoff`` a
-  distance search finds depends on tuning, and, for a Brouwer-Zimmermann search on more than one
-  thread, on the timing of the threads.  Its weight still lies between the distance and ``cutoff``
-  (see :func:`~qldpc.codes.distance.get_distance_from_generators`).
-- Under every tuning, a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` gives the same
-  answer to whether a coset has a word of weight at most the query's maximum weight, and with the
-  connected-cluster method the same lower bound.  The returned word, and with the Brouwer-Zimmermann
-  (BZ) method the query's lower bound, can depend on tuning, within the contract of
+- A distance search with an early exit (``cutoff`` of two or more) stops once it finds a nontrivial
+  word at or below ``cutoff``.  Which word depends on tuning, and, for a Brouwer-Zimmermann (BZ)
+  search on several threads, on the timing of the threads.  Its weight still lies between the
+  distance and ``cutoff`` (see :func:`~qldpc.codes.distance.get_distance_from_generators`).
+- Every tuning gives a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` the same answer to
+  whether a coset has a word within the query's maximum weight.  With the connected-cluster method,
+  it also gives the same lower bound on the weight of every word of the coset.  The returned word,
+  and with the BZ method the lower bound, can depend on tuning, within the contract of
   :class:`~qldpc.codes.distance.MinWeightBound`, but not on ``num_threads``.
 - Codes and logical-operator counters remember their results, and some caches last for the whole
   process, so a later search under another tuning may reuse results rather than search again.
@@ -41,8 +39,9 @@ its fields within a ``with`` block::
     with _tuning.use_tuning(max_information_sets=8, overlapping_minimum_work=0):
         distance = code.get_distance_exact(method="brouwer_zimmermann")
 
-A search reads the active tuning once, when it starts.  The active tuning is a context variable (see
-the ``contextvars`` module).  So copies of the context, as in asyncio tasks and
+A distance search or count reads the active tuning once, when it starts.  A ``CosetLeaderSearch``
+reads it when it is built, and its queries keep that tuning.  The active tuning is a context
+variable (see the ``contextvars`` module).  So copies of the context, as in asyncio tasks and
 ``asyncio.to_thread``, and forked worker processes keep the tuning that was active when they were
 made.  New threads and spawned worker processes start with the default tuning, unless Python lets
 threads inherit the context of the thread that starts them (see
@@ -65,41 +64,40 @@ new process.
 
 Retuning:
 
-Each default is in one of these classes, or was chosen by hand:
+Each field description names one of the following kinds of default, or says why its default was
+chosen by hand:
 
 - A derived value gates an optional step, such as building a family of information sets or asking
   for automorphisms.  The step runs when the estimated work that it acts on reaches the value, or,
-  for ``partition_work_ratio``, the value times a formula; work counts candidate/set evaluations in
-  BZ searches and states in connected-cluster searches.  The value is the cost of the step on a
-  large basis or code, or its cost per unit of the formula, known to an order of magnitude and
-  written as 1, 2, or 5 times a power of ten (Section 4.4 of ``brouwer_zimmermann_code.md``).  On a
-  small search, where the step costs less, a gate can skip a step that would have paid.
-- A limit at equality compares two estimates in one unit.
-- The rough coefficients of the cost model of completion tables (``predict_completion_cost`` in
-  ``_information_sets/completion_bounds.py``) are rough estimates, not round values.
+  for ``partition_work_ratio``, the value times the formula that its description gives.  The value
+  is the cost of the step on a large basis or code, or its cost per unit of the formula.  It is
+  known to an order of magnitude, and written as 1, 2, or 5 times a power of ten (Section 4.4 of
+  ``brouwer_zimmermann_code.md``).  On a small search, where the step costs less, a gate can skip a
+  step that would have paid.
+- A limit at equality compares two estimates in one unit, and defaults to the value at which they
+  are equal.
+- A rough coefficient is a coefficient of the cost model of completion tables
+  (``predict_completion_cost`` in ``_information_sets/completion_bounds.py``), known only roughly.
 - A budget, chosen by hand, limits memory, interrupt latency, or setup effort, which it trades
   against speed.  A batch or chunk size is meant to be the smallest whose overhead per call of
-  compiled code is negligible, though not all current sizes meet this.
-- A convention is a statistical or numerical setting, and its comment says what it guarantees.
+  compiled code is negligible.  Not every current size meets this.
+- A convention is a statistical or numerical setting, and its description says what it guarantees.
 - A switch turns a step of a search on or off, and defaults to on.
 - Blocks of completion tables default to the widest allowed width, and a budget bounds their memory
   (Section 4.4 of ``brouwer_zimmermann_code.md``).
 - A limit for experiments restricts what searches may build, and its default, ``MAX_VALUE``,
   restricts nothing.
 
-The sizes of caches, ``auto_brute_force_max_words``, ``auto_free_work``,
-``connected_cluster_split_shift``, ``connected_cluster_state_evaluations``,
-``coset_route_minimum_work``, ``macwilliams_shared_walk_rank``, and ``num_threads`` were chosen by
-hand, and the comments of those fields say why.
+The sizes of caches, which are constants, were chosen by hand.  Each is the ``maxsize`` of a
+``functools.lru_cache``, so zero disables its cache.
 
 Change a default only when its heuristic changes, or when a check shows that its assumption, such as
-the cost of a step, is off by more than a factor of about 3; only a maintainer changes a budget or a
-value chosen by hand.  Never change a default to gain a factor of two on particular codes.  The
-scripts of ``experiments/distance_tuning`` check the tuning and set no value, apart from running
-searches on one thread: ``constants.py`` checks the orders of magnitude that the heuristics assume,
-``trace.py`` shows which decisions a search makes, and ``sweep.py`` catches gross regressions or
-bugs.  The README of that directory says how to run them.  They do not check the fields of the
-automatic choice of a method.
+the cost of a step, is off by more than a factor of about 3.  Only a maintainer changes a default
+chosen by hand.  Never change a default to gain a factor of two on particular codes.  The scripts of
+``experiments/distance_tuning`` check the tuning and set no default, and the README of that
+directory lists them and says how to run them.  They do not check the fields that only
+``method="auto"`` reads: ``auto_brute_force_max_words``, ``auto_free_work``, ``auto_probe_work``,
+and ``connected_cluster_state_evaluations``.
 """
 
 from __future__ import annotations
@@ -135,39 +133,73 @@ _BLOCK_WIDTHS = {"choices": (1, 2, 4, 8, 16)}
 class SearchTuning:
     """Settings of exact searches and counts, such as thresholds, limits, batch sizes, and switches.
 
-    Work is counted in candidate/set evaluations: an evaluation checks the word of one support (a
-    combination of rows of one information set); coefficient layer ``w`` evaluates the supports
-    of ``w`` rows of each set (Sections 2.5 and 3.6 of ``brouwer_zimmermann.md``).  Integer fields
-    lie between zero and ``MAX_VALUE``, and float fields are finite and non-negative, unless a
-    comment narrows them.  Each comment says how its default was chosen
-    (:ref:`Retuning <tuning-retuning>`).  The automorphisms that these comments mention are
-    permutation automorphisms of a code, which permute qudits and apply no single-qudit gates.
+    The descriptions of the fields use the following terms.  The section
+    `Terms <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#terms>`__
+    of the README of the distance package defines sectors, search bases, and searches by Hamming
+    weight more fully, and also defines other terms, such as information set and automorphism.
+
+    - Sector: a space of words that a search or count examines separately for nontrivial words,
+      such as the X sector of a CSS stabilizer code: the X-type operators that commute with the Z
+      stabilizers.  A search of a classical code, of a qubit code that is not CSS, or of a circuit
+      examines one sector.
+    - Search basis, or set for short: a basis that a BZ search or count scans, row reduced on a
+      block of its columns.  It spans a sector, or, in a coset search of ``CosetLeaderSearch``, the
+      binary code whose cosets the search examines.  A full set is one whose pivot columns form an
+      information set.
+    - Tail columns: the columns of a search basis other than its pivot columns.  The tail of a word
+      is its restriction to them (Section 3.5 of ``brouwer_zimmermann.md``).
+    - Support: in a BZ search or count, a set of rows of a search basis.  The word of a support is
+      the sum of its rows, plus, in a coset search of ``CosetLeaderSearch``, a fixed word of the
+      coset (Section 3.5).
+    - Coefficient layer ``w``, or layer: the supports of ``w`` rows of a search basis (Section 2.5).
+    - Candidate/set evaluation: the examination of one support in one search basis (Section 2.5).
+    - Symbol: in a connected-cluster search, a coordinate of a binary word, or, in a search of Pauli
+      operators, a qubit with one of the values X, Y, and Z (Section 3.7 of
+      ``connected_cluster.md``).
+    - State: in a connected-cluster search, a set of symbols that the search has chosen, with the
+      symbols that it forbids adding (Section 3.3).
+    - Weight limit: the largest weight of the words that a connected-cluster search of a sector
+      looks for; the search raises it step by step (Section 3.6).
+    - Searches by Hamming weight: the BZ searches of a ``CosetLeaderSearch`` that weigh each binary
+      word that they scan by its Hamming weight divided by a fixed number.  The number is two for
+      the searches by physical weight, which scan the images of Pauli errors under the map of
+      Section 2.7 of ``brouwer_zimmermann.md``.  It is one for the searches of X parts and of Z
+      parts into which a ``CosetLeaderSearch`` splits a query by CSS weight on a CSS stabilizer
+      state.
+
+    Work is counted in candidate/set evaluations unless a description names another unit.  Integer
+    fields lie between zero and ``MAX_VALUE``, and float fields are finite and non-negative.  A
+    description can narrow these ranges.  Each description says how its default was chosen
+    (:ref:`Retuning <tuning-retuning>`).
     """
 
     # Fields of exhaustive enumeration.
 
-    #: Exhaustive enumeration finds distances by the method ``"brute_force"``, also when a count by
-    #: that method first finds the distance.  It handles batches of at most
-    #: ``2**enumeration_batch_exponent`` packed 64-bit integers, or one word if a word needs more,
-    #: and takes keyboard interrupts between batches.  At most 62.  Defaults to 15, a budget of
+    #: The base-2 logarithm of the largest number of packed 64-bit integers in a batch of exhaustive
+    #: enumeration.  A batch holds at least one word, even if that word alone needs more integers.
+    #: Exhaustive enumeration finds distances by the method ``"brute_force"``, by ``"auto"`` when
+    #: enumerating is cheap, and when a count by ``"brute_force"`` first finds the distance.  It
+    #: takes keyboard interrupts between batches.  At most 62.  Defaults to 15, a budget of
     #: interrupt latency and memory (Section 3.6 of ``brouwer_zimmermann.md``).
     enumeration_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     # Fields of information-set families.
 
-    #: The most information sets in a family of overlapping information sets, or in a family of
-    #: coverage two or more that matroid partitioning finds; zero disables both, but not maximum
+    #: The largest number of information sets in a family of overlapping information sets.  It also
+    #: caps a family that matroid partitioning finds with a coverage ``b`` of two or more, in which
+    #: a column can lie in up to ``b`` sets.  Zero disables both kinds of family, but not maximum
     #: disjoint families.  More sets can stop a search before costly layers, but setup grows roughly
     #: with the square of this limit, or with its cube when partitioning, so it is at most
     #: ``2**10``.  Defaults to 16, a budget of setup effort (Section 4.4 of
     #: ``brouwer_zimmermann_code.md``).
     max_information_sets: int = dataclasses.field(default=16, metadata={"maximum": 2**10})
 
-    #: How many random column orders, in a fixed sequence, a search tries when the natural order
-    #: packs fewer full disjoint information sets than ``min(N // r, 2**r - 1)``, for ``r`` rows and
-    #: ``N`` nonzero columns; the search keeps the best packing, and zero keeps the natural order.
-    #: Defaults to 8, a budget of setup effort, since each order costs a packing of the basis
-    #: (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: How many random column orders, in a fixed sequence, a search tries in order to pack more
+    #: disjoint full sets.  Let a basis have ``r`` rows and ``N`` nonzero columns.  A search tries
+    #: the orders only while its packing has fewer than ``min(N // r, 2**r - 1)`` full sets, and it
+    #: keeps the best packing.  Zero keeps the natural order.  Defaults to 8, a budget of setup
+    #: effort, since each order costs a packing of the basis (Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a distance search or count, in candidate/set evaluations, from which it
@@ -176,15 +208,28 @@ class SearchTuning:
     #: a large basis, a few million evaluations (Section 4.4 of ``brouwer_zimmermann_code.md``).
     overlapping_minimum_work: int = 2_000_000
 
-    #: A query of a ``CosetLeaderSearch`` by the BZ method that predicts at least this many
-    #: examinations with the greedy disjoint family of its search makes the search try, once, to
-    #: build a maximum disjoint and an overlapping family, and the query takes the family that does
-    #: the least work.  In searches by Hamming weight, a query that predicts this many with the
-    #: family that it takes also weighs words by their tails and skips completions by tables.  The
-    #: field also sets the weight at which the overlapping family is aimed; zero tries to build the
-    #: families at the first query, and ``MAX_VALUE`` never.  Defaults to ``2 * 10**4``, chosen by
-    #: hand, preferring speed to memory, since the field sets three decisions and no break-even rule
-    #: covers the aim (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: A threshold on predicted examinations: the number of words that a query of a
+    #: ``CosetLeaderSearch`` by the BZ method is predicted to examine or skip.  Each BZ search of a
+    #: ``CosetLeaderSearch`` decides how to search once for each maximum weight, before it first
+    #: searches a coset at that maximum weight:
+    #:
+    #: 1. It predicts the examinations with the disjoint family that it packed when the search was
+    #:    built (see ``disjoint_random_column_orders``).  Below this value, it takes that family and
+    #:    skips steps 2 and 3.
+    #: 2. Otherwise, it tries once, for the whole search, to build a maximum disjoint family and an
+    #:    overlapping family.  It then takes the family predicted to do the least work: the family
+    #:    of step 1 or one that it built.
+    #: 3. If it is a search by Hamming weight, it then predicts the examinations with the family
+    #:    that it takes.  If they also reach this value, it computes the weight of each word from
+    #:    the word's support and tail (Section 3.5 of ``brouwer_zimmermann.md``), and uses
+    #:    completion tables to skip groups of words that are all too heavy (see
+    #:    ``coset_completion_max_table_bytes``).  Weighing words this way adds a fixed cost to each
+    #:    query, and the tables take memory and time to build.  Only queries that examine many words
+    #:    repay these costs.
+    #:
+    #: Zero always goes on to step 2 and always passes the test of step 3; ``MAX_VALUE`` always
+    #: skips steps 2 and 3.  Defaults to ``2 * 10**4``, chosen by hand (the ``CosetRoutes`` item of
+    #: Section 4.4 of ``brouwer_zimmermann_code.md`` says why).
     coset_route_minimum_work: int = 20_000
 
     #: How many column orders the construction of a family of overlapping information sets tries for
@@ -193,85 +238,99 @@ class SearchTuning:
     #: ``brouwer_zimmermann_code.md``).
     overlapping_attempts_per_set: int = 2
 
-    #: A distance search or count tries matroid partitioning only if its estimated work, in
-    #: candidate/set evaluations, reaches this multiple of the sum of ``b**2 * r**2 * N`` over the
-    #: coverages ``b`` that it may try, for ``r`` rows and ``N`` nonzero columns; zero removes this
-    #: gate, and ``MAX_VALUE`` closes it.  Defaults to 2, a derived value: trying every such
-    #: coverage costs roughly that sum times one or two evaluations when coverages of two or more
-    #: are tried, and less at coverage one alone (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: A distance search or count tries matroid partitioning only if its estimated work reaches
+    #: ``partition_work_ratio * sum(b**2 * r**2 * N)``.  The sum runs over the coverages ``b`` that
+    #: the search may try, for a basis of ``r`` rows and ``N`` nonzero columns.  A BZ distance
+    #: search gets automorphisms before partitioning only if it passes this gate (Section 3.7 of
+    #: ``brouwer_zimmermann.md``).  Zero removes the gate, and ``MAX_VALUE`` closes it.  Defaults to
+    #: 2, a derived value: trying every such coverage costs roughly that sum times one or two
+    #: evaluations when coverages of two or more are tried, and less at coverage one alone (Section
+    #: 4.4 of ``brouwer_zimmermann_code.md``).
     partition_work_ratio: int = 2
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches
     #: and counts.  At least 1.  At 1, partitioning builds the maximum disjoint family, which
     #: ``max_information_sets`` does not limit, instead of families of coverage two or more.  It
-    #: skips even that family if the family that it would replace is disjoint and has the pruned
-    #: disjoint rank bound.  Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: skips the maximum disjoint family when a test shows that this family could not do less work
+    #: than the family that the search has so far (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: Defaults to ``MAX_VALUE``, a limit for experiments.
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
-    #: A distance search that does not ask for automorphisms before matroid partitioning considers
-    #: switching to its family of automorphism images before the first coefficient layer whose work,
-    #: in candidate/set evaluations, reaches this value; zero considers the switch before the first
-    #: layer.  After declining a switch, any search reconsiders before a later such layer once its
-    #: upper bound has dropped.  Values above ``2**61`` (``WORK_CAP``), such as ``MAX_VALUE``, turn
-    #: automorphisms off in every BZ distance search.  Defaults to ``5 * 10**6``, a derived value:
-    #: the cost of finding automorphisms, verifying them, and building their family for a large
-    #: code, several million evaluations (Section 3.7 of ``brouwer_zimmermann.md`` and Section 4.4
-    #: of ``brouwer_zimmermann_code.md``).
+    #: A BZ distance search can be given automorphisms, or a function that finds them.  The search
+    #: of each sector gets them at most once, and builds from them a family of the images of one
+    #: set.  The search considers switching to that family before the first coefficient layer whose
+    #: work reaches this value, and gets the automorphisms then if it has not yet.  If it got them
+    #: before matroid partitioning (see ``partition_work_ratio``), it considers the switch as soon
+    #: as setup ends instead.  Zero considers the switch before the first layer.  After declining a
+    #: switch, at either point, a search reconsiders before a later such layer once its upper bound
+    #: has dropped.  Values above ``2**61``, the cap of work estimates (``WORK_CAP`` in
+    #: ``_information_sets/certificates.py``), such as ``MAX_VALUE``, turn automorphisms off in
+    #: every BZ distance search.  Defaults to ``5 * 10**6``, a derived value: the cost of finding
+    #: automorphisms, verifying them, and building their family for a large code, several million
+    #: evaluations (Section 3.7 of ``brouwer_zimmermann.md`` and Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of distance searches of CSS codes.
 
-    #: Whether a distance search of both sectors of a CSS code, by the BZ or the connected-cluster
-    #: method, or by ``"auto"`` unless it enumerates, looks for a qubit permutation that maps one
-    #: sector onto the other, and then searches one sector (section "Searching one sector of a CSS
-    #: code" of ``problems.md``).  ``False`` skips the lookup, and the search stays exact.
-    #: Defaults to ``True``, a switch; ``False`` is for comparisons, and for many cheap searches of
-    #: large codes, on which the lookup can cost more than it saves.
+    #: Whether a distance search of both sectors of a CSS code looks for a qubit permutation that
+    #: maps one sector onto the other, and then searches only one sector (section "Searching one
+    #: sector of a CSS code" of ``problems.md``).  This applies to the BZ and connected-cluster
+    #: methods, and to ``"auto"`` unless it enumerates.  ``False`` skips the lookup, and the search
+    #: stays exact.  Defaults to ``True``, a switch; ``False`` is for comparisons, and for many
+    #: cheap searches of large codes, on which the lookup can cost more than it saves.
     sector_maps: bool = True
 
     # Fields of the automatic choice of a method.
 
-    #: ``method="auto"`` enumerates every word, as ``"brute_force"`` does, if the enumeration
-    #: examines at most this many packed 64-bit integers: ``2**dim * ceil(width / 64)`` for words of
-    #: ``width`` bits in a space of dimension ``dim``, summed over the spaces of a search, such as
-    #: the two sectors of a CSS code.  Raising it enumerates larger spaces.
-    #: Defaults to ``2**20``, chosen by hand: an enumeration of about a millisecond, the fixed cost
-    #: of a Brouwer-Zimmermann search of a small code.  On larger spaces, a Brouwer-Zimmermann
-    #: search is usually faster (section "Refining the choice" of ``problems.md`` names exceptions).
+    #: ``method="auto"`` enumerates every word if the enumeration examines at most this many packed
+    #: 64-bit integers.  A space of dimension ``dim``, with words of ``width`` bits, needs
+    #: ``2**dim * ceil(width / 64)`` integers.  The enumeration sums this number over the spaces of
+    #: the search, such as the two sectors of a CSS code (section "Choosing a method" of
+    #: ``problems.md``).  Zero never enumerates.  Defaults to ``2**20``, chosen by hand: an
+    #: enumeration of about a millisecond, the fixed cost of a Brouwer-Zimmermann search of a small
+    #: code.  On larger spaces, a Brouwer-Zimmermann search is usually faster (section "Refining the
+    #: choice" of ``problems.md`` names exceptions).
     auto_brute_force_max_words: int = 2**20
 
-    #: The work, in candidate/set evaluations, below which a search by cost of ``method="auto"``
-    #: runs its connected-cluster search without probing or switching: it runs on while its spent
-    #: work plus the predicted work of its next weight limit stays within this.  Beyond it, the
-    #: search probes with a Brouwer-Zimmermann search, and then considers switching to one.
-    #: Connected-cluster work counts each state as ``connected_cluster_state_evaluations``.
-    #: Defaults to ``10**8``, chosen by hand: a fraction of a second, below which fixed costs that
-    #: the estimates leave out, such as setup, dominate the costs that a switch would compare
-    #: (section "Choosing a method" of ``problems.md``).
+    #: The work, in candidate/set evaluations, that ``method="auto"`` lets its connected-cluster
+    #: search do without probing or switching.  That search runs on while its spent work plus the
+    #: predicted work of its next weight limit stays within this value, counting each state as
+    #: ``connected_cluster_state_evaluations``.  Beyond it, the search probes with a
+    #: Brouwer-Zimmermann search, and then considers switching to one.  Zero probes as soon as that
+    #: sum is positive.  Defaults to ``10**8``, chosen by hand: a fraction of a second.  Below it,
+    #: fixed costs that the estimates leave out, such as setup, dominate the costs that a switch
+    #: would compare (section "Choosing a method" of ``problems.md``).
     auto_free_work: int = 100_000_000
 
     #: The most work, in candidate/set evaluations, that the Brouwer-Zimmermann probe of
-    #: ``method="auto"`` may do.  The weight of the lightest word that it finds caps the
-    #: connected-cluster search.  The probe skips the costlier stages of setup, and stops before a
-    #: layer that would take it over this work.
-    #: Defaults to ``10**8``, a budget for the cost of choosing: a fraction of a second (section
-    #: "Choosing a method" of ``problems.md``).
+    #: ``method="auto"`` may do.  The probe's upper bound on the distance caps the connected-cluster
+    #: search.  The probe skips the costlier stages of setup, the families of overlapping and
+    #: partitioned information sets, whatever ``overlapping_minimum_work`` and
+    #: ``partition_work_ratio`` say.  It stops before a layer that would take it over this work, so
+    #: zero stops it after its setup.  Defaults to ``10**8``, a budget of setup effort, which the
+    #: choice of a method spends: a fraction of a second (section "Choosing a method" of
+    #: ``problems.md``).
     auto_probe_work: int = 100_000_000
 
     #: The cost of a state of a connected-cluster search in candidate/set evaluations, which lets
     #: ``method="auto"`` compare the work of the two searches (section "Choosing a method" of
-    #: ``problems.md``).  Raising it switches to a Brouwer-Zimmermann search sooner.  Defaults to
-    #: 500, chosen by hand: the cost of a state, hundreds of evaluations.
+    #: ``problems.md``).  Raising it switches to a Brouwer-Zimmermann search sooner.  Zero never
+    #: probes or switches.  Defaults to 500, chosen by hand: the cost of a state, hundreds of
+    #: evaluations.
     connected_cluster_state_evaluations: int = 500
 
     # Fields of connected-cluster searches.
 
-    #: A connected-cluster search asks its caller for automorphisms before the first weight limit at
-    #: which it expects to have visited this many states over all limits of one sector, or before a
-    #: first limit that ``cutoff`` sets; zero asks before the first limit, and ``MAX_VALUE`` never.
-    #: Defaults to ``5 * 10**4``, a derived value: the cost of asking, for a large code, tens of
-    #: thousands of states (Section 3.5 of ``connected_cluster.md``).
+    #: A connected-cluster distance search can be given automorphisms, or a function that finds
+    #: them.  The search of each sector gets and verifies them at most once.  It does so before the
+    #: first weight limit at which the number of states that it has visited in the sector, plus the
+    #: number that it predicts for that limit, reaches this value.  If ``cutoff`` raises the first
+    #: limit, the search gets the automorphisms before that limit, unless this field is
+    #: ``MAX_VALUE``.  Zero gets them before the first limit, and ``MAX_VALUE`` never.  The coset
+    #: searches of ``CosetLeaderSearch`` never use automorphisms.  Defaults to ``5 * 10**4``, a
+    #: derived value: the cost of finding automorphisms, verifying them, and ordering their orbits
+    #: for a large code, tens of thousands of states (Section 3.5 of ``connected_cluster.md``).
     automorphism_minimum_states: int = 50_000
 
     #: Whether a connected-cluster search, of distances or of vectors with a given syndrome,
@@ -280,27 +339,25 @@ class SearchTuning:
     #: Defaults to ``True``, a switch; ``False`` is for comparisons, such as ablations.
     restrict_viable_symbols: bool = True
 
-    #: Whether a connected-cluster search, of distances or of vectors with a given syndrome, forbids
-    #: the symbols that would make its support meet a known word, such as a stabilizer or gauge
-    #: generator, in more than about half that word (Section 3.4 of ``connected_cluster.md``).
-    #: ``False`` skips these cuts, and the search stays exact.  Defaults to ``True``, a switch;
-    #: ``False`` is for comparisons, such as ablations.
+    #: Whether a connected-cluster search, of distances or of vectors with a given syndrome, applies
+    #: overlap cuts from known words, such as stabilizers or gauge generators, to forbid symbols at
+    #: each state (Sections 3.4, 3.7, and 3.8 of ``connected_cluster.md``).  ``False`` skips these
+    #: cuts, and the search stays exact.  Defaults to ``True``, a switch; ``False`` is for
+    #: comparisons, such as ablations.
     stabilizer_overlap_cuts: bool = True
 
     #: Whether a connected-cluster distance search adds sums of pairs of its checks as redundant
-    #: checks, and sums of pairs of its known words as known words (Section 3.4 of
-    #: ``connected_cluster.md``).  It keeps a sum if it is no heavier than the heavier of its pair,
-    #: lightest first while their total weight stays within that of the rows that it sums, and sums
-    #: only the known words no heavier than its heaviest check.  ``False`` skips the sums, and the
-    #: search stays exact.  The coset searches of ``CosetLeaderSearch`` never add them.  Defaults to
-    #: ``True``, a switch; ``False`` is for comparisons, such as ablations.
+    #: checks, and sums of pairs of its known words as known words, keeping only light sums (Section
+    #: 3.4 of ``connected_cluster.md``).  ``False`` skips the sums, and the search stays exact.  The
+    #: coset searches of ``CosetLeaderSearch`` never add them.  Defaults to ``True``, a switch;
+    #: ``False`` is for comparisons, such as ablations.
     pair_sum_checks: bool = True
 
-    #: The most rounds, each a row reduction in a random order of the columns, in which a
-    #: ``CosetLeaderSearch`` with the connected-cluster method makes its checks sparser when it is
-    #: built; zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE``
-    #: leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 400, a budget
-    #: of setup effort, which a search spends once for all its queries (Section 3.8 of
+    #: The most rounds in which a ``CosetLeaderSearch`` with the connected-cluster method makes its
+    #: checks sparser when it is built.  Each round is a row reduction in a random order of the
+    #: columns.  Zero only adds checks to each other while that makes them lighter, and
+    #: ``MAX_VALUE`` leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to
+    #: 400, a budget of setup effort, which a search spends once for all its queries (Section 3.8 of
     #: ``connected_cluster.md``).
     max_coset_sparsifying_rounds: int = 400
 
@@ -311,20 +368,23 @@ class SearchTuning:
     max_distance_sparsifying_rounds: int = 50
 
     #: Making checks sparser stops after this many rounds in a row that leave the total weight of
-    #: the checks unchanged; zero stops after the first round, and ``MAX_VALUE`` never stops early,
-    #: so the rounds never end if the limit on rounds is ``MAX_VALUE`` too.  Both the sparsifying of
-    #: a ``CosetLeaderSearch`` and that of a distance search of a subsystem code read it.  Defaults
-    #: to 200, a budget of setup effort.
+    #: the checks unchanged.  Zero stops after the first round, and ``MAX_VALUE`` never stops early,
+    #: so the rounds never end if ``max_coset_sparsifying_rounds`` or
+    #: ``max_distance_sparsifying_rounds``, whichever applies, is ``MAX_VALUE`` too.  The field is
+    #: shared: a connected-cluster ``CosetLeaderSearch`` reads it when it is built, and so does a
+    #: connected-cluster distance search of a subsystem code, for the stabilizers that it derives
+    #: (Sections 3.8 and 3.9 of ``connected_cluster.md``).  Defaults to 200, a budget of setup
+    #: effort.
     sparsifying_rounds_without_improvement: int = 200
 
     # Fields of completion tables.
 
-    #: A distance search or count considers completion tables for an information set in a layer,
-    #: sampling supports to predict the cost of the tables, only if the set has at least this many
-    #: supports in the layer; zero considers every layer, and ``MAX_VALUE`` none.  Defaults to
-    #: ``2 * 10**7``, a derived value: the cost of that prediction on a large basis, tens of
-    #: millions of evaluations (Section 3.9 of ``brouwer_zimmermann.md`` and Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: A distance search or count considers completion tables for a search basis in a layer only if
+    #: the search basis has at least this many supports in the layer.  Considering them means
+    #: sampling supports to predict the cost of the tables.  Zero considers every layer, and
+    #: ``MAX_VALUE`` none.  Defaults to ``2 * 10**7``, a derived value: the cost of that prediction
+    #: on a large basis, tens of millions of evaluations (Section 3.9 of ``brouwer_zimmermann.md``
+    #: and Section 4.4 of ``brouwer_zimmermann_code.md``).
     completion_bound_minimum_layer_work: int = 20_000_000
 
     #: A layer of a distance search or count uses the completion tables that it considers only if
@@ -356,36 +416,44 @@ class SearchTuning:
     #: The most bytes of completion tables, for each set of a family, that the searches of
     #: ``CosetLeaderSearch`` by Hamming weight build for their costliest queries; a set whose tables
     #: do not fit gets none, and zero disables these tables.  Defaults to 256 MiB, a budget of
-    #: memory and of setup effort: these queries get the tables of every set that they scan in
-    #: layers of two or more rows, if the tables fit, without predicting whether the tables pay
+    #: memory and of setup effort.  These queries get the tables of every set that they scan in
+    #: layers of two or more rows, if the tables fit.  They do not predict whether the tables pay
     #: (Section 4.4 of ``brouwer_zimmermann_code.md``).
     coset_completion_max_table_bytes: int = 256 * 2**20
 
-    #: The number of random supports from which a search estimates the share of a layer that
-    #: completion tables would skip, within ``completion_bound_sampling_work``; drawing them takes
-    #: about 16 bytes for each sample and each row of the basis.  Between 1 and ``2**12``.  Defaults
-    #: to 1024, a convention: the standard error of the sampled share is at most 1/64, or
-    #: ``1 / (2 * sqrt(n))`` when the budget allows only ``n`` samples.
+    #: The number of random supports from which a distance search or count estimates the share of a
+    #: layer that completion tables would skip.  ``completion_bound_sampling_work`` can allow fewer.
+    #: Drawing them takes about 16 bytes for each sample and each row of the basis.  Between 1 and
+    #: ``2**12``.  Defaults to 1024, a convention: the standard error of the sampled share is at
+    #: most 1/64, or ``1 / (2 * sqrt(n))`` when the budget allows only ``n`` samples (Section 3.9 of
+    #: ``brouwer_zimmermann.md`` and Section 4.4 of ``brouwer_zimmermann_code.md``).
     completion_bound_samples: int = dataclasses.field(
         default=1024, metadata={"minimum": 1, "maximum": 2**12}
     )
 
-    #: The fewest samples with which a search trusts its estimate of the share that completion
-    #: tables would skip; with fewer, it takes the share to be zero.  At least 1.  Defaults to 64, a
-    #: convention: when every sample skips, the lower end of the Wilson interval at the default
-    #: ``completion_bound_confidence_z`` is 0.94.
+    #: The fewest samples with which a distance search or count trusts its estimate of the share
+    #: that completion tables would skip; with fewer, it takes the share to be zero.  At least 1.
+    #: Defaults to 64, a convention: when every sample skips, the lower end of the Wilson interval
+    #: at the default ``completion_bound_confidence_z`` is 0.94 (Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
     completion_bound_min_samples: int = dataclasses.field(default=64, metadata={"minimum": 1})
 
-    #: The most work that a search spends bounding sampled supports, counting one unit for each pair
-    #: of rows on each block of completion tables, and one for each row of the basis in each sample;
-    #: zero takes no samples, so the search predicts that tables skip nothing.  Defaults to
-    #: ``5 * 10**7``, a budget of setup effort, which bounds the cost of sampling on large bases.
+    #: Each time that a distance search or count considers completion tables for a layer of a search
+    #: basis, it spends at most this much work, counted in steps, testing whether the tables would
+    #: skip sampled supports of the layer.  A sample costs ``r + B * m * (m - 1) / 2`` steps.  Here
+    #: the basis has ``r`` rows, the tables would have ``B`` blocks, and ``m = r - i``, where ``i``
+    #: is the second-largest zero-based index of a basis row in the support.  The test tries each
+    #: pair of the last ``m`` rows of the basis on each block.  Zero takes no samples, so the search
+    #: predicts that tables skip nothing.  Defaults to ``5 * 10**7``, a budget of setup effort,
+    #: which bounds the cost of sampling on large bases (Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
     completion_bound_sampling_work: int = 50_000_000
 
-    #: A search estimates the share of supports that completion tables would skip by the lower end
-    #: of a Wilson score interval of the sampled share, this many standard errors below it; at most
-    #: 10.  Defaults to 2.0, a convention: the true share exceeds the estimate with a one-sided
-    #: confidence of about 98%.
+    #: A distance search or count estimates the share of supports that completion tables would skip
+    #: by the lower end of a one-sided Wilson score interval of the sampled share.  This field is
+    #: the z-score of that interval.  At most 10.  Defaults to 2.0, a convention: the true share
+    #: exceeds the estimate with a one-sided confidence of about 98% (Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
     completion_bound_confidence_z: float = dataclasses.field(
         default=2.0, metadata={"maximum": 10.0}
     )
@@ -397,111 +465,112 @@ class SearchTuning:
 
     #: The additional cost of a lookup of completion tables, in scanned supports for each block and
     #: each MiB of tables, since larger tables miss the processor's caches more often.  Defaults to
-    #: 0.04, a rough coefficient.
+    #: 0.04, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``).
     completion_bound_lookup_block_cost_per_mib: float = 0.04
 
-    #: A multiplier of the predicted number of lookups of completion tables, an estimate of the
-    #: share of heads (supports less their last row) that a scan with tables keeps, divided by the
-    #: share of supports that it keeps.  It is below one, since tables most often skip heads whose
-    #: last row is late, which have few supports each.  Defaults to 0.35, a rough coefficient.
+    #: A multiplier in the number of lookups of completion tables that the cost model predicts: a
+    #: larger value predicts more lookups, so distance searches and counts may use tables in fewer
+    #: layers.  Defaults to 0.35, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``
+    #: gives the model).
     completion_bound_kept_first_row_ratio: float = 0.35
 
     #: The cost of building completion tables, in scanned supports for each byte of tables; with
     #: ``completion_bound_build_step_cost``, it predicts the cost of a build.  Defaults to 0.1, a
-    #: rough coefficient, half of ``completion_bound_build_step_cost`` by a ratio chosen by hand.
+    #: rough coefficient, set by hand to half of ``completion_bound_build_step_cost`` (Section 4.4
+    #: of ``brouwer_zimmermann_code.md``).
     completion_bound_table_byte_cost: float = 0.1
 
     #: The cost of building completion tables, in scanned supports for each step of the
     #: breadth-first searches that fill them, as ``_estimate_build_cost`` in
     #: ``_information_sets/completion_bounds.py`` counts steps.  Defaults to 0.2, a rough
-    #: coefficient on the high side.
+    #: coefficient on the high side (Section 4.4 of ``brouwer_zimmermann_code.md``).
     completion_bound_build_step_cost: float = 0.2
 
     # Fields of batches and memory limits.
 
     #: The size of a chunk of work that a search does in one call of compiled code, which keyboard
-    #: interrupts cannot stop: ``2**search_chunk_exponent`` units.  A distance search by the BZ
-    #: method scans at most that many supports and lookups of completion tables, counted together,
-    #: in one call, and on several threads, each thread scans ``num_threads`` times as many.  A
-    #: connected-cluster distance search visits at most that many states in one call, on each
-    #: thread, and on threads splits a weight limit into work items of about that many states,
-    #: within bounds on their number (Sections 3.6 and 3.11 of ``connected_cluster.md``).  The gates
-    #: that decide when work moves to threads reuse this chunk as their unit, although they serve
-    #: another purpose: each should pass only work that costs many times as much as starting
-    #: threads, and their values were chosen by hand.  On several threads, a layer of a BZ set moves
-    #: to threads if it has at least three rows and more than ``num_threads`` chunks of supports,
-    #: and a connected-cluster weight limit if it is predicted to visit more than ``num_threads``
-    #: chunks of states, shifted right by ``connected_cluster_split_shift``.  The calling thread
-    #: runs a batch query of ``CosetLeaderSearch`` alone until its queries have done ``num_threads``
-    #: chunks of work, and then moves the rest of the batch to threads; on one thread, the batch
-    #: never moves.  With the BZ method, a query does one unit of work, and one more for each word
-    #: that it weighs after the word of its syndrome; with the connected-cluster method, it does one
-    #: unit for each state that its searches visit.  At most 62.  Defaults to 15, a budget of
-    #: interrupt latency on one thread, which grows with the number of threads for BZ scans.
+    #: interrupts cannot stop: ``2**search_chunk_exponent`` units.  A BZ distance search scans at
+    #: most that many supports and lookups of completion tables, counted together, in one call.  On
+    #: several threads, each thread scans ``num_threads`` times as many (Section 4.5 of
+    #: ``brouwer_zimmermann_code.md``).  A connected-cluster distance search visits at most a chunk
+    #: of states in one call on each thread.  On threads, it splits a weight limit into work items
+    #: of about a chunk of states each, within bounds on their number (Sections 3.6 and 3.11 of
+    #: ``connected_cluster.md``).  The gates that decide when work moves to threads also count in
+    #: chunks; their thresholds, chosen by hand, should pass only work that costs many times as much
+    #: as starting threads.  On several threads, a layer of a set in a BZ search moves to threads if
+    #: it has at least three rows and more than ``num_threads`` chunks of supports.  A
+    #: connected-cluster weight limit moves under the gate of ``connected_cluster_split_shift``.  A
+    #: batch query of ``CosetLeaderSearch`` runs on the calling thread alone until its queries have
+    #: done ``num_threads`` chunks of work, and then moves the rest of the batch to threads; on one
+    #: thread, the batch never moves.  With the BZ method, a query does one unit of work, and one
+    #: more for each word of its coset that it weighs after the first.  With the connected-cluster
+    #: method, it does one unit for each state that its searches visit.  At most 62.  Defaults to
+    #: 15, a budget of interrupt latency on one thread, which grows with the number of threads for
+    #: BZ scans.
     search_chunk_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: A connected-cluster distance search splits a weight limit across threads only if it predicts
-    #: that the limit visits more than ``(num_threads << search_chunk_exponent) >>
-    #: connected_cluster_split_shift`` states; each step of the shift halves that gate.  A state
-    #: costs far more than a support of a BZ scan, so the gate is a share of the supports that each
-    #: thread of a BZ scan scans in one call.  Unlike lowering ``search_chunk_exponent``, a larger
-    #: shift lets smaller limits split without changing the size of chunks or the time before an
-    #: interrupt takes effect (Section 3.11 of ``connected_cluster.md``).  At most 62.  Defaults to
-    #: 2, chosen by hand: at the default exponent, a limit that splits is then predicted to cost at
-    #: least about as much as its split, and a small search on eight threads ran about 1.6 times
-    #: faster at a shift of 2 than at 0.
+    #: that the limit visits more than
+    #: ``(num_threads << search_chunk_exponent) >> connected_cluster_split_shift`` states; each step
+    #: of the shift halves that gate.  Unlike lowering ``search_chunk_exponent``, a larger shift
+    #: lets smaller limits split without changing the size of chunks or the time before an interrupt
+    #: takes effect (Section 3.11 of ``connected_cluster.md``).  At most 62.  Defaults to 2, chosen
+    #: by hand.  At the default exponent and this shift, a limit that splits is predicted to cost at
+    #: least about as much as the work of splitting it among threads.  A small search on eight
+    #: threads ran about 1.6 times faster at a shift of 2 than at 0.
     connected_cluster_split_shift: int = dataclasses.field(default=2, metadata={"maximum": 62})
 
-    #: The number of threads on which a distance search by the BZ method scans a costly layer of a
-    #: set, which they split into work items, sharing one copy of its completion tables; on which a
-    #: connected-cluster distance search searches a costly weight limit; and on which the batch
-    #: queries of ``CosetLeaderSearch`` search the blocks of a batch.  At least 1, and 1 runs on the
-    #: calling thread alone.  ``None`` takes the value of the environment variable
+    #: The number of threads on which searches run costly work.  A BZ distance search scans a costly
+    #: layer of a set on these threads, which share one copy of the set's completion tables.  A
+    #: connected-cluster distance search searches a costly weight limit on them, and the batch
+    #: queries of ``CosetLeaderSearch`` search the blocks of a batch.  The fault lister of the
+    #: certifier of bounded fault propagation runs each costly listing on them too (section
+    #: "Threads" of ``fault_propagation.md`` in ``qldpc/circuits/certification``).  At least 1, and
+    #: 1 runs on the calling thread alone.  ``None`` takes the value of the environment variable
     #: ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
     #: ``numba.config.NUMBA_NUM_THREADS``.  The row on cores in "Start from a symptom" of
     #: :doc:`/exact_search_tuning` says how to set and cap it, and the section "Threads" of the
     #: README of ``qldpc/codes/distance`` says when ``QLDPC_NUM_THREADS`` also sets numba's own
-    #: count.  A distance search resolves ``None`` once, when it starts, and a
-    #: ``CosetLeaderSearch`` when it is built.  A layer of a set runs on the calling thread alone
-    #: unless it has at least three rows and more than ``num_threads * 2**search_chunk_exponent``
-    #: supports, and a batch until its queries have done that many units of work, in the units that
-    #: ``search_chunk_exponent`` defines for each method (Section 4.5 of
-    #: ``brouwer_zimmermann_code.md`` and Section 3.11 of ``connected_cluster.md``).  A
-    #: connected-cluster weight limit runs on the calling thread alone unless it passes the gate
-    #: that ``connected_cluster_split_shift`` describes.  Defaults to ``None``, chosen by hand: a
-    #: search uses the cores that numba counts unless its caller caps them.
+    #: count.  The description of ``search_chunk_exponent`` says when work moves to threads (Section
+    #: 4.5 of ``brouwer_zimmermann_code.md`` and Section 3.11 of ``connected_cluster.md``).
+    #: Defaults to ``None``, chosen by hand: a search uses the cores that numba counts unless its
+    #: caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
-    #: A chunk of the scan of a count, by the BZ or brute-force method, visits at most this many
-    #: supports and lookups of completion tables, counted together, within one coefficient layer of
-    #: one information set.  At least 1.  Defaults to 65,536, a budget of interrupt latency.
+    #: A count by the BZ or brute-force method scans in chunks.  Each chunk lies within one
+    #: coefficient layer of one search basis, and visits at most this many supports and lookups of
+    #: completion tables, counted together.  At least 1.  Defaults to 65,536, a budget of interrupt
+    #: latency.
     scan_chunk_size: int = dataclasses.field(default=1 << 16, metadata={"minimum": 1})
 
-    #: The most chunks that the scan of a count visits before it returns to Python, once
-    #: :func:`~qldpc.codes.distance.logical_counts.compile_search_setup` has compiled the loop of
-    #: the scan over layers; until then, the scan returns after every chunk.  The scan also returns
-    #: before and after each coefficient layer of an information set that may use completion tables.
-    #: At least 1.  Defaults to 64, a budget of interrupt latency.
+    #: The most chunks that the scan of a count visits in one call of its compiled loop, which
+    #: keyboard interrupts cannot stop.  The scan also ends a call before and after each coefficient
+    #: layer of a search basis that may use completion tables.  Until
+    #: :func:`~qldpc.codes.distance.compile_search_setup` compiles the loop, the loop runs in Python
+    #: and takes keyboard interrupts between chunks.  At least 1.  Defaults to 64, a budget of
+    #: interrupt latency.
     scan_chunks_per_call: int = dataclasses.field(default=64, metadata={"minimum": 1})
 
     #: The most Gray-code steps that the walk of a check space by the MacWilliams method takes in
     #: one call of compiled code.  At least 1.  Defaults to 65,536, a budget of interrupt latency.
     macwilliams_chunk_size: int = dataclasses.field(default=1 << 16, metadata={"minimum": 1})
 
-    #: The least rank at which the MacWilliams method tests whether the X and Z checks of a counter,
-    #: of equal rank, span the same space, so that one walk over its ``2**rank`` words serves both;
-    #: zero tests whenever the ranks are equal, and ``MAX_VALUE`` never.  Counters known to be
-    #: self-dual, and counts of full Pauli operators, skip the test.  Defaults to 14, chosen by
-    #: hand, near where the test and a second walk break even.
+    #: The least rank at which the MacWilliams method tests whether the X and Z checks of a counter
+    #: span the same space, when their ranks are equal.  If they do, one walk over the ``2**rank``
+    #: words of that space serves both.  Zero tests whenever the ranks are equal, and ``MAX_VALUE``
+    #: never.  Counters known to be self-dual skip the test.  A count of full Pauli operators, which
+    #: the method allows only on self-dual codes, runs the test at any rank to check that.  Defaults
+    #: to 14, chosen by hand, near where the test and a second walk break even.
     macwilliams_shared_walk_rank: int = 14
 
     #: Applies to a ``CosetLeaderSearch`` of Pauli errors by CSS weight, with the Brouwer-Zimmermann
     #: method, on a stabilizer state that is not CSS.  Such a search answers queries of weight one
     #: from a table, by syndrome, of the products of a single-qubit X error and a single-qubit Z
     #: error, each possibly the identity.  It builds the table if the distinct syndromes of the two
-    #: kinds of error make at most this many pairs, and otherwise matches syndromes at each query.
-    #: Zero disables the table.  Defaults to ``2**18``, a budget of memory: a table of tens of
-    #: megabytes, reached at 511 qubits whose single-qubit errors have distinct syndromes.
+    #: kinds of error make at most this many pairs, and otherwise matches syndromes at each query
+    #: (section "The coset-leader search" of ``problems.md``).  Zero disables the table.  Defaults
+    #: to ``2**18``, a budget of memory: a table of tens of megabytes, reached at 511 qubits whose
+    #: single-qubit errors have distinct syndromes.
     max_css_single_pairs: int = 2**18
 
     def __post_init__(self) -> None:
@@ -558,7 +627,10 @@ DEFAULT_TUNING = SearchTuning()
 
 
 def get_tuning() -> SearchTuning:
-    """The active tuning of the current context, which a search reads when it starts."""
+    """The active tuning of the current context, which a search reads when it starts.
+
+    A ``CosetLeaderSearch`` reads it when it is built.
+    """
     return _ACTIVE_TUNING.get()
 
 
@@ -566,10 +638,11 @@ def get_tuning() -> SearchTuning:
 def use_tuning(**changes: Any) -> Iterator[SearchTuning]:
     """Change fields of the active tuning until the ``with`` block exits.
 
-    The changes apply to searches that start within the block, in the current context, and in
-    copies of it made within the block (see the module docstring for threads, processes, and
-    asyncio tasks).  Fields that are not given keep their values in the active tuning, so nested
-    blocks combine their changes, and the inner block takes precedence.
+    The changes apply to the searches that start within the block, and to each ``CosetLeaderSearch``
+    built within it.  They apply in the current context, and in copies of the context made within
+    the block (see the module docstring for threads, processes, and asyncio tasks).  Fields that are
+    not given keep their values in the active tuning, so nested blocks combine their changes, and
+    the inner block takes precedence.
 
     Args:
         **changes: New values of fields of :class:`SearchTuning`.
@@ -597,13 +670,14 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 ####################################################################################################
 # constants of caches
 
-#: The most arrays of binomial coefficients that work estimates cache, one for each number ``r`` of
-#: rows of a basis, of ``8 * (r + 1)`` bytes each; few workloads search bases of more than a
-#: thousand different numbers of rows.
+#: The most arrays of binomial coefficients that work estimates cache.  They keep one array for each
+#: number ``r`` of rows of a basis, of ``8 * (r + 1)`` bytes.
 BINOMIAL_CACHE_SIZE = 1024
 
 #: The most pairs of classical searches, of the X and Z parts of errors, that ``get_css_searches``
 #: in ``_brouwer_zimmermann/coset.py`` caches, one for each CSS state and tuning of their setup.
+#: Each search can hold up to ``coset_completion_max_table_bytes`` of completion tables for each
+#: set.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The most results that each of two caches of the MacWilliams method keeps, one for single
@@ -615,6 +689,7 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
 
 #: The most searches of Pauli errors that ``get_pauli_search`` in ``_brouwer_zimmermann/coset.py``
-#: caches, one for each stabilizer matrix, measure of weight, and tuning of the setup; zero disables
-#: the cache.
+#: caches, one for each stabilizer matrix, measure of weight, and tuning of the setup.  A search by
+#: Hamming weight can hold up to ``coset_completion_max_table_bytes`` of completion tables for each
+#: set.
 PAULI_SEARCH_CACHE_SIZE = 8
