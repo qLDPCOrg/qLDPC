@@ -198,6 +198,7 @@ Neither Zimmermann's certificate nor the coverage-divided one dominates the othe
 Relaxing the coordinates of an unexamined word `v` to `0 ≤ x_c ≤ 1` bounds `wt(v)` below by the optimum of the linear program that minimizes `Σ_c x_c` subject to `Σ_{c ∈ B_i} x_c ≥ b_i(t)` for each `i`.
 That optimum is at least both certificates, and can exceed them when coverage is uneven.
 On 14 distance searches and two counts at the defaults, and on 12 of these searches and one count with the program in every search of an overlapping family, it never changed the work or the lower bound of a layer, so qLDPC does not solve it.
+This guide at commit 0870f6a derives the program's bound and works an example in which it beats both certificates ([A certificate from linear programming](https://github.com/qLDPCOrg/qLDPC/blob/0870f6ac5273aa9544490a4835868c4da691a75c/src/qldpc/codes/distance/brouwer_zimmermann.md#a-certificate-from-linear-programming)).
 
 #### Families for coset searches
 
@@ -343,6 +344,7 @@ Once a search has verified automorphisms, the images under `Γ` of the blocks of
 After a switch, the images of the blocks of both families give one such program, whose optimum is at least either certificate.
 Theorem 3.10 of White's thesis ([References](#references)) bounds unexamined words with the images of windows of cycles of automorphisms in a related way.
 On 14 default distance searches, the bound of the current family never changed the work of a layer, and on default searches of about 80 CSS codes, the bound of both families never ended a search sooner than the larger certificate, so searches compute neither.
+This guide at commit 0870f6a derives these bounds and compares them with White's theorem ([Images of the blocks of a family](https://github.com/qLDPCOrg/qLDPC/blob/0870f6ac5273aa9544490a4835868c4da691a75c/src/qldpc/codes/distance/brouwer_zimmermann.md#images-of-the-blocks-of-a-family)).
 
 #### Where automorphisms come from
 
