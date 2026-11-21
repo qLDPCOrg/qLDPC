@@ -135,7 +135,7 @@ Forbidding the variables that are not viable is reduced-cost fixing, a technique
 In the hitting-set problem, the reduced cost of `v` is `1 - R_v`: its cost, one, minus its repair.
 So `v` is viable exactly if `Y` plus its reduced cost is at most `W - s`.
 Yamagishi, Fampa, and Lee show that this fixing is valid for set covering, a form of the hitting-set problem, with any feasible dual solution, not only an optimal one ([references](#references)).
-qLDPC's weights `y_c = 1/m_c` are such a solution.
+qLDPC's weights `y_c = 1/m_c` are a feasible dual solution.
 The search program QEDist applies the viability test with other weights, and only to the variables of the check on which it branches ([references](#references)).
 It skips the branch of each variable that fails the test.
 

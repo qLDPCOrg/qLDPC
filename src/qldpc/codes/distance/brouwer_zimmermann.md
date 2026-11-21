@@ -208,7 +208,7 @@ This guide at commit 0870f6a derives the program's bound and works an example in
 
 Section 6 of Tillmann's preprint gives an integer program like the linear program above, with binary `x_c` and right-hand sides of one, for the size of the smallest set of linearly dependent columns of a matrix over the real numbers ([References](#references)).
 Tillmann's argument holds over any field.
-Over GF(2), applied to a parity-check matrix, his program computes the distance of its code, with one constraint for each information set.
+Over GF(2), applied to a parity-check matrix, his program computes the distance of the code of that matrix, with one constraint for each information set.
 
 #### Families for coset searches
 
