@@ -94,6 +94,7 @@ We call these two places for fresh blocks the **slots** of the cycle.
 The consumer runs a **window**, a short run of consecutive steps.
 The block under test enters the window as the fresh block of its **entry step**.
 The window starts with the logical qubits on an ideal **data block** in logical `|0>`.
+It ends with a noiseless **final readout**, which measures the checks of the block that holds the logical qubits after the last step to define detectors.
 For `basis="Z"`, the following table numbers the steps of the window relative to the entry step.
 The [window section](#the-window) explains its last row.
 
@@ -112,27 +113,27 @@ The consumer's `correctable_weight` defaults to `t = ⌊(d - 1) / 2⌋` for a co
 
 ### The window
 
-After the last step, a noiseless **final readout** measures the checks of the last block to define detectors.
-
 A step decodes an error on the block under test when the block that it measures carries the error, or a copy that a CNOT made, and its measurement detects the error's type.
 A transversal CNOT copies X errors from its control block to its target block, and Z errors from its target block to its control block.
 So for `basis="Z"`, steps 0 and +2 both decode the block's Z errors, and step +1 decodes its X errors, as the last row of the table lists.
 For `basis="X"`, X and Z are exchanged.
 No error on the block under test reaches the steps before entry or the final readout.
 
-Take a decoder that decodes each step on its own, such as the default decoder.
-Without faults of the consumer, the two decodings of the twice-decoded errors see the same syndrome, so they make the same prediction, and the two predictions cancel in the observables.
+The default decoder decodes each step on its own.
+Without faults of the consumer, its two decodings of the twice-decoded errors see the same syndrome, so they make the same prediction, and the two predictions cancel in the observables.
 The errors also flip the logical outcomes that the two steps measure, and these flips cancel too.
-Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
+With the default decoder, Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
 
-The errors that an error mechanism leaves are decoded in its own step or in one of the next two steps.
-So mechanisms in steps −2 to +2 can share a decoding with the errors of the block under test, and mechanisms outside these steps cannot.
+The errors that noise in a step leaves are decoded in that step, in one of the next two steps, or in the final readout.
+So noise in steps −2 to +2 can share a decoding with the errors of the block under test, and noise outside these steps cannot.
 The window runs these five steps, each with the noise of the noise model.
-A decoder that decodes each step on its own and corrects every fault of weight one corrects a single mechanism outside these steps without changing the cost of the block's errors.
-Further noisy steps before or after the window therefore change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
-The default decoder corrects every fault of weight one for a code of distance at least 3.
-For a code of distance less than 3, it does not, and the excesses can depend on the length of the window.
-A decoder built from a decoder specification decodes the syndromes of the whole window together, so neither the cancellation above nor this second-order bound is guaranteed for it.
+A further noisy step before or after the window adds error mechanisms that share no decoding with the block's errors.
+A decoder that decodes each step on its own and corrects every fault of weight one corrects each such mechanism alone, without changing the cost of the block's errors.
+For such a decoder, further steps therefore change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
+
+So with the default decoder and a code of distance at least 3, further steps change the excesses only at second order.
+For a code of distance less than 3, the default decoder does not correct every fault of weight one, and the excesses can depend on the length of the window.
+A decoder built from a decoder specification decodes the syndromes of the whole window together, so neither the cancellation nor this second-order dependence is guaranteed for it.
 
 ### What a calibration measures
 
@@ -161,6 +162,7 @@ The docstring of `get_steane_swap_consumer` gives its size limits and the layout
 Other decoders are passed as decoder specifications, which the consumer builds from the detector error model of its window.
 The detectors of the window come from the code's own checks, so these decoders see the weight and locality of those checks.
 For example, `decoders.mwpm(decompose_errors=True)` suits a code whose checks give a matching graph, such as a surface code.
+Such a decoder decodes the whole window together, and [the window section](#the-window) says which properties of the window are then not guaranteed.
 
 ## The stratified calibration
 
@@ -371,14 +373,10 @@ Check the histogram's `num_samples` when an error looks too small.
   Compare the calibrated estimate with direct simulation when introducing a new consumer, code family, or noise regime.
   Direct simulation must be repeated for every circuit, and its cost grows as failures become rarer.
 - **Interaction of the X and Z parts.**
-  The `pauli` option of the direct check keeps one part of each error.
+  The `pauli` option of `Consumer.estimate_excess_failure_probability` keeps one part of each error.
   Compare the whole-error estimate with the sum of the X-only and Z-only estimates.
   Their difference estimates the X–Z interaction neglected by approximation 2.
   With the same `seed`, the three runs share their shots, so the difference has a much smaller error than the quadrature sum of their reported standard errors.
-  Suppose that the consumer keeps X-type and Z-type errors on separate detectors and observables, as the built-in consumer does, and that its decoder decodes the two Pauli types independently.
-  Let `δ_Z` be the change, `−1`, `0`, or `1`, that the Z part of the error makes to whether any observable that Z errors flip is mispredicted, and `δ_X` the same for the X part and the observables that X errors flip.
-  Then each shot contributes `−δ_X δ_Z` to the difference.
-  The difference therefore counts only shots in which `δ_X` and `δ_Z` are both nonzero, and it is usually negative.
 - **Fault tolerance of the consumer.**
   For a consumer that tolerates `t` faults in total, the calibrated excesses `Δ_s(m, g)` with `m + g ≤ t` should vanish.
 - **Truncation and coverage.**

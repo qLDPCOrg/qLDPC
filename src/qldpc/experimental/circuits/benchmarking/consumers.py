@@ -827,14 +827,14 @@ def get_steane_swap_consumer(
         basis: The block under test: ``Pauli.Z`` (or ``"Z"``, the default) for a fresh ``|0>``
             block, or ``Pauli.X`` (or ``"X"``) for a fresh ``|+>`` block.
         decoder: A decoder specification, such as ``decoders.mwpm(decompose_errors=True)`` for a
-            code whose checks give a matching graph, such as a surface code.  The consumer builds
-            the decoder from the detector error model of the window, as for ``Consumer``.
-            Default: None, for the default decoder described above.  The window suits a decoder
-            that decodes each step on its own and corrects every fault of weight one, such as the
-            default decoder for a code of distance at least 3; see ``consumer_calibration.md``.
-            For a code of distance less than 3, the default decoder does not correct every such
-            fault, and the calibration can depend on the length of the window.  A decoder built
-            from a specification decodes the whole window together instead.
+            code whose checks give a matching graph, like a surface code.  The consumer builds the
+            decoder from the detector error model of the window, as for ``Consumer``, so the
+            decoder decodes the whole window together.  Default: None, for the default decoder
+            described above.  With the default decoder and a code of distance at least 3, further
+            noisy steps before or after the window change the excesses of the calibration only at
+            second order; see ``consumer_calibration.md``.  For a code of distance less than 3, the
+            excesses can depend on the length of the window.  For a decoder built from a
+            specification, the second-order dependence is not guaranteed.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
             ``(d - 1) // 2`` for the distance ``d`` of the code.  If the code does not know its
@@ -842,8 +842,8 @@ def get_steane_swap_consumer(
 
     Returns:
         A ``Consumer`` whose block is the block under test, with the correctable weight and a short
-        description that names the number of steps, the state of the block under test, the code,
-        the decoder, and the type of the noise model.
+        description that names the state of the block under test, the code, the decoder, and the
+        type of the noise model.
 
     Raises:
         TypeError: If ``decoder`` is neither None, a decoder specification, nor a prebuilt
