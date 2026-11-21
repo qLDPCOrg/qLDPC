@@ -127,7 +127,10 @@ class Consumer:
 
     def __post_init__(self) -> None:
         """Check the consumer, and store its block qubits as a tuple."""
-        if not isinstance(self.decoder, (decoders.DecoderSpec, decoders.ObservableDecoder)):
+        # a decoder class passes the protocol check, since it has the decoding methods
+        if isinstance(self.decoder, type) or not isinstance(
+            self.decoder, (decoders.DecoderSpec, decoders.ObservableDecoder)
+        ):
             raise TypeError(
                 "The decoder of a consumer must be an observable decoder or a decoder"
                 f" specification, not {self.decoder!r}"
