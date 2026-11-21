@@ -15,10 +15,11 @@ experiment (``common/manifest.py``), it
    ``--approved-cpu-hours`` covers it;
 4. prepares the inputs (``prepare``), which checks them against the experiment's frozen files, and
    writes the task list;
-5. writes ``cores.txt`` and the manifest: the job slots are the smaller of the free physical
-   cores and the runs that fit in memory, with ``tasks.RESERVED_CORES`` physical cores and
-   ``tasks.RESERVED_MEM_GIB`` of memory left free, and this script pins itself, and so GNU parallel
-   and the task runners, to the logical CPUs of the reserved cores;
+5. writes ``cores.txt`` and the manifest: the number of job slots is the smallest of the number of
+   free physical cores, the number of ``JOB_MEM_GIB`` slots that fit in memory, and ``--jobs``, if
+   given, with ``tasks.RESERVED_CORES`` physical cores and ``tasks.RESERVED_MEM_GIB`` of memory
+   reserved; it also pins this script, and so GNU parallel and the task runners, to the logical
+   CPUs of the reserved cores;
 6. runs pass 1 with GNU parallel, one task per job slot, whose child process pins itself to its
    slot's CPU, then the repeats of pass 2, and checks that every task has a final row;
 7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz``: the one file to copy back.
@@ -34,8 +35,8 @@ the progress of the label.
 and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development
 on a workstation, whose times are never used as results.  ``--dry-run`` stops after step 5 and
 prints the GNU parallel command.  ``--subset NAME`` selects a subset of the tasks, such as
-``smoke``; a subset other than ``main`` gets its own label directory.  ``--subset acceptance``
-runs only the acceptance tests.
+``smoke``; a subset other than ``main`` or ``acceptance`` gets its own label directory (see
+``common/manifest.py``).  ``--subset acceptance`` runs only the acceptance tests.
 """
 
 from __future__ import annotations
@@ -180,7 +181,7 @@ def parse_args() -> argparse.Namespace:
 def get_label_dir(
     module: types.ModuleType, results_dir: pathlib.Path, subset: str, local: bool
 ) -> pathlib.Path:
-    """The directory of the experiment's label, with the subset if it is not ``main``."""
+    """The directory of the experiment's label, with the suffixes of ``common/manifest.py``."""
     commit = manifest.harness_commit()
     if commit["dirty"] and not local:
         sys.exit("The qLDPC tree has uncommitted changes; commit them, or pass --local")

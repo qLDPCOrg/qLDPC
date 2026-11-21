@@ -4,8 +4,10 @@
 
 The label of an experiment is ``<experiment>-`` followed by the first 12 hexadecimal digits of the
 SHA-256 of ``pins.json``, the experiment's frozen files, the harness commit, and, in a bundle, the
-SHA-256 of the bundle's resolved requirements.  Any change to
-them gives a new label, and so a new results directory.
+SHA-256 of the bundle's resolved requirements.  Any change to them gives a new label, and so a new
+results directory.  ``run_node.py`` names the directory by the label, followed by ``-dirty`` if the
+qLDPC tree has uncommitted changes to tracked files (allowed only in local runs), and by
+``-<subset>`` for a subset other than ``main`` or ``acceptance``.
 
 The harness commit is the Git commit of the qLDPC tree that holds the experiments.  On the node,
 whose tree is a ``git archive`` without history, ``bundle.py`` records it in

@@ -19,33 +19,36 @@ Times measured on a workstation are never used as results.
 - [`node.sh`](node.sh) is the node's entry point: a preflight check of the node, an offline install from the bundle, and then `run_node.py`.
 - [`bundle.py`](bundle.py) builds the offline bundle on the workstation.
 - [`pins.json`](pins.json) pins the qLDPC commit, CPython, the Linux platform of the wheels, and GNU parallel.
-- [`common/`](common/) holds the task runner (`runner.py` and `run_task.py`), the result store (`store.py`), the task lists (`tasks.py`), the label and manifest (`manifest.py`), and the plug-in interface (`plugin.py`).
-  `common/selftest.py` tests them locally.
+- [`common/`](common/) holds the task runner (`runner.py` and `run_task.py`), the result store (`store.py`), the task lists (`tasks.py`), the label and manifest (`manifest.py`), the plug-in interface (`plugin.py`), and `local_runs.py`, which runs tasks locally for the acceptance tests.
+  `common/selftest.py` tests them on a stand-in experiment (`selftest_plugin.py`), locally and in node mode.
 
 ### Labels and results
 
-A run's label is the experiment's name and the first 12 hexadecimal digits of the SHA-256 of `pins.json`, the experiment's frozen input files, such as its configuration and the data that fix its inputs, and the commit of this tree.
-Any change to them gives a new label, and so a new directory `results/<experiment>/<label>/`, which Git ignores.
-From a bundle, the label also covers the bundle's resolved requirements, so that it fixes the versions of the third-party packages too; the manifest records the installed versions.
-That directory holds the manifest of the machine and software, the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, and the archive.
+A run's label is the experiment's name and a hash of `pins.json`, the experiment's frozen input files, and the commit of this tree, as [`common/manifest.py`](common/manifest.py) describes.
+The frozen files include the experiment's configuration and the data that fix its inputs.
+From a bundle, the label also covers the bundle's resolved requirements.
+Any change to these inputs gives a new label, and so a new directory `results/<experiment>/<label>/`, which Git ignores.
+`common/manifest.py` gives the suffixes that the directory's name can carry.
+That directory holds the manifest, the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, and the archive.
+The manifest records the machine and the installed package versions.
 
 ### Runs
 
-Each run of a task is a fresh process pinned to one core, with the thread variables of numerical libraries set to 1.
-Only that process, the measured process, and its descendants are pinned to that core; the runner that watches them, and polls their memory every second, runs on the cores left free.
-The runner times only one call of the task's code, the measured call, from the moment that the run reports that timing has started; the measured call's wall time is T.
-A run is `ok` if the measured call returns within the task's limit, and a `timeout` if its measured time reaches the limit, even if it returned later.
-Process start, imports, and any untimed preparation before the measured call are capped at 120 s, beyond which the run is an `error`.
-The runner kills a run above its memory cap as a `memout`, and kills every process of a stopped run at once, then waits up to 30 s for them to exit.
-Work after the measured call, such as describing a counterexample, has its own allowance if the experiment sends its measured result first; running out of it then marks only the row's `post_status`.
-While the measured call runs, the measured process reports to the runner the first compilation that numba announces through its documented events `numba:compile` and `numba:run_pass`.
-The runner discards a run whose measured call compiled, whatever its status, and runs the task once more, in a fresh process that loads the compiled code from numba's disk cache: the retry, which is never discarded.
-A run's T includes loading from the cache any compiled code that its process first reaches in its measured call, and the other first-call work of a fresh process.
-The task's one row is that of its kept run, which records any discarded run in `discarded_run`.
-A row has `compiled_in_timing` set when its run is a retry that compiled too, and only then does its T include a compilation that numba reports; [`common/runner.py`](common/runner.py) says when that happens.
-A row with `compiled_in_timing` set is kept so that it is visible, but its timing enters no analysis; each experiment's `analyze.py` says how it treats such rows.
+Each run of a task is a fresh process pinned to one core, with the thread variables of numerical libraries set to 1; the runner that watches it runs on the reserved cores (see below).
+The runner times one call of the task's code, the measured call, whose wall time is T.
+A run is `ok` if the measured call returns within the task's limit and its result reaches the runner, a `timeout` if T reaches the limit, a `memout` if its memory exceeds the task's memory cap before its result arrives, and an `error` otherwise.
+The runner polls the run's memory every second.
+For example, a run is an `error` if process start, imports, and untimed preparation exceed the task's start-up cap.
+If the experiment sends its measured result before untimed post-processing, running out of the time that the task allows for it (`post_s`) does not change an `ok` status, but marks the row's `post_status`.
+A run is discarded if numba reports a compilation during its measured call, and the task runs once more in a fresh process that loads the compiled code from numba's disk cache.
+The retry is kept, and its row is the task's one row.
+If the retry compiles too, its row has `compiled_in_timing` set.
+So T includes loading compiled code and the other first-call work of a fresh process, but no compilation that numba reports, unless the row has `compiled_in_timing` set.
+Such a row is kept so that it is visible, but its timing enters no analysis; each experiment's `analyze.py` says how it treats such rows.
+[`common/runner.py`](common/runner.py) gives these rules in full, and [`common/tasks.py`](common/tasks.py) gives the limits that each task can set and their defaults.
 
-There is one job slot per physical core, with two cores and 16 GiB of memory left free and as many slots as the memory caps of the runs allow.
+Two physical cores and 16 GiB of memory are reserved for the runners, GNU parallel, and the system.
+Each job slot has its own free physical core and the experiment's memory per slot (`JOB_MEM_GIB`), and there are as many slots as both allow.
 Pass 1 holds every first run in an order shuffled with a fixed seed.
 Pass 2 holds the repeats that each experiment's repeat policy asks for after pass 1, such as two more runs of a fast run.
 
@@ -72,7 +75,7 @@ bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hour
 ```
 
 `node.sh --check` runs only the preflight, and needs only `node.sh` and `pins.json`, so it can run on the node before any bundle exists.
-Before the experiment, `node.sh` runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
+Before the experiment first runs for its label, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
 Repeating the command resumes the run.
 After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming; `--status` prints the progress.
 The archive that the run prints at its end is the one file to copy back.
