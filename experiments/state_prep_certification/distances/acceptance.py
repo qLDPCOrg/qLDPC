@@ -23,15 +23,15 @@
 * **AT9:** ``run_node.py --dry-run`` writes no task file without an approval that covers the
   ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives with
   the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
-  runs that finished in under 300 s.
+  first runs that finished in under 300 s.
 * **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree
   or time out, arms that agree on a distance other than the reference, an arm without rows, a first
   run that ends in an error, a repeat that ends in a memout, both finished, only one arm finished,
   and both timed out), writes every output, classifies the codes, and marks the family medians as
-  ``analyze.py``'s docstring says, with the number of ratios in each median and how many of them are
-  lower and upper bounds.  Its rows with ``compiled_in_timing`` set are first runs and a timed-out
-  repeat, some of them on codes that disagree or fail.  ``load_sample`` refuses a label directory
-  without a copy of the sample.
+  ``analyze.py``'s docstring says, with the number of these ratios, and how many of them are lower
+  bounds and how many upper bounds.  Its rows with ``compiled_in_timing`` set are first runs and a
+  timed-out repeat, some of them on codes that disagree or fail.  ``load_sample`` refuses a label
+  directory without a copy of the sample.
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
@@ -348,7 +348,7 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     match = re.search(r"ceiling ([\d,.]+) CPU-hours", approved.stdout)
     assert match and float(match.group(1).replace(",", "")) == round(hours, 1), approved.stdout
 
-    # the repeat policy: two repeats of a run that finished in under 300 s, and no others
+    # the repeat policy: two repeats of a first run that finished in under 300 s, and no others
     task = experiment._task("q_bz_on", golay, 0)
     for status, seconds, expected in (
         ("ok", 299.9, 2),
@@ -443,10 +443,10 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(second, "q_bz_prior", 0, "timeout", 1800.0, None)
     add(fifth, "q_bz_on", 0, "ok", 400.0, 4)
     add(fifth, "q_bz_prior", 0, "ok", 400.0, 4)
-    # gb: only the prior arm finishes, an upper bound; lp: an upper bound and an inconclusive lower
-    # bound, so that the family has both kinds of bound
+    # gb: only the prior arm finishes, an inconclusive upper bound; lp: an upper bound and an
+    # inconclusive lower bound, so that the family has both kinds of bound
     for entry, finished, T in (
-        (gb, "q_bz_prior", 900.0),
+        (gb, "q_bz_prior", 1600.0),
         (lp_prior, "q_bz_prior", 900.0),
         (lp_on, "q_bz_on", 1500.0),
     ):
@@ -484,27 +484,29 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     assert ratio("qr79")["case"] == "disagreement"
     only_on = ratio(first["name"])
     assert (only_on["case"], only_on["bound"], only_on["value"]) == ("only on", ">=", 3.0)
+    assert analyze.classify(only_on) == "faster"
     assert ratio(second["name"])["case"] == "both > L"
     for entry in (third, fourth):
         assert ratio(entry["name"])["case"] == "failure", entry["name"]
     # fourth's first run finished, but a repeat ended in a memout, so T is the first run's time
     assert by_name[(fourth["name"], "q_bz_on")]["T"] == 20.0
     assert analyze.classify(ratio(fifth["name"])) == "similar"
-    # lp_on's lower bound of 1800 / 1500 = 1.2 does not exceed 1.2
+    # lp_on's lower bound of 1800 / 1500 = 1.2 does not exceed 1.2, and gb's upper bound of
+    # 1600 / 1800 is not below 1 / 1.2
     assert analyze.classify(ratio(lp_on["name"])) == "inconclusive"
+    assert analyze.classify(ratio(gb["name"])) == "inconclusive"
     outputs = ("summary.csv", "families.csv", "anchors.csv", "distances.pdf", "figure_notes.json")
     for name in outputs:
         assert (out / name).exists(), name
     with open(out / "families.csv") as file:
-        (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
+        families = {row["family"]: row for row in csv.DictReader(file)}
+    anchors = families["anchors"]
     assert (anchors["codes"], anchors["disagreement"], anchors["failure"]) == ("7", "2", "1")
     assert anchors["incomplete timing"] == "1", anchors
-    with open(out / "families.csv") as file:
-        families = {row["family"]: row for row in csv.DictReader(file)}
     hgp = families["hgp"]
     assert (hgp["both > L"], hgp["failure"]) == ("1", "2"), hgp
-    # each family's median, the number of ratios in it, and its lower and upper bounds; a family
-    # with both kinds of bound has no median, and the anchors have none
+    # each family's median, the number of its ratios, and how many are lower bounds and how many
+    # upper bounds; a family with both kinds of bound has no median, and the anchors have none
     medians = {
         name: tuple(families[name][key] for key in
                     ("median_R_T", "ratios_in_median", "lower_bounds", "upper_bounds"))
@@ -512,7 +514,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     }  # fmt: skip
     assert medians == {
         "hgp": (">=2", "2", "1", "0"),
-        "gb": ("<=0.5", "1", "0", "1"),
+        "gb": ("<=0.889", "1", "0", "1"),
         "lp": ("-", "2", "1", "1"),
         "anchors": ("-", "-", "-", "-"),
     }, medians

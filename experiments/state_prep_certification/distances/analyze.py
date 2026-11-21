@@ -34,10 +34,9 @@ upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
 For each family, the table gives the counts of each class of R_T and the median of R_T over the
 codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
-"<=" if upper bounds are, and omitted if there are both.  The table also gives the number of ratios
-in the median, and how many of them are lower bounds and how many upper bounds.  The anchors' row
-gives the counts of each class only; anchors are reported per code and never pooled with the
-families.
+"<=" if upper bounds are, and omitted if there are both.  The table also gives the number of these
+ratios, and how many of them are lower bounds and how many upper bounds.  The anchors' row gives the
+counts of each class only; anchors are reported per code and never pooled with the families.
 
 The analysis reads the sample from the label directory, where ``experiment.prepare`` copies
 ``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
@@ -124,7 +123,8 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
     if not path.exists():
         raise ValueError(
             f"{label_dir} has no sample.json, as for a run made before runs kept a copy of the"
-            " sample; copy the sample.json that the run used into it"
+            " sample; copy code_data/sample.json from the run's harness commit (in its manifest)"
+            " into it"
         )
     sample: dict[str, Any] = json.loads(path.read_text())
     return sample
@@ -156,7 +156,7 @@ def summarize(
     if unknown:
         raise ValueError(
             f"{len(unknown)} codes of the run are not in the run's sample.json, such as "
-            f"{unknown[0]}; its sample.json should be the one that the run used"
+            f"{unknown[0]}; the label directory's sample.json should be the one that the run used"
         )
     records = []
     for (code_hash, arm), modes in sorted(grouped.items()):
