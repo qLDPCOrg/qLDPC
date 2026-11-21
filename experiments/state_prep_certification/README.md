@@ -30,7 +30,7 @@ From a bundle, the label also covers the bundle's resolved requirements.
 Any change to these inputs gives a new label, and so a new directory `results/<experiment>/<label>/`, which Git ignores.
 `common/manifest.py` gives the suffixes that the directory's name can carry.
 That directory holds the manifest, the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, and the archive.
-The manifest records the machine and the installed package versions.
+The manifest records the machine, the installed package versions, and the environment variables that can change a run, such as `PYTHONPATH` and `NUMBA_*`; a node start refuses a few of them, such as `PYTHONPATH`, unless `--allow-env NAME` accepts one, as [`run_node.py`](run_node.py) says.
 
 ### Runs
 

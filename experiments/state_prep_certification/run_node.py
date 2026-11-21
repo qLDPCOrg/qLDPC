@@ -8,7 +8,9 @@
 On the node, ``node.sh`` calls this script with the bundle's interpreter.  For the label of the
 experiment (``common/manifest.py``), it
 
-1. refuses a bundle built without a pinned qLDPC commit, unless ``--allow-unfrozen`` is given;
+1. refuses a bundle built without a pinned qLDPC commit, unless ``--allow-unfrozen`` is given,
+   and an environment variable of ``REFUSED_ENVIRONMENT``, such as ``PYTHONPATH``, unless
+   ``--allow-env NAME`` accepts it (``NUMBA_CACHE_DIR``, which ``node.sh`` sets, is allowed);
 2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
    label, and stops if they fail; each attempt writes to a fresh directory under
    ``acceptance/<label directory>/`` of the results directory, which ``acceptance.json`` records;
@@ -62,6 +64,7 @@ import subprocess
 import sys
 import time
 import types
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
@@ -72,6 +75,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_task.py"
 SELFTEST = ROOT / "experiments" / "state_prep_certification" / "common" / "selftest.py"
 DEFAULT_RESULTS = ROOT / "experiments" / "state_prep_certification" / "results"
+
+# The environment variables that a node start refuses, and when: plain-Python qLDPC or numba,
+# Python's -O, which strips the acceptance tests' asserts, and paths that can import other code.
+REFUSED_ENVIRONMENT: dict[str, Callable[[str], bool]] = {
+    "QLDPC_DISABLE_COMPILATION": lambda value: value == "1",
+    "NUMBA_DISABLE_JIT": lambda value: value not in ("", "0"),
+    "PYTHONOPTIMIZE": lambda value: value != "",
+    "PYTHONPATH": lambda value: True,
+    "PYTHONHOME": lambda value: True,
+}
 
 
 def main() -> None:
@@ -91,6 +104,8 @@ def main() -> None:
         sys.exit("Node mode needs Linux (lscpu, CPU affinity); pass --local on other systems")
     if not args.local and _unfrozen_bundle() and not args.allow_unfrozen:
         sys.exit("This bundle has no pinned qLDPC commit; pass --allow-unfrozen only for a trial")
+    if not args.local:
+        check_environment(os.environ, args.allow_env)
     label_dir.mkdir(parents=True, exist_ok=True)
     refuse_other_hosts(label_dir)
     refuse_other_cpu(label_dir)
@@ -137,6 +152,7 @@ def main() -> None:
             "ceiling_cpu_hours": ceiling,
             "approved_cpu_hours": args.approved_cpu_hours,
             "local": args.local,
+            "allowed_environment": args.allow_env,
         },
     )
     command = tasks.parallel_command(label_dir, pathlib.Path(sys.executable), "1", jobs)
@@ -185,6 +201,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subset", default="main", help="the subset of tasks (default: main)")
     parser.add_argument(
         "--allow-unfrozen", action="store_true", help="run a bundle without a pinned qLDPC commit"
+    )
+    parser.add_argument(
+        "--allow-env",
+        action="append",
+        default=[],
+        choices=sorted(REFUSED_ENVIRONMENT),
+        metavar="NAME",
+        help="accept this environment variable in a node start, deliberately (repeatable)",
     )
     return parser.parse_args()
 
@@ -263,6 +287,21 @@ def run_acceptance(
         + "\n"
     )
     return passed
+
+
+def check_environment(environ: Mapping[str, str], allowed: Sequence[str]) -> None:
+    """Exit if a variable of ``REFUSED_ENVIRONMENT`` is set to a value that it refuses.
+
+    Args:
+        environ: The environment, such as ``os.environ``.
+        allowed: The names that ``--allow-env`` accepts.
+    """
+    for name, refused in REFUSED_ENVIRONMENT.items():
+        if name in environ and refused(environ[name]) and name not in allowed:
+            sys.exit(
+                f"{name}={environ[name]!r} is set, which would make a node run misleading; run "
+                f"`unset {name}` and start again, or pass --allow-env {name} to accept it."
+            )
 
 
 def _unfrozen_bundle() -> bool:

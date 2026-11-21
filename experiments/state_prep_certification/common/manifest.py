@@ -33,13 +33,18 @@ import platform
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 FT_STATE_PREP_DIR = pathlib.Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = FT_STATE_PREP_DIR.parents[1]
 PINS_FILE = FT_STATE_PREP_DIR / "pins.json"
 BUNDLE_RECORD = FT_STATE_PREP_DIR / "bundle.json"
+
+# The environment variables that the manifest records: those that can change what a run computes,
+# how fast, or which code it imports.  They hold no secrets.
+RECORDED_PREFIXES = ("QLDPC_", "NUMBA_", "PYTHON", "OMP_", "MKL_", "OPENBLAS_", "VECLIB_")
+RECORDED_NAMES = ("LD_PRELOAD", "LD_LIBRARY_PATH")
 
 
 ####################################################################################################
@@ -145,6 +150,7 @@ def write_manifest(
         "python": sys.version,
         "executable": sys.executable,
         "packages": package_freeze(),
+        "environment": recorded_environment(os.environ),
         "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         **extra,
     }
@@ -153,6 +159,15 @@ def write_manifest(
         path.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     with open(label_dir / "starts.jsonl", "a") as file:
         file.write(json.dumps(manifest, sort_keys=True) + "\n")
+
+
+def recorded_environment(environ: Mapping[str, str]) -> dict[str, str]:
+    """The variables of ``RECORDED_PREFIXES`` and ``RECORDED_NAMES`` in an environment."""
+    return {
+        name: value
+        for name, value in sorted(environ.items())
+        if name.startswith(RECORDED_PREFIXES) or name in RECORDED_NAMES
+    }
 
 
 def machine_info() -> dict[str, Any]:

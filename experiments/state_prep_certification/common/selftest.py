@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import io
 import json
 import multiprocessing
@@ -887,6 +888,41 @@ def test_run_node_cpu_model(directory: pathlib.Path, node: bool) -> None:
     refused = subprocess.run(command, capture_output=True, text=True, check=False)
     assert refused.returncode != 0 and "Another CPU 9000" in refused.stderr, refused.stderr
     assert not (label_dir / tasks.TASKS_FILE).exists()
+
+
+@test
+def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
+    """A node start refuses a misleading environment unless ``--allow-env`` accepts it.
+
+    The manifest records the environment variables that can change a run.
+    """
+    from experiments.state_prep_certification.common import manifest
+
+    run_node = _run_node_module()
+    environ = {
+        "PYTHONOPTIMIZE": "1",
+        "NUMBA_CACHE_DIR": "/cache",
+        "NUMBA_DISABLE_JIT": "0",
+        "QLDPC_DISABLE_COMPILATION": "0",
+        "LD_PRELOAD": "/lib.so",
+        "HOME": "/home",
+    }
+    try:
+        run_node.check_environment(environ, [])
+    except SystemExit as error:
+        assert "unset PYTHONOPTIMIZE" in str(error.code), error.code
+    else:
+        raise AssertionError("PYTHONOPTIMIZE was accepted")
+    run_node.check_environment(environ, ["PYTHONOPTIMIZE"])
+    for refused in (
+        {"QLDPC_DISABLE_COMPILATION": "1"},
+        {"NUMBA_DISABLE_JIT": "1"},
+        {"PYTHONPATH": ""},
+        {"PYTHONHOME": "/python"},
+    ):
+        _expect_exit(functools.partial(run_node.check_environment, refused, []))
+    recorded = manifest.recorded_environment(environ)
+    assert recorded == {name: environ[name] for name in environ if name != "HOME"}, recorded
 
 
 @test
