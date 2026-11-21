@@ -183,11 +183,11 @@ def wedderburn_artin_rings_to_test(request: pytest.FixtureRequest) -> abstract.G
 
 
 def _build_ring(name: str) -> abstract.GroupRing:
-    """Construct a named ring of the ring fixtures, with a pre-built Wedderburn-Artin transformer.
+    """Construct the ring that a ring-fixture name selects, and pre-build its transformer.
 
-    The parametrized fixtures ``ring`` and ``wa_ring`` call this to build only the ring of their
-    parameter, since galois compiles code for the fields of each ring.  Between test files, the
-    coverage check tears down only the fixtures that tests request statically, so these fixtures
+    The parametrized fixtures ``ring`` and ``wa_ring`` call this to build only the ring that each
+    parameter selects, since galois compiles code for the fields of each ring.  Between test files,
+    the coverage check tears down only the fixtures that tests request statically, so these fixtures
     build their ring rather than request the fixture of that ring with ``getfixturevalue``.
     """
     group: abstract.Group

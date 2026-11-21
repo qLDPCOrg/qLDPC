@@ -227,8 +227,8 @@ def test_qdistrnd_over_fields_with_other_polynomials() -> None:
     )
 
 
-# Every pytest worker collects this file, and galois compiles code for each field, so build the
-# fields in the test, which only one worker runs.
+# Every pytest worker collects this file, and galois compiles code for each field, so each case
+# builds its field when it runs, on the one worker that runs it.
 @pytest.mark.parametrize(
     "order, irreducible_poly",
     [(7, None), (4, None), (9, None), (8, "x^3 + x^2 + 1"), (9, "x^2 + 1")],

@@ -349,7 +349,8 @@ def test_two_call_workflow() -> None:
     that the preparation leaves.  The calibration rejects a preparation of logical |1>.
     """
     consumer = get_steane_swap_consumer(_CODE, circuits.DepolarizingNoiseModel(1e-3))
-    # the standard error of the direct simulation dominates that of a calibration this small
+    # with 1,000 samples, the calibration's standard error is still smaller than the direct
+    # simulation's
     calibration = consumer.calibrate(num_samples=1_000, seed=0)
     preparation = _get_noisy_preparation(0, 0.01)
     phi, standard_error = calibration.estimate_excess_failure_probability(preparation, seed=0)

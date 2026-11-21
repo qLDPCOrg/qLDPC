@@ -17,8 +17,8 @@ from qldpc.decoders.custom._lookup_enumeration import iter_errors_and_syndromes
 from qldpc.math import IntegerArray
 
 
-# Every pytest worker collects this file, and galois compiles code for each field, so build the
-# fields in the tests, which only one worker runs.
+# Every pytest worker collects this file, and galois compiles code for each field, so each case
+# builds its field when it runs, on the one worker that runs it.
 @pytest.mark.parametrize(
     "order, rows, symplectic",
     [

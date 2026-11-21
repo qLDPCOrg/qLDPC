@@ -163,7 +163,7 @@ def test_lifted_product_codes() -> None:
         rate = code.dimension / code.num_qudits
         assert rate >= 2 / 17
 
-        # the subsystem version of the first code has a higher encoding rate
+        # the subsystem version of the code with lift dimension 16 has a higher encoding rate
         if lift_dim == 16:
             subsystem_code = codes.SLPCode(matrix)
             subsystem_rate = subsystem_code.dimension / subsystem_code.num_qudits
