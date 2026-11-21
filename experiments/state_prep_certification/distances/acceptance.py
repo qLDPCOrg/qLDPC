@@ -14,9 +14,9 @@
   left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
 * **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label
   directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
-  the analysis of a run on golay a disagreement.  ``compare_with_sample`` reports a sample whose
-  reference distance differs from ``sample.json``.  Each row's tuning is the shipped default, with
-  ``BZ_PRIOR`` for ``q_bz_prior``.
+  the analysis of a run on golay a disagreement.  ``compare_with_sample`` reports a sample in which
+  one reference distance differs from that of ``sample.json``.  Each row's tuning is the shipped
+  default, with ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
   ``LOCAL_LIMIT_S``.
@@ -24,14 +24,14 @@
   ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives with
   the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
   runs that finished in under 300 s.
-* **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that
-  disagree or time out, arms that agree on a distance other than the reference, an arm without rows,
-  a first run that ends in an error, a repeat that ends in a memout, both finished, only one arm
-  finished, and both timed out), writes every output, classifies the codes, and marks the family
-  medians as ``analyze.py``'s docstring says, with the number of codes in each and how many of them
-  are bounds.  Its rows with ``compiled_in_timing`` set are first runs and a timed-out repeat, some
-  of them on codes that disagree or fail.  ``load_sample`` refuses a label directory without a copy
-  of the sample.
+* **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree
+  or time out, arms that agree on a distance other than the reference, an arm without rows, a first
+  run that ends in an error, a repeat that ends in a memout, both finished, only one arm finished,
+  and both timed out), writes every output, classifies the codes, and marks the family medians as
+  ``analyze.py``'s docstring says, with the number of ratios in each median and how many of them are
+  lower and upper bounds.  Its rows with ``compiled_in_timing`` set are first runs and a timed-out
+  repeat, some of them on codes that disagree or fail.  ``load_sample`` refuses a label directory
+  without a copy of the sample.
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
@@ -243,7 +243,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
-    """Codes match the sample, the analysis reads the run's copy, and each tuning is shipped."""
+    """Codes match the sample, the analysis reads the run's copy, and rows hold shipped tunings."""
 
     label_dir = directory
     label_dir.mkdir(parents=True, exist_ok=True)
@@ -339,7 +339,7 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     # repeated run's first run), result window, and grace, for each run; then, for the runner's
     # retries, twice that and one more run at the first run's limit
     task_cost = (120 + 300 + 30 + 30) + 2 * (120 + 1800 + 30 + 30)
-    run_cost = 120 + 1800 + 30 + 30  # S: one run at the first run's limit
+    run_cost = 120 + 1800 + 30 + 30  # one run at the first run's limit
     (golay,) = _entries(("golay",))
     for arm in arms.ARMS:
         assert experiment.worst_case_s(experiment._task(arm, golay, 0)) == task_cost
@@ -373,6 +373,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         ("golay", "bb72", "qr47", "qr71", "qr79", "pp110", "surface9")
     )
     first, second, third, fourth, fifth = [e for e in sample["codes"] if e["family"] == "hgp"][:5]
+    (gb,) = [e for e in sample["codes"] if e["family"] == "gb"][:1]
+    lp_prior, lp_on = [e for e in sample["codes"] if e["family"] == "lp"][:2]
     rows = []
 
     def add(
@@ -441,10 +443,19 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(second, "q_bz_prior", 0, "timeout", 1800.0, None)
     add(fifth, "q_bz_on", 0, "ok", 400.0, 4)
     add(fifth, "q_bz_prior", 0, "ok", 400.0, 4)
+    # gb: only the prior arm finishes, an upper bound; lp: an upper bound and an inconclusive lower
+    # bound, so that the family has both kinds of bound
+    for entry, finished, T in (
+        (gb, "q_bz_prior", 900.0),
+        (lp_prior, "q_bz_prior", 900.0),
+        (lp_on, "q_bz_on", 1500.0),
+    ):
+        add(entry, finished, 0, "ok", T, 5)
+        add(entry, ({"q_bz_on", "q_bz_prior"} - {finished}).pop(), 0, "timeout", 1800.0, None)
     expected = [
         experiment._task(arm, entry, repeat=0)
         for entry in (golay, bb72, qr47, qr71, qr79, pp110, surface9)
-        + (first, second, third, fourth, fifth)
+        + (first, second, third, fourth, fifth, gb, lp_prior, lp_on)
         for arm in ("q_bz_on", "q_bz_prior")
     ]
     records = analyze.summarize(rows, sample, expected)
@@ -479,6 +490,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     # fourth's first run finished, but a repeat ended in a memout, so T is the first run's time
     assert by_name[(fourth["name"], "q_bz_on")]["T"] == 20.0
     assert analyze.classify(ratio(fifth["name"])) == "similar"
+    # lp_on's lower bound of 1800 / 1500 = 1.2 does not exceed 1.2
+    assert analyze.classify(ratio(lp_on["name"])) == "inconclusive"
     outputs = ("summary.csv", "families.csv", "anchors.csv", "distances.pdf", "figure_notes.json")
     for name in outputs:
         assert (out / name).exists(), name
@@ -487,10 +500,22 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     assert (anchors["codes"], anchors["disagreement"], anchors["failure"]) == ("7", "2", "1")
     assert anchors["incomplete timing"] == "1", anchors
     with open(out / "families.csv") as file:
-        (hgp,) = [row for row in csv.DictReader(file) if row["family"] == "hgp"]
-    assert (hgp["median_R_T"], hgp["both > L"], hgp["failure"]) == (">=2", "1", "2"), hgp
-    assert (hgp["ratios_in_median"], hgp["lower_bounds"], hgp["upper_bounds"]) == ("2", "1", "0")
-    assert anchors["ratios_in_median"] == "-", anchors
+        families = {row["family"]: row for row in csv.DictReader(file)}
+    hgp = families["hgp"]
+    assert (hgp["both > L"], hgp["failure"]) == ("1", "2"), hgp
+    # each family's median, the number of ratios in it, and its lower and upper bounds; a family
+    # with both kinds of bound has no median, and the anchors have none
+    medians = {
+        name: tuple(families[name][key] for key in
+                    ("median_R_T", "ratios_in_median", "lower_bounds", "upper_bounds"))
+        for name in ("hgp", "gb", "lp", "anchors")
+    }  # fmt: skip
+    assert medians == {
+        "hgp": (">=2", "2", "1", "0"),
+        "gb": ("<=0.5", "1", "0", "1"),
+        "lp": ("-", "2", "1", "1"),
+        "anchors": ("-", "-", "-", "-"),
+    }, medians
     # the figure omits the disagreements, failures, and incomplete timings: golay, qr79, qr47,
     # third, fourth, and pp110
     assert json.loads((out / "figure_notes.json").read_text()) == {"T": 6}

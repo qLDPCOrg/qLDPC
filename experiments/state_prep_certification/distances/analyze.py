@@ -13,14 +13,14 @@ records the number of unfinished repeats in ``repeats_unfinished``, and a median
 effect a bound.  A row with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A
 repeat with it is left out of the median, as a missing repeat is.  A first run with it leaves the
 arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
-``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats``
-and ``repeats_unfinished``.  The cases, in order:
+``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats`` and
+``repeats_unfinished``.  The cases, in order:
 
 1. **disagreement:** the arms or their repeats report different distances, or a distance that
    differs from the code's reference distance; no ratio;
 2. **failure:** either arm's first run or one of its repeats ended in an error or memout, or its
-   first run has no final row although ``tasks.json`` lists it; no ratio.  A repeat without a
-   final row only leaves the median with fewer runs, which ``repeats`` in ``summary.csv`` records;
+   first run has no final row although ``tasks.json`` lists it; no ratio.  A repeat without a final
+   row only leaves the median with fewer runs, which ``repeats`` in ``summary.csv`` records;
 3. **incomplete timing:** the row of either arm's first run has ``compiled_in_timing`` set; no
    ratio;
 4. **both finished:** R_T = T_prior / T_on;
@@ -124,7 +124,7 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
     if not path.exists():
         raise ValueError(
             f"{label_dir} has no sample.json, as for a run made before runs kept a copy of the"
-            " sample"
+            " sample; copy the sample.json that the run used into it"
         )
     sample: dict[str, Any] = json.loads(path.read_text())
     return sample
@@ -137,7 +137,7 @@ def summarize(
 
     Args:
         rows: The final rows of the runs.
-        sample: The frozen sample.
+        sample: The run's copy of the sample (``load_sample``).
         expected: The tasks of pass 1, so that a task without a final row is reported as missing.
     """
     grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = {}
@@ -156,7 +156,7 @@ def summarize(
     if unknown:
         raise ValueError(
             f"{len(unknown)} codes of the run are not in the run's sample.json, such as "
-            f"{unknown[0]}"
+            f"{unknown[0]}; its sample.json should be the one that the run used"
         )
     records = []
     for (code_hash, arm), modes in sorted(grouped.items()):

@@ -2,11 +2,12 @@
 
 """The plug-in of the distance experiment (see ``common/plugin.py`` for the interface).
 
-Each task runs one arm on one code; a run measures the wall time T of the arm's distance call on
-its stored code, including building the code object.
+Each task runs one arm on one code; a run measures the wall time T of the arm's distance call on its
+stored code, including building the code object.
 
 No run warms up before timing; the runner retries any run whose measured call compiled
-(``common/runner.py``).  A run that finishes in under ``repeat_below_s`` gets ``repeats`` more runs.
+(``common/runner.py``).  A first run that finishes in under ``repeat_below_s`` gets ``repeats`` more
+runs.
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ def worst_case_s(task: dict[str, Any]) -> float:
 
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
-    """The repeats of a run that finished in under ``repeat_below_s``."""
+    """The repeats of a first run that finished in under ``repeat_below_s``."""
     if row["status"] != "ok" or row["T"] >= CONFIG["repeat_below_s"]:
         return []
     return [
