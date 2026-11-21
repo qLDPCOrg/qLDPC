@@ -121,7 +121,7 @@ A better rule could use:
 - more features of the sectors, such as the weights of their checks.
 
 It could also resume the probe rather than start a new BZ search.
-It must read from a search only what is the same on any number of threads, as Section 5 of each guide requires ("Decide only from what a layer leaves the same on any number of threads" in `brouwer_zimmermann_code.md`).
+It must read from a search only what is the same on any number of threads, as Section 5 of `brouwer_zimmermann_code.md` and Section 5 of `connected_cluster.md` require ("Decide only from what a layer leaves the same on any number of threads" in the first).
 For example, the counts of supports that a BZ layer on threads weighs and skips depend on the timing of its threads, but the predictions of its completion tables do not.
 To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
 A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.

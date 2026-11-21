@@ -200,7 +200,7 @@ Routes and the names that control them
    * - Counts of deformed codes
      -
      - :data:`LOCAL_CLIFFORD_CACHE_SIZE`
-     -
+     - `Deformed counters <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#deformed-counters>`__ in Section 3.11 of ``brouwer_zimmermann.md``
 
 .. _tuning-module:
 
