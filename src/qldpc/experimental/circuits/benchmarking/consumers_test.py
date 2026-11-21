@@ -1013,10 +1013,10 @@ def test_failure_probabilities() -> None:
     c_X(1) = c(0) + 0.25 * 0.2 + 0.5 * 0.4 = 0.625.  The Z table has no rows.
     """
     calibration = ConsumerCalibration({"X": [[0.2, 0.4]], "Z": []}, [0.1, 0.2], [0.5, 0.5])
-    assert np.allclose(calibration.fault_weight_probabilities, [0.25, 0.5])
+    np.testing.assert_allclose(calibration.fault_weight_probabilities, [0.25, 0.5])
     assert calibration.truncated_probability == pytest.approx(0.25)
-    assert np.allclose(calibration.get_failure_probabilities("X"), [0.375, 0.625])
-    assert np.allclose(calibration.get_failure_probabilities(Pauli.Z), [0.375])
+    np.testing.assert_allclose(calibration.get_failure_probabilities("X"), [0.375, 0.625])
+    np.testing.assert_allclose(calibration.get_failure_probabilities(Pauli.Z), [0.375])
 
     # residual weights beyond each table cost 1 - c(0)
     value, _ = calibration.get_excess_failure_probability(
@@ -1024,8 +1024,11 @@ def test_failure_probabilities() -> None:
     )
     assert value == pytest.approx(0.3 * 0.25 + 0.2 * 0.625 + 0.4 * 0.625)
 
+    # estimated cells are not clipped to probabilities
+    noisy = ConsumerCalibration({"X": [[-0.2]]}, [0.1], excess_standard_errors={"X": [[0.1]]})
+    np.testing.assert_allclose(noisy.get_failure_probabilities("X"), [0.1, -0.1])
     with pytest.raises(ValueError, match="no table"):
-        ConsumerCalibration({"X": [[0.2]]}, [0.1]).get_failure_probabilities("Z")
+        noisy.get_failure_probabilities("Z")
 
 
 def test_standard_error_parts_and_differences() -> None:

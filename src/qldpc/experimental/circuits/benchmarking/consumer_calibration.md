@@ -205,7 +205,7 @@ Stratifying by `g` computes `Pr[g]` exactly, so only the conditional quantities 
 Rare fault weights therefore need no naive sampling.
 The conditional quantities can still need many samples when failure within a stratum is rare.
 The properties `fault_weight_probabilities` and `truncated_probability` of a `ConsumerCalibration` give `Pr[g]` for `g ≤ G` and `Pr[g > G]`.
-Its method `get_failure_probabilities(s)` gives `c_s(0), c_s(1), ...` for the rows of the table of type `s`.
+Its method `get_failure_probabilities(s)` gives `c(0)` followed by `c_s(m)` for each row `m` of the table of type `s`, so that entry `m` is `c_s(m)`.
 The values are not clipped, so sampling noise in estimated cells, or rounding, can put them slightly outside [0, 1].
 
 A cell `(m, g)` is **exact** if its excess and the baseline `f(0, g)` both have zero standard error, and **estimated** otherwise.
@@ -312,8 +312,9 @@ For the built-in consumer, [What a calibration measures](#what-a-calibration-mea
    Each excess `c_s(m) - c(0)` averages over the [calibration's errors](#how-it-is-sampled) of residual weight `m`, not over those of the preparation circuit.
 4. **Truncation.**
    Consumer fault weights above `G` count as certain failure, which cancels from the excesses.
+   This drops the excesses of those fault weights, so it can move the term of each Pauli type in `Φ` either way, by at most `truncated_probability`.
    Preparation faults above the histogram's largest fault weight count as overflow, and residual weights above the largest residual weight tabulated for their Pauli type and unsampled cells count as certain failure.
-   For exact cells, which are valid probabilities, this can only overstate `Φ`; for estimated cells, this holds only up to their statistical error.
+   For exact cells, which are valid probabilities, these certain failures can only overstate `Φ`; for estimated cells, this holds only up to their statistical error.
 5. **Rescaling.**
    `ConsumerCalibration.rescaled(scale)` multiplies every error probability of the consumer by `scale`, recomputes `Pr[g]`, and reuses the excesses and the baseline.
    For fixed `g`, the distribution of the sets of mechanisms that occur depends only on ratios of their odds.
@@ -350,8 +351,8 @@ An error of a cell or a baseline moves both scores, so it largely cancels from t
 The two standard errors, added in quadrature, can therefore greatly overstate the standard error of the difference.
 The method keeps this cancellation, and adds the histogram parts of the two circuits in quadrature.
 It treats every histogram of either circuit as independent of the others, so give each histogram its own seed, or `seed=None`.
-The certain failures of approximation 4 are a bias that no standard error includes.
-Apart from the statistical error of the baseline, this bias can only raise each score, but it can move a difference either way.
+The truncations of approximation 4 are a bias that no standard error includes.
+Certain failures beyond a table or in an unsampled cell can only raise each score, apart from the statistical error of the baseline, but they can move a difference either way.
 
 ## Supplying a consumer's response
 
