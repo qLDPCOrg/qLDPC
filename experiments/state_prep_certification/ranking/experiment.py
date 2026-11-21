@@ -7,17 +7,18 @@ The candidates are the circuits of certification's ``circuits.json`` of the fami
 same code.  Every task runs at each rate p of ``config.json``, with the noise model of the
 circuit's options at rate p:
 
-* ``histogram``: the total-weight and X-type residual-weight histograms of a circuit, with
-  ``histogram_samples`` samples and the circuit's preparation options.
-* ``calib``: the X-type calibration of the group's consumer (``consumer.py``), with
+* ``histogram``: the total-weight residual-weight histogram of a circuit and one histogram of each
+  Pauli type of ``PAULI_TYPES``, with ``histogram_samples`` samples and the circuit's preparation
+  options.
+* ``calib``: the calibration of the group's consumer (``consumer.py``) for every Pauli type, with
   ``calibration_samples`` samples, the consumer's fault distance, and the time of the two scores
   and two baselines on the group's first circuit, whose histograms it builds with
   ``score_timing.histogram_samples`` samples.  The row keeps the noiseless consumer and the block
   preparation, with their SHA-256.
 * ``direct``: the stratified reference of Phi_true (``direct.py``), with ``direct.samples`` draws
   per sampled stratum.
-* ``exact``: the exact leading-order coefficients of Phi_true and Phi_cal of each circuit of the
-  group ``exact.group``, with the decoder frozen at ``exact.frozen_rate``.
+* ``exact``: the exact leading-order coefficient of Phi_true of each circuit of the group
+  ``exact.group``, which the analysis puts beside the reference at ``exact.frozen_rate``.
 * ``mc_check``: plain paired Monte Carlo of Phi_true on the circuits of ``mc_check``, by
   ``Consumer.estimate_excess_failure_probability``.
 * ``repro``: one ``histogram`` and one ``direct`` task of ``repro``, each twice, with the same seed.
@@ -71,6 +72,8 @@ LIMITS = CONFIG["limits"]
 JOB_MEM_GIB = float(CONFIG["mem_cap_gib"])
 CIRCUITS_JSON = HERE.parent / "certification" / "circuit_data" / "inputs" / "circuits.json"
 MAX_RESIDUAL_WEIGHT = int(CONFIG["max_residual_weight"])
+# the Pauli types that a consumer's calibration covers by default, by the name of their histograms
+PAULI_TYPES: dict[str, PauliXZ] = {"x": Pauli.X, "z": Pauli.Z}
 
 
 def candidates(entries: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -205,29 +208,43 @@ def _task(
 
 
 def unc_profile(calibration: ConsumerCalibration) -> ConsumerProfile:
-    """The profile of Phi_unc: the consumer's exact fault-weight law, with t = 1."""
-    probabilities = np.asarray(calibration.mechanism_probabilities)
-    law, _ = residual_weights._get_fault_weight_probabilities(probabilities, CONFIG["t"])
+    """The profile of Phi_unc: the consumer's fault-weight law, with t = 1.
+
+    ``Consumer.calibrate`` gives the law up to a fault weight G of at least its largest residual
+    weight, which is at least t, so the profile is exact.
+    """
+    law = calibration.fault_weight_probabilities
     return ConsumerProfile.from_downstream_fault_weights(law, CONFIG["t"])
 
 
 def scores(
     total: ResidualWeightHistogram,
-    x_type: ResidualWeightHistogram,
+    typed: dict[str, ResidualWeightHistogram],
     calibration: ConsumerCalibration,
 ) -> dict[str, tuple[float, float]]:
     """The scores and baselines of a candidate, each with its first-order standard error.
 
-    ``phi_unc`` uses the total-weight histogram, and ``phi_unc_x`` the X-type histogram, which is
-    reported beside it.  The baselines are those of ``baselines``.
+    ``typed`` holds the histograms of ``PAULI_TYPES`` by name.  ``phi_unc`` uses the total-weight
+    histogram, and ``phi_cal`` the histograms of the Pauli types that the calibration covers
+    (``calibrated_histograms``).  The baselines are those of ``baselines``.
     """
-    profile = unc_profile(calibration)
     return {
-        "phi_unc": total.get_excess_failure_probability(profile),
-        "phi_unc_x": x_type.get_excess_failure_probability(profile),
-        "phi_cal": calibration.get_excess_failure_probability(x_type),
+        "phi_unc": total.get_excess_failure_probability(unc_profile(calibration)),
+        "phi_cal": calibration.get_excess_failure_probability(
+            *calibrated_histograms(typed, calibration)
+        ),
         **baselines(total),
     }
+
+
+def calibrated_histograms(
+    typed: dict[str, ResidualWeightHistogram], calibration: ConsumerCalibration
+) -> list[ResidualWeightHistogram]:
+    """The histograms of ``typed`` of the Pauli types that a calibration covers, in its order."""
+    names = {pauli: name for name, pauli in PAULI_TYPES.items()}
+    return [
+        typed[names[Pauli.coerce_xz(pauli)]] for pauli in calibration.excess_failure_probabilities
+    ]
 
 
 def baselines(total: ResidualWeightHistogram) -> dict[str, tuple[float, float]]:
@@ -284,7 +301,12 @@ def histogram_from_fields(fields: dict[str, Any]) -> ResidualWeightHistogram:
 
 
 def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
-    """Run one task of the ranking experiment, after compiling galois's arithmetic, untimed."""
+    """Run one task of the ranking experiment, after compiling galois's arithmetic, untimed.
+
+    A ``direct`` task's ``stratum_delay_s``, which only RT9 sets, makes the reference sleep that
+    many seconds after it reports each finished stratum, so that one limit stops it between strata
+    on machines of widely different speeds (see RT9).
+    """
     _compile_galois()
     inputs, seed = task["input"], int(task["seed"])
     arm = task["arm"]
@@ -299,7 +321,9 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
         return runner.timed(histograms, entry_of(inputs["id"]), inputs["rate"], samples, seed)
     if arm == "direct":
         samples = int(CONFIG["direct"]["samples"])
-        return runner.timed(reference, entry_of(inputs["id"]), inputs["rate"], samples, seed)
+        delay = float(task.get("stratum_delay_s", 0.0))
+        entry = entry_of(inputs["id"])
+        return runner.timed(reference, entry, inputs["rate"], samples, seed, delay)
     if arm == "calib":
         return runner.timed(calibrate, inputs["group"], inputs["rate"], seed)
     if arm == "exact":
@@ -310,7 +334,7 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
 
 
 def histograms(entry: dict[str, Any], rate: float, num_samples: int, seed: int) -> dict[str, Any]:
-    """The total-weight and X-type histograms of a circuit at a rate, with their CPU seconds.
+    """The total-weight histogram of a circuit at a rate and those of ``PAULI_TYPES``, timed.
 
     Setup is the mechanism list, and the exactly listed strata cost a run without samples, less
     setup; the sampled strata cost a run with samples, less the run without them.  Each histogram
@@ -319,8 +343,8 @@ def histograms(entry: dict[str, Any], rate: float, num_samples: int, seed: int) 
     noisy = noisy_input(entry, rate)
     options = histogram_options(entry)
     fields: dict[str, Any] = {"id": entry["id"], "rate": rate, "num_samples": num_samples}
-    paulis: tuple[PauliXZ | None, ...] = (None, Pauli.X)
-    for name, pauli, child in zip(("total", "x"), paulis, _child_seeds(seed, 2)):
+    kinds: dict[str, PauliXZ | None] = {"total": None, **PAULI_TYPES}
+    for (name, pauli), child in zip(kinds.items(), _child_seeds(seed, len(kinds))):
         # setup alone, built only to be timed, then a run without samples, then the full run
         start = time.process_time()
         full, qubits, selected = residual_weights._get_selection(
@@ -360,16 +384,25 @@ def histograms(entry: dict[str, Any], rate: float, num_samples: int, seed: int) 
     return fields
 
 
-def reference(entry: dict[str, Any], rate: float, num_samples: int, seed: int) -> dict[str, Any]:
+def reference(
+    entry: dict[str, Any], rate: float, num_samples: int, seed: int, stratum_delay_s: float = 0.0
+) -> dict[str, Any]:
     """The stratified reference of a circuit at a rate, with its CPU seconds.
 
     Setup is split into the consumer's (its detector error model, decoder, and mechanism list) and
-    the preparation's (its mechanism list).  Each finished stratum is sent as a partial result.
+    the preparation's (its mechanism list).  Each finished stratum is sent as a partial result,
+    followed by a sleep of ``stratum_delay_s`` seconds (see ``run``).
     """
+
+    def send(fields: dict[str, Any]) -> None:
+        runner.send_partial(fields)
+        if "stratum" in fields:
+            time.sleep(stratum_delay_s)
+
     settings = CONFIG["direct"]
     rng = np.random.default_rng(seed)
     start = time.process_time()
-    consumer = ranking_consumer.build_consumer(entry, rate, CONFIG["decoder"])
+    consumer = ranking_consumer.build_consumer(entry, rate)
     simulation = consumers._ConsumerSimulation(consumer, rng)
     consumer_setup = time.process_time()
     preparation = direct.get_preparation(
@@ -384,7 +417,7 @@ def reference(entry: dict[str, Any], rate: float, num_samples: int, seed: int) -
         num_samples,
         float(settings["flagged_odds_factor"]),
         rng,
-        progress=runner.send_partial,
+        progress=send if stratum_delay_s else runner.send_partial,
     )
     return result | {
         "id": entry["id"],
@@ -396,7 +429,7 @@ def reference(entry: dict[str, Any], rate: float, num_samples: int, seed: int) -
 
 
 def calibrate(group: str, rate: float, seed: int) -> dict[str, Any]:
-    """The X-type calibration of a group's consumer at a rate, and the time of the scores.
+    """The calibration of a group's consumer at a rate, for each Pauli type, and the score times.
 
     The consumer's setup is timed as building the consumer and its simulation once before the
     calibration, which builds the simulation again; the calibration's sampled cells cost its time
@@ -406,17 +439,16 @@ def calibrate(group: str, rate: float, seed: int) -> dict[str, Any]:
     members = groups()[group]
     first = members[0]
     calibration_seed, timing_seed = _child_seeds(seed, 2)
-    block_preparation, noiseless, _ = ranking_consumer.consumer_circuits(first, rate)
     start = time.process_time()
-    consumer = ranking_consumer.build_consumer(first, rate, CONFIG["decoder"])
+    consumer = ranking_consumer.build_consumer(first, rate)
     built = time.process_time()
+    block_preparation, noiseless = consumer.block_preparation, consumer.circuit.without_noise()
     # the simulation is built only to time setup; the calibration builds its own
     consumers._ConsumerSimulation(consumer, np.random.default_rng(calibration_seed))
     setup = time.process_time()
     calibration = consumer.calibrate(
         MAX_RESIDUAL_WEIGHT,
         int(CONFIG["calibration_samples"]),
-        paulis=("X",),
         seed=calibration_seed,
     )
     end = time.process_time()
@@ -458,25 +490,18 @@ def time_scores(
     settings = CONFIG["score_timing"]
     noisy = noisy_input(entry, rate)
     options = histogram_options(entry)
-    total_seed, x_seed = _child_seeds(seed, 2)
+    kinds: dict[str, PauliXZ | None] = {"total": None, **PAULI_TYPES}
     histograms = {
-        "total": estimate_residual_weight_histogram(
+        name: estimate_residual_weight_histogram(
             noisy,
             MAX_RESIDUAL_WEIGHT,
             settings["histogram_samples"],
-            seed=total_seed,
+            pauli=pauli,
+            seed=child,
             method="brouwer_zimmermann",
             **options,
-        ),
-        "x": estimate_residual_weight_histogram(
-            noisy,
-            MAX_RESIDUAL_WEIGHT,
-            settings["histogram_samples"],
-            pauli="X",
-            seed=x_seed,
-            method="brouwer_zimmermann",
-            **options,
-        ),
+        )
+        for (name, pauli), child in zip(kinds.items(), _child_seeds(seed, len(kinds)))
     }
     seconds = {"rebuild_calibration": 0.0, "rebuild_histogram": 0.0}
     evaluations = 0
@@ -485,14 +510,17 @@ def time_scores(
         start = time.process_time()
         rebuilt = ConsumerCalibration.from_dict(calibration.to_dict())
         middle = time.process_time()
-        total = histogram_from_fields(histogram_fields(histograms["total"]))
-        x_type = histogram_from_fields(histogram_fields(histograms["x"]))
+        rebuilt_histograms = {
+            name: histogram_from_fields(histogram_fields(histogram))
+            for name, histogram in histograms.items()
+        }
         end = time.process_time()
         seconds["rebuild_calibration"] += middle - start
-        seconds["rebuild_histogram"] += (end - middle) / 2
+        seconds["rebuild_histogram"] += (end - middle) / len(histograms)
+        total = rebuilt_histograms.pop("total")
         for name in ("phi_unc", "phi_cal", "alpha", "residual"):
             start = time.process_time()
-            _evaluate(name, total, x_type, rebuilt)
+            _evaluate(name, total, rebuilt_histograms, rebuilt)
             seconds[name] = seconds.get(name, 0.0) + time.process_time() - start
         evaluations += 1
     return {
@@ -504,9 +532,10 @@ def time_scores(
 
 
 def exact_leading_order(entry: dict[str, Any]) -> dict[str, Any]:
-    """The exact leading-order coefficients of Phi_true and Phi_cal of a circuit.
+    """The exact leading-order coefficient of Phi_true of a circuit.
 
-    The decoder is the consumer's at ``exact.frozen_rate``, and the coefficients of p in the
+    The default decoder does not depend on the rate, so ``exact.frozen_rate`` only picks the rate
+    whose reference the analysis puts beside the coefficient.  The coefficients of p in the
     probabilities of the mechanisms come from both mechanism lists at ``exact.probe_rate``.
     """
     settings = CONFIG["exact"]
@@ -522,11 +551,9 @@ def exact_leading_order(entry: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("The preparation's mechanisms differ between the two rates")
     rng = np.random.default_rng(0)
-    simulation = consumers._ConsumerSimulation(
-        ranking_consumer.build_consumer(entry, frozen, CONFIG["decoder"]), rng
-    )
+    simulation = consumers._ConsumerSimulation(ranking_consumer.build_consumer(entry, frozen), rng)
     probe_simulation = consumers._ConsumerSimulation(
-        ranking_consumer.build_consumer(entry, probe, CONFIG["decoder"]), rng
+        ranking_consumer.build_consumer(entry, probe), rng
     )
     if (simulation._signatures != probe_simulation._signatures).nnz:
         raise ValueError("The consumer's mechanisms differ between the two rates")
@@ -537,10 +564,7 @@ def exact_leading_order(entry: dict[str, Any]) -> dict[str, Any]:
         simulation.probabilities, probe_simulation.probabilities, probe
     )
     result = direct.leading_order(
-        direct.Pairing(preparation, simulation),
-        prep_coefficients,
-        consumer_coefficients,
-        MAX_RESIDUAL_WEIGHT,
+        direct.Pairing(preparation, simulation), prep_coefficients, consumer_coefficients
     )
     return {"id": entry["id"], "frozen_rate": frozen, **result}
 
@@ -549,7 +573,7 @@ def monte_carlo(entry: dict[str, Any], rate: float, seed: int) -> dict[str, Any]
     """Phi_true of a circuit at a rate by qLDPC's plain paired Monte Carlo."""
     options = histogram_options(entry)
     shots = int(CONFIG["mc_check"]["shots"])
-    consumer = ranking_consumer.build_consumer(entry, rate, CONFIG["decoder"])
+    consumer = ranking_consumer.build_consumer(entry, rate)
     phi, sigma = consumer.estimate_excess_failure_probability(
         noisy_input(entry, rate),
         shots,
@@ -607,14 +631,16 @@ def _compile_galois() -> None:
 def _evaluate(
     name: str,
     total: ResidualWeightHistogram,
-    x_type: ResidualWeightHistogram,
+    typed: dict[str, ResidualWeightHistogram],
     calibration: ConsumerCalibration,
 ) -> object:
     """Evaluate one score or baseline, with its standard error, as ``scores`` does."""
     if name == "phi_unc":
         return total.get_excess_failure_probability(unc_profile(calibration))
     if name == "phi_cal":
-        return calibration.get_excess_failure_probability(x_type)
+        return calibration.get_excess_failure_probability(
+            *calibrated_histograms(typed, calibration)
+        )
     if name == "alpha":
         return total.acceptance_probability, acceptance_error(total)
     return total.get_excess_failure_probability(ConsumerProfile.hard(0))

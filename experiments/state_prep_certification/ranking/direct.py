@@ -58,7 +58,7 @@ from qldpc.circuits.certification.fault_propagation import (
     _is_css_state,
 )
 from qldpc.experimental.circuits.benchmarking import Consumer, consumers, residual_weights
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import PauliXZ
 
 # The variance of a sampled stratum with fewer than this many nonzero changes is floored, and the
 # stratum is inadequate if its effective sample size is below this fraction of its draws.
@@ -562,17 +562,15 @@ def leading_order(
     pairing: Pairing,
     prep_coefficients: list[fractions.Fraction],
     consumer_coefficients: list[fractions.Fraction],
-    max_residual_weight: int,
 ) -> dict[str, Any]:
-    """The coefficients of the first nonzero power of p in Phi_true and Phi_cal, exactly.
+    """The coefficient of the first nonzero power of p in Phi_true, exactly.
 
-    The decoder is that of ``pairing``, frozen.  The coefficient of p in Phi_true is the sum of
-    c_F delta(F, {}) over single preparation faults F.  If every such change is zero, the
-    coefficient of p^2 is the sum of c_F c_G delta({F, G}, {}) over pairs of preparation faults and
-    of c_F c_T delta(F, T) over a preparation fault and a consumer fault.  Phi_cal uses the exact
-    cells of the calibration's ensemble (``exact_cells``) in place of delta, through the X residual
-    weight of each accepted fault.  If a coefficient of p is zero only by cancellation, the
-    coefficient of p^2 would need the second-order terms of the mechanisms, and is not computed.
+    The decoder is that of ``pairing``.  The coefficient of p is the sum of c_F delta(F, {})
+    over single preparation faults F.  If every such change is zero, the coefficient of p^2 is the
+    sum of c_F c_G delta({F, G}, {}) over pairs of preparation faults and of c_F c_T delta(F, T)
+    over a preparation fault and a consumer fault.  If the coefficient of p is zero only by
+    cancellation, the coefficient of p^2 would need the second-order terms of the mechanisms, and
+    is not computed.
     """
     preparation = pairing.preparation
     singles = np.arange(len(preparation))[:, None]
@@ -581,101 +579,36 @@ def leading_order(
 
     def terms(
         faults: npt.NDArray[np.intp], consumer_faults: npt.NDArray[np.intp]
-    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp], list[int], list[fractions.Fraction]]:
-        """delta and the calibrated excess of every pair of a fault and a consumer fault."""
-        cells = exact_cells(pairing, max_residual_weight, consumer_faults)
+    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp], list[int]]:
+        """delta of every pair of a fault and a consumer fault."""
         accepted = preparation.accepted(faults)
         errors = preparation.fault_errors(faults)
-        weights = preparation.residual_weights(errors, Pauli.X, max_residual_weight)
         rows = np.repeat(np.arange(len(faults)), len(consumer_faults))
         columns = np.tile(np.arange(len(consumer_faults)), len(faults))
         changes = pairing.changes(errors[rows], consumer_faults[columns])
         delta = [int(change) if accepted[row] else 0 for row, change in zip(rows, changes)]
-        excess = [
-            cells[(int(weights[row]), column)] if accepted[row] else fractions.Fraction(0)
-            for row, column in zip(rows, columns)
-        ]
-        return rows, columns, delta, excess
+        return rows, columns, delta
 
-    _, _, delta_1, excess_1 = terms(singles, no_fault)
-    result: dict[str, Any] = {}
-    for name, values in (("true", [fractions.Fraction(d) for d in delta_1]), ("cal", excess_1)):
-        first = sum(
-            (c * value for c, value in zip(prep_coefficients, values)), fractions.Fraction()
-        )
-        if first:
-            result[name] = {"order": 1, "coefficient": first}
-        elif any(values):
-            result[name] = {"order": None, "coefficient": None, "note": "cancellation at order 1"}
-        else:
-            result[name] = {"order": 2, "coefficient": fractions.Fraction()}
-
-    # the coefficient of p^2, where every term of the coefficient of p vanishes
-    if any(entry["order"] == 2 for entry in result.values()):
+    _, _, delta_1 = terms(singles, no_fault)
+    first = sum((c * d for c, d in zip(prep_coefficients, delta_1)), fractions.Fraction())
+    result: dict[str, Any]
+    if first:
+        result = {"order": 1, "coefficient": first}
+    elif any(delta_1):
+        result = {"order": None, "coefficient": None, "note": "cancellation at order 1"}
+    else:
+        # the coefficient of p^2, where every term of the coefficient of p vanishes
         doubles = residual_weights._get_combinations(len(preparation), 2)
-        rows_2, _, delta_2, excess_2 = terms(doubles, no_fault)
-        rows_ft, columns_ft, delta_ft, excess_ft = terms(singles, consumer_singles)
-        for name, pair_values, mixed_values in (
-            (
-                "true",
-                list(map(fractions.Fraction, delta_2)),
-                list(map(fractions.Fraction, delta_ft)),
-            ),
-            ("cal", excess_2, excess_ft),
-        ):
-            if result[name]["order"] != 2:
-                continue
-            total = fractions.Fraction()
-            for row, value in zip(rows_2, pair_values):
-                first, second = doubles[row]
-                total += prep_coefficients[first] * prep_coefficients[second] * value
-            for row, column, value in zip(rows_ft, columns_ft, mixed_values):
-                total += prep_coefficients[row] * consumer_coefficients[column] * value
-            result[name]["coefficient"] = total
-    for entry in result.values():
-        coefficient = entry["coefficient"]
-        entry["value"] = None if coefficient is None else float(coefficient)
-        entry["coefficient"] = None if coefficient is None else str(coefficient)
+        rows_2, _, delta_2 = terms(doubles, no_fault)
+        rows_ft, columns_ft, delta_ft = terms(singles, consumer_singles)
+        total = fractions.Fraction()
+        for row, value in zip(rows_2, delta_2):
+            fault, other = doubles[row]
+            total += prep_coefficients[fault] * prep_coefficients[other] * value
+        for row, column, value in zip(rows_ft, columns_ft, delta_ft):
+            total += prep_coefficients[row] * consumer_coefficients[column] * value
+        result = {"order": 2, "coefficient": total}
+    coefficient = result["coefficient"]
+    result["value"] = None if coefficient is None else float(coefficient)
+    result["coefficient"] = None if coefficient is None else str(coefficient)
     return result
-
-
-def exact_cells(
-    pairing: Pairing, max_residual_weight: int, consumer_faults: npt.NDArray[np.intp]
-) -> dict[tuple[int, int], fractions.Fraction]:
-    """Exact excesses of the calibration's X-type ensemble, for fixed consumer faults.
-
-    Let M be ``max_residual_weight`` and n the number of block qubits.  The ensemble of residual
-    weight m draws X errors of each physical weight w = 1, ..., min(M + 1, n) in equal numbers,
-    uniformly among the supports of size w, and keeps those of X residual weight m, as
-    ``Consumer.calibrate`` samples it with ``paulis=("X",)``.  Key (m, j) holds the mean of
-    ``chi(E, T) - chi(0, T)`` over this ensemble, for T row j of ``consumer_faults``.  Key (0, j)
-    holds zero, and key (M + 1, j) the excess of certain failure, ``1 - chi(0, T)``, as
-    ``ConsumerCalibration`` counts residual weights above M.
-    """
-    num_qubits = pairing.preparation.stabilizers.shape[1] // 2
-    supports = [
-        support
-        for weight in range(1, min(max_residual_weight + 1, num_qubits) + 1)
-        for support in itertools.combinations(range(num_qubits), weight)
-    ]
-    errors = np.zeros((len(supports), 2 * num_qubits), dtype=np.uint8)
-    for row, support in enumerate(supports):
-        errors[row, list(support)] = 1
-    weights = pairing.preparation.residual_weights(errors, Pauli.X, max_residual_weight)
-    masses = [fractions.Fraction(1, math.comb(num_qubits, len(support))) for support in supports]
-
-    cells: dict[tuple[int, int], fractions.Fraction] = {}
-    for column, fault in enumerate(consumer_faults):
-        changes = pairing.changes(errors, np.repeat(fault[None, :], len(supports), axis=0))
-        for m in range(1, max_residual_weight + 1):
-            members = [row for row in range(len(supports)) if weights[row] == m]
-            total = sum((masses[row] for row in members), fractions.Fraction())
-            changed = sum(
-                (masses[row] * int(changes[row]) for row in members), fractions.Fraction()
-            )
-            cells[(m, column)] = changed / total if total else fractions.Fraction()
-        detectors, observables = pairing.simulation.get_flips(fault[None, :])
-        failure = int(pairing.simulation.get_failures(detectors, observables)[0])
-        cells[(0, column)] = fractions.Fraction()
-        cells[(max_residual_weight + 1, column)] = fractions.Fraction(1 - failure)
-    return cells

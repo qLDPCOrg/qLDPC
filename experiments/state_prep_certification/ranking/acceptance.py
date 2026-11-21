@@ -10,44 +10,52 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
 
 * **RT1:** certification's inputs and code files pass ``circuits.check_inputs``, and every circuit
   of a group prepares the group's signed state on its output qubits, in order.
-* **RT2:** at each rate, Stim builds the detector error model of each group's consumer, every
-  single-qubit X error on the block flips a detector, and every single-qubit Z error flips no
-  detector or observable.  Whether the decoder corrects every single-qubit X error on the block,
-  with an ideal consumer, is recorded, with the number of the consumer's mechanisms and its fault
-  distance, in ``RT2/consumers.json``; it is not a failure.
+* **RT2:** at each rate, Stim builds the detector error model of each group's consumer, and every
+  single-qubit X or Z error on the block, whose qubits are the output qubits, flips a detector.
+  ``build_consumer`` refuses a group whose signed state differs from the block's in one sign.
+  Whether the decoder corrects every single-qubit X and Z error on the block, with an ideal
+  consumer, is recorded, with the number of the consumer's mechanisms and its fault distance, in
+  ``RT2/consumers.json``; it is not a failure.
 * **RT3:** on ``cgoto`` and ``aft.carbon.opt_opt`` at p = 10^-3, the reference's mechanism list
-  gives, on each exactly listed fault weight, the acceptance and the probabilities of each X
-  residual weight of qLDPC's X-type histogram, to 10^-12; the consumer's fault-weight law and its
+  gives, on each exactly listed fault weight, the acceptance and the probabilities of each residual
+  weight of qLDPC's histogram of each Pauli type, to 10^-12; the consumer's fault-weight law and its
   largest fault weight equal those of the calibration.  On ``cgoto``, sampled strata of weights
   that are also listed exactly agree with the listing within four standard errors, with weights
   of 1; and at qLDPC's flagged-odds factor, each importance weight and the bound on a stratum's
   weights equal those of a brute-force listing on six of its mechanisms.
-* **RT4:** on ``cgoto`` at p = 10^-3, with every fault weight up to 4 listed and a calibration
-  with exact cells, Phi_unc and Phi_cal from qLDPC equal a computation from the listed faults, to
-  10^-12.  The calibration contribution of ``analyze.calibration_difference_error`` equals
-  sqrt(sigma^2 - sigma_hist^2) of qLDPC's errors, and vanishes for a difference of a circuit with
-  itself; the score values of the cost projection give qLDPC's Phi_cal and Phi_unc with their
-  errors; the standard error of the acceptance of a sampled fault weight with equal importance
-  weights is the binomial one.
-* **RT5:** the ``exact`` task's coefficients on the four steane circuits equal those of a plain
-  enumeration over the same mechanism lists and frozen decoder, exactly; and in every stratum with
+* **RT4:** on ``cgoto`` at p = 10^-3, with every fault weight up to 4 listed and a calibration with
+  exact cells of both Pauli types, Phi_unc and Phi_cal from qLDPC equal a computation from the
+  listed faults, to 10^-12, with Phi_unc's profile worked out by hand.  The score values of the cost
+  projection give qLDPC's Phi_unc with its error; for Phi_cal, the means of those values in the
+  histograms of the two Pauli types sum to qLDPC's Phi_cal, and their errors add in quadrature to
+  its sigma_hist.  The standard error of the acceptance of a sampled fault weight with equal
+  importance weights is the binomial one.
+* **RT5:** the ``exact`` task's coefficient on the four steane circuits equals that of a plain
+  enumeration over the same mechanism lists and decoder, exactly; and in every stratum with
   f + g <= 2, at each rate, the reference's numbers of paired changes +1 and -1 equal those of the
   plain enumeration.
 * **RT8:** no ``mqt`` or ``qiskit`` module is loaded.
-* **RT9:** on a synthetic certification archive, named and labelled as a node's, each verdict and a
-  disagreement admit or drop their circuits as the rule says, a circuit without a row is not
+* **RT9:** on a synthetic certification archive, named and labelled as a node's, each verdict and
+  a disagreement admit or drop their circuits as the rule says, a circuit without a row is not
   admitted, and a group with one admitted circuit is out of scope; a row with ``compiled_in_timing``
   set changes no admission.  An archive that breaks any one provenance check fails it.  A ``direct``
-  task stopped at a limit of 20 s is a timeout that keeps the laws of both fault weights and its
-  finished strata.  A ``histogram``, a ``direct``, and a ``calib`` task finish through the task
-  runner without ``compiled_in_timing``.
+  task that sleeps after each stratum (``stratum_delay_s``), stopped at its limit during the first
+  sleep, is a timeout that keeps the laws of both fault weights and its one finished stratum.  A
+  ``histogram``, a ``direct``, and a ``calib`` task finish through the task runner without
+  ``compiled_in_timing``, and the histograms and the calibration cover both Pauli types.
 * **RT10:** the reference's ratio, error, allowance, and inadequate strata from hand-made strata;
-  resolved and unresolved pairs, and correct, wrong, tied, uncertain, and missing calls; the gate's
-  outcomes; a pair on each side of the margin; a group's cost lines and k*, and each validity input
-  of the cost projection on each side of its threshold; the break-even outcomes at their
-  boundaries; projected costs; the exemption of parts with few draws, at its boundary and with the
-  floor s_min sigma_target^2; each part's estimate and bound; and the nonzero draws of a
-  calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.  A
+  resolved and unresolved pairs, and correct, wrong, tied, uncertain, and missing calls, with
+  Phi_cal's uncertainty from qLDPC's error of the difference; a circuit's unsampled cells; the
+  gate's outcomes; a pair on each side of the margin; a group's cost lines and k*, and each validity
+  input of the cost projection on each side of its threshold, including a failing cell that only
+  the circuit with the smaller sigma_cal uses and an exempted stratum; the break-even outcomes at
+  their boundaries; projected costs; the exemption of parts with few draws, at its boundary and
+  with the floor s_min sigma_target^2; each part's estimate, against qLDPC's or the reference's
+  variance, and bound, with a calibration of both Pauli types; the exact baseline f(0, 0); the
+  nonzero draws of a calibration cell through qLDPC's Jeffreys error; and a row of
+  ``leading_order.csv``.  Expected values are worked out by hand, unless said otherwise.  A
+  candidate keeps its histogram's alpha as its score, and its sigma_hist and sigma_cal are qLDPC's;
+  a histogram task that stopped after its total-weight histogram still gives Phi_unc.  A
   histogram's, the direct reference's, or the calibration's row with ``compiled_in_timing`` set
   gives no CPU seconds but keeps the scores and the reference.  Such a row of an admitted circuit,
   in a group of two, leaves the group without costs, and ``checks.json`` lists it.
@@ -60,7 +68,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import fractions
-import functools
 import io
 import itertools
 import json
@@ -77,6 +84,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -109,7 +117,6 @@ FAILURES = (
 )
 NODE_TESTS = ("RT1", "RT2", "RT8")
 M = experiment.MAX_RESIDUAL_WEIGHT
-DECODER = experiment.CONFIG["decoder"]
 TESTS: dict[str, Callable[[pathlib.Path], None]] = {}
 
 
@@ -189,33 +196,34 @@ def rt1_inputs(directory: pathlib.Path) -> None:
 
 @test
 def rt2_consumers(directory: pathlib.Path) -> None:
-    """Each group's consumer at each rate: its DEM, Z errors, and single X errors."""
+    """Each group's consumer at each rate: its DEM, and single X and Z errors on the block."""
     records = []
     for group, members in experiment.groups().items():
         entry = members[0]
         num_qubits = len(entry["output_qubits"])
         for rate in experiment.CONFIG["rates"]:
-            consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
+            consumer = ranking_consumer.build_consumer(entry, rate)
             simulation = consumers._ConsumerSimulation(consumer, np.random.default_rng(0))
 
             # by Stim, with a certain error between the noiseless block preparation and consumer:
-            # every single-qubit X error reaches a detector, and no Z error flips anything
-            for qubit in range(num_qubits):
-                for pauli, reached in (("X", True), ("Z", False)):
+            # every single-qubit X or Z error on the block reaches a detector
+            assert len(consumer.block_qubits or ()) == num_qubits, group
+            for qubit in consumer.block_qubits or ():
+                for pauli in ("X", "Z"):
                     circuit = consumer.block_preparation.copy()
                     circuit.append(f"{pauli}_ERROR", [qubit], 1.0)
                     circuit += consumer.circuit.without_noise()
-                    detectors, observables = circuit.compile_detector_sampler().sample(
-                        1, separate_observables=True
-                    )
-                    flipped = bool(detectors.any() or observables.any())
-                    assert flipped == reached and detectors.any() == reached, (group, pauli, qubit)
+                    detectors = circuit.compile_detector_sampler().sample(1)
+                    assert detectors.any(), (group, pauli, qubit)
 
-            # whether the decoder corrects each single-qubit X error, with no consumer fault
-            errors = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
-            errors[range(num_qubits), range(num_qubits)] = 1
+            # whether the decoder corrects each single-qubit X and Z error, with no consumer fault
+            uncorrected = {}
             flips = simulation.get_flips(np.zeros((num_qubits, 0), dtype=np.intp))
-            failures = simulation.get_failures(*flips, errors)
+            for offset, name in ((0, "x"), (num_qubits, "z")):
+                errors = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
+                errors[range(num_qubits), offset + np.arange(num_qubits)] = 1
+                failures = simulation.get_failures(*flips, errors)
+                uncorrected[f"uncorrected_single_{name}_errors"] = np.flatnonzero(failures).tolist()
             records.append(
                 {
                     "group": group,
@@ -227,11 +235,22 @@ def rt2_consumers(directory: pathlib.Path) -> None:
                             method="brouwer_zimmermann",
                         )
                     ),
-                    "uncorrected_single_x_errors": np.flatnonzero(failures).tolist(),
+                    **uncorrected,
                 }
             )
             print(f"  {records[-1]}")
     (directory / "consumers.json").write_text(json.dumps(records, indent=1) + "\n")
+
+    # a group whose signed state differs from the consumer's block, in one sign, is refused
+    entry = experiment.groups()["steane"][0]
+    stabilizers = list(entry["stabilizers"])
+    stabilizers[0] = ("-" if stabilizers[0][0] == "+" else "+") + stabilizers[0][1:]
+    try:
+        ranking_consumer.build_consumer(entry | {"stabilizers": stabilizers}, 0.001)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("build_consumer accepted a block in another state")
 
 
 @test
@@ -243,38 +262,42 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
         noisy = experiment.noisy_input(entry, rate)
         options = experiment.histogram_options(entry)
         preparation = direct.get_preparation(noisy, options, M)
-        histogram = estimate_residual_weight_histogram(noisy, M, 0, pauli="X", **options)
         pi, u = direct.fault_weight_law(
             preparation.probabilities, M + 1, residual_weights._TRUNCATION_TOLERANCE
         )
-        assert len(pi) == len(histogram.fault_weight_probabilities), circuit_id
-        assert np.allclose(pi, histogram.fault_weight_probabilities, rtol=0, atol=1e-15)
-        assert abs(u - histogram.truncated_probability) <= 1e-15, circuit_id
-        for f in np.flatnonzero(histogram.exact)[1:]:
-            faults = residual_weights._get_combinations(len(preparation), int(f))
-            probabilities = direct._conditional_probabilities(preparation.probabilities, faults)
-            accepted = preparation.accepted(faults)
-            weights = preparation.residual_weights(preparation.fault_errors(faults), Pauli.X, M)
-            outcomes = np.where(accepted, 1 + weights, 0)
-            expected = np.bincount(outcomes, weights=probabilities, minlength=M + 3)
-            assert np.allclose(expected, histogram.weight_sums[f], rtol=0, atol=1e-12), (
-                circuit_id,
-                f,
-            )
-        print(f"  {circuit_id}: fault weights 1-{np.flatnonzero(histogram.exact)[-1]} agree")
+        for pauli in experiment.PAULI_TYPES.values():
+            histogram = estimate_residual_weight_histogram(noisy, M, 0, pauli=pauli, **options)
+            assert len(pi) == len(histogram.fault_weight_probabilities), circuit_id
+            assert np.allclose(pi, histogram.fault_weight_probabilities, rtol=0, atol=1e-15)
+            assert abs(u - histogram.truncated_probability) <= 1e-15, circuit_id
+            for f in np.flatnonzero(histogram.exact)[1:]:
+                faults = residual_weights._get_combinations(len(preparation), int(f))
+                probabilities = direct._conditional_probabilities(preparation.probabilities, faults)
+                accepted = preparation.accepted(faults)
+                errors = preparation.fault_errors(faults)
+                weights = preparation.residual_weights(errors, pauli, M)
+                outcomes = np.where(accepted, 1 + weights, 0)
+                expected = np.bincount(outcomes, weights=probabilities, minlength=M + 3)
+                assert np.allclose(expected, histogram.weight_sums[f], rtol=0, atol=1e-12), (
+                    circuit_id,
+                    pauli,
+                    f,
+                )
+            exact_weights = np.flatnonzero(histogram.exact)[-1]
+            print(f"  {circuit_id}, {pauli}: fault weights 1-{exact_weights} agree")
 
-        consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
+        consumer = ranking_consumer.build_consumer(entry, rate)
         simulation = consumers._ConsumerSimulation(consumer, np.random.default_rng(0))
         calibration = consumer.calibrate(M, 10, paulis=("X",), seed=0)
         eta, _ = direct.fault_weight_law(
             simulation.probabilities, M, consumers._FAULT_WEIGHT_TOLERANCE
         )
-        law, _ = calibration._get_distribution()
+        law = calibration.fault_weight_probabilities
         assert len(eta) == len(law) and np.allclose(eta, law, rtol=0, atol=1e-12), circuit_id
 
     # sampled strata against their exact listings
     entry = experiment.entry_of("cgoto")
-    consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
+    consumer = ranking_consumer.build_consumer(entry, rate)
     pairing = direct.build_pairing(
         experiment.noisy_input(entry, rate),
         experiment.histogram_options(entry),
@@ -344,36 +367,39 @@ def rt4_scores(directory: pathlib.Path) -> None:
     total = estimate_residual_weight_histogram(
         noisy, M, 0, max_fault_weight=max_fault_weight, **options
     )
-    x_type = estimate_residual_weight_histogram(
-        noisy, M, 0, max_fault_weight=max_fault_weight, pauli="X", **options
-    )
-    assert total.exact.all() and x_type.exact.all()
-    consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
+    typed = {
+        name: estimate_residual_weight_histogram(
+            noisy, M, 0, max_fault_weight=max_fault_weight, pauli=pauli, **options
+        )
+        for name, pauli in experiment.PAULI_TYPES.items()
+    }
+    assert total.exact.all() and all(histogram.exact.all() for histogram in typed.values())
+    consumer = ranking_consumer.build_consumer(entry, rate)
     simulation = consumers._ConsumerSimulation(consumer, np.random.default_rng(0))
-    table = np.array([[0.1, 0.3, 0.5, 0.6], [0.7, 0.6, 0.4, 0.2]])
+    tables: dict[Any, npt.NDArray[np.float64]] = {
+        Pauli.X: np.array([[0.1, 0.3, 0.5, 0.6], [0.7, 0.6, 0.4, 0.2]]),
+        Pauli.Z: np.array([[0.2, 0.1, 0.3, 0.4], [0.5, 0.8, 0.6, 0.3]]),
+    }
     baseline = np.array([0.0, 0.05, 0.2, 0.3])
     calibration = ConsumerCalibration(
-        {"X": table}, baseline, simulation.probabilities, description="exact cells"
+        tables, baseline, simulation.probabilities, description="exact cells"
     )
-    distribution, truncated = calibration._get_distribution()
-    no_block_error = float(baseline @ distribution) + truncated
-    values_cal = [0.0, *(table @ distribution), 1 - no_block_error]
-    profile = experiment.unc_profile(calibration)
-    failures = [profile.get_failure_probability(m) for m in range(M + 2)]
+    distribution = calibration.fault_weight_probabilities
+    no_block_error = float(baseline @ distribution) + calibration.truncated_probability
+    # Phi_unc's consumer fails if m plus its fault weight g exceeds t = 1
+    t = int(experiment.CONFIG["t"])
+    failures = [1 - float(distribution[: t - m + 1].sum()) if m <= t else 1.0 for m in range(M + 2)]
     values_unc = [failure - failures[0] for failure in failures]
 
     # the listed faults, each weighed by its probability, with heavier fault weights accepted with
-    # overflow
+    # overflow; Phi_cal sums the means of the two Pauli types
     preparation = direct.get_preparation(noisy, options, M)
     pi, u = residual_weights._get_fault_weight_probabilities(
         preparation.probabilities, max_fault_weight
     )
-    computed = experiment.scores(total, x_type, calibration)
-    cases: list[tuple[list[float], PauliXZ | None, ResidualWeightHistogram, float]] = [
-        (values_unc, None, total, computed["phi_unc"][0]),
-        (values_cal, Pauli.X, x_type, computed["phi_cal"][0]),
-    ]
-    for values, pauli, histogram, score in cases:
+
+    def listed_mean(values: list[float], pauli: PauliXZ | None) -> float:
+        """The mean of the values of the residual weights of type pauli over accepted faults."""
         numerator, acceptance = u * values[-1], u
         for f in range(max_fault_weight + 1):
             faults = residual_weights._get_combinations(len(preparation), f)
@@ -382,37 +408,37 @@ def rt4_scores(directory: pathlib.Path) -> None:
             residual = preparation.residual_weights(preparation.fault_errors(faults), pauli, M)
             acceptance += pi[f] * float(weights @ accepted)
             numerator += pi[f] * float(weights[accepted] @ np.array(values)[residual[accepted]])
-        assert histogram.exact.all()
-        assert abs(score - numerator / acceptance) <= 1e-12, (pauli, score, numerator / acceptance)
-        print(f"  {pauli or 'total'}: {score:.6e} from qLDPC and from the listed faults")
+        return numerator / acceptance
 
-    # the calibration contribution, by the difference of cell weights
-    calibrated = consumer.calibrate(M, 300, paulis=("X",), seed=1)
-    histogram = estimate_residual_weight_histogram(noisy, M, 2000, pauli="X", seed=2, **options)
-    other = estimate_residual_weight_histogram(noisy, M, 2000, pauli="X", seed=3, **options)
-    sigma = calibrated.get_excess_failure_probability(histogram)[1]
-    without = ConsumerCalibration.from_dict(
-        calibrated.to_dict() | {"excess_standard_errors": None, "baseline_standard_errors": None}
-    )
-    sigma_hist = without.get_excess_failure_probability(histogram)[1]
-    sigma_cal = analyze.calibration_difference_error(calibrated, histogram)
-    assert abs(sigma_cal**2 - (sigma**2 - sigma_hist**2)) <= 1e-12 * sigma**2, (sigma, sigma_cal)
-    assert analyze.calibration_difference_error(calibrated, histogram, histogram) == 0
+    computed = experiment.scores(total, typed, calibration)
+    listed = {
+        "phi_unc": listed_mean(values_unc, None),
+        "phi_cal": math.fsum(
+            listed_mean([0.0, *(table @ distribution), 1 - no_block_error], pauli)
+            for pauli, table in tables.items()
+        ),
+    }
+    for score, value in listed.items():
+        assert abs(computed[score][0] - value) <= 1e-12, (score, computed[score][0], value)
+        print(f"  {score}: {value:.6e} from qLDPC and from the listed faults")
 
-    # the score values that the cost projection uses give qLDPC's scores and errors
-    calibrated_values = analyze.phi_cal_values(calibrated, histogram)
-    phi_cal = calibrated.get_excess_failure_probability(histogram)[0]
-    assert np.allclose(
-        histogram._get_conditional_mean(calibrated_values),
-        (phi_cal, sigma_hist),
-        rtol=1e-12,
-        atol=0,
+    # the score values that the cost projection uses give qLDPC's scores and histogram errors
+    calibrated = consumer.calibrate(M, 300, seed=1)
+    histograms = [
+        estimate_residual_weight_histogram(noisy, M, 2000, pauli=pauli, seed=seed, **options)
+        for seed, pauli in enumerate(calibrated.excess_failure_probabilities, start=2)
+    ]
+    phi_cal = calibrated.get_excess_failure_probability(*histograms)[0]
+    sigma_hist, _ = calibrated.get_standard_error_parts(*histograms)
+    means, errors = zip(
+        *(h._get_conditional_mean(analyze.phi_cal_values(calibrated, h)) for h in histograms)
     )
+    assert math.isclose(sum(means), phi_cal, rel_tol=1e-12), (means, phi_cal)
+    assert math.isclose(math.hypot(*errors), sigma_hist, rel_tol=1e-12), (errors, sigma_hist)
     total_sampled = estimate_residual_weight_histogram(noisy, M, 2000, seed=4, **options)
     phi_unc = total_sampled.get_excess_failure_probability(experiment.unc_profile(calibrated))
     unc_values = analyze.phi_unc_values(calibrated, total_sampled)
     assert np.allclose(total_sampled._get_conditional_mean(unc_values), phi_unc, rtol=1e-12, atol=0)
-    assert analyze.calibration_difference_error(calibrated, histogram, other) > 0
 
     # the standard error of the acceptance, where equal importance weights make it binomial
     accepted_draws, draws = 30, 200
@@ -443,14 +469,11 @@ def rt5_leading_order(directory: pathlib.Path) -> None:
         result = experiment.exact_leading_order(entry)
         pairing, prep_c, consumer_c = _frozen_pairing(entry, frozen)
         plain = _plain_leading_order(pairing, prep_c, consumer_c)
-        for name in ("true", "cal"):
-            assert result[name]["coefficient"] == plain[name], (entry["id"], name, result, plain)
-        print(
-            f"  {entry['id']}: {result['true']['coefficient']} and {result['cal']['coefficient']}"
-        )
+        assert result["coefficient"] == plain, (entry["id"], result, plain)
+        print(f"  {entry['id']}: {result['coefficient']}")
 
         for rate in experiment.CONFIG["rates"]:
-            consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
+            consumer = ranking_consumer.build_consumer(entry, rate)
             pairing = direct.build_pairing(
                 experiment.noisy_input(entry, rate),
                 experiment.histogram_options(entry),
@@ -521,18 +544,22 @@ def rt9_analysis(directory: pathlib.Path) -> None:
             continue
         raise AssertionError(f"an archive with a broken {case} passed the provenance check")
 
-    # a direct task stopped at its limit keeps the laws of the fault weights and its strata
-    task = experiment._task(
-        "direct", "aft.hamming.opt_opt.p0.005", {"id": "aft.hamming.opt_opt", "rate": 0.005}
-    ) | {"limit_s": 20.0}
+    # a direct task stopped at its limit keeps the laws of the fault weights and its strata: it
+    # sleeps 30 s after each stratum, so that a limit of 10 s stops it during the first sleep on any
+    # machine on which the setup and the first stratum take under 10 s
+    task = experiment._task("direct", "cgoto.p0.001", {"id": "cgoto", "rate": 0.001})
+    task |= {"limit_s": 10.0, "stratum_delay_s": 30.0}
     row = local_runs.run_locally(directory / "timeout", [task])[task["key"]]
     strata = [record["stratum"] for record in row["partial"] if "stratum" in record]
     first = row["partial"][0]
-    assert row["status"] == "timeout" and "pi" in first and "eta" in first and strata, row["status"]
-    print(f"  a direct task stopped at 20 s keeps {len(strata)} strata")
+    assert row["status"] == "timeout" and "pi" in first and "eta" in first, row["status"]
+    assert len(strata) == 1, len(strata)
+    print(f"  a direct task stopped at its limit keeps {len(strata)} stratum")
 
     # a histogram, a direct, and a calib task finish through the runner without
-    # compiled_in_timing, which run_locally checks
+    # compiled_in_timing, which run_locally checks; the histograms and the calibration cover both
+    # Pauli types
+    results = {}
     for arm, name, inputs in (
         ("histogram", "cgoto.p0.001", {"id": "cgoto", "rate": 0.001}),
         ("direct", "cgoto.p0.001", {"id": "cgoto", "rate": 0.001}),
@@ -541,6 +568,11 @@ def rt9_analysis(directory: pathlib.Path) -> None:
         task = experiment._task(arm, name, inputs) | {"limit_s": 600.0}
         row = local_runs.run_locally(directory / task["key"], [task])[task["key"]]
         assert row["status"] == "ok", (task["key"], row["status"])
+        results[arm] = row["result"]
+    paulis = {name: results["histogram"][name]["pauli"] for name in ("total", "x", "z")}
+    assert paulis == {"total": None, "x": "X", "z": "Z"}, paulis
+    tables = results["calib"]["calibration"]["excess_failure_probabilities"]
+    assert set(tables) == {"X", "Z"}, set(tables)
 
 
 @test
@@ -605,7 +637,7 @@ def rt10_rules(directory: pathlib.Path) -> None:
         return {
             "id": name, "group": "g", "rate": rate, "admitted": True, "phi_true": true,
             "sigma_true": 0.01, "tau": 0.001, "inadequate": [], "calibration": calibration,
-            "histograms": (histogram, histogram), "unsampled_cells": [], "sigma_hist": 0.0,
+            "calibrated": [dataclasses.replace(histogram)], "unsampled_cells": [],
             **values, **{f"sigma_{score}": 0.0 for score in values}, **extra,
         }  # fmt: skip
 
@@ -613,10 +645,11 @@ def rt10_rules(directory: pathlib.Path) -> None:
         candidate("a", 1.0, {"phi_cal": 1.0, "phi_unc": 1.0, "alpha": 0.9, "residual": 2.0},
                   sigma_residual=5.0),
         candidate("b", 2.0, {"phi_cal": 2.0, "phi_unc": 2.0, "alpha": 0.8, "residual": 1.0},
-                  unsampled_cells=[[1, 0]]),
+                  unsampled_cells=[["X", 1, 0]]),
         candidate("c", 2.01, {"phi_cal": 3.0, "phi_unc": 3.0, "alpha": 0.9, "residual": 3.0}),
         candidate("d", 9.0, {}, inadequate=[[2, 0]]),
     ]  # fmt: skip
+    del candidates[2]["residual"]
     pairs = {(p["first"], p["second"]): p for p in analyze.compare(candidates)}
     assert pairs[("b", "c")]["reason"] == "within margin"
     assert pairs[("a", "d")]["reason"] == "inadequate stratum"
@@ -626,11 +659,50 @@ def rt10_rules(directory: pathlib.Path) -> None:
     assert ac["call_alpha"] == "tie" and ab["call_residual"] == "wrong"
     assert ab["uncertain_residual"] and not ac["uncertain_phi_unc"]
     assert ab["uncertain_phi_cal"] and not ac["uncertain_phi_cal"]
-    assert ab["call_phi_unc_x"] == "no score"
+    assert ac["call_residual"] == "no score"
     rows, _ = analyze.agree(list(pairs.values()), candidates)
     row = next(r for r in rows if r["score"] == "phi_cal" and r["rate"] == rate)
     assert (row["resolved_pairs"], row["correct"], row["correct_certain"]) == (2, 2, 1), row
     assert not row["eligible"]
+
+    # Phi_cal's call uses qLDPC's error of the difference, not the two errors in quadrature: with
+    # equal histograms it is 0, whatever sigma_phi_cal; with histograms whose probabilities of
+    # residual weights 1 and 2 differ by 0.1, for cells with errors of 0.5, it is 0.05 sqrt(2), more
+    # than half the difference of 0.1
+    noisy_calibration = dataclasses.replace(
+        calibration, excess_standard_errors={"X": [[0.5], [0.5]]}
+    )
+    shifted = np.array(weight_sums)
+    shifted[0, 1:4] = [0.8, 0.0, 0.2]
+    pairs_cal: dict[str, list[tuple[ResidualWeightHistogram, float, float]]] = {
+        "equal": [(histogram, 1.0, 5.0), (histogram, 1.1, 5.0)],
+        "different": [
+            (histogram, 1.0, 0.0),
+            (dataclasses.replace(histogram, weight_sums=shifted), 1.1, 0.0),
+        ],
+    }
+    for case, cal_members in pairs_cal.items():
+        near = [
+            candidate(name, true, {"phi_cal": phi}, sigma_phi_cal=sigma, calibration=noisy_calibration,
+                      calibrated=[dataclasses.replace(member)])
+            for name, true, (member, phi, sigma) in zip("ef", (1.0, 2.0), cal_members)
+        ]  # fmt: skip
+        uncertain = analyze._pair("g", rate, *near)["uncertain_phi_cal"]
+        assert uncertain == (case == "different"), case
+
+    # a circuit's unsampled cells: the cells of each type that no draw reached, whose residual
+    # weight has a nonzero probability in its histogram of that type; here Z cell (1, 0), which
+    # z_shifted, giving residual weight 1 no probability, does not use
+    sparse = ConsumerCalibration(
+        {"X": [[0.1], [0.2]], "Z": [[1.0], [0.2]]},
+        [0.0],
+        excess_standard_errors={"X": [[0.01], [0.01]], "Z": [[0.0], [0.01]]},
+        excess_num_samples={"X": [[10], [10]], "Z": [[0], [10]]},
+    )
+    z_type = dataclasses.replace(histogram, pauli="Z")
+    assert analyze.unsampled_cells(sparse, [histogram, z_type]) == [["Z", 1, 0]]
+    z_shifted = dataclasses.replace(z_type, weight_sums=shifted)
+    assert analyze.unsampled_cells(sparse, [histogram, z_shifted]) == []
 
     # the gate, from agreement rows: kept, not kept, and inconclusive
     def gate(
@@ -669,7 +741,6 @@ def rt10_rules(directory: pathlib.Path) -> None:
     assert gate((10, 8), 9) == "not kept"
     for best in ("phi_unc", "alpha", "residual"):
         assert gate((9, 9), 8, best=best) == "not kept", best
-    assert gate((9, 9), 8, best="phi_unc_x") == "kept"
     assert gate((9, 9), 8, eligible=1) == "inconclusive"
 
     # the margin of a pair, 2 sigma_Delta + tau_i + tau_j = 0.04828..., between two differences
@@ -697,11 +768,13 @@ def rt10_rules(directory: pathlib.Path) -> None:
         ``direct_nonzero`` and ``accepted`` are the nonzero and accepted draws of two sampled
         strata of the reference, ``row`` the summed weights of the histograms' sampled row (whose
         draws all have weight 1), ``worst_row`` that of the circuit with the larger sigma_cal if
-        it differs, ``cells`` the increases, decreases, and draws of the calibration's two cells,
-        and ``eta_1`` the consumer's probability of fault weight 1.
+        it differs, ``cells`` the increases, decreases, and draws of the calibration's two cells of
+        each Pauli type, and ``eta_1`` the consumer's probability of fault weight 1.
         """
 
-        def histogram(sampled_row: tuple[int, ...]) -> ResidualWeightHistogram:
+        def histogram(
+            sampled_row: tuple[int, ...], pauli: PauliXZ | None
+        ) -> ResidualWeightHistogram:
             """A histogram with an exact row of fault weight 0 and one sampled row."""
             weights = np.zeros((2, M + 3))
             weights[0, 1] = 1.0
@@ -715,20 +788,28 @@ def rt10_rules(directory: pathlib.Path) -> None:
                 squared_weight_sums=weights,
                 num_samples=np.array([0, 2000]),
                 exact=np.array([True, False]),
-                pauli="X",
+                pauli=pauli,
             )
 
+        # both Pauli types have the same cells
+        jeffreys = [[float(consumers._get_jeffreys_deviations(i, d, n))] for i, d, n in cells]
         calibration = analyze.exact_no_fault_baseline(
             ConsumerCalibration(
-                {"X": [[(i - d) / n] for i, d, n in cells]},
+                {pauli: [[(i - d) / n] for i, d, n in cells] for pauli in (Pauli.X, Pauli.Z)},
                 [0.0],
-                excess_standard_errors={
-                    "X": [[float(consumers._get_jeffreys_deviations(i, d, n))] for i, d, n in cells]
-                },
+                excess_standard_errors={pauli: jeffreys for pauli in (Pauli.X, Pauli.Z)},
                 baseline_standard_errors=[0.01],
-                excess_num_samples={"X": [[n] for *_, n in cells]},
+                excess_num_samples={
+                    pauli: [[n] for *_, n in cells] for pauli in (Pauli.X, Pauli.Z)
+                },
             )
         )
+
+        def histograms(sampled_row: tuple[int, ...]) -> dict[str, ResidualWeightHistogram]:
+            """The total-weight histogram and one of each Pauli type, with the same rows."""
+            kinds: dict[str, PauliXZ | None] = {"total": None, **experiment.PAULI_TYPES}
+            return {name: histogram(sampled_row, pauli) for name, pauli in kinds.items()}
+
         stratum = {
             "exact": False,
             "variance": 1e-12,
@@ -737,7 +818,7 @@ def rt10_rules(directory: pathlib.Path) -> None:
             "draws": 10_000,
             "importance_weight_bound": 1.0,
         }
-        members = [
+        members: list[dict[str, Any]] = [
             {
                 "phi_true": phi,
                 "sigma_true": 2 * target,
@@ -760,14 +841,16 @@ def rt10_rules(directory: pathlib.Path) -> None:
                 "sigma_hist": 2 * target / math.sqrt(2),
                 "sigma_cal": share * target / math.sqrt(2),
                 "sigma_phi_unc": target,
-                "histograms": (histogram(member_row), histogram(member_row)),
+                "histograms": histograms(member_row),
                 "cpu_histogram": {
                     name: {"cpu_setup_s": 0.1, "cpu_exact_s": 0.2, "cpu_sampled_s": 0.3}
-                    for name in ("x", "total")
+                    for name in ("total", "x", "z")
                 },
             }
             for phi, share, member_row in ((1e-3, 1.0, worst_row or row), (2e-3, 0.5, row))
         ]
+        for member in members:
+            member["calibrated"] = [member["histograms"][name] for name in ("x", "z")]
         group = {
             "rate": 1e-3,
             "calibration": calibration,
@@ -788,7 +871,8 @@ def rt10_rules(directory: pathlib.Path) -> None:
         # s_min = MIN_DRAWS / 500 = 2 exceeds (sigma_cal / (sigma* / sqrt 2))^2 = 1 of the worst
         "A_score": 0.4 + (1000 / 500) * 5.0,
         "sigma_cal_max": target / math.sqrt(2),
-        "b_score": 0.1 + 0.2 + 0.01 + 0.02 + 4 * 0.3,
+        # both histograms of Phi_cal have fixed costs, and their sampled costs scale together
+        "b_score": 2 * (0.1 + 0.2 + 0.01) + 0.02 + 4 * (2 * 0.3),
         "b_unc": 0.1 + 0.2 + 0.01 + 0.03 + max(1000 / 2000, 1.0) * 0.3,
     }
     for key, value in expected.items():
@@ -924,33 +1008,41 @@ def rt10_rules(directory: pathlib.Path) -> None:
 
     # a calibration's terms: estimates that sum to sigma_cal^2, and the bounds of failing parts
     def terms_calibration(
-        cells: tuple[tuple[int, int, int], ...], baseline_1: float
+        z_cells: tuple[tuple[int, int, int], ...], baseline_1: float
     ) -> ConsumerCalibration:
-        """A calibration with two fault weights, the given cells at g = 0, and f(0, 1)."""
-        jeffreys = [float(consumers._get_jeffreys_deviations(i, d, n)) for i, d, n in cells]
+        """A calibration with two fault weights, X and Z cells at g = 0, and f(0, 1)."""
+        cells: dict[Any, tuple[tuple[int, int, int], ...]] = {
+            "X": ((60, 10, 1000), (30, 5, 500)),
+            "Z": z_cells,
+        }
         return ConsumerCalibration(
-            {"X": [[(i - d) / n, 0.1] for i, d, n in cells]},
+            {s: [[(i - d) / n, 0.1] for i, d, n in c] for s, c in cells.items()},
             [0.0, baseline_1],
             [0.01],
-            excess_standard_errors={"X": [[error, 0.01] for error in jeffreys]},
+            excess_standard_errors={
+                s: [[float(consumers._get_jeffreys_deviations(i, d, n)), 0.01] for i, d, n in c]
+                for s, c in cells.items()
+            },
             baseline_standard_errors=[0.0, 0.01],
-            excess_num_samples={"X": [[n, 1000] for *_, n in cells]},
+            excess_num_samples={s: [[n, 1000] for *_, n in c] for s, c in cells.items()},
             state_stabilizers=["+ZIII", "+IZII", "+IIZI", "+IIIZ"],
-        )
+        )  # fmt: skip
 
+    typed_histograms = [dataclasses.replace(passing_histogram, pauli=s) for s in ("X", "Z")]
     passing_calibration = terms_calibration(((60, 10, 1000), (30, 5, 500)), 0.1)
-    passing, failing = analyze.calibration_terms(passing_calibration, passing_histogram, 1000)
-    sigma_cal = analyze.calibration_difference_error(passing_calibration, passing_histogram)
+    passing, failing = analyze.calibration_terms(passing_calibration, typed_histograms, 1000)
+    _, sigma_cal = passing_calibration.get_standard_error_parts(*typed_histograms)
     assert not failing and math.isclose(sum(passing), sigma_cal**2, rel_tol=1e-12), passing
-    # cell (2, 0) has 9 increases and decreases, and the baseline at g = 1 has 9 failures of
-    # 1000 shots for each physical error weight 1 to min(M + 1, 4) = 3; their bounds are
-    # Pr[0]^2 / 500 and Pr[1]^2 / 3000, and with 10 failures the baseline passes
-    failing_calibration = terms_calibration(((60, 10, 1000), (8, 1, 500)), 9 / 3000)
-    _, failing = analyze.calibration_terms(failing_calibration, passing_histogram, 1000)
-    pr_0, pr_1 = failing_calibration._get_distribution()[0]
-    assert np.allclose(failing, [pr_0**2 / 500, pr_1**2 / 3000], rtol=1e-12, atol=0), failing
-    passing_baseline = terms_calibration(((60, 10, 1000), (8, 1, 500)), 10 / 3000)
-    _, failing = analyze.calibration_terms(passing_baseline, passing_histogram, 1000)
+    # Z cell (2, 0) has 9 increases and decreases, and the baseline at g = 1 has 9 failures in 6000
+    # shots, 1000 for each Pauli type and physical error weight 1 to min(M + 1, 4) = 3; their bounds
+    # are Pr[0]^2 / 500 and (2 Pr[1])^2 / 6000, and with 10 failures the baseline passes
+    failing_calibration = terms_calibration(((60, 10, 1000), (8, 1, 500)), 9 / 6000)
+    _, failing = analyze.calibration_terms(failing_calibration, typed_histograms, 1000)
+    pr_0, pr_1 = failing_calibration.fault_weight_probabilities
+    expected_bounds = [pr_0**2 / 500, (2 * pr_1) ** 2 / 6000]
+    assert np.allclose(failing, expected_bounds, rtol=1e-12, atol=0), failing
+    passing_baseline = terms_calibration(((60, 10, 1000), (8, 1, 500)), 10 / 6000)
+    _, failing = analyze.calibration_terms(passing_baseline, typed_histograms, 1000)
     assert len(failing) == 1, failing
 
     # f(0, 0) estimated as 0 is made exact, and any other baseline is left as it is
@@ -1000,11 +1092,14 @@ def rt10_rules(directory: pathlib.Path) -> None:
         "score_timing": {"mean_cpu_s": {"rebuild_histogram": 0.01, "phi_cal": 0.02}},
     }
     cpu = {"cpu_setup_s": 0.1, "cpu_exact_s": 0.2, "cpu_sampled_s": 0.3}
-    x_fields = experiment.histogram_fields(passing_histogram) | cpu
+    typed_fields = {
+        name: experiment.histogram_fields(dataclasses.replace(passing_histogram, pauli=pauli)) | cpu
+        for name, pauli in experiment.PAULI_TYPES.items()
+    }
     timed_rows = {
         "histogram": (
             f"histogram.z.p{rate:g}",
-            {"status": "ok", "result": {"total": fields | cpu, "x": x_fields}},
+            {"status": "ok", "result": {"total": fields | cpu, **typed_fields}},
         ),
         "direct": (f"direct.z.p{rate:g}", candidate_rows[f"direct.z.p{rate:g}"]),
         "calib": (f"calib.g.p{rate:g}", {"status": "ok", "result": calib_result}),
@@ -1020,6 +1115,10 @@ def rt10_rules(directory: pathlib.Path) -> None:
         (scored,) = [c for c in evaluated if c["rate"] == rate]
         (group_row,) = [g for g in groups if g["rate"] == rate]
         assert "phi_cal" in scored and "phi_true" in scored, (flagged, scored)
+        parts = analyze.exact_no_fault_baseline(passing_calibration).get_standard_error_parts(
+            *typed_histograms
+        )
+        assert np.allclose((scored["sigma_hist"], scored["sigma_cal"]), parts, rtol=1e-12, atol=0)
         present = {
             "histogram": "cpu_histogram" in scored,
             "direct": "cpu_direct" in scored,
@@ -1029,6 +1128,18 @@ def rt10_rules(directory: pathlib.Path) -> None:
         expected_arms = flagged if flagged in ("histogram", "direct") else None
         assert scored["compiled_arms"] == expected_arms, (flagged, scored)
         assert group_row["compiled_in_timing_calib"] is (flagged == "calib"), group_row
+
+    # a histogram task that stopped after its total-weight histogram still gives Phi_unc
+    total_only = {f"histogram.z.p{rate:g}": {"status": "timeout", "partial": [{"total": fields}]}}
+    scored = analyze._candidate(
+        total_only,
+        {"id": "z"},
+        "g",
+        rate,
+        admitted=True,
+        group_row={"calibration": passing_calibration},
+    )
+    assert "phi_unc" in scored and "phi_cal" not in scored, scored
 
     # such a row of an admitted circuit leaves its group without costs, and checks.json lists it
     members = [{"group": "g", "rate": rate, "admitted": True, "compiled_arms": None}]
@@ -1041,6 +1152,24 @@ def rt10_rules(directory: pathlib.Path) -> None:
         label_dir, {"task_key": "direct.c", "status": "ok", "compiled_in_timing": True}
     )
     assert analyze._ranking_rows(label_dir)[1] == ["direct.c: compiled_in_timing"]
+
+    # a row of leading_order.csv: the coefficient, its leading term at the frozen rate, and the
+    # reference there
+    frozen = float(experiment.CONFIG["exact"]["frozen_rate"])
+    exact_rows = {
+        "exact.y": {
+            "arm": "exact",
+            "status": "ok",
+            "result": {"order": 2, "coefficient": "3/2", "value": 1.5, "note": None},
+        }
+    }
+    reference = {"id": "y", "rate": frozen, "phi_true": 1e-8, "sigma_true": 1e-9}
+    elsewhere = {"id": "y", "rate": 2 * frozen, "phi_true": 1.0, "sigma_true": 1.0}
+    (leading,) = analyze.leading_order_rows(exact_rows, [elsewhere, reference])
+    assert leading == {
+        "id": "y", "status": "ok", "order": 2, "coefficient": "3/2", "note": None,
+        "leading_term": 1.5 * frozen**2, "phi_true_direct": 1e-8, "sigma_true_direct": 1e-9,
+    }, leading  # fmt: skip
 
 
 ####################################################################################################
@@ -1151,11 +1280,9 @@ def _frozen_pairing(
     preparation = direct.get_preparation(experiment.noisy_input(entry, frozen), options, M)
     probe_preparation = direct.get_preparation(experiment.noisy_input(entry, probe), options, M)
     rng = np.random.default_rng(0)
-    simulation = consumers._ConsumerSimulation(
-        ranking_consumer.build_consumer(entry, frozen, DECODER), rng
-    )
+    simulation = consumers._ConsumerSimulation(ranking_consumer.build_consumer(entry, frozen), rng)
     probe_simulation = consumers._ConsumerSimulation(
-        ranking_consumer.build_consumer(entry, probe, DECODER), rng
+        ranking_consumer.build_consumer(entry, probe), rng
     )
     return (
         direct.Pairing(preparation, simulation),
@@ -1216,81 +1343,23 @@ def _plain_leading_order(
     pairing: direct.Pairing,
     prep_c: list[fractions.Fraction],
     consumer_c: list[fractions.Fraction],
-) -> dict[str, str | None]:
-    """The leading coefficients of Phi_true and Phi_cal, by plain enumeration."""
-    preparation = pairing.preparation
-    num_qubits = preparation.stabilizers.shape[1] // 2
-    num_mechanisms = len(preparation)
-    num_consumer = len(consumer_c)
-
-    def residual_x(fault: tuple[int, ...]) -> int:
-        """The X residual weight of a fault's output error."""
-        error = np.zeros(2 * num_qubits, dtype=np.uint8)
-        for mechanism in fault:
-            error ^= preparation.errors[mechanism]
-        return int(preparation.residual_weights(error[None, :], Pauli.X, M)[0])
-
-    @functools.cache
-    def cell(m: int, consumer_fault: tuple[int, ...]) -> fractions.Fraction:
-        """The exact excess of the ensemble of residual weight m, with a fixed consumer fault."""
-        if m == 0:
-            return fractions.Fraction()
-        zero = [0] * (2 * num_qubits)
-        if m > M:
-            return 1 - fractions.Fraction(_plain_failure(pairing, zero, consumer_fault))
-        mass = changed = fractions.Fraction()
-        for weight in range(1, min(M + 1, num_qubits) + 1):
-            for support in itertools.combinations(range(num_qubits), weight):
-                error = [int(q in support) for q in range(num_qubits)] + [0] * num_qubits
-                errors = np.array([error], dtype=np.uint8)
-                if preparation.residual_weights(errors, Pauli.X, M)[0] != m:
-                    continue
-                share = fractions.Fraction(1, math.comb(num_qubits, weight))
-                mass += share
-                changed += share * (
-                    _plain_failure(pairing, error, consumer_fault)
-                    - _plain_failure(pairing, zero, consumer_fault)
-                )
-        return changed / mass if mass else fractions.Fraction()
-
-    def accepted(fault: tuple[int, ...]) -> bool:
-        """Whether post-selection accepts a fault."""
-        flags = 0
-        for mechanism in fault:
-            for word in preparation.flag_words[mechanism]:
-                flags ^= int(word)
-        return not flags
-
-    result: dict[str, str | None] = {}
+) -> str | None:
+    """The leading coefficient of Phi_true, by plain enumeration."""
+    num_mechanisms = len(pairing.preparation)
     singles = [(j,) for j in range(num_mechanisms)]
-    true_terms = [fractions.Fraction(_plain_change(pairing, fault, ())) for fault in singles]
-    cal_terms = [cell(residual_x(fault), ()) if accepted(fault) else 0 for fault in singles]
-    for name, terms in (("true", true_terms), ("cal", cal_terms)):
-        first = sum((c * term for c, term in zip(prep_c, terms)), fractions.Fraction())
-        if first:
-            result[name] = str(first)
-            continue
-        if any(terms):
-            result[name] = None
-            continue
-        total = fractions.Fraction()
-        for fault in itertools.combinations(range(num_mechanisms), 2):
-            value = (
-                _plain_change(pairing, fault, ())
-                if name == "true"
-                else (cell(residual_x(fault), ()) if accepted(fault) else 0)
-            )
-            total += prep_c[fault[0]] * prep_c[fault[1]] * value
-        for j in range(num_mechanisms):
-            for k in range(num_consumer):
-                value = (
-                    _plain_change(pairing, (j,), (k,))
-                    if name == "true"
-                    else (cell(residual_x((j,)), (k,)) if accepted((j,)) else 0)
-                )
-                total += prep_c[j] * consumer_c[k] * value
-        result[name] = str(total)
-    return result
+    terms = [fractions.Fraction(_plain_change(pairing, fault, ())) for fault in singles]
+    first = sum((c * term for c, term in zip(prep_c, terms)), fractions.Fraction())
+    if first:
+        return str(first)
+    if any(terms):
+        return None
+    total = fractions.Fraction()
+    for fault in itertools.combinations(range(num_mechanisms), 2):
+        total += prep_c[fault[0]] * prep_c[fault[1]] * _plain_change(pairing, fault, ())
+    for j in range(num_mechanisms):
+        for k in range(len(consumer_c)):
+            total += prep_c[j] * consumer_c[k] * _plain_change(pairing, (j,), (k,))
+    return str(total)
 
 
 if __name__ == "__main__":

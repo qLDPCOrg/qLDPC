@@ -17,20 +17,20 @@ The experiment reads certification's inputs and code files from `../certificatio
 
 ## Consumer and noise
 
-The consumer of a group is one noisy round of syndrome measurement followed by a noisy Z-basis readout of all data qubits: qLDPC's Z-basis memory experiment of the group's code, built from its code file, without the resets of the data qubits.
-A noiseless block preparation, Stim's circuit for the group's signed state, puts data qubit i in the state of output qubit i, and the observables are the code file's logical Z operators.
-The decoder is BP-OSD (`OSD_CS`, order 7), built from the consumer's detector error model at each rate.
+The consumer of a group is qLDPC's Steane-swap consumer (`get_steane_swap_consumer`) of the group's code, built from its code file: five steps of swap-type Steane error correction around the entry of a fresh logical |0> block, which is the block under test ([`consumer.py`](consumer.py)).
+Its block's qubits follow the output qubits' order, and its ideal state is the group's signed state, which `consumer.py` checks.
+Both X and Z errors on the block reach its detectors, so Phi_cal uses a calibration of both, and the reference passes each preparation's output error, X and Z parts together, to the consumer.
+The decoder is qLDPC's default for this consumer, which decodes the syndrome of each step on its own with a table of lightest errors.
 At each rate p of `config.json`, the consumer gets `DepolarizingNoiseModel(p)`, and each preparation the noise model of its options in `circuits.json` at rate p, which for every candidate is also `DepolarizingNoiseModel(p)`.
-The X checks of this consumer have no detectors, so Z errors on the block change nothing, and Phi_cal uses a calibration of X-type errors only.
 
 ## Arms
 
 | Arm | Tasks | Content |
 | --- | --- | --- |
-| `histogram` | candidate and rate | the total-weight and X-type residual-weight histograms |
-| `calib` | group and rate | the X-type calibration of the consumer, its fault distance, the consumer circuit with its SHA-256, and the time of the scores and baselines |
+| `histogram` | candidate and rate | the total-weight residual-weight histogram, and one of each Pauli type |
+| `calib` | group and rate | the calibration of the consumer, its fault distance, the consumer circuit with its SHA-256, and the time of the scores and baselines |
 | `direct` | candidate and rate | the stratified reference of Phi_true ([`direct.py`](direct.py)) |
-| `exact` | circuits of the steane group | the exact leading-order coefficients of Phi_true and Phi_cal, with the decoder frozen at p = 10^-4 |
+| `exact` | circuits of the steane group | the exact leading-order coefficient of Phi_true, beside the reference at p = 10^-4 |
 | `mc_check` | two circuits at p = 5 x 10^-3 | Phi_true by qLDPC's plain paired Monte Carlo, against `direct` |
 | `repro` | one `histogram` and one `direct` task, twice each | the same outputs from the same seed |
 
