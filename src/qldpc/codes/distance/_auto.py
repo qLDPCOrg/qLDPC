@@ -203,8 +203,7 @@ def _probe(
 
     The probe skips the costlier stages of setup: families of overlapping and partitioned
     information sets, and so the linear programs of Section 3.1 of ``brouwer_zimmermann.md``, which
-    only those take.  A probe that gets automorphisms may still solve the program over orbits of
-    Section 3.7 of ``brouwer_zimmermann.md``.
+    only those take.
     """
     scale = problem.weight_scale
     search = BrouwerZimmermannSearch(

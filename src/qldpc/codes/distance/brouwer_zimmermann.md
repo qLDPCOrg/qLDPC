@@ -163,7 +163,7 @@ qLDPC goes beyond [Section 2](#2-the-brouwer-zimmermann-algorithm) as follows; e
 
 - Extensions that strengthen the bounds of a search: overlapping search bases ([Section 3.1](#31-overlapping-search-bases)), rounding the certificate up to a proven weight multiple or to the parity of a coset ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), and witnesses shared between CSS sectors ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - Optimizations: quotient labels for the stabilizer test ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)), packed enumeration without pivot columns ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), skipping words that precomputed tables prove too heavy ([Section 3.9](#39-skipping-completions-by-completion-tables)), and minimum weights of cosets in one search ([Section 3.10](#310-minimum-weights-of-cosets)).
-- Both: certifying with the images of one information set under automorphisms while scanning only that set, and bounding with the images of the blocks of any family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
+- Both: certifying with the images of one information set under automorphisms while scanning only that set ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 
 [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) defines the work estimate with which searches choose their search bases, and [Section 3.8](#38-worked-example) works an example.
 [Section 3.11](#311-counting-logical-operators) adapts the search to counts of logical operators, and [problems.md](problems.md#the-macwilliams-method) explains the MacWilliams method of counting.
@@ -218,7 +218,6 @@ Its optimum is `14/3`, the value both of the point `x_c = 2/3` and of the dual w
 qLDPC solves the program with `scipy.optimize.linprog`, evaluates the dual bound at the solver's `y` in exact rational arithmetic, and takes its ceiling, so rounding in the solver can only weaken the certificate.
 For disjoint blocks the program separates into the certificate of [Section 2.5](#25-the-stopping-certificate), so only overlapping families use it, and only in costly searches ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
 A search solves it at the end of each layer, and within a layer only when the coverage-divided certificate falls short of `U` and the value of a feasible point does not show the optimum to be below `U`.
-The images of the blocks under automorphisms give a program for any family, which a search solves in place of this one ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 
 #### Families for coset searches
 
@@ -313,7 +312,6 @@ Algorithm 2.11 of Grassl's chapter (page 300) makes this choice itself, by compa
 
 Many codes come with a group of qubit or bit permutations that preserve them, such as the translations of both halves of a multivariate bicycle code, or the cyclic shifts of a cyclic code.
 Such a group lets a search certify with many information sets while scanning only one, which removes most of the cost of the layers that dominate a search.
-It also lets a search bound unexamined words with the images of the blocks of its own family, whether or not it switches to scanning one information set.
 
 #### The certificate of an automorphism family
 
@@ -361,47 +359,9 @@ Both estimates depend on `U`, so a search that declines reconsiders before a lat
 The switch keeps both certificates: an eligible word lighter than `U` is unexamined by both families, so both bounds hold for it, and the search takes the larger, while the witnesses of the first family still count in `U`.
 On threads, this decision must keep the requirement "Decide only from what a layer leaves the same on any number of threads" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements).
 
-#### Images of the blocks of a family
-
-Once a search has verified automorphisms, the images of the blocks of its current family under `Γ` bound unexamined words too, whether or not it switches.
-They help most when `Γ` is small, such as of order two, or fixes many columns, so that an automorphism family does not pay.
-
-Let the blocks `B_i` of the family have the bounds `b_i` of its last completed layer or step.
-An eligible word `c` lighter than `U` has at least `b_i` ones on every image `g(B_i)`.
-Otherwise `g⁻¹(c)`, which is eligible and as light as `c`, has fewer than `b_i` ones on `B_i`, so the search has examined or skipped it.
-Tables skip only words that weigh at least `U` ([Section 3.9](#39-skipping-completions-by-completion-tables)), so `g⁻¹(c)`, which is lighter than `U`, was examined, and so `U ≤ wt(c)`, a contradiction.
-The argument needs every examined eligible word to lower `U` to its weight, as a distance search does, so counts and coset searches do not use these bounds.
-For each orbit `O` of `Γ`, let `x_O = wt(c|_O) / |O|`.
-The images of `B_i` hold every column of `O` equally often, so the average of `wt(c|_{g(B_i)})` over `g ∈ Γ` is `Σ_O |B_i ∩ O| x_O`.
-This average is at least `b_i`, since every term is, while `wt(c) = Σ_O |O| x_O`.
-So relaxing to `0 ≤ x_O ≤ 1` bounds `wt(c)` by the optimum of the **program over orbits**,
-
-$$
-\text{minimize} \sum_O |O|\, x_O \quad \text{subject to} \quad \sum_O |B_i \cap O|\, x_O \ge b_i \text{ for each } i, \quad 0 \le x_O \le 1.
-$$
-
-By weak duality, as in [Section 3.1](#31-overlapping-search-bases), every `y ≥ 0` gives the bound
-
-$$
-\operatorname{wt}(c) \ge \sum_i b_i y_i - \sum_O \max\Big(0, \sum_i |B_i \cap O|\, y_i - |O|\Big).
-$$
-
-Setting every column of each orbit `O` to `x_O` turns a feasible point of the program over orbits into one of the program of Section 3.1 of the same value.
-So the optimum of the program over orbits is at least that of Section 3.1, and so at least the coverage-divided certificate.
-A search therefore solves the program over orbits in place of the one of Section 3.1: when it gets automorphisms, at the end of each layer, and within a layer whenever the coverage-divided certificate falls short of `U`.
-It evaluates this dual bound exactly at the solver's `y`.
-`automorphism_orbit_bounds` in [_tuning.py](_tuning.py) turns these bounds off.
-With dual weights rounded to small denominators (`lp_dual_max_denominator`), the evaluated bound can fall below that of the program of Section 3.1, though it stays sound.
-Theorem 3.10 of White's thesis ([References](#references)) bounds the unexamined words of a code with known automorphisms by a sum over disjoint sets of columns.
-Some of these sets are chosen cycles of automorphisms, each longer than `r`.
-For each such cycle, take a window of `r` or fewer consecutive columns of the cycle that lie in one information set.
-The cycle's term averages the weight of a word on the images of this window under the cycle's automorphism, and is rounded up on its own.
-The other sets give their usual terms `b_i(t)`.
-The program over orbits averages in the same way, over the images of the blocks of any family, overlapping ones included, under one verified group.
-It does not dominate the theorem, since it rounds up only its total, while the theorem rounds up each term.
-
-After a switch, the images of the blocks of both families together give one program over orbits, whose optimum is at least either certificate.
-On default searches of about 80 CSS codes, it never ended a search sooner than the larger certificate, so the search does not solve it.
+Once a search has verified automorphisms, the images under `Γ` of the blocks of its current family, or after a switch of both of its families, also bound unexamined words lighter than `U`, through a linear program over the orbits of `Γ` whose optimum is at least either certificate.
+Theorem 3.10 of White's thesis ([References](#references)) bounds unexamined words with the images of windows of cycles of automorphisms in a related way.
+On the default distance searches measured, these bounds never changed the work of a layer, so searches do not compute them.
 
 #### Where automorphisms come from
 
@@ -419,7 +379,7 @@ For a classical code, bliss searches only the parity check matrix, whose automor
 Classical code classes supply generators through `ClassicalCode._get_permutation_automorphisms`.
 A cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
 A wrong generator would make the certificate unsound, so a search first checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
-When a BZ distance search uses automorphisms, it certifies a bound from the images of the blocks of its family, and, if it switches, from the images of one information set.
+A BZ distance search uses automorphisms to certify from the images of one information set, once it switches to them.
 The BZ count scan of [Section 3.11](#311-counting-logical-operators) does not use automorphisms: it counts each word individually and does not track orbit sizes.
 For a general Pauli problem, a permutation of qubits moves the three thirds of the coordinates of `T` ([Section 2.7](#27-pauli-weight-as-hamming-weight)) alike, and `T` commutes with it, so verifying the lifted permutation checks the original one.
 

@@ -213,12 +213,9 @@ class SearchTuning:
     #: The estimated work, in candidate/set evaluations, from which a distance search or count that
     #: uses overlapping information sets also bounds unvisited words by the linear program of
     #: Section 3.1 of ``brouwer_zimmermann.md``.  Zero turns these programs on in every such search
-    #: or count, and ``MAX_VALUE`` turns them off.  A distance search that gets automorphisms solves
-    #: the program over orbits of Section 3.7 of ``brouwer_zimmermann.md`` in place of that program,
-    #: for the family that it has then, disjoint or overlapping, whatever this value, unless
-    #: ``automorphism_orbit_bounds`` is off.  Defaults to ``5 * 10**7``, a derived value: the cost
-    #: of linear programming, planning included, in a search of a large basis, tens of millions of
-    #: evaluations (Section 3.1 of ``brouwer_zimmermann.md`` and Section 4.4 of
+    #: or count, and ``MAX_VALUE`` turns them off.  Defaults to ``5 * 10**7``, a derived value: the
+    #: cost of linear programming, planning included, in a search of a large basis, tens of millions
+    #: of evaluations (Section 3.1 of ``brouwer_zimmermann.md`` and Section 4.4 of
     #: ``brouwer_zimmermann_code.md``).
     lp_minimum_work: int = 50_000_000
 
@@ -237,13 +234,6 @@ class SearchTuning:
     #: code, several million evaluations (Section 3.7 of ``brouwer_zimmermann.md`` and Section 4.4
     #: of ``brouwer_zimmermann_code.md``).
     automorphism_minimum_layer_work: int = 5_000_000
-
-    #: Whether a BZ distance search, once it has verified automorphisms, bounds the weight of
-    #: unvisited words with the images of the pivot blocks of its family under them, by a linear
-    #: program over their orbits (Section 3.7 of ``brouwer_zimmermann.md``).  ``False`` skips these
-    #: bounds, and the search stays exact.  Defaults to ``True``, a switch; ``False`` is for
-    #: comparisons, such as ablations.
-    automorphism_orbit_bounds: bool = True
 
     # Fields of distance searches of CSS codes.
 

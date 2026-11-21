@@ -503,9 +503,7 @@ def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
     weight after it checks the rows of the automorphism family: the work of that family from layer
     one, and the work left in the current family from the layer before which it considers the
     switch.  The event also records whether the search finished there, as when the rows of the
-    automorphism family lower its best weight to its lower bound, or the images of the blocks raise
-    its lower bound to its best weight.  With ``automorphism_orbit_bounds``, a search that finishes
-    there in either way does not compare the works, but the event records them anyway.
+    automorphism family lower its best weight to its lower bound.
     """
 
     @functools.wraps(function)

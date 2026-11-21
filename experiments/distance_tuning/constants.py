@@ -63,15 +63,15 @@ LARGE_LAYER = 10**7
 LARGE_LIMIT = 10**4
 
 # The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop after
-# setup.  Linear programs, including those over orbits, are off in BZ searches that run layers, so
-# that layer times exclude the planning that ``trace.py`` repeats.  Traces that stop after setup
-# keep the default of linear programs.  Connected-cluster searches ask for automorphisms before
+# setup.  Linear programs are off in BZ searches that run layers, so that layer times exclude the
+# planning that ``trace.py`` repeats.  Traces that stop after setup keep the default of linear
+# programs.  Connected-cluster searches ask for automorphisms before
 # their first weight limit, so that each of their traces measures that step.
-TRACES: list[tuple[str, str, dict[str, int | bool], bool]] = [
+TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (
         name,
         workload,
-        {"lp_minimum_work": _tuning.MAX_VALUE, "automorphism_orbit_bounds": False},
+        {"lp_minimum_work": _tuning.MAX_VALUE},
         False,
     )
     for name, workload in (
@@ -84,11 +84,7 @@ TRACES: list[tuple[str, str, dict[str, int | bool], bool]] = [
     (
         "classical-128",
         "distance/classical:128:80:6/-",
-        {
-            "lp_minimum_work": _tuning.MAX_VALUE,
-            "automorphism_orbit_bounds": False,
-            "partition_work_ratio": 0,
-        },
+        {"lp_minimum_work": _tuning.MAX_VALUE, "partition_work_ratio": 0},
         False,
     ),
     (
