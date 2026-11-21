@@ -970,6 +970,47 @@ def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None
 
 
 @test
+def test_records_atomic(directory: pathlib.Path, node: bool) -> None:
+    """A write of ``acceptance.json`` or ``manifest.json`` that a kill interrupts leaves no part."""
+    from experiments.state_prep_certification.common import manifest
+
+    run_node = _run_node_module()
+
+    class Killed(Exception):
+        """The stand-in of a kill during a write."""
+
+    write_text = pathlib.Path.write_text
+
+    def torn_write(path: pathlib.Path, text: str, *args: Any, **kwargs: Any) -> int:
+        write_text(path, text[: len(text) // 2])
+        raise Killed
+
+    class Module:
+        @staticmethod
+        def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
+            return True
+
+    module: Any = Module
+    label_dir = directory / "label"
+    label_dir.mkdir()
+    record = label_dir / "acceptance.json"
+    record.write_text(json.dumps({"passed": False, "node": False}))
+    with _patched(pathlib.Path, "write_text", torn_write):
+        for write in (
+            lambda: run_node.run_acceptance(module, label_dir, directory, node=False),
+            lambda: manifest.write_manifest(label_dir, directory, {}),
+        ):
+            try:
+                write()
+            except Killed:
+                pass
+            else:
+                raise AssertionError("the write was not interrupted")
+    assert json.loads(record.read_text()) == {"passed": False, "node": False}
+    assert not (label_dir / "manifest.json").exists()
+
+
+@test
 def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
     """A second acceptance attempt runs its tasks again, in a fresh directory, keeping the first."""
     from experiments.state_prep_certification.common import local_runs

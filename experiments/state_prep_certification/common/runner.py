@@ -297,18 +297,16 @@ class _Watcher:
         os.close(write_fd)
         self.root = child.pid
         self.group = os.getpgid(child.pid) if not self.local else None
-        active_file.write_text(
-            json.dumps(
-                {
-                    "pid": child.pid,
-                    "pid_start": process_start(child.pid),
-                    "pgid": self.group,
-                    "runner_pid": os.getpid(),
-                    "runner_start": process_start(os.getpid()),
-                    "host": socket.gethostname(),
-                }
-            )
-        )
+        record = {
+            "pid": child.pid,
+            "pid_start": process_start(child.pid),
+            "pgid": self.group,
+            "runner_pid": os.getpid(),
+            "runner_start": process_start(os.getpid()),
+            "host": socket.gethostname(),
+        }
+        # the temporary file is outside active/, whose readers would find it
+        store.write_atomic(active_file, json.dumps(record), self.label_dir)
 
         # watch the child until it ends, or until a limit or a signal ends it; if this runner
         # fails, kill the run before failing

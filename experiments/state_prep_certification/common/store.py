@@ -10,6 +10,10 @@ writes, so that a new row never joins a fragment.  ``read_rows`` ignores an inco
 reports it, and ``final_rows`` keeps the first final row of each task and reports every duplicate,
 such as a second row of a task that two runners ran at once.
 
+``write_atomic`` writes the label's other records, such as ``acceptance.json``, ``manifest.json``,
+and the runner's ``active/`` files, whole or not at all, so that a kill during a write never
+leaves a partial record.
+
 The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
 analysis refuses them with ``local_rows`` unless it is given ``--allow-local``, and then marks each
 of its outputs with ``mark_local``.
@@ -133,6 +137,20 @@ def mark_local(out: pathlib.Path, count: int) -> None:
             text = path.read_text()
             if not text.startswith("# local_rows"):
                 path.write_text(f"# local_rows: {count} rows of --local runs analyzed\n" + text)
+
+
+def write_atomic(path: pathlib.Path, text: str, directory: pathlib.Path | None = None) -> None:
+    """Write a file whole or not at all: write a temporary file, then rename it to ``path``.
+
+    The temporary file is in ``directory``, by default that of ``path``, on the same file system.
+    """
+    temporary = (directory or path.parent) / f".{path.name}.{os.getpid()}.tmp"
+    try:
+        temporary.write_text(text)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def make_archive(label_dir: pathlib.Path, name: str) -> pathlib.Path:

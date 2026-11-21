@@ -287,9 +287,10 @@ def run_acceptance(
         selftest = [sys.executable, str(SELFTEST), "--node"]
         passed = subprocess.run(selftest, cwd=ROOT, check=False).returncode == 0
     passed = passed and bool(module.acceptance(node, directory))
-    record.write_text(
+    store.write_atomic(
+        record,
         json.dumps({"passed": passed, "node": node, "at": time.time(), "directory": str(directory)})
-        + "\n"
+        + "\n",
     )
     return passed
 

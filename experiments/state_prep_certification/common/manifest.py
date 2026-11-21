@@ -36,6 +36,8 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from experiments.state_prep_certification.common import store
+
 FT_STATE_PREP_DIR = pathlib.Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = FT_STATE_PREP_DIR.parents[1]
 PINS_FILE = FT_STATE_PREP_DIR / "pins.json"
@@ -135,6 +137,9 @@ def write_manifest(
 ) -> None:
     """Write ``manifest.json`` at a label's first start, and record every start in ``starts.jsonl``.
 
+    ``manifest.json`` is written whole or not at all, and each start appends one line to
+    ``starts.jsonl`` in one write.
+
     Args:
         label_dir: The label's directory.
         results_dir: The results directory, which may hold ``preflight.json`` from ``node.sh``.
@@ -156,9 +161,9 @@ def write_manifest(
     }
     path = label_dir / "manifest.json"
     if not path.exists():
-        path.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
-    with open(label_dir / "starts.jsonl", "a") as file:
-        file.write(json.dumps(manifest, sort_keys=True) + "\n")
+        store.write_atomic(path, json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+    with open(label_dir / "starts.jsonl", "ab", buffering=0) as file:
+        file.write((json.dumps(manifest, sort_keys=True) + "\n").encode())  # one write
 
 
 def recorded_environment(environ: Mapping[str, str]) -> dict[str, str]:

@@ -26,14 +26,13 @@ exceeds the approved CPU-hours.
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import random
 import shlex
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common import runner, store
 
 TASKS_FILE = "tasks.json"
 PASS2_TASKS_FILE = "tasks-pass2.json"
@@ -223,9 +222,7 @@ def write_once(path: pathlib.Path, text: str) -> None:
                 f"{path} exists with other contents; a changed input needs a new label"
             )
         return
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(text)
-    os.replace(temporary, path)
+    store.write_atomic(path, text)
 
 
 ####################################################################################################
