@@ -705,7 +705,9 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
     for search, num_syndrome_bits, syndromes, minima, must_skip in cases:
         skipped = 0
         for max_weight in range(2, int(max(minima))):
-            tables, tails = search._routes.get_route(max_weight)
+            # The fields of the tails are a plain tuple, as the searches pass them, so that numba
+            # compiles the searches for the type of argument that they use.
+            tables, tails = search._get_route(max_weight)
             for syndrome, minimum in zip(syndromes, minima, strict=True):
                 if minimum <= max_weight:
                     continue
@@ -750,25 +752,23 @@ def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
     assert coset._tabulate_css_singles(x_singles, z_singles, 1) is None
 
 
-@pytest.mark.parametrize("num_threads", [2, 3, 8])
-@pytest.mark.parametrize("split_work", [0, 50])
 @pytest.mark.parametrize("tuning", [{}, {"coset_route_minimum_work": 0}], ids=["words", "tails"])
 def test_batches_on_threads_answer_as_on_one_thread(
-    num_threads: int,
-    split_work: int,
-    tuning: dict[str, int],
-    pytestconfig: pytest.Config,
-    tune: Tune,
+    tuning: dict[str, int], pytestconfig: pytest.Config, tune: Tune
 ) -> None:
     """Batch queries on threads return the index, bound, word, and weights of one thread.
 
     The calling thread searches the first rows of a batch alone, until their work reaches
-    ``split_work``, and the threads search the rest in blocks, of one syndrome on eight threads.
+    ``split_work``, and the threads search the rest in blocks, which hold several syndromes of a
+    long batch on three threads, and one syndrome on eight threads.
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
-    options = {"num_threads": num_threads, "split_work": split_work}
+    thread_options = [
+        {"num_threads": num_threads, "split_work": split_work}
+        for num_threads, split_work in itertools.product((3, 8), (0, 50))
+    ]
     for search, minima in _get_searches_with_minima(tuning_fields):
         num_bits = search._num_syndrome_bits
         for max_weight in range(int(minima.max()) + 1):
@@ -777,13 +777,14 @@ def test_batches_on_threads_answer_as_on_one_thread(
                 beyond = np.flatnonzero(minima[syndromes] > max_weight)
                 expected = search.find_first_not_within_max_weight(batch, max_weight)
                 assert expected[0] == (beyond[0] if len(beyond) else len(syndromes))
-                found = search.find_first_not_within_max_weight(batch, max_weight, **options)
-                assert found == expected
                 floors = rng.integers(max_weight + 1, size=len(syndromes))
                 weights = search.get_min_weights(batch, max_weight, floors)
-                assert np.array_equal(
-                    search.get_min_weights(batch, max_weight, floors, **options), weights
-                )
+                for options in thread_options:
+                    found = search.find_first_not_within_max_weight(batch, max_weight, **options)
+                    assert found == expected
+                    assert np.array_equal(
+                        search.get_min_weights(batch, max_weight, floors, **options), weights
+                    )
 
 
 @pytest.mark.parametrize(

@@ -786,7 +786,11 @@ def test_quantum_tanner_save_fields(tmp_path: pathlib.Path) -> None:
         galois.GF(8, primitive_element=3),
         galois.GF(5, primitive_element=3),
     ]:
-        code = codes.QTCode([shift, ~shift], [shift, ~shift], [[1, 2]], field=field)
+        # given both local codes, and checks taken from them, these codes need neither a dual code
+        # nor minimum-weight checks, whose computations are costly in a new field
+        code = codes.QTCode(
+            [shift, ~shift], [shift, ~shift], [[1, 2]], [[2, 1]], field, local_checks="from_codes"
+        )
         with pytest.raises(ValueError, match="record only the order of the field"):
             code.save(str(path))
         assert not path.parent.exists()
