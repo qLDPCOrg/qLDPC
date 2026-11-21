@@ -24,7 +24,7 @@ Start from a symptom
      - Time the search with ``method="brouwer_zimmermann"`` and with ``method="connected_cluster"``, and pass the faster method.
        With a large ``cutoff``, ``"auto"`` cannot switch to the Brouwer-Zimmermann method before it has searched past the cutoff, and with one near the distance it may never switch, so pass ``method="brouwer_zimmermann"``.
        To make ``"auto"`` stay longer with a connected-cluster search, lower :attr:`~SearchTuning.connected_cluster_state_evaluations`, and to make it switch to the Brouwer-Zimmermann method sooner, raise that field.
-       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`__ in the guide to the distance package).
+       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`__ in ``problems.md`` of the distance package).
        Raise :attr:`~SearchTuning.auto_probe_work` to let the short Brouwer-Zimmermann search that ``"auto"`` runs before it decides, its probe, finish more searches, or find a lighter word for the connected-cluster search to stop at, at a higher fixed cost.
        Raise :attr:`~SearchTuning.auto_brute_force_max_words` if ``"auto"`` takes the Brouwer-Zimmermann method for a classical code of high relative distance whose words it could enumerate faster.
        Lower it if ``"auto"`` enumerates every word for too long.
@@ -92,11 +92,11 @@ Routes and the names that control them
    * - Searching one sector of a CSS code whose sectors a qubit permutation maps onto each other
      - :attr:`SearchTuning.sector_maps`
      -
-     - `Searching one sector of a CSS code <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#searching-one-sector-of-a-css-code>`__ in the guide to the distance package
+     - `Searching one sector of a CSS code <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#searching-one-sector-of-a-css-code>`__ in ``problems.md`` of the distance package
    * - Choosing a method, which ``method="auto"`` does for each distance search
      - :attr:`SearchTuning.auto_brute_force_max_words`, :attr:`SearchTuning.auto_free_work`, :attr:`SearchTuning.auto_probe_work`, :attr:`SearchTuning.connected_cluster_state_evaluations`
      -
-     - `Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`__ in the guide to the distance package
+     - `Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`__ in ``problems.md`` of the distance package
    * - Estimating the work of searches of information sets, which chooses between their routes
      -
      - :data:`BINOMIAL_CACHE_SIZE`
@@ -188,7 +188,7 @@ Routes and the names that control them
    * - Counts by the MacWilliams method
      - :attr:`SearchTuning.macwilliams_shared_walk_rank`, :attr:`SearchTuning.macwilliams_chunk_size`
      - :data:`KRAWTCHOUK_CACHE_SIZE`
-     -
+     - `The MacWilliams method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#the-macwilliams-method>`__ in ``problems.md`` of the distance package
    * - Searches of the lightest Pauli errors by CSS weight on a CSS state, by the Brouwer-Zimmermann method
      - :attr:`SearchTuning.disjoint_random_column_orders`, and for costly queries :attr:`SearchTuning.coset_route_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, :attr:`SearchTuning.coset_completion_block_bits`, and :attr:`SearchTuning.coset_completion_max_table_bytes`
      - :data:`CSS_SEARCH_CACHE_SIZE`
@@ -200,7 +200,7 @@ Routes and the names that control them
    * - Counts of deformed codes
      -
      - :data:`LOCAL_CLIFFORD_CACHE_SIZE`
-     -
+     - `Deformed counters <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#deformed-counters>`__ in Section 3.11 of ``brouwer_zimmermann.md``
 
 .. _tuning-module:
 

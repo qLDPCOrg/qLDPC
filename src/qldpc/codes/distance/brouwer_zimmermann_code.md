@@ -13,8 +13,8 @@ The thresholds, limits, and coefficients of the heuristics are fields of `Search
 
 The distance functions of [distances.py](distances.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py).
 For BZ, they build an adapted basis ([Section 3.4](brouwer_zimmermann.md#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the sectors to `get_distance_brouwer_zimmermann`, both sectors of a CSS code at once in `get_distance_css`, or only the X sector if `_search_css` finds a qubit permutation that maps each sector onto the other.
-`_search_css` finds only the identity and, with pybliss, permutations that map the nonzero X-type gauge generators, as listed, one to one onto the Z-type ones and back (section "Searching one sector of a CSS code" of [README.md](README.md)).
-[_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the families of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms), with the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
+`_search_css` finds only the identity and, with pybliss, permutations that map the nonzero X-type gauge generators, as listed, one to one onto the Z-type ones and back (section "Searching one sector of a CSS code" of [problems.md](problems.md#searching-one-sector-of-a-css-code)).
+A BZ search that is given automorphisms has [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verify them and build the families of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms), whose certificates are those of [_information_sets/certificates.py](_information_sets/certificates.py).
 
 [logical_counts.py](logical_counts.py) builds its families with the stages of [_information_sets/basis_families.py](_information_sets/basis_families.py) that distance searches use ([Section 4.4](#44-heuristics-and-cost-models)), in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), under the stricter stopping rule of [Section 5](#5-correctness-requirements).
 To find its default weight, the distance, a count runs a distance search from the disjoint families that it keeps.
@@ -37,7 +37,7 @@ Each search packs its problem once, before it scans, in an `AffineInstance` of [
 
 `CosetLeaderSearch` of [coset_leaders.py](coset_leaders.py), which the fault-propagation certifier of `qldpc.circuits.certification` uses, applies BZ to cosets `u + V`, unless it is built with `method="connected_cluster"`.
 A query of `CosetLeaderSearch`, whether the coset of a syndrome has a word within a maximum weight, runs one or two **coset searches**.
-They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches by Hamming weight of the X and Z parts of the errors, each in a coset of a classical code ([README.md](README.md#the-coset-leader-search)).
+They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches by Hamming weight of the X and Z parts of the errors, each in a coset of a classical code ([problems.md](problems.md#the-coset-leader-search)).
 
 Each family of search bases of a coset search has a **coset instance**: `get_coset_instance` packs the full rows of the disjoint sets of the code, and `get_coset_family_instance` those of any other family, with the certificate of its ranks and maximum coverage.
 That certificate takes no weight divisor, even when `get_disjoint_family` infers one for `V`, since the words of a coset need not share it ([Section 3.2](brouwer_zimmermann.md#32-rounding-the-certificate-to-a-proven-weight-multiple)).
@@ -372,7 +372,7 @@ A change may use other representations, certificates, and search strategies, but
     Review checks such calls on paths that tests do not run on threads.
 - **Decide only from what a layer leaves the same on any number of threads** ([Section 4.5](#45-behavior-spanning-files), "Threads").
   After the layer of a set, `U` and the lower bound are those of one thread, and so are the estimates derived from them, such as `get_layer_work` and `estimate_automorphism_family_work`.
-  Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [README.md](README.md)), reads nothing else that the layers leave.
+  Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [problems.md](problems.md#choosing-a-method)), reads nothing else that the layers leave.
   None may read what depends on the timing of the threads, such as `U` during the layer of a set, how far the layer of a set has got, or the counts of supports that a split layer weighs, looks up, and skips, which depend on when `U` falls.
   A split layer that stops at the cutoff leaves a `U` that can depend on that timing, but the search then ends, with `U` as the result of an early exit.
   The lower bound counts the layer of a set only once every work item of that layer has run, as in `advance`, which raises it only after `_SectorSearch._scan_set` has scanned each set that it counts.

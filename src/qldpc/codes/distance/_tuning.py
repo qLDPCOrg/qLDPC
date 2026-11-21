@@ -7,7 +7,7 @@ logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its b
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
 routes to these values.  Section 4.4 of ``brouwer_zimmermann_code.md`` and Sections 3.4, 3.5,
 3.8, 3.9, and 3.11 of ``connected_cluster.md`` explain how searches use the fields, and the section
-"Choosing a method" of ``README.md`` how ``method="auto"`` uses its fields.
+"Choosing a method" of ``problems.md`` how ``method="auto"`` uses its fields.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -250,9 +250,9 @@ class SearchTuning:
     #: Whether a distance search of both sectors of a CSS code, by the BZ or the connected-cluster
     #: method, or by ``"auto"`` unless it enumerates, looks for a qubit permutation that maps one
     #: sector onto the other, and then searches one sector (section "Searching one sector of a CSS
-    #: code" of ``README.md``).  ``False`` skips the lookup, and the search stays exact.  Defaults
-    #: to ``True``, a switch; ``False`` is for comparisons, and for many cheap searches of large
-    #: codes, on which the lookup can cost more than it saves.
+    #: code" of ``problems.md``).  ``False`` skips the lookup, and the search stays exact.
+    #: Defaults to ``True``, a switch; ``False`` is for comparisons, and for many cheap searches of
+    #: large codes, on which the lookup can cost more than it saves.
     sector_maps: bool = True
 
     # Fields of the automatic choice of a method.
@@ -263,7 +263,7 @@ class SearchTuning:
     #: the two sectors of a CSS code.  Raising it enumerates larger spaces.
     #: Defaults to ``2**20``, chosen by hand: an enumeration of about a millisecond, the fixed cost
     #: of a Brouwer-Zimmermann search of a small code.  On larger spaces, a Brouwer-Zimmermann
-    #: search is usually faster (section "Refining the choice" of ``README.md`` names exceptions).
+    #: search is usually faster (section "Refining the choice" of ``problems.md`` names exceptions).
     auto_brute_force_max_words: int = 2**20
 
     #: The work, in candidate/set evaluations, below which a search by cost of ``method="auto"``
@@ -273,7 +273,7 @@ class SearchTuning:
     #: Connected-cluster work counts each state as ``connected_cluster_state_evaluations``.
     #: Defaults to ``10**8``, chosen by hand: a fraction of a second, below which fixed costs that
     #: the estimates leave out, such as setup, dominate the costs that a switch would compare
-    #: (section "Choosing a method" of ``README.md``).
+    #: (section "Choosing a method" of ``problems.md``).
     auto_free_work: int = 100_000_000
 
     #: The most work, in candidate/set evaluations, that the Brouwer-Zimmermann probe of
@@ -281,13 +281,13 @@ class SearchTuning:
     #: connected-cluster search.  The probe skips the costlier stages of setup, and stops before a
     #: layer that would take it over this work.
     #: Defaults to ``10**8``, a budget for the cost of choosing: a fraction of a second (section
-    #: "Choosing a method" of ``README.md``).
+    #: "Choosing a method" of ``problems.md``).
     auto_probe_work: int = 100_000_000
 
     #: The cost of a state of a connected-cluster search in candidate/set evaluations, which lets
     #: ``method="auto"`` compare the work of the two searches (section "Choosing a method" of
-    #: ``README.md``).  Raising it switches to a Brouwer-Zimmermann search sooner.  Defaults to 500,
-    #: chosen by hand: the cost of a state, hundreds of evaluations.
+    #: ``problems.md``).  Raising it switches to a Brouwer-Zimmermann search sooner.  Defaults to
+    #: 500, chosen by hand: the cost of a state, hundreds of evaluations.
     connected_cluster_state_evaluations: int = 500
 
     # Fields of connected-cluster searches.

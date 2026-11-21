@@ -7,10 +7,10 @@ from pathlib import Path
 
 
 def test_the_readme_names_every_module_and_no_other_file() -> None:
-    """The README maps every module, and names no file that is missing.
+    """The README maps every module, and neither it nor problems.md names a missing file.
 
     "Where to look" names every module, and "Layout" every top-level module or subpackage.  A module
-    that they omit, or a file that the README names and is missing, is stale.
+    that they omit, or a file that the README or problems.md names and is missing, is stale.
     """
     package = Path(__file__).parent
     files = {path.relative_to(package).as_posix() for path in package.rglob("*.py")}
@@ -28,8 +28,10 @@ def test_the_readme_names_every_module_and_no_other_file() -> None:
     missing = sorted(unit for unit in units if f"`{unit}`" not in layout)
     assert not missing, f"'Layout' does not name {missing}"
 
-    named = _get_named_files(text)
-    assert not named - files, f"The README names missing files {sorted(named - files)}"
+    named = _get_named_files(text) | _get_named_files(
+        (package / "problems.md").read_text(encoding="utf-8")
+    )
+    assert not named - files, f"The guides name missing files {sorted(named - files)}"
 
 
 def _get_section(text: str, title: str) -> str:

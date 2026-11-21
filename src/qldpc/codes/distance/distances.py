@@ -44,8 +44,8 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   search, as for a quantum code or a circuit, runs ``"connected_cluster"``, and switches to
   ``"brouwer_zimmermann"`` if that is predicted to cost less.  A short ``"brouwer_zimmermann"``
   probe may give the result first, or cap the connected-cluster search (`Choosing a method
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`_
-  in the guide to the distance package).  Functions that take generators choose between
+  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`_
+  in ``problems.md`` of the distance package).  Functions that take generators choose between
   ``"brute_force"`` and ``"brouwer_zimmermann"``.  Every method gives the same result unless the
   search exits early.  Which method runs, and so which weight an early exit at a ``cutoff``
   returns, can depend on the tuning and on the version of qLDPC.  For a ``"brouwer_zimmermann"``
@@ -511,7 +511,7 @@ def _search_css(
     sectors = [sector_of_type[sector_pauli] for sector_pauli in paulis]
 
     # A qubit permutation that maps the X sector onto the Z sector leaves only the X sector to
-    # search (section "Searching one sector of a CSS code" of README.md).
+    # search (section "Searching one sector of a CSS code" of problems.md).
     def has_sector_map() -> bool:
         basis_x = get_independent_rows(gauge_x)
         return get_sector_map(gauge_x, gauge_z, basis_x) is not None

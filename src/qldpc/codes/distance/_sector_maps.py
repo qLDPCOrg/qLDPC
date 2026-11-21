@@ -3,7 +3,8 @@
 """Qubit permutations that map the X sector of a CSS code onto its Z sector.
 
 A distance search of both sectors of a CSS code needs to search only one of them if such a
-permutation exists.  The section "Searching one sector of a CSS code" of ``README.md`` proves this.
+permutation exists.  The section "Searching one sector of a CSS code" of ``problems.md`` proves
+this.
 """
 
 from __future__ import annotations
@@ -135,7 +136,7 @@ def _get_candidate_maps(num_qubits: int) -> list[npt.NDArray[np.int_]]:
     codes, the cyclic shift by half of the qubits, which does for some toric codes, and, if the
     qubits fill a square grid row by row, a quarter turn of the grid, which does for rotated surface
     codes of odd distance.  Qubitserf tries the first two too (section "Searching one sector of a
-    CSS code" of ``README.md``).
+    CSS code" of ``problems.md``).
     """
     qubits = np.arange(num_qubits)
     candidates = [qubits[::-1].copy(), (qubits + num_qubits // 2) % num_qubits]
