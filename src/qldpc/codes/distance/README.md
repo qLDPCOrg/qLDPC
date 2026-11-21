@@ -114,8 +114,8 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
 | The compiled scans of layers that the BZ distance search and the BZ coset searches share, one body specialized by constant flags | `_brouwer_zimmermann/affine_search.py` |
 | The instances of BZ distance searches and BZ coset searches: their packed information sets, and the certificate of these sets | `_brouwer_zimmermann/affine_instance.py` |
-| The BZ coset searches of the coset-leader search | `_brouwer_zimmermann/coset.py` |
-| The tables of BZ coset searches: the bounds of their steps and their stopping steps, and the tails and completion tables of their routes by tails | `_brouwer_zimmermann/coset_tables.py` |
+| The BZ coset searches of the coset-leader search | `BrouwerZimmermannCosetSearch`, `_search_coset`, and `_find_min_weights` in `_brouwer_zimmermann/coset.py` |
+| The tables of BZ coset searches: the bounds of their steps and their stopping steps, and the tails and completion tables of their routes by tails | `_brouwer_zimmermann/coset_tables.py`, which holds names such as `get_search_tables`, `get_stopping_step`, and `CosetTails` |
 | The routes of BZ coset searches: the family of information sets for each maximum weight, the gate that chooses it, and the routes by tails | `_brouwer_zimmermann/coset_routes.py` |
 | The connected-cluster search, of distances and of vectors with a given syndrome | `_connected_cluster/search.py` |
 | The connected-cluster coset searches of the coset-leader search, and their batch queries | `_connected_cluster/coset.py` |

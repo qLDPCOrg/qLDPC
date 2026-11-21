@@ -9,7 +9,7 @@ The thresholds, limits, and coefficients of the heuristics are fields of `Search
 
 ### 4.1 Module map and layering
 
-[README.md](README.md) maps the modules of this directory and the levels in which they import each other; this section says how the searches use them.
+[README.md](README.md) says what each module of this directory holds, in "[Where to look](README.md#where-to-look)", and the levels in which they import each other; this section says how the searches use them.
 
 The distance functions of [distances.py](distances.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py).
 For BZ, they build an adapted basis ([Section 3.4](brouwer_zimmermann.md#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the sectors to `get_distance_brouwer_zimmermann`, both sectors of a CSS code at once in `get_distance_css`, or only the X sector if `_search_css` finds a qubit permutation that maps each sector onto the other.
@@ -76,8 +76,6 @@ It builds new tables in the array of a new record, which copies the earlier tabl
 A query by tails scans with `scan_coset_layer_by_tails_with_tables` the layers of two or more rows of a search basis that has tables, and the others with `scan_coset_layer_by_tails`.
 It rebuilds its lightest word once, with the full rows, from the word's search basis and support.
 The search of Pauli errors by CSS weight has no routes by tails, since the CSS weight of a word depends on which of its deleted pivot columns lie in the X part.
-
-`BrouwerZimmermannCosetSearch`, `_search_coset`, and `_find_min_weights` are in [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py), and the tables of steps and tails, such as `get_search_tables`, `get_stopping_step`, and `CosetTails`, in [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py).
 
 ### 4.2 Flow and exit points
 
