@@ -79,7 +79,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
   If the block has rank `r_i`, the first `r_i` rows of the basis are the identity on `r_i` pivot columns of the block, and the other rows are zero on the block.
   The block is an information set if its rank is the dimension of the basis, and rank-deficient otherwise (Sections 2.3 and 2.4 of `brouwer_zimmermann.md`).
   Code comments and `brouwer_zimmermann_code.md` call a search basis a set for short, a full set if its block is an information set and a partial set otherwise.
-  Identifiers such as `_information_sets/` and `max_information_sets` say "information sets" but also mean the search bases row reduced on them.
+  Identifiers such as `_information_sets/` and `max_information_sets`, and the phrase "family of information sets", say "information sets" but also mean the search bases row reduced on them.
 - **Basis family** (`BasisFamily`): the search bases that one Brouwer-Zimmermann search or count uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither examined nor skipped (Sections 2.5 and 3.1 of `brouwer_zimmermann.md`).
   The search can stop once the certificate reaches `U`, the weight of the lightest word that it has found.
