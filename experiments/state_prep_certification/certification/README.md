@@ -39,7 +39,10 @@ MQT's `RotatedSurfaceCode(5)` at that commit has its X checks where the shipped 
 
 Each certification input prepends resets to qubits that start without one.
 Each B-cat circuit gets a detector for each pair of consecutive measurement results, on which it is post-selected; E-chen's verification measurements are flags, as in the other families.
-The node applies `DepolarizingNoiseModel(1e-3)`, CSS weight, and K = t + 1.
+The node applies `DepolarizingNoiseModel(1e-3)` and K = t + 1.
+It leaves `css_weight` at its default, None, under which qLDPC chooses CSS weight for a CSS state.
+Every input prepares one, as the top-level `css_weight` of each input in `circuits.json` records.
+The ground truth (`counting.brute_force`) requires a CSS state.
 
 ## Arms
 
@@ -90,7 +93,9 @@ python experiments/state_prep_certification/run_node.py certification --local --
 ```
 
 `--fetch` downloads MQT QECC's circuits, and `--build` writes the inputs, with the licenses and `circuits.json`, to `circuit_data/inputs/`.
-`--check` checks the inputs' hashes and DEM parameters against `circuits.json`, the states of the synthesized inputs, and each code file against its circuit, as `code_files.check_code` describes; where the fetched sources are present, as on the workstation, it also rebuilds the inputs from them in a scratch directory and compares.
+`--check` checks the inputs' hashes and DEM parameters against `circuits.json`.
+It also checks each code file as `code_files.check_code_file` describes, such as that the code's |0...0> is the state that `circuits.json` records for the circuit.
+Where the fetched sources are present, as on the workstation, it also rebuilds the inputs from them in a scratch directory and compares.
 On the node, the experiment runs the same check before any task, copies `circuits.json` into the label directory, and never imports MQT or qiskit.
 
 The subset `smoke` has a ceiling of about 78 CPU-hours, which `--approved-cpu-hours` must cover, although its runs take minutes; `run_node.py certification --subset smoke --dry-run` prints it.
@@ -108,7 +113,7 @@ Where A_m was not computed, `listing_table.csv` divides by C(N_0, m) instead, so
 The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, disagreements with the baseline and the ground truth, a task without a row, and rows with `compiled_in_timing` set.
 
 `analyze_applications.py` adds the margins and the deletions.
-`summary.csv` gives each circuit's combined margin: the m* or "all" that `cert_bz`, `cert_cc`, and `margin` determine, or, if none determines it, "m* > k" for the largest certified fault weight k.
+`summary.csv` gives each circuit's combined margin: the column `margin` holds the m* or "all" that `cert_bz`, `cert_cc`, and the `margin` arm determine; if none determines it, the column `margin_lower_bound` holds the largest certified fault weight k, meaning m* > k.
 The determined values must agree and exceed every certified fault weight; otherwise the circuit is a disagreement, as it is when a deletion parent's verdict differs from `cert_bz`'s or CC does not certify a final circuit.
 `main_table.csv` gets the margin column: per family, the circuits with m* <= t, m* = t + 1, m* >= t + 2, "all", m* > k, and no information on m*.
 `margin_footnote.csv` lists the circuits with m* <= t, with the residual weights of the X and Z parts of their counterexamples, since the property certified here bounds both parts, whereas the verification of a circuit's source may target only one part.

@@ -68,12 +68,12 @@ def check_code(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
     """The problems of a code against a circuit, each naming the failed check.
 
     With n the number of output qubits, the four matrices must be binary with n columns.  Each row
-    of Hx, Hz, and Lz must have expectation +1 in the circuit's state, in output-qubit order
-    (``circuits._check_synthesized_state``), which implies that these rows commute.  The number
-    k = n - rank(Hx) - rank(Hz) of logical qubits must equal the k of the circuit's [[n, k, d]],
-    and Lx and Lz must have k rows each.  Over GF(2), Hz Lx^T must vanish, and Lx Lz^T must be
-    nonsingular.  Together, these checks imply that the rows of Hx, Hz, and Lz generate the state's
-    stabilizer group.  The ``distance`` of the file is not checked.
+    of Hx, Hz, and Lz must have expectation +1 in the state that ``circuits.json`` records for the
+    circuit, in output-qubit order (``circuits._check_code_state``), which implies that these rows
+    commute.  The number k = n - rank(Hx) - rank(Hz) of logical qubits must equal the k of the
+    circuit's [[n, k, d]], and Lx and Lz must have k rows each.  Over GF(2), Hz Lx^T must vanish,
+    and Lx Lz^T must be nonsingular.  Together, these checks imply that the rows of Hx, Hz, and Lz
+    generate the state's stabilizer group.  The ``distance`` of the file is not checked.
     """
     name = entry["id"]
     n = len(entry["output_qubits"])
@@ -84,7 +84,7 @@ def check_code(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
     hx, hz, lx, lz = (
         np.array(code[key], dtype=np.int64).reshape(-1, n) for key in ("Hx", "Hz", "Lx", "Lz")
     )
-    problems = circuits._check_synthesized_state(entry, code)
+    problems = circuits._check_code_state(entry, code)
     k = n - _rank(hx) - _rank(hz)
     expected_k = entry["code"][1]
     if k != expected_k:

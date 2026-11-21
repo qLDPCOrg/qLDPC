@@ -422,8 +422,8 @@ def _make_weakened(parent: dict[str, Any], inputs: pathlib.Path) -> dict[str, An
     """The weakened variant of a verified circuit: delete the interactions of one measured qubit.
 
     The selected qubit is that of the last target of the last measurement, then the qubit measured
-    just before it, and so on, until the variant certifies with the parent's output qubits and
-    prepares the parent's state.
+    just before it, and so on, until qLDPC accepts the variant with the parent's output qubits and
+    the variant prepares the parent's state, as ``_validate_and_write`` checks.
     """
     import stim
 
@@ -567,12 +567,12 @@ def check_inputs() -> None:
     Every input file must match the SHA-256 that ``circuits.json`` records for it, and the licenses
     of ``LICENSES`` must lie beside the inputs.  The DEM parameters of each input, recomputed as
     ``--build`` computes them (``dem_parameters``), must equal those of ``circuits.json``.  Each
-    input of ``VERIFIED_FAMILIES`` must have a code file that passes
-    ``code_files.check_code_file``, which checks, among others, that the input's state stabilizers
-    generate the code's stabilizers and logical Z operators.  Where the fetched sources are present,
-    in ``circuit_data/mqt/`` on the workstation, the inputs are also rebuilt from the sources in a
-    scratch directory, and the rebuilt ``circuits.json``, with the SHA-256 of every input, and the
-    licenses must equal the recorded ones.
+    input of ``VERIFIED_FAMILIES`` must have a code file that passes ``code_files.check_code_file``,
+    which checks, among others, that the state that ``circuits.json`` records for the input is the
+    code's |0...0>.  Where the fetched sources are present, in ``circuit_data/mqt/`` on the
+    workstation, the inputs are also rebuilt from the sources in a scratch directory, and the
+    rebuilt ``circuits.json``, with the SHA-256 of every input, and the licenses must equal the
+    recorded ones.
     """
     import stim
 
@@ -633,8 +633,8 @@ def _check_rebuilt(recorded: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _check_synthesized_state(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
-    """Whether the input's state stabilizers generate the code's checks and logical Z operators."""
+def _check_code_state(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
+    """The problems of an input whose recorded state is not the code's |0...0>, if any."""
     qubits = entry["output_qubits"]
     if len(qubits) != len(code["Hx"][0]):
         return [f"{entry['id']}: {len(qubits)} output qubits, the code has {len(code['Hx'][0])}"]
