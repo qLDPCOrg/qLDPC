@@ -4,19 +4,16 @@
 
     python analyze.py (--archive PATH | --label-dir DIR) [--out DIR]
 
-It reads the run's copy of ``sample.json``, which ``prepare`` writes into the label's directory, so
-that later changes to the working tree's sample, such as to a reference distance, do not change
-the analysis of an earlier run.
-
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
-compares the prior arm with the arm with everything on, where T is the median of a timed run's
-repeats, a repeat that did not finish counting as the limit L.  An arm counts as finished if its
-first run finished, even if its repeats did not; ``summary.csv`` records the number of unfinished
-repeats in ``repeats_unfinished``, and a median that is L is in effect a bound.  A row with
+compares the prior arm with the arm with everything on.  T is the median of an arm's runs on the
+code, its first run and its repeats, with each run that did not finish counted as the limit L, or
+the first run's T if that run did not finish.  An arm counts as finished if its first run finished,
+even if its repeats did not; ``summary.csv`` records the number of unfinished repeats in
+``repeats_unfinished``, and a median that is L is in effect a bound.  A row with
 ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A repeat with it is left out of
 the median, as a missing repeat is.  A first run with it leaves the arm without T, and its T cell in
-``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged timed runs
-in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The cases, in
+``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged runs in
+``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The cases, in
 order:
 
 1. **disagreement:** the arms or their repeats report different distances, or a distance that
@@ -37,9 +34,13 @@ upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
 For each family, the table gives the counts of each class of R_T and the median of R_T over the
 codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
-"<=" if upper bounds are, and omitted if there are both, with the number of codes in the median.
-The anchors' row gives counts only; anchors are reported per code and never pooled
-with the families.
+"<=" if upper bounds are, and omitted if there are both.  The table also gives the number of codes
+in the median, and how many are lower or upper bounds.  The anchors' row gives counts only;
+anchors are reported per code and never pooled with the families.
+
+The analysis reads the sample from the label directory, where ``experiment.prepare`` copies
+``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
+does not change the analysis of an earlier run.
 
 Outputs in ``--out`` (by default ``analysis/`` in the label directory, which is a temporary
 directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``families.csv``,
@@ -113,8 +114,18 @@ def _unpack(archive: pathlib.Path) -> pathlib.Path:
 
 
 def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
-    """The run's copy of ``sample.json``, which ``experiment.prepare`` writes into its directory."""
-    sample: dict[str, Any] = json.loads((label_dir / "sample.json").read_text())
+    """The run's copy of ``sample.json``, which ``experiment.prepare`` writes into its directory.
+
+    Raises:
+        ValueError: If the label directory has no copy, as for a run made before runs kept one.
+    """
+    path = label_dir / "sample.json"
+    if not path.exists():
+        raise ValueError(
+            f"{label_dir} has no sample.json (a run made before runs kept a copy of the sample has"
+            " none)"
+        )
+    sample: dict[str, Any] = json.loads(path.read_text())
     return sample
 
 
@@ -202,7 +213,7 @@ def classify(result: dict[str, Any]) -> str:
 
 
 def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """The status, median T, and distance of an arm's timed runs on one code.
+    """The status, median T, and distance of an arm's runs on one code.
 
     The status is that of the first run, unless a repeat ended in an error or memout, whose status
     it then takes.  A repeat that timed out counts as the limit, which is larger than every finished
@@ -391,7 +402,7 @@ def _as_list(value: Any) -> list[Any]:
 
 
 def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
-    """A log-log panel of T, with the prior arm on x and the arm with everything on on y."""
+    """A log-log panel of T, with the prior arm's T on the x axis and the on arm's on the y axis."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -425,7 +436,7 @@ def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
     axis.plot(limits, limits, "k-", lw=0.6)
     axis.plot(limits, [x / FASTER for x in limits], "k:", lw=0.6)
     axis.plot(limits, [x * FASTER for x in limits], "k:", lw=0.6)
-    axis.set_title("by time (s)")
+    axis.set_title("time (s)")
     axis.set_xlabel("prior")
     axis.set_ylabel("on")
     figure.tight_layout()

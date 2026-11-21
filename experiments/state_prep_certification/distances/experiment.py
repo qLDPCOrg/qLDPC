@@ -2,12 +2,11 @@
 
 """The plug-in of the distance experiment (see ``common/plugin.py`` for the interface).
 
-Each task is one arm on one code.  A run measures the wall time T of the arm's distance call on
+Each task runs one arm on one code; a run measures the wall time T of the arm's distance call on
 its stored code, including building the code object.
 
 No run warms up before timing; the runner retries any run whose measured call compiled
-(``common/runner.py``).  A timed run that finishes in under ``repeat_below_s`` gets ``repeats`` more
-runs.
+(``common/runner.py``).  A run that finishes in under ``repeat_below_s`` gets ``repeats`` more runs.
 """
 
 from __future__ import annotations
@@ -35,8 +34,8 @@ SMOKE = ("golay", "bb72", "surface9", "five_five")
 def prepare(label_dir: pathlib.Path) -> None:
     """Regenerate the codes into the label's directory, and stop if any differs from the sample.
 
-    The sample is then copied into the label's directory, so that the run's archive carries the
-    reference distances that ``analyze.py`` reads.
+    Then copy the sample into the label's directory, where ``analyze.py`` reads it, so that the run
+    keeps the sample that it ran with.
     """
     sample = codes.generate(label_dir)
     problems = codes.compare_with_sample(sample)
@@ -60,9 +59,9 @@ def worst_case_s(task: dict[str, Any]) -> float:
     """The worst-case CPU seconds of a task with its repeats.
 
     A run costs at most its start-up cap, the limit L, the runner's window ``runner.FINISH_S`` for
-    returning a result, and then the grace in which its processes must end.  The worst task has a
-    first run just under the repeat threshold and ``repeats`` repeats that each cost the most that a
-    run can.
+    returning a result, and then the grace in which its processes must end.  A task's worst case has
+    a first run just under the repeat threshold and ``repeats`` repeats that each cost the most that
+    a run can.
     """
     startup, limit = CONFIG["startup_cap_s"], task["limit_s"]
     after = runner.FINISH_S + CONFIG["grace_s"]

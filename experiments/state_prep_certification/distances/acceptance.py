@@ -13,9 +13,10 @@
 * **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
   left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
 * **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label's
-  directory, from which the analysis reads it (``analyze.load_sample``); ``compare_with_sample``
-  reports a sample whose reference distance differs from ``sample.json``; each row's tuning is the
-  shipped default, with ``BZ_PRIOR`` for ``q_bz_prior``.
+  directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
+  the analysis of a run on golay a disagreement.  ``compare_with_sample`` reports a sample whose
+  reference distance differs from ``sample.json``.  Each row's tuning is the shipped default, with
+  ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
   ``LOCAL_LIMIT_S``.
@@ -24,15 +25,16 @@
   the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
   runs that finished in under 300 s.
 * **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that
-  disagree or time out, arms that agree on a distance other than the reference, an arm without
-  rows, a first run that ends in an error, a repeat that ends in a memout, only one arm finished,
-  and both timed out), writes every output, and classifies them and marks the family medians as
-  its docstring says.  Its rows with ``compiled_in_timing`` set are first runs and a timed-out
-  repeat, some of them on codes that disagree or fail.
+  disagree or time out, arms that agree on a distance other than the reference, an arm without rows,
+  a first run that ends in an error, a repeat that ends in a memout, both finished, only one arm
+  finished, and both timed out), writes every output, classifies the codes, and marks the family
+  medians as ``analyze.py``'s docstring says.  Its rows with ``compiled_in_timing`` set are first
+  runs and a timed-out repeat, some of them on codes that disagree or fail.
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
-install (AT8) is rehearsed with ``bundle.py``.  Each test prints PASS or FAIL.
+install (AT8) is rehearsed with ``bundle.py``.  AT4 and AT7 are retired.  Each test prints PASS or
+FAIL.
 """
 
 from __future__ import annotations
@@ -239,8 +241,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
-    """Regenerated codes match the sample; rows record the arms' tunings."""
-    from experiments.state_prep_certification.distances import analyze
+    """Codes match the sample, the run keeps a copy that the analysis reads, and the tunings."""
 
     label_dir = directory
     label_dir.mkdir(parents=True, exist_ok=True)
@@ -250,15 +251,26 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     next(entry for entry in changed["anchors"] if entry["name"] == "qr79")["reference_d"] = 13
     assert codes.compare_with_sample(changed) == ["anchors: qr79 has another reference_d"]
 
-    # the analysis reads the run's copy of the sample, not the working tree's
-    (label_dir / "sample.json").write_text(json.dumps(changed))
-    assert analyze.load_sample(label_dir) == changed
     defaults = dataclasses.asdict(_tuning.SearchTuning())
     prior = dict(defaults, **EXPECTED_BZ_PRIOR)
     rows = _run_arms(label_dir, _entries(("golay",)))
     for row in rows.values():
         expected = prior if row["arm"] == "q_bz_prior" else defaults
         assert row["result"]["tuning"] == expected, row["arm"]
+
+    # the analysis reads the run's copy of the sample, not code_data/sample.json: with golay's
+    # reference distance changed in the copy, golay's arms disagree with it
+    copy_of_sample = copy.deepcopy(_sample())
+    next(e for e in copy_of_sample["anchors"] if e["name"] == "golay")["reference_d"] = 8
+    (label_dir / "sample.json").write_text(json.dumps(copy_of_sample))
+    out = label_dir / "analysis"
+    script = pathlib.Path(__file__).with_name("analyze.py")
+    command = [sys.executable, str(script), "--label-dir", str(label_dir), "--out", str(out)]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    with open(out / "families.csv") as file:
+        (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
+    assert (anchors["codes"], anchors["disagreement"]) == ("1", "1"), anchors
 
 
 @test
@@ -329,8 +341,8 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     (golay,) = _entries(("golay",))
     for arm in arms.ARMS:
         assert experiment.worst_case_s(experiment._task(arm, golay, 0)) == task_cost
-    smoke = experiment.tasks(directory, "smoke")
-    hours = len(smoke) * (run_cost + 2 * task_cost) / 3600
+    # the smoke subset: four anchors, each with both arms
+    hours = 8 * (run_cost + 2 * task_cost) / 3600
     match = re.search(r"ceiling ([\d,.]+) CPU-hours", approved.stdout)
     assert match and float(match.group(1).replace(",", "")) == round(hours, 1), approved.stdout
 
@@ -473,6 +485,17 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     with open(out / "families.csv") as file:
         (hgp,) = [row for row in csv.DictReader(file) if row["family"] == "hgp"]
     assert (hgp["median_R_T"], hgp["both > L"], hgp["failure"]) == (">=2", "1", "2"), hgp
+    # the figure omits the disagreements, failures, and incomplete timings: golay, qr79, qr47,
+    # third, fourth, and pp110
+    assert json.loads((out / "figure_notes.json").read_text()) == {"T": 6}
+
+    # a label directory without a copy of the sample, as from before runs kept one, is refused
+    try:
+        analyze.load_sample(directory)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a label directory without sample.json was analyzed")
 
     # pp110's flagged first run leaves R_T incomplete and its T cell "compiled"; surface9's flagged
     # timed-out repeat is left out of the median and of repeats_unfinished
