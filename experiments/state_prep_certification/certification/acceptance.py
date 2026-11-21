@@ -52,21 +52,22 @@
   whose enumerated combinations differ from A_m, each make their circuit a disagreement, as does a
   baseline stopped after a violation at weight m against a finished certification whose smallest
   violation is not at m.  An expected task without a row is reported as ``missing``.  Rows with
-  ``compiled_in_timing`` set give the statuses, verdict, table counts, and times that
+  ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and times that
   ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
   whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
   first run that finished.  With two of these rows marked as rows of ``--local`` runs,
   ``analyze.py`` refuses the label without ``--allow-local``, and with it, every output says how
   many it includes.  Every case of the combined margin of ``analyze_applications.py`` gives
-  its value, its bound, or a disagreement, and a footnoted margin keeps its sector.  A margin or a
-  deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
+  its value, its bound, or a disagreement, and a margin of at most t keeps its sector.  A margin or
+  a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
   makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
-  so also when its verdict is only in the partial results of a killed task.  The whole margin column
-  of one family is checked, and the footnote lists m* = t, but not m* = t + 1 or a disagreement.
+  so also when its verdict is only in the partial results of a killed task.  The margin counts of
+  one family are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a
+  disagreement.
   The deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave
-  the rebuild unchecked for an input that is not the label's, exclude a disagreement from the table
-  but list its task, list an uncertified parent, and give a timeout and a flagged timeout their
-  statuses.
+  the rebuild unchecked for an input that is not the label's, exclude a disagreement from
+  ``deletion_table.csv`` but list its task, list an uncertified parent, and give a timeout and a
+  flagged timeout their statuses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -479,10 +480,10 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     """Analysis of synthetic rows: partial counts, disagreements, missing tasks, flagged rows."""
     # six B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
     # times out; the ground truth of the second and the baseline of the third disagree on a count,
-    # and both violate at 3, so the box would prefer either of them over the first if they agreed;
-    # the fourth certifies, and its cert_cc task has no row.  The certifications and baselines of
-    # the fifth and sixth time out, and the rows of the fifth's cert_bz and brute_bz runs have
-    # compiled_in_timing set (rows of retries that compiled too).
+    # and both violate at 3, so the example counterexample of their group would be either of them,
+    # not the first, if they agreed; the fourth certifies, and its cert_cc task has no row.  The
+    # certifications and baselines of the fifth and sixth time out, and the rows of the fifth's
+    # cert_bz and brute_bz runs have compiled_in_timing set (rows of retries that compiled too).
     first, second, third, fourth, fifth, sixth = (
         experiment._entry(f"bcat.w{w}.t2") for w in (10, 11, 12, 13, 14, 15)
     )
@@ -551,7 +552,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         partial=[class_parameters, {"m": 2, "Pi": 1, "E": 0, "Phi": 40}],
     )
 
-    # Phi_2 = A_2 on the second and third circuits would raise the listing table's maximum
+    # Phi_2 = A_2 on the second and third circuits would raise listing_table.csv's maximum
     for entry, phi in ((second, 400), (third, 400), (fourth, 80)):
         counts = listing | {"Phi": listing["Phi"] | {"2": phi}}
         add(entry, "count_listing", "ok", 1.0, counts | class_parameters | {"K_prime": 3})
@@ -575,14 +576,14 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         add(fifth, arm, "timeout", 1800.0, compiled=arm != "cert_cc")
         add(sixth, arm, "timeout", 1800.0)
 
-    # analyze the rows, and read the tables
+    # analyze the rows, and read summary.csv, per_weight.csv, and families.csv
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     by_id = {entry["id"]: entry for entry in entries}
     out = directory / "analysis"
     out.mkdir(parents=True, exist_ok=True)
     analyze.write_outputs(analyze.collect(rows, by_id, expected), by_id, out)
     tables = {}
-    for name in ("summary", "per_weight", "main_table"):
+    for name in ("summary", "per_weight", "families"):
         with open(out / f"{name}.csv") as file:
             tables[name] = list(csv.DictReader(file))
 
@@ -641,7 +642,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         "timeout",
         "undecided",
     )
-    (family,) = tables["main_table"]
+    (family,) = tables["families"]
     keys = ("timeout_compiled_cert_bz", "timeout_cert_bz", "timeout_compiled", "undecided")
     assert [family[key] for key in (*keys, "brute_timed_out")] == ["1"] * 5, family
 
@@ -1219,7 +1220,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     expected = {"echen", "cgoto", "aft.steane.heuristic_opt", "aft.shor.heuristic_opt"}
     assert disagreements == expected, disagreements
 
-    # the margin column of one family with t = 2, as (m*, lower bound, verdict)
+    # the margin counts of one family with t = 2, as (m*, lower bound, verdict)
     column = [
         (2, None, "certified"),
         (3, None, "certified"),
@@ -1231,7 +1232,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     ]
     keys = ("margin", "margin_lower_bound", "verdict")
     column_rows = [{"t": 2} | dict(zip(keys, row)) for row in column]
-    assert analyze_applications.margin_column(column_rows) == {
+    assert analyze_applications.margin_counts(column_rows) == {
         "margin_at_most_t": 1,
         "margin_t_plus_1": 1,
         "margin_at_least_t_plus_2": 1,
@@ -1271,7 +1272,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
         for circuit_id, arm_rows in arms.items()
     }
-    # the footnote lists m* = t, and leaves out m* = t + 1 and a disagreement
+    # margin_violations.csv lists m* = t, and leaves out m* = t + 1 and a disagreement
     margins = {reduced_id: (2, "certified"), "aft.steane.heuristic_opt": (3, "certified")}
     margins["aft.steane.opt_opt"] = (1, "disagreement")
     summary_rows = [
@@ -1293,16 +1294,16 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     with open(out / "deletion_tasks.csv") as file:
         tasks = {row["id"]: row["disagreement"] for row in csv.DictReader(file)}
     assert tasks == dict.fromkeys(table, "False") | {"aft.steane.opt_opt": "True"}, tasks
-    caption = json.loads((out / "deletion_caption.json").read_text())
-    assert [entry["id"] for entry in caption["not_certified_at_t"]] == ["cgoto"], caption
-    assert caption["unfinished"][0]["final_checks"] == checks, caption
+    notes = json.loads((out / "deletion_notes.json").read_text())
+    assert [entry["id"] for entry in notes["not_certified_at_t"]] == ["cgoto"], notes
+    assert notes["unfinished"][0]["final_checks"] == checks, notes
     # a deletion run's plain and flagged timeouts
-    statuses = {entry["id"]: entry["status"] for entry in caption["unfinished"]}
-    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, caption
-    assert caption["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], caption
-    mismatches = caption["rebuild_mismatches"]
-    assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], caption
-    with open(out / "margin_footnote.csv") as file:
+    statuses = {entry["id"]: entry["status"] for entry in notes["unfinished"]}
+    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, notes
+    assert notes["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], notes
+    mismatches = notes["rebuild_mismatches"]
+    assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], notes
+    with open(out / "margin_violations.csv") as file:
         assert [row["id"] for row in csv.DictReader(file)] == [reduced_id]
     stim.Circuit((out / "pruned" / f"prune.{reduced_id}.stim").read_text())
 

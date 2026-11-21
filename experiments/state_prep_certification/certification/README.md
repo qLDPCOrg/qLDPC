@@ -104,21 +104,21 @@ On the node, `node.sh certification --approved-cpu-hours H` runs the subset `mai
 The ceiling of `main` follows from `circuits.json`: each run costs at most its start-up cap, its limit, its post-processing allowance, and the grace, and a fast run of `cert_bz`, `cert_cc`, or `brute_bz` gets two repeats.
 The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) explains.
 `run_node.py certification --dry-run` prints the tasks and the ceiling of the current `circuits.json`.
-On the workstation, `analyze.py --archive PATH --check-archive PATH` writes the tables and counterexamples; without the archive of `check`, the tables report the ground truth as not run.
+On the workstation, `analyze.py --archive PATH --check-archive PATH` writes its CSV files, among them `summary.csv`, `families.csv`, and `listing_table.csv`, and `counterexamples.json`; without the archive of `check`, they report the ground truth as not run.
 It takes the circuits and their parameters from the label's copy of `circuits.json`, and stops if the label of `check` ran with another one.
 If a label does not match its `circuits.json` and the working tree's `config.json` and `pins.json`, it prints a warning and analyzes the label anyway.
-Its outputs include `listing_table.csv`, the listed faults and oracle rows against all accepted combinations per family and weight; and `counterexamples.json`, every counterexample and the box of three example counterexamples.
-It reports every task without a row as missing, and leaves every circuit with a disagreement out of the verdict counts, medians and maxima, `listing_table.csv`, and the box.
+Its outputs include `listing_table.csv`, the listed faults and oracle rows against all accepted combinations per family and weight; and `counterexamples.json`, every counterexample, and three example counterexamples, one per group, chosen by a fixed rule.
+It reports every task without a row as missing, and leaves every circuit with a disagreement out of the verdict counts, medians and maxima, `listing_table.csv`, and the example counterexamples.
 Where A_m was not computed, `listing_table.csv` divides by C(N_0, m) instead, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
 The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, disagreements with the baseline and the ground truth, a task without a row, and rows with `compiled_in_timing` set.
 
 `analyze_applications.py` adds the margins and the deletions.
 `summary.csv` gives each circuit's combined margin: the column `margin` holds the m* or "all" that `cert_bz`, `cert_cc`, and the `margin` arm determine; if none determines it, the column `margin_lower_bound` holds the largest certified fault weight k, meaning m* > k.
 The determined values must agree and exceed every certified fault weight; otherwise the circuit is a disagreement, as it is when a deletion parent's verdict differs from `cert_bz`'s or CC does not certify a final circuit.
-`main_table.csv` gets the margin column: per family, the circuits with m* <= t, m* = t + 1, m* >= t + 2, "all", m* > k, and no information on m*.
-`margin_footnote.csv` lists the circuits with m* <= t, with the residual weights of the X and Z parts of their counterexamples, since the property certified here bounds both parts, whereas the verification of a circuit's source may target only one part.
+`families.csv` gets the margin counts: per family, the circuits with m* <= t, m* = t + 1, m* >= t + 2, "all", m* > k, and no information on m*.
+`margin_violations.csv` lists the circuits with m* <= t, with the residual weights of the X and Z parts of their counterexamples, since the property certified here bounds both parts, whereas the verification of a circuit's source may target only one part.
 `deletion_table.csv` has one row per finished deletion task whose parent is certified at K = t, on a circuit without a disagreement, with the gate counts, measured qubits, measurements, and acceptance probabilities of parent and final circuit; it compares each final circuit only with its parent.
-`deletion_caption.json` lists the deletion orders, the BB [[72,12,6]] inputs, the parents not certified at K = t, the tasks that did not finish, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every finished task whose parent is certified at K = t, disagreements included, and `pruned/` holds the final circuits of the table.
+`deletion_notes.json` lists the deletion orders, the parents not certified at K = t, the tasks that did not finish, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every finished task whose parent is certified at K = t, disagreements included, and `pruned/` holds the final circuits of `deletion_table.csv`.
 
 ## Attributions and licenses
 

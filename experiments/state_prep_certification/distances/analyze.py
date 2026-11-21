@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Analyze a run of the distance experiment: ratios, family tables, the figure, and summary.csv.
+"""Analyze a run of the distance experiment: summary.csv, families.csv, anchors.csv, distances.pdf.
 
     python analyze.py (--archive PATH | --label-dir DIR) [--out DIR] [--allow-local]
 
@@ -32,9 +32,9 @@ A value above 1.2 is *faster* (the arm with everything on is faster), below 1/1.
 otherwise *similar*; a lower bound is faster if it exceeds 1.2 and *inconclusive* otherwise, and an
 upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
-For each family, the table gives the counts of each class of R_T and the median of R_T over the
-codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
-"<=" if upper bounds are, and omitted if there are both.  The table also gives the number of these
+For each family, ``families.csv`` gives the counts of each class of R_T and the median of R_T over
+the codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only
+bounds, "<=" if upper bounds are, and omitted if there are both.  It also gives the number of these
 ratios, and how many of them are lower bounds and how many upper bounds.  The anchors' row gives the
 counts of each class only; anchors are reported per code and never pooled with the families.
 
@@ -44,13 +44,13 @@ does not change the analysis of an earlier run.
 
 Outputs in ``--out`` (by default ``analysis/`` in the label directory, which is a temporary
 directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``families.csv``,
-``anchors.csv``, ``distances.pdf`` (a log-log panel of T, prior against on), and
-``figure_notes.json`` (the number of codes that the panel omits, for lack of a value, or for a
-disagreement, a failure, or an incomplete timing).
+``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on), and
+``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or for
+a disagreement, a failure, or an incomplete timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
 ``--allow-local``.  It then marks every output with their number: a ``local_rows`` column in each
-CSV file, a ``local_rows`` key in ``figure_notes.json``, and the panel's title.
+CSV file, a ``local_rows`` key in ``figure_notes.json``, and the title of ``distances.pdf``.
 """
 
 from __future__ import annotations
@@ -268,7 +268,7 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 ####################################################################################################
-# families, tables, and the figure
+# summary.csv, families.csv, anchors.csv, and distances.pdf
 
 
 def write_outputs(
@@ -277,7 +277,7 @@ def write_outputs(
     out: pathlib.Path,
     local_rows: int = 0,
 ) -> None:
-    """Write summary.csv, families.csv, anchors.csv, and the figure.
+    """Write summary.csv, families.csv, anchors.csv, distances.pdf, and figure_notes.json.
 
     With ``local_rows``, the number of rows of ``--local`` runs, every output says so.
     """
@@ -431,7 +431,7 @@ def _as_list(value: Any) -> list[Any]:
 
 
 def _plot(pairs: list[dict[str, Any]], out: pathlib.Path, local_rows: int) -> None:
-    """A log-log panel of T, with the prior arm's T on the x axis and the on arm's on the y axis."""
+    """A log-log plot of T, with the prior arm's T on the x axis and the on arm's on the y axis."""
     import matplotlib
 
     matplotlib.use("Agg")

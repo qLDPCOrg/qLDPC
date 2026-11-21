@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Analyze a run of the certification experiment: tables and the counterexample box.
+"""Analyze a run of the certification experiment: its CSV files and counterexamples.
 
     python analyze.py (--archive PATH | --label-dir DIR)
         [--check-archive PATH | --check-label-dir DIR] [--out DIR] [--allow-local]
 
-The analysis is descriptive: tables and medians, with every timeout, memout,
-error, missing run, and disagreement in the tables.  The ground truth runs in the subset
+The analysis is descriptive: counts and medians, with every timeout, memout,
+error, missing run, and disagreement in its CSV files.  The ground truth runs in the subset
 ``check``, which has its own label directory and archive; ``--check-label-dir`` or
 ``--check-archive`` adds its ``ground_truth`` rows to those of the analyzed run, if any.
 
@@ -29,13 +29,13 @@ because it compiled.  A circuit's verdict is that of ``cert_bz``, or of ``cert_c
 either arm's status is ``timeout_compiled``.  It is a disagreement where both finish with different
 verdicts, or where the baseline or the ground truth disagrees (``agree_baseline`` or
 ``agree_ground_truth`` is false).  A disagreement enters no count of verdicts and no median,
-maximum, or ratio of the main table, nor the listing table or the counterexample box.  The status
-counts and agreements count it.  T of a certification arm is the median of its first run and
-repeats.  Its timing is incomplete if the first run did not finish, if a repeat that the first run
-calls for did not finish or is missing, or if the row of any of its runs has ``compiled_in_timing``
-set; an incomplete timing enters no median or maximum.  The same holds for the brute-force baseline
-``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its per-weight times are left
-empty.
+maximum, or ratio of ``families.csv``, nor ``listing_table.csv`` or the example counterexamples.
+The status counts and agreements count it.  T of a certification arm is the median of its first
+run and repeats.  Its timing is incomplete if the first run did not finish, if a repeat that the
+first run calls for did not finish or is missing, or if the row of any of its runs has
+``compiled_in_timing`` set; an incomplete timing enters no median or maximum.  The same holds for
+the brute-force baseline ``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its
+per-weight times are left empty.
 
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
@@ -45,7 +45,7 @@ circuits, or "not run" where no circuit of the family has rows of the arm compar
 
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
 
-* ``main_table.csv``, one row per family:
+* ``families.csv``, one row per family:
 
   - ``circuits``;
   - ``certified_at_t``: circuits certified at K = t, as their verdict at K = t + 1 is certified or
@@ -100,19 +100,20 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   their ratios are at most the true ones, and so are the medians and maxima, which are then lower
   bounds on those of Phi_m / A_m and Omega_m / A_m.  Beside them are the medians, over the circuits
   with Phi_m, of the parameters that the listing depends on: the heavy share h / N_0, the unflagged
-  share z / N_0, the start classes q_h, and the flag rank r.  The table describes when Phi_m is
-  small against A_m; it fits nothing.
+  share z / N_0, the start classes q_h, and the flag rank r.  ``listing_table.csv`` describes when
+  Phi_m is small against A_m; it fits nothing.
 * The margins and deletions (``analyze_applications.py``): the combined margin m* of each circuit
   and its agreement in ``summary.csv`` (``margin``, ``margin_lower_bound``, ``agree_margin``, and
-  the sector of its counterexample), with ``agree_prune`` for its deletion tasks; the margin column
-  of ``main_table.csv``; and ``margin_footnote.csv``, ``deletion.csv``, ``deletion_table.csv``,
-  ``deletion_tasks.csv``, ``deletion_caption.json``, and ``pruned/``.  A disagreement of the margins
+  the sector of its counterexample), with ``agree_prune`` for its deletion tasks; the margin counts
+  of ``families.csv``; and ``margin_violations.csv``, ``deletion.csv``, ``deletion_table.csv``,
+  ``deletion_tasks.csv``, ``deletion_notes.json``, and ``pruned/``.  A disagreement of the margins
   or the deletions makes the circuit a disagreement.
-* ``counterexamples.json``: every counterexample, with ``disagreement`` true where its circuit is a
-  disagreement, and the box, three example counterexamples: in each of the groups
-  A-unv with the weakened variants of A-ft, B-cat, and D-synth with its weakened variants, the
-  counterexample of ``cert_bz`` of largest smallest-violation weight on a circuit without a
-  disagreement, ties to the smallest N_0 of ``circuits.json``.
+* ``counterexamples.json``: every counterexample (``all``), with ``disagreement`` true where its
+  circuit is a disagreement, and three example counterexamples (``examples``), one per group,
+  chosen by a fixed rule: in each of the groups A-unv with the weakened variants of A-ft, B-cat,
+  and D-synth with its weakened variants, the counterexample of ``cert_bz`` of largest
+  smallest-violation weight on a circuit without a disagreement, ties to the smallest N_0 of
+  ``circuits.json``.
 """
 
 from __future__ import annotations
@@ -144,7 +145,7 @@ OVER_CAP = "not run (U > {})".format(
     f"1e{len(str(BRUTE_CAP)) - 1}" if str(BRUTE_CAP).rstrip("0") == "1" else BRUTE_CAP
 )
 
-# The arms whose timeouts, memouts, and errors the tables report.
+# The arms whose timeouts, memouts, and errors summary.csv and families.csv report.
 REPORTED_ARMS = (
     "cert_bz",
     "cert_cc",
@@ -158,14 +159,15 @@ REPORTED_ARMS = (
     "prune_sensitivity",
 )
 
-# The statuses of an arm's first run that the main table counts per arm (see ``_status``).
+# The statuses of an arm's first run that families.csv counts per arm (see ``_status``).
 COUNTED_STATUSES = ("timeout", "timeout_compiled", "memout", "error", "missing")
 
 # The fields of ``circuits.json`` that hold the parameters of ``summary.csv`` by another name.
 CIRCUIT_FIELDS = {"p": "num_post_selection_detectors", "N": "num_mechanisms"}
 
-# The groups of the box, as sets of (family, family of the parent of a weakened variant).
-BOX_GROUPS: dict[str, set[tuple[str, str | None]]] = {
+# The groups of the example counterexamples, as sets of (family, family of a weakened variant's
+# parent).
+EXAMPLE_GROUPS: dict[str, set[tuple[str, str | None]]] = {
     "A-unv/W": {("A-unv", None), ("W", "A-ft")},
     "B-cat": {("B-cat", None)},
     "D-synth/W": {("D-synth", None), ("W", "D-synth")},
@@ -207,7 +209,7 @@ def write_outputs(
     out: pathlib.Path,
     local_rows: int = 0,
 ) -> None:
-    """Write the tables and counterexamples of the circuits that ``collect`` gives.
+    """Write every output of the circuits that ``collect`` gives, as the module docstring lists.
 
     Every output takes each circuit's verdict from the rows of summary.csv.  With ``local_rows``,
     the number of rows of ``--local`` runs, every output says so.
@@ -421,7 +423,7 @@ def _missing_row(task: dict[str, Any]) -> dict[str, Any]:
 
 
 ####################################################################################################
-# tables
+# summary.csv, per_weight.csv, families.csv, and listing_table.csv
 
 
 def summarize(
@@ -510,10 +512,10 @@ def summarize(
 def write_tables(
     summary_rows: list[dict[str, Any]], weight_rows: list[dict[str, Any]], out: pathlib.Path
 ) -> None:
-    """Write summary.csv, per_weight.csv, main_table.csv, and listing_table.csv."""
+    """Write summary.csv, per_weight.csv, families.csv, and listing_table.csv."""
     _write_csv(out / "summary.csv", summary_rows)
     _write_csv(out / "per_weight.csv", weight_rows)
-    _write_csv(out / "main_table.csv", _main_table(summary_rows))
+    _write_csv(out / "families.csv", _family_rows(summary_rows))
     _write_csv(out / "listing_table.csv", listing_table(summary_rows, weight_rows))
 
 
@@ -802,7 +804,7 @@ def _first_run_time(arm: dict[str, Any], seconds: float | None) -> float | None:
     return None if arm["first_compiled"] else seconds
 
 
-def _main_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _family_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One row per family."""
     table = []
     for family in sorted({row["family"] for row in rows}):
@@ -872,7 +874,7 @@ def _main_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "agreement_ground_truth": _agreement(
                     members, "agree_ground_truth", ("ground_truth",)
                 ),
-                **analyze_applications.margin_column(members),
+                **analyze_applications.margin_counts(members),
             }
         )
     return table
@@ -907,17 +909,17 @@ def write_counterexamples(
     circuits: dict[str, dict[str, Any]],
     out: pathlib.Path,
 ) -> None:
-    """Every counterexample, and the three of the box, by the fixed rule.
+    """Every counterexample, and three example counterexamples, one per group, by a fixed rule.
 
     ``verdicts`` holds each circuit's verdict, as in summary.csv.  A counterexample on a circuit
-    with a disagreement is listed, marked as such, but never enters the box.
+    with a disagreement is listed, marked as such, but is never an example.
     """
-    examples = []
+    counterexamples = []
     for circuit_id, entry in sorted(per_circuit.items()):
         for arm in ("cert_bz", "cert_cc"):
             run = summarize_certification(entry["arms"].get(arm))
             if run["status"] == "ok" and not run["result"].get("certified", True):
-                examples.append(
+                counterexamples.append(
                     {
                         "id": circuit_id,
                         "family": entry["circuit"]["family"],
@@ -937,20 +939,20 @@ def write_counterexamples(
                         },
                     }
                 )
-    box = {}
-    for name, group in BOX_GROUPS.items():
+    examples = {}
+    for name, group in EXAMPLE_GROUPS.items():
         members = [
-            example
-            for example in examples
-            if example["arm"] == "cert_bz"
-            and not example["disagreement"]
-            and (example["family"], example["parent_family"]) in group
+            counterexample
+            for counterexample in counterexamples
+            if counterexample["arm"] == "cert_bz"
+            and not counterexample["disagreement"]
+            and (counterexample["family"], counterexample["parent_family"]) in group
         ]
         if members:
             best = max(members, key=lambda e: (e["violation_weight"] or 0, -(e["N0"] or 0)))
-            box[name] = best["id"]
+            examples[name] = best["id"]
     (out / "counterexamples.json").write_text(
-        json.dumps({"box": box, "all": examples}, indent=1) + "\n"
+        json.dumps({"examples": examples, "all": counterexamples}, indent=1) + "\n"
     )
 
 

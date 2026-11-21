@@ -22,24 +22,22 @@ disagreement.  The final circuit is rebuilt from the parent's input in ``circuit
 the accepted deletions, and compared with its recorded SHA-256, if that input is the one that the
 label ran on.
 
-Outputs, besides the margin fields of ``summary.csv`` and the margin column of ``main_table.csv``:
+Outputs, besides the margin fields of ``summary.csv`` and the margin counts of ``families.csv``:
 
-* ``margin_footnote.csv``: each circuit with m* <= t, with the residual weights of the X and Z parts
-  of its counterexample and the parts that exceed its fault weight, for the footnote of the margin
-  column.
+* ``margin_violations.csv``: each circuit with m* <= t, with the residual weights of the X and Z
+  parts of its counterexample and the parts that exceed its fault weight.
 * ``deletion.csv``: every step of every deletion task, with its outcome.
-* ``deletion_tasks.csv``: the fields of the deletion table for every finished deletion task whose
-  parent is certified at K = t, with whether its circuit is a disagreement.
+* ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every finished deletion task
+  whose parent is certified at K = t, with whether its circuit is a disagreement.
 * ``deletion_table.csv``: one row per finished deletion task whose parent is certified at K = t, on
   a circuit without a disagreement, the BB [[72,12,6]] rows first: the family, with the MQT QECC
   release of a synthesized circuit, gate counts (encoder and verification), measured qubits,
   measurements, and acceptance probabilities of parent and final circuit, the final m*, and the
   deletions attempted and accepted.
-* ``deletion_caption.json``: each arm's deletion order, the BB [[72,12,6]] inputs of the table
-  (empty if the table has no BB [[72,12,6]] row), the parents not certified at K = t, the tasks that
-  did not finish with their completed steps and any final checks, the disagreements, and the final
-  circuits whose rebuild does not match.
-* ``pruned/<arm>.<id>.stim``: each final circuit of the deletion table.
+* ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the tasks
+  that did not finish with their completed steps and any final checks, the disagreements, and the
+  final circuits whose rebuild does not match.
+* ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.
 """
 
 from __future__ import annotations
@@ -129,10 +127,10 @@ def margin_fields(
     return fields
 
 
-def margin_column(members: list[dict[str, Any]]) -> dict[str, Any]:
-    """The margin column of one family of the main table, over its circuits without disagreement.
+def margin_counts(members: list[dict[str, Any]]) -> dict[str, Any]:
+    """The margin counts of one family in families.csv, over its circuits without disagreement.
 
-    It counts the circuits with m* <= t (``margin_at_most_t``, listed in margin_footnote.csv),
+    It counts the circuits with m* <= t (``margin_at_most_t``, listed in margin_violations.csv),
     m* = t + 1, m* >= t + 2 (with the values that occur, as "m*/t: count"), "all", m* > k (with the
     range of k), and no information on m*.
     """
@@ -199,13 +197,13 @@ def write_applications(
     out: pathlib.Path,
     inputs: pathlib.Path = INPUTS,
 ) -> None:
-    """Write margin_footnote.csv and the deletion outputs; see the module docstring."""
+    """Write margin_violations.csv and the deletion outputs; see the module docstring."""
     from experiments.state_prep_certification.certification import applications
     from experiments.state_prep_certification.certification.analyze import _status, _write_csv
 
-    # the circuits of the footnote of the margin column
+    # the circuits with m* <= t
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
-    footnote = [
+    violations = [
         {
             key: row.get(key)
             for key in (
@@ -223,12 +221,12 @@ def write_applications(
         and isinstance(row["margin"], int)
         and row["margin"] <= row["t"]
     ]
-    _write_csv(out / "margin_footnote.csv", footnote)
+    _write_csv(out / "margin_violations.csv", violations)
 
-    # each deletion task's steps, its row of deletion_tasks.csv, and its row of the table or its
-    # entry in the caption
+    # each deletion task's steps, its row of deletion_tasks.csv, and its row of deletion_table.csv
+    # or its entry in deletion_notes.json
     steps, table, tasks = [], [], []
-    caption: dict[str, Any] = {
+    notes: dict[str, Any] = {
         "order": applications.PRUNE_ORDERS,
         "not_certified_at_t": [],
         "unfinished": [],
@@ -255,9 +253,9 @@ def write_applications(
                 row = _table_row(circuit_id, circuit, arm, result, rebuilt)
                 tasks.append(row | {"disagreement": disagreement})
             if disagreement:
-                caption["disagreements"].append({"id": circuit_id, "arm": arm})
+                notes["disagreements"].append({"id": circuit_id, "arm": arm})
             elif parent is not None and not parent["parent_certified"]:
-                caption["not_certified_at_t"].append(
+                notes["not_certified_at_t"].append(
                     {
                         "id": circuit_id,
                         "arm": arm,
@@ -274,18 +272,17 @@ def write_applications(
                 checks = _final_checks(run)
                 if checks is not None:
                     unfinished["final_checks"] = checks
-                caption["unfinished"].append(unfinished)
+                notes["unfinished"].append(unfinished)
             else:
                 if row["rebuild_matches"] is False:
-                    caption["rebuild_mismatches"].append({"id": circuit_id, "arm": arm})
+                    notes["rebuild_mismatches"].append({"id": circuit_id, "arm": arm})
                 (out / "pruned" / f"{arm}.{circuit_id}.stim").write_text(result["final_circuit"])
                 table.append(row)
     table.sort(key=lambda row: ("bb72" not in row["id"], row["id"], row["arm"]))
-    caption["bb72_inputs"] = sorted({row["id"] for row in table if "bb72" in row["id"]})
     _write_csv(out / "deletion.csv", steps)
     _write_csv(out / "deletion_table.csv", table)
     _write_csv(out / "deletion_tasks.csv", tasks)
-    (out / "deletion_caption.json").write_text(json.dumps(caption, indent=1) + "\n")
+    (out / "deletion_notes.json").write_text(json.dumps(notes, indent=1) + "\n")
 
 
 def _final_checks(run: dict[str, Any]) -> dict[str, Any] | None:
@@ -318,7 +315,7 @@ def _table_row(
     result: dict[str, Any],
     rebuilt: bool | None,
 ) -> dict[str, Any]:
-    """The row of the deletion table of one finished deletion task."""
+    """The row of deletion_table.csv of one finished deletion task."""
     row: dict[str, Any] = {
         "id": circuit_id,
         "arm": arm,

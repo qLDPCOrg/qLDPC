@@ -36,7 +36,7 @@ is still alive.  It also refuses to start, and ``--cleanup`` refuses to act, whi
 ``active/`` directory lists a run of another host, which this host can neither see nor stop.  A
 start refuses a machine whose CPU model differs from the one in the label's manifest, so that one
 label never mixes the times of two CPU models; another host with the same CPU model may resume,
-since the allocations of one cluster can get new hostnames, and ``starts.jsonl`` records each
+since a machine's hostname can change between its allocations, and ``starts.jsonl`` records each
 start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run it
 once with ``--cleanup``, which kills every run still listed in the label's ``active/`` directory, if
 its processes are still the ones recorded.  ``--status`` prints the progress of the label.

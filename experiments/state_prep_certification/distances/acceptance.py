@@ -480,7 +480,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         "lp": ("-", "2", "1", "1"),
         "anchors": ("-", "-", "-", "-"),
     }, medians
-    # the figure omits the disagreements, failures, and incomplete timings: golay, qr79, qr47,
+    # distances.pdf omits the disagreements, failures, and incomplete timings: golay, qr79, qr47,
     # third, fourth, and pp110
     assert json.loads((out / "figure_notes.json").read_text()) == {"T": 6}
 

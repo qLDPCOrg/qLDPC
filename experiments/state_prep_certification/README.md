@@ -58,7 +58,7 @@ The ceiling of CPU-hours that an experiment needs approved allows for the runner
 
 ## Workflow
 
-Each experiment's data, such as its codes or circuits, lives outside qLDPC, in a directory that Git ignores and that may be a symlink, as the experiment's README says.
+Each experiment's data, such as its codes or circuits, are not committed: the experiment reads them from a directory that Git ignores and that may be a symlink, as the experiment's README says.
 On the workstation, make or link the experiment's data, and check it as its README says, such as with `circuits.py --check`.
 Then build the bundle, which carries the data, and note its checksum:
 

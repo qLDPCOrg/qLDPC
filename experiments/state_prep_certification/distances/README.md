@@ -25,7 +25,7 @@ The connected-cluster (CC) search is not compared here: the certification experi
 - the named anchors of `ANCHORS` in `codes.py`, most with a reference distance.
 
 `code_data/endpoints.json` records each family's endpoints with its source, and `code_data/sample.json` fixes the name, parameters, seed, and hashes of every code and anchor.
-Git ignores `code_data/`, which lives with the experiment's other data outside qLDPC, and which the offline bundle carries.
+The data in `code_data/` are not committed: the experiment reads them from that directory, which Git ignores, and the offline bundle carries it.
 `endpoints.json` is written by hand.
 `codes.py --write-sample` overwrites the frozen `sample.json`, so run it only to refreeze the sample; use `--check` otherwise.
 The node regenerates the codes and stops on any difference in the codes from the sample.

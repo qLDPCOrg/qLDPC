@@ -75,8 +75,8 @@ The child side is ``child_main``.  The experiment's ``run(task, label_dir)`` cal
 around the measured call, may call ``send_partial`` with partial results as they arrive and
 ``send_result`` with the measured result before it starts post-processing, and returns the
 remaining fields.  On the node, the child runs in a new session, so that its process group holds
-the whole run; locally (``local=True``), it stays in the runner's session, so that a supervisor of
-the calling session can account for it and stop it, and kills walk its process tree instead.  In
+the whole run; locally (``local=True``), it stays in the runner's session, so that whatever watches
+or stops that session reaches it too, and kills walk its process tree instead.  In
 local mode, a process that the run leaves behind after a normal exit is neither killed nor
 reported.
 """
