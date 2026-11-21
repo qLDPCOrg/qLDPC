@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The scan of the words of one weight in a sector: its set-up, its loop, and its native chunks.
+"""The scan of the words of one weight in a sector: its set-up, its loop, and its compiled chunks.
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` counts the
 nontrivial words of one weight in a sector, and ``transport_basis_family`` moves a basis family of a
-sector through a local gate.  Sections cited in this module are those of
-``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 3.11 explains counts.
+sector through a local gate.  Sections cited in this module are those of ``brouwer_zimmermann.md``,
+whose Section 3.11 explains counts, and ``brouwer_zimmermann_code.md``.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def count_words(
 
     Returns a histogram over the exponents ``max_exponent - rank(rank_rows[:, mask])``, where
     ``mask`` is the support of a counted word, or its complement with ``complement``.  The caller
-    weighs each exponent by ``2**exponent``, which could overflow a native integer.  The scan also
+    weighs each exponent by ``2**exponent``, which could overflow a 64-bit integer.  The scan also
     visits every lighter word, and with ``reject_lighter`` returns None at the first that is
     nontrivial.  With ``brute_force``, it scans the whole basis rather than a basis family.
     """
@@ -261,10 +261,10 @@ def _get_next_step(
 class _StepTables:
     """The completion tables, if any, with which each step of a count skips completions.
 
-    A step of at least two rows of a set of ``basis_family`` whose block is an information set may
-    skip the supports whose words all weigh at least ``upper_bound``, the target weight plus one,
-    with tables that ``tuning`` chooses and keeps as Section 3.9 describes.  For brute force,
-    ``basis_family`` is None, and no step skips.
+    A step may skip completions if its layer has at least two rows, and the block of its set of
+    ``basis_family`` is an information set.  It skips the supports whose words all weigh at least
+    ``upper_bound``, the target weight plus one.  ``tuning`` chooses and keeps the tables, as
+    Section 3.9 describes.  For brute force, ``basis_family`` is None, and no step skips.
     """
 
     def __init__(
@@ -433,10 +433,10 @@ def _scan_coefficient_layers(
 
     Compiled code cannot be interrupted, so the scan resumes across calls.  ``cursor`` holds the
     layer, the set, and the depth at which to resume, ``support[:layer]`` the current support, and
-    ``prefixes`` its prefix XORs.
-    Every call passes the same ``cursor``, ``support``, ``prefixes``, and ``histogram``, and every
-    call of a step the same tables.  The first call passes a cursor at layer one, set zero, and
-    depth zero, and zero prefixes.  Returns how the call ended, as a ``_SCAN_*`` code.
+    ``prefixes`` its prefix XORs.  Every call passes the same ``cursor``, ``support``, ``prefixes``,
+    and ``histogram``, and every call of a step the same tables.  The first call passes a cursor at
+    layer one, set zero, and depth zero, and zero prefixes.  Returns how the call ended, as a
+    ``_SCAN_*`` code.
     """
     while True:
         # Visit the chunks of the step at the cursor.
@@ -528,7 +528,7 @@ def _transport_sets(
 
 
 ####################################################################################################
-# native kernels
+# compiled kernels
 
 
 @always_compiled
@@ -620,14 +620,14 @@ def _count_chunk_skipping(
 ) -> tuple[int, bool]:
     """Visit a chunk of a layer of at least two rows of one set, skipping hopeless completions.
 
-    The arguments are those of ``_count_chunk``, for a set whose block is an information set, except
-    for ``step_rows``, ``label_end``, and the tables.  Each row of ``step_rows`` holds ``label_end``
+    The set's block is an information set.  The arguments are those of ``_count_chunk``, except for
+    ``step_rows``, ``label_end``, and the tables.  Each row of ``step_rows`` holds ``label_end``
     machine words of its word and label, then its tail, the row without its pivot columns.
     ``tables``, ``offsets``, and ``block_bits`` index the tails.  Completions that the tables prove
-    heavier than ``target`` are skipped (Section 3.9), so words of weight ``target`` and lighter are
-    visited as ``_count_chunk`` visits them.  A chunk ends once its weighed supports and looked-up
-    bounds reach ``chunk_size`` together.  ``depth`` is ``len(support) - 1`` while the scan visits
-    last rows, and smaller while it chooses the rows before them.
+    heavier than ``target`` are skipped (Section 3.9).  So words of weight ``target`` and lighter
+    are visited as ``_count_chunk`` visits them.  A chunk ends once its weighed supports and
+    looked-up bounds reach ``chunk_size`` together.  ``depth`` is ``len(support) - 1`` while the
+    scan visits last rows, and smaller while it chooses the rows before them.
     """
     num_rows, total_width = step_rows.shape
     layer = len(support)

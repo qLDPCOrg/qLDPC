@@ -5,8 +5,8 @@
 The independent sets of columns of a binary basis form a linear matroid, whose bases are the
 information sets.  As in Section 5.1 of Lisoněk and Trummer (References of
 ``brouwer_zimmermann.md``), ``get_information_sets_with_coverage`` finds the most information sets
-that use no column more than ``b`` times, by partitioning ``b`` copies of each column into
-independent sets with Edmonds' matroid partitioning algorithm.  Section 4.4 of
+that use no column more than ``b = max_coverage`` times.  It partitions ``b`` copies of each column
+into independent sets with Edmonds' matroid partitioning algorithm.  Section 4.4 of
 ``brouwer_zimmermann_code.md`` says which searches use it.
 """
 
@@ -28,9 +28,9 @@ def get_information_sets_with_coverage(
 ) -> list[list[int]]:
     """Find the most information sets, up to ``max_sets``, that use no column too often.
 
-    With ``keep_partial``, a nonempty partial set, of fewer independent columns than the rows, may
-    follow the information sets, and counts toward ``max_sets``.  With coverage one, no other choice
-    of as many information sets leaves room for a larger one (Section 4.4 of
+    With ``keep_partial``, a last set that partitioning cannot fill to the number of rows is kept as
+    a partial set, unless it is empty, and counts toward ``max_sets``.  With coverage one, no other
+    choice of as many information sets leaves room for a larger partial set (Section 4.4 of
     ``brouwer_zimmermann_code.md``).
 
     Args:

@@ -375,7 +375,7 @@ def test_brouwer_zimmermann_subsystem_code() -> None:
 
 @pytest.mark.parametrize("length", [64, 65, 257])
 def test_brouwer_zimmermann_packed_widths(length: int) -> None:
-    """Information-set weights are exact across uint64 words and for weights above 255."""
+    """The weights of rows are exact across uint64 words and above 255."""
     generators = np.ones((1, length), dtype=np.uint8)
     assert (
         qldpc.codes.distance.get_distance_from_generators(
@@ -398,7 +398,7 @@ def test_a_search_of_an_mb_code_takes_overlapping_sets(
     """The X-sector search of a 64-qubit MB code takes overlapping sets, and finds the distance.
 
     Section 3.8 of ``brouwer_zimmermann.md`` works this example: overlapping sets do far less work
-    than the one information set of a disjoint family.
+    than the one set of a disjoint family.
     """
     # Remove the work gate of overlapping families, so that setup chooses between the families by
     # their predicted work alone.  Keep setup from partitioning, since a partitioned family can also
@@ -460,8 +460,8 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
 @pytest.mark.usefixtures("completion_tables")
 def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
     """A search scans every set that its certificate counts in the layer that holds the distance."""
-    # Both disjoint information sets certify weight six once they complete layer two, and the first
-    # word of weight five is in layer two of the second set.
+    # Both disjoint sets certify weight six once they complete layer two, and the first word of
+    # weight five is in layer two of the second set.
     rows = [
         "1000100010001101001110",
         "0100100010000111110000",
@@ -706,8 +706,8 @@ def test_a_witness_from_setup_lowers_the_shared_bound_once_its_search_advances(
 ) -> None:
     """A witness that setup finds in the rows of a family lowers ``best`` once its search advances.
 
-    The rows of the basis weigh four or more, and a row of the family's one information set, on the
-    first three columns, weighs three, the distance.  The words of layer two of that set weigh more.
+    The rows of the basis weigh four or more, and a row of the family's one set, on the first three
+    columns, weighs three, the distance.  The words of layer two of that set weigh more.
     """
     basis = np.array(
         [
@@ -1141,7 +1141,7 @@ def test_searches_reject_wrong_automorphisms(tune: Tune, partitions: bool) -> No
     """A permutation that does not preserve a sector fails loudly when a search would use it.
 
     The search asks for automorphisms before its first layer, or, if it may partition, when it is
-    built, to weigh partitioning against them (Section 3.7).
+    built, to weigh partitioning against them (Section 3.7 of ``brouwer_zimmermann.md``).
     """
     tune(partition_work_ratio=0 if partitions else MAX_VALUE)
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
@@ -1368,7 +1368,7 @@ def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(cut
 
 
 def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
-    """A layer that scans an information set and a set of deficient rank finds the lightest word."""
+    """A layer that scans a full set and a set of deficient rank finds the lightest word."""
     generators = np.array(
         [
             [1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1],
@@ -1534,11 +1534,15 @@ def test_searches_on_threads_find_the_distances_that_one_thread_finds(
 ) -> None:
     """Searches that split layers across threads find the distances of searches on one thread.
 
-    The searches are of a classical code, the [24, 12, 8] Golay code; of the X sector, and of both
-    sectors, of the [[25, 1, 5]] rotated surface code; of a [[16, 1, 4]] rotated surface code with
-    Hadamards on half of its qubits, which is not CSS; and of the [[25, 1, 5]] Bacon-Shor code, a
-    subsystem code (see https://arxiv.org/abs/quant-ph/0506023).  On one thread, they scan no work
-    items.
+    The searches are of:
+
+    - the [23, 11, 8] even-weight subcode of the [23, 12, 7] Golay code, a classical code;
+    - the X sector, and both sectors, of the [[25, 1, 5]] rotated surface code;
+    - a [[16, 1, 4]] rotated surface code with Hadamards on half of its qubits, which is not CSS;
+    - the [[25, 1, 5]] Bacon-Shor code, a subsystem code (see
+      https://arxiv.org/abs/quant-ph/0506023).
+
+    On one thread they call no ``scan_set_items``, and on more threads they do.
     """
     surface = qldpc.codes.SurfaceCode(5)
     small_surface = qldpc.codes.SurfaceCode(4)

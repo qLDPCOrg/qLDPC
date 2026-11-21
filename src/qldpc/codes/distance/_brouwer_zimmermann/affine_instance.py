@@ -5,8 +5,8 @@
 The distance search (``distance.py``) and the coset searches (``coset.py``) scan the words of an
 affine space: an offset plus sums of rows of a set.  Each search packs its problem once for each
 family in an :class:`AffineInstance`.  Sections cited in this module are those of
-``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 4.1 says how the
-searches use instances.
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.  Section 4.1 says how the searches use
+instances.
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def get_distance_instance(
 def get_coset_instance(
     generators: npt.NDArray[np.uint8], *, random_column_orders: int, weight_factor: int
 ) -> AffineInstance:
-    """Pack the disjoint information sets of independent generators for the coset search.
+    """Pack a disjoint basis family of the code of ``generators`` for the coset search.
 
     The rows keep every column, and the certificate has no weight divisor, even if the code has one
     (Section 3.2).  Without generators, each coset is a single word, which the search visits on

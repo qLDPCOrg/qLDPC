@@ -84,9 +84,8 @@ def get_distance_brouwer_zimmermann(
         tuning: The tuning that every search uses throughout.  Default: the active tuning.
 
     Returns:
-        The minimum of the distances of the sectors and ``upper_bound``, or, after an early exit
-        at ``cutoff``, the weight of a witness or ``upper_bound``, whichever is at most
-        ``cutoff``.
+        The minimum of the distances of the sectors and ``upper_bound``.  After an early exit, it is
+        a value at most ``cutoff``: the weight of a witness, or ``upper_bound``.
 
     Raises:
         ValueError: If there are neither sectors nor an upper bound, or if a generator from
@@ -182,9 +181,10 @@ class BrouwerZimmermannSearch:
     def get_next_layer_work(self) -> int:
         """The candidate/set evaluations of the layer that ``advance`` scans next, or zero if none.
 
-        This plans the layer as ``advance`` does, but leaves out what ``advance`` may do first:
-        lower the best weight with the rows of an automorphism family, which can shorten the layer,
-        and switch to that family, after which the layer scans one set.
+        This plans the layer as ``advance`` does, but leaves out what ``advance`` may first do with
+        an automorphism family.  Weighing the family's rows can lower the best weight, and so
+        shorten the layer.  Switching to the family makes ``advance`` scan layer two of the family's
+        one set rather than the layer planned here.
         """
         if self.finished:
             return 0
@@ -406,10 +406,10 @@ class _SectorSearch:
 
         The threads claim ranges of the work items of the layer in order, weighted by their numbers
         of supports.  Each thread scans in chunks of ``batch_size * num_threads`` supports and
-        lookups, and lowers the best weight after each chunk.  It starts each chunk from the best
-        weight so far, which skips more, but the best weight after the layer is the same as on one
-        thread whatever the chunks start from (Section 4.5).  Returns False if the scan stopped at
-        the cutoff.
+        lookups.  It starts each chunk from the shared best weight so far, so that the tables skip
+        more, and lowers that weight after the chunk.  Whatever weights the chunks start from, the
+        best weight after the layer is that of a scan on one thread (Section 4.5).  Returns False if
+        the scan stopped at the cutoff.
         """
         instance = self.instance
         generators = instance.generators[index]
@@ -438,8 +438,6 @@ class _SectorSearch:
                 )
                 last_item = items.get_item(end - 1)
 
-                # Start each chunk from the best weight so far, which skips more, and lower it after
-                # the chunk.
                 while depth >= 0 and not stop.is_set():
                     best, depth, _, _, _ = affine_search.scan_set_items(
                         *set_arguments,
@@ -488,8 +486,9 @@ class _SectorSearch:
     ) -> completion_bounds.CompletionTables:
         """Choose the completion tables of a layer of the set ``index``.
 
-        Only an information set can have tables.  The search frees the tables of any other set
-        before choosing, so that it holds those of one set at a time, and keeps the chosen tables.
+        Only a full set, one whose rank is the dimension, can have tables.  The search frees the
+        tables of any other set before choosing, so that it holds those of one set at a time, and
+        keeps the chosen tables.
 
         Returns:
             The chosen tables, or ``completion_bounds.NO_TABLES``.
@@ -694,6 +693,7 @@ def _prepare_sector_search(
         ),
     ):
         replacement = get_replacement(basis_family, best)
+        # An empty family means that this stage found no better family (Section 4.4).
         if not len(replacement.ranks):
             continue
         basis_family = replacement

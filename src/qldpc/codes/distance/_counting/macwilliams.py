@@ -35,8 +35,8 @@ class CheckEnumerators:
         checks_x: Independent X checks.
         checks_z: Independent Z checks that commute with the X checks.  If they are the same array
             as ``checks_x``, one distribution serves both spaces.
-        chunk_size: The largest number of steps that the walk of a check space takes in one native
-            call (see ``get_span_weights``).
+        chunk_size: The largest number of steps that the walk of a check space takes in one
+            compiled call (see ``get_span_weights``).
 
     Raises:
         ValueError: If a check space has more than ``2**63`` words.
@@ -103,7 +103,7 @@ class CheckEnumerators:
 def get_span_weights(generators: npt.NDArray[np.uint8], chunk_size: int) -> npt.NDArray[np.uint64]:
     """The number of words of each weight in the span of independent binary rows, as uint64s.
 
-    A native call cannot be interrupted, so the Gray-code walk of the span takes at most
+    A compiled call cannot be interrupted, so the Gray-code walk of the span takes at most
     ``chunk_size`` steps in each call.
     """
     rank, num_bits = generators.shape

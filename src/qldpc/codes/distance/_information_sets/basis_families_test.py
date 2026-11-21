@@ -22,7 +22,7 @@ from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning
 from ..conftest import assert_certificate_bounds_unvisited_words, get_random_full_rank_matrix
 from . import basis_families, certificates, matroid_partition
 
-# The default number of column orders of disjoint families.
+# The default number of random column orders of disjoint families.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
 
 # Two disjoint full blocks and a rank-two remainder.
@@ -579,8 +579,8 @@ def test_a_coverage_limit_of_one_skips_coverage_one_at_the_pruned_disjoint_rank_
         (with_zero, basis_families.prune_family(get_packing(with_zero), 5), 5, True),
         # The pruned packing has the limit of 7 information sets.
         (three_rows, basis_families.prune_family(get_packing(three_rows), 11), 11, True),
-        # The packing has an information set and a partial set of rank one, which pruning for the
-        # bound three drops.
+        # The packing has a full set and a partial set of rank one, which pruning for the bound
+        # three drops.
         (one_extra, basis_families.prune_family(get_packing(one_extra), 3), 3, True),
         # The packing also has ranks three and one, but the rows are even, so pruning for the bound
         # four drops a partial set of rank one, and the pruned maximum disjoint family replaces the

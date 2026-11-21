@@ -30,16 +30,12 @@ def get_sector_map(
 
     The permutation maps the row space of ``gauge_x`` onto that of ``gauge_z``, and that of
     ``gauge_z`` onto that of ``gauge_x``.  Entry ``j`` of the result is the image of qubit ``j``.
-    ``basis_x`` is the basis of the row space of ``gauge_x`` that ``get_independent_rows`` gives,
-    which the caller has already computed, and which a cheap test needs in reduced row echelon
-    form.  The result is the identity if the row spaces are equal.  Otherwise, with the optional
-    pybliss package, the result maps the nonzero rows of ``gauge_x``, counting repeats, one to one
-    onto those of ``gauge_z``, and those of ``gauge_z`` onto those of ``gauge_x``.  It is the first
-    of a few fixed permutations that does, or else one that bliss finds as an isomorphism of the
-    Tanner graph of the gauge generators (the checks of a stabilizer code).  So, unless the row
-    spaces are equal, the result is None if no permutation maps the two lists of nonzero rows onto
-    each other in this way, even if some permutation swaps the row spaces.  This happens, for
-    example, when only one list has a redundant row.  Every result passes ``maps_sectors``.
+    ``basis_x`` is the basis of the row space of ``gauge_x`` that ``get_independent_rows`` gives, in
+    reduced row echelon form.  The result is the identity if the row spaces are equal.  Otherwise,
+    if the optional pybliss package is installed, the result is a permutation that swaps the
+    multisets of nonzero rows of ``gauge_x`` and ``gauge_z``, if such a permutation exists.  In
+    every other case it is None, even if some permutation swaps the row spaces (section "Searching
+    one sector of a CSS code" of ``problems.md``).  Every result passes ``maps_sectors``.
     """
     # Swapped row spaces have equal ranks.  Row spaces of equal ranks are equal if one holds the
     # other, which a few random words of the row space of gauge_z test cheaply before the exact
@@ -55,7 +51,7 @@ def get_sector_map(
     if not _bliss.is_installed():
         return None
 
-    # A permutation that maps the two lists of nonzero rows onto each other gives each qubit the
+    # A permutation that maps the two multisets of nonzero rows onto each other gives each qubit the
     # X-degree and Z-degree of its image swapped.  Before asking bliss, which would find any such
     # permutation, try a few that do for common codes (see _get_candidate_maps).
     rows_x = gauge_x[np.any(gauge_x, axis=1)].astype(int)
@@ -113,13 +109,14 @@ def maps_sectors(
 
 
 def _may_hold(basis: npt.NDArray[np.uint8], rows: npt.NDArray[np.uint8]) -> bool:
-    """False only if the row space of a basis does not hold every row, and otherwise True.
+    """Whether a basis's row space may hold every row, tested on random combinations of the rows.
 
-    The basis is in reduced row echelon form, as ``get_independent_rows`` gives it, so a word lies
-    in its row space exactly if it equals the sum of the basis rows at whose pivots it has ones.
-    If some row lies outside, then each random combination of the rows lies outside with
-    probability at least one half, so all of ``_NUM_RANDOM_WORDS`` lie inside with probability at
-    most ``2**-_NUM_RANDOM_WORDS``.  A fixed seed keeps the result reproducible.
+    The result is True if the row space holds every row.  The basis is in reduced row echelon form,
+    as ``get_independent_rows`` gives it, so a word lies in its row space exactly if it equals the
+    sum of the basis rows at whose pivots it has ones.  If some row lies outside, then each random
+    combination of the rows lies outside with probability at least one half.  The result is then
+    True only if all ``_NUM_RANDOM_WORDS`` combinations lie inside, with probability at most
+    ``2**-_NUM_RANDOM_WORDS``.  A fixed seed keeps the result reproducible.
     """
     pivots = np.argmax(basis, axis=1)
     combinations = np.random.default_rng(0).integers(
@@ -132,11 +129,12 @@ def _may_hold(basis: npt.NDArray[np.uint8], rows: npt.NDArray[np.uint8]) -> bool
 def _get_candidate_maps(num_qubits: int) -> list[npt.NDArray[np.int_]]:
     """Qubit permutations that map the X sectors of some common codes onto their Z sectors.
 
-    They are the reversal of the qubits, which does for bivariate bicycle and generalized bicycle
-    codes, the cyclic shift by half of the qubits, which does for some toric codes, and, if the
-    qubits fill a square grid row by row, a quarter turn of the grid, which does for rotated surface
-    codes of odd distance.  Qubitserf tries the first two too (section "Searching one sector of a
-    CSS code" of ``problems.md``).
+    They are:
+
+    - the reversal of the qubits, for bivariate bicycle and generalized bicycle codes;
+    - the cyclic shift by half of the qubits, for some toric codes;
+    - if the qubits fill a square grid row by row, a quarter turn of the grid, for rotated surface
+      codes of odd distance.
     """
     qubits = np.arange(num_qubits)
     candidates = [qubits[::-1].copy(), (qubits + num_qubits // 2) % num_qubits]

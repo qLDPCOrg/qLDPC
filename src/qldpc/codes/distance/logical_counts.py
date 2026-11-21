@@ -6,6 +6,10 @@
 ``brouwer_zimmermann.md`` explains the Brouwer-Zimmermann method, full Pauli counts, and the
 counters of deformed codes.  The section "The MacWilliams method" of ``problems.md`` explains the
 MacWilliams method.
+
+``compile_search_setup`` is here because it serves programs that make very many counts, and it
+compiles by running counts of a small code.  Distance and coset searches by the Brouwer-Zimmermann
+method also run the code that it compiles.
 """
 
 from __future__ import annotations
@@ -47,7 +51,8 @@ LogicalCountMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute
 
 - ``"auto"`` (the default): a choice of the methods below.  It takes ``"brouwer_zimmermann"``.  The
   choice can depend on the version of qLDPC.
-- ``"brouwer_zimmermann"``: a scan of the words of each weight in several information sets.
+- ``"brouwer_zimmermann"``: a scan, in several information sets, of the words up to the counted
+  weight.
 - ``"macwilliams"``: the weight distributions of the spaces of the checks, through the MacWilliams
   identities.  It does not support subsystem codes, full Pauli counts of codes that are not
   self-dual, or X or Z checks of rank above 63 in codes that encode qubits.
@@ -121,25 +126,22 @@ class CSSLogicalCounter:
     or brute-force method finds, so later counts at the default weight by that method do not search
     again.
 
-    In a subsystem code, the checks ``G_X`` and ``G_Z`` are gauge generators, and the stabilizers
-    ``S_X`` and ``S_Z`` are the gauge operators that commute with every gauge operator of the other
-    type.  The counted logicals are dressed: they lie outside the gauge group, so the X sector is
-    ``ker(S_Z)`` modulo ``row(G_X)``, and likewise for Z.  The MacWilliams method does not support
-    subsystem codes.
+    In a subsystem code, the checks ``H_X`` and ``H_Z`` generate the gauge group.  The rows of
+    ``S_X`` and ``S_Z`` span the X and Z stabilizers: the gauge operators that commute with every
+    gauge operator.  The counted logicals are dressed: the nontrivial X logicals are the words of
+    ``ker(S_Z)`` outside ``row(H_X)``, and likewise for Z.
 
     Counters of codes deformed by local CSS-preserving Cliffords (see :meth:`deformed`) reuse the
     sectors and basis families of this counter where the gate allows, but search for the distance
     again, and the MacWilliams method walks their checks again.
 
     Args:
-        checks_x: The X-type checks ``H_X``, as the rows of a binary matrix: a NumPy array, a nested
-            list, a ``galois`` array over GF(2), or a SciPy sparse matrix.  A single vector is one
-            check.  They may be redundant, and in a subsystem code they are the X gauge generators
-            ``G_X``.
-        checks_z: The Z-type checks ``H_Z``, in any of the same forms, with as many columns as
-            ``checks_x``.  They may be redundant, and in a subsystem code they are the Z gauge
-            generators ``G_Z``.  If either matrix is an empty list or has shape ``(0, 0)``, it takes
-            the width of the other.
+        checks_x: The X-type checks ``H_X``, which may be redundant, as the rows of a binary matrix:
+            a NumPy array, a nested list, a ``galois`` array over GF(2), or a SciPy sparse matrix.
+            A single vector is one check.
+        checks_z: The Z-type checks ``H_Z``, which may be redundant, in any of the same forms, with
+            as many columns as ``checks_x``.  If either matrix is an empty list or has shape
+            ``(0, 0)``, it takes the width of the other.
 
     Raises:
         TypeError: If ``checks_x`` or ``checks_z`` is not array-like, as when a code is given
@@ -252,21 +254,18 @@ class CSSLogicalCounter:
 
         Args:
             weight: Weight of the operators to count, between zero and the number of qubits.  If
-                None (the default), count the operators whose weight is the distance of the code.
-                A code that encodes no qubits has no distance, and its counts are then zero at the
-                weight ``NO_DISTANCE``.
+                None (the default), count the operators whose weight is the distance of the code
+                (see "Returns" for a code that encodes no qubits).
             method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, ``"macwilliams"``, or
-                ``"brute_force"`` (see :data:`LogicalCountMethod`).  The MacWilliams method keeps
-                the weight distributions of the checks for later counts of this counter, and does
-                not support subsystem codes, full Pauli counts of codes that are not self-dual, or X
-                or Z checks of rank above 63 in codes that encode qubits.
-                Brute force is a reference for small codes.
+                ``"brute_force"``.  :data:`LogicalCountMethod` describes the methods, and what the
+                MacWilliams method does not support.  The MacWilliams method keeps the weight
+                distributions of the checks for later counts of this counter.
             count_pauli: If True, also count full Pauli operators, including Y and mixed operators.
-                These counts are supported only up to the distance, and are zero below it.  Defaults
-                to False.
+                The weight must then be at most the distance, or the count raises an error (see
+                :class:`CSSLogicalCounter`).  Defaults to False.
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
-                weight.  Full Pauli counts always do this.  Defaults to False.
+                weight.  Defaults to False.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
@@ -327,9 +326,10 @@ class CSSLogicalCounter:
             target = _get_distance(sectors, method, get_disjoint_basis_families, tuning)
             self._distances[method] = target
 
-        # Full Pauli counts need a rank of checks restricted to the support of each counted word, or
-        # to its complement, unless the counter knows its code to be self-dual, and raise an error
-        # at a nontrivial word lighter than the weight (Section 3.11 of brouwer_zimmermann.md).
+        # Full Pauli counts raise an error at a nontrivial word lighter than the weight.  Unless the
+        # counter knows its code to be self-dual, they also need the rank of the checks restricted
+        # to the support of each counted word, or to its complement (Section 3.11 of
+        # brouwer_zimmermann.md).
         count_masked_ranks = count_pauli and not self._self_dual
         reject_lighter = count_pauli or within_distance
         no_rows = self._gauge_x[:0]
@@ -681,18 +681,17 @@ def count_logical_ops_css(
 
 
 def compile_search_setup() -> None:
-    """Compile the code that sets up exact distance and logical-operator count searches.
+    """Compile, in memory, the code that sets up Brouwer-Zimmermann searches and drives counts.
 
-    Numba compiles the inner loops of these searches when they are first used, and caches them on
-    disk.  The code that sets them up runs as plain Python: it selects, bounds, and packs the
-    information sets of a code, and moves them through local gates.  This function compiles that
-    code for the rest of this process.  It changes no result, and does not affect the MacWilliams
-    method or the connected-cluster distance method, which do not use that code.
+    Numba compiles the inner loops of exact searches when they are first used, and caches them on
+    disk.  This function also compiles two parts that otherwise run as plain Python: the loop that
+    drives the scan of a count, and the code that sets up distance searches, coset searches, and
+    counts by the Brouwer-Zimmermann method.  It changes no result, and does not affect the
+    MacWilliams and connected-cluster methods.
 
     Call it once, at the start of a program that makes very many counts of similar codes, such as a
-    search over many deformed codes.  The compiled code is never written to disk, so every process
-    that calls this function compiles again, which does not pay off for a few counts.  Counters may
-    be created before or after the call.
+    search over many deformed codes.  Every process that calls this function compiles again, so it
+    does not pay off for a few counts.  Counters may be created before or after the call.
     """
     set_on_request_functions_compiled(True)
     try:

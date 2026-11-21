@@ -31,7 +31,8 @@ def tune() -> Iterator[Tune]:
     """
     with contextlib.ExitStack() as stack:
         yield lambda **changes: stack.enter_context(_tuning.use_tuning(**changes))
-    # A change that outlives its test, as one made by tune within a use_tuning block would, fails.
+    # Fail a test whose change of the tuning outlives it, as one made by tune within a use_tuning
+    # block does.
     assert _tuning.get_tuning() == _tuning.DEFAULT_TUNING
 
 

@@ -46,10 +46,9 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   probe may give the result first, or cap the connected-cluster search (`Choosing a method
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`_
   in ``problems.md`` of the distance package).  Functions that take generators choose between
-  ``"brute_force"`` and ``"brouwer_zimmermann"``.  Every method gives the same result unless the
-  search exits early.  Which method runs, and so which weight an early exit at a ``cutoff``
-  returns, can depend on the tuning and on the version of qLDPC.  For a ``"brouwer_zimmermann"``
-  search on more than one thread, that weight can also depend on the timing of the threads.
+  ``"brute_force"`` and ``"brouwer_zimmermann"``.  Which method ``"auto"`` takes can depend on the
+  tuning (see :doc:`/exact_search_tuning`) and on the version of qLDPC.  Every method gives the same
+  result, unless the search exits early at a ``cutoff`` (see :func:`get_distance_from_generators`).
 - ``"brouwer_zimmermann"``: the `Brouwer-Zimmermann algorithm
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
   which enumerates words of increasing weight in several information sets, and stops once a lower
@@ -158,10 +157,11 @@ def get_distance_from_generators(
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
             map the row space of ``excluded``, and that of both matrices together, onto themselves.
             Pass an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or a function that
-            returns such an array or None.  A search asks for them at most once, when it reaches a
-            costly stage (see :doc:`/exact_search_tuning`), and only then calls a function.  The
-            Brouwer-Zimmermann method then verifies that they are automorphisms, and uses them to
-            search fewer information sets.  The brute-force method ignores them.
+            returns such an array or None.  A search asks for them only once it predicts enough work
+            that they could help (see "Routes and the names that control them" in
+            :doc:`/exact_search_tuning`), and calls a function at most once.  The Brouwer-Zimmermann
+            method then verifies that they are automorphisms, and uses them to search fewer
+            information sets.  The brute-force method ignores them.
 
     Returns:
         The minimum weight of a nontrivial word.  Once the lightest nontrivial word found weighs at
@@ -439,10 +439,11 @@ def get_distance_pauli(
     get_automorphisms = _get_automorphism_getter(automorphisms, num_qubits)
     tuning = get_tuning()
 
-    # Each row is the product of its X part, a row of gauge_x, and its Z part, a row of gauge_z.  So
-    # the rows generate a CSS group exactly if they generate the group of all of these parts, which
-    # holds the group of the rows and has rank rank(gauge_x) + rank(gauge_z).  Then search the CSS
-    # code of the parts, whose two sectors of n bits are much cheaper to search than one of 2n bits.
+    # Each row is the product of its X part, a row of gauge_x, and its Z part, a row of gauge_z.
+    # The group of all of these parts holds the group of the rows, and has rank rank(gauge_x) +
+    # rank(gauge_z).  The rows generate a CSS group exactly if they generate the group of the parts,
+    # so exactly if their rank is that sum.  Then search the CSS code of the parts, whose two
+    # sectors of n bits are much cheaper to search than one of 2n bits.
     gauge_x, gauge_z = gauge[:, :num_qubits], gauge[:, num_qubits:]
     rank = len(get_independent_rows(gauge))
     if rank == len(get_independent_rows(gauge_x)) + len(get_independent_rows(gauge_z)):
@@ -608,17 +609,14 @@ def _search(
         if is_cheap_to_enumerate(dimensions, width, tuning):
             method = "brute_force"
 
-    # Search only the first sector if a qubit permutation maps it onto the second.  The later steps
-    # build bases and checks only for the sectors left here.  Brute force never looks, so that it
-    # searches each sector as given: it is meant for small codes and for independent checks of the
-    # other methods, and auto takes it only when enumerating is cheap.
+    # Search only the first sector if a qubit permutation maps it onto the second, except by brute
+    # force (section "Searching one sector of a CSS code" of problems.md).  The later steps build
+    # bases and checks only for the sectors left here.
     if method != "brute_force" and has_sector_map is not None and has_sector_map():
         sectors = sectors[:1]
 
-    # If "auto" did not take brute force, it takes the Brouwer-Zimmermann method for a search of
-    # generators, or of binary words when no sector excludes a nonzero word, as for a classical
-    # code.  It searches all other sectors by cost, which starts as a connected-cluster search and
-    # may switch to the Brouwer-Zimmermann method.
+    # If "auto" did not take brute force, it takes the Brouwer-Zimmermann method or searches by
+    # cost, by the rule of DistanceMethod.  A search by cost starts as a connected-cluster search.
     by_cost = False
     if method == "auto":
         by_cost = not from_generators and (
@@ -891,8 +889,9 @@ def _get_lifted_automorphisms(
 ) -> npt.NDArray[np.int_] | None:
     """Call a function that returns qubit permutations, and lift them to Hamming coordinates.
 
-    The coordinates are ``(x | z | x + z)``, as in ``symplectic_to_hamming`` (Section 3.7 of
-    ``brouwer_zimmermann.md``).  The result is None if ``get_automorphisms`` returns None.
+    The coordinates are ``(x | z | x + z)``, as in ``symplectic_to_hamming`` (Section 2.7 of
+    ``brouwer_zimmermann.md``).  Section 3.7 says why verifying a lifted permutation checks the
+    original one.  The result is None if ``get_automorphisms`` returns None.
     """
     automorphisms = get_automorphisms()
     if automorphisms is None:

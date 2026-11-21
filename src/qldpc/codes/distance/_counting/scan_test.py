@@ -84,7 +84,7 @@ def test_overlapping_basis_families_count_every_word_once(
 def test_counts_through_the_costly_stages_count_every_word_once(
     tune: Tune, costly_stages: CostlyStages
 ) -> None:
-    """Counts with partitioned families are exact."""
+    """Counts with partitioned families of overlapping sets are exact."""
     tune(overlapping_minimum_work=0, partition_work_ratio=0)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))

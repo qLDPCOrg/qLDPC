@@ -88,7 +88,7 @@ def _pack_local(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
 
 
 ####################################################################################################
-# native functions
+# compiled functions
 
 
 @always_compiled

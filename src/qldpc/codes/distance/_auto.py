@@ -2,16 +2,14 @@
 
 """The parts of ``method="auto"`` that compare the costs of exact distance searches.
 
-``distances.py`` chooses a method for each search.  It enumerates every word if
-``is_cheap_to_enumerate`` says that this is cheap.  Otherwise, it takes the Brouwer-Zimmermann (BZ)
-method for a search given by generators, or for a search of binary words that excludes no nonzero
-word, as for a classical code.  Other searches, as of a quantum code or of the faults of a circuit,
-run ``search_by_cost``: a connected-cluster search that switches to a BZ search once that is
-predicted to cost less.  The section "Choosing a method" of ``problems.md`` in
-``src/qldpc/codes/distance/`` explains the rule, why it keeps results exact, and its estimates.
-Both searches can run on several threads, so the rule decides only from results that are the same on
-any number of threads, as Section 5 of the guide of each method, ``brouwer_zimmermann_code.md`` or
-``connected_cluster.md``, requires.
+``DistanceMethod`` in ``distances.py`` states the rule by which ``"auto"`` chooses the method of
+each search.  The section "Choosing a method" of ``problems.md`` in ``src/qldpc/codes/distance/``
+explains the rule, why it keeps results exact, and its estimates.  This module holds the test of
+whether brute force is cheap, ``is_cheap_to_enumerate``, and the search by cost, ``search_by_cost``:
+a connected-cluster search that switches to a Brouwer-Zimmermann (BZ) search once that is predicted
+to cost less.  The rule decides only from results that are the same on any number of threads, since
+both searches can run on several threads (Section 5 of ``brouwer_zimmermann_code.md`` and of
+``connected_cluster.md``).
 """
 
 from __future__ import annotations
@@ -88,10 +86,12 @@ def search_by_cost(
     The function runs a connected-cluster search, probes with a BZ search, and may switch to one, as
     the section "Choosing a method" of ``problems.md`` describes.  The sectors and other arguments,
     and the result, are those of ``get_distance_connected_cluster``.  ``brouwer_zimmermann_problem``
-    holds the same sectors, in the same order, for a BZ search.  The caller builds it as it builds a
-    BZ search (``_search`` of ``distances.py``), so it is an argument rather than derived here.
-    Every sector must have a witness: ``ConnectedClusterSearch`` keeps only the sectors that do, and
-    its searches must be numbered as the sectors of ``brouwer_zimmermann_problem``.
+    holds the same sectors, in the same order, for a BZ search.
+
+    Every sector must have a witness, a nontrivial word, so that the searches of
+    ``ConnectedClusterSearch`` line up one to one with the sectors of
+    ``brouwer_zimmermann_problem``.  ``ConnectedClusterSearch`` keeps a search only for a sector
+    with witnesses.
     """
     clusters = ConnectedClusterSearch(
         cluster_sectors,
@@ -144,9 +144,10 @@ class _BrouwerZimmermannCosts:
 
     A family of information sets of a basis of rank ``r`` and width ``n`` that covers the columns
     evenly certifies the weight ``ceil((t + 1) n / r)`` after layer ``t``, rounded up to the weight
-    divisor (Section 2.5 of ``brouwer_zimmermann.md``), and scans ``C(r, t)`` supports in layer
-    ``t``.  The estimates count one set per layer, as with an automorphism family, and leave out
-    completion tables.
+    divisor (Sections 3.2 and 3.7 of ``brouwer_zimmermann.md``), and each of its search bases scans
+    ``C(r, t)`` supports in layer ``t``.  The estimates count the supports of one search basis per
+    layer, as for an automorphism family, and leave out completion tables.  The section "Choosing a
+    method" of ``problems.md`` discusses the errors of these estimates.
     """
 
     def __init__(self, problem: BrouwerZimmermannProblem) -> None:
@@ -201,8 +202,8 @@ def _probe(
 ) -> BrouwerZimmermannSearch:
     """A BZ search of the sectors, advanced by whole layers within ``auto_probe_work``.
 
-    The probe skips the costlier stages of setup: families of overlapping and partitioned
-    information sets.
+    The probe skips the costly stages of setup, which build families of overlapping and of
+    partitioned information sets.
     """
     scale = problem.weight_scale
     search = BrouwerZimmermannSearch(
@@ -233,14 +234,10 @@ def _should_switch(
 ) -> bool:
     """Whether the connected-cluster search is predicted to cost more than a BZ search.
 
-    The level of the next weight limit is the weight that the limit certifies, one weight divisor
-    above it.  The search switches only once the search of the next limit has a growth.  It then
-    switches if its spent and projected work to certify that level exceeds BZ's.  Otherwise, while
-    its growth exceeds BZ's at that level, it switches if its spent and projected work to reach the
-    probe's bound exceeds BZ's.  To reach the bound, the projection also counts half of the states
-    predicted for the next limit's search at the weight limit ``probe_bound``.  ``search_by_cost``
-    calls it only while its connected-cluster search, which the probe's bound caps, is unfinished,
-    so the bound exceeds the next limit.
+    The section "Choosing a method" of ``problems.md`` explains the rule.  ``probe_bound`` must
+    exceed the weight limit of the next advance (``clusters.next_limit``).  ``search_by_cost``
+    ensures this: it lowers the best weight of ``clusters`` to at most ``probe_bound``, and
+    ``clusters`` finishes before its next limit reaches its best weight.
     """
     index, max_weight = clusters.next_limit
     assert probe_bound > max_weight

@@ -2,13 +2,13 @@
 
 """Basis families of information sets, shared by exact BZ and coset searches and by counts.
 
-A basis family holds the information sets of one basis that a search scans and certifies together.
-Distance searches and counts build families in stages, with their own exits between them:
-``get_disjoint_family``, ``prune_family``, ``get_overlapping_family``, and
-``get_partitioned_family``.  Each stage aims at a target ``upper_bound``: the best weight ``U`` of a
-distance search, or ``t + 1`` for a count of the words of weight ``t``.  Sections cited in this
-module are those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 4.4
-gives the rules of the stages and of the families of the coset searches.
+A basis family holds the search bases that a search scans and certifies together.  Distance searches
+and counts build families in stages, with their own exits between them: ``get_disjoint_family``,
+``prune_family``, ``get_overlapping_family``, and ``get_partitioned_family``.  Stages two to four
+aim at a target ``upper_bound``: the best weight ``U`` of a distance search, or ``t + 1`` for a
+count of the words of weight ``t``.  Sections cited in this module are those of
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.  Section 4.4 gives the rules of the
+stages and of the families of the coset searches.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from .certificates import (
     lower_bound_from_occupancy,
 )
 
-# One disjoint information set: its rows, its labels, and its pivot columns.
+# One set of a disjoint family: its rows, its labels, and its pivot columns.
 _DisjointSet = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], npt.NDArray[np.int_]]
 
 # The scalar type of an array.
@@ -48,13 +48,14 @@ _Scalar = TypeVar("_Scalar", bound=np.generic)
 
 
 class BasisFamily(NamedTuple):
-    """The information sets of one binary basis that a search uses together, stacked into arrays.
+    """The search bases of one binary basis that a search uses together, stacked into arrays.
 
-    Each information set is the basis, row reduced on a block of pivot columns.  ``generators`` has
-    shape ``(num_sets, dimension, num_columns)``, and ``labels``, the quotient labels that follow
-    the row operations, has the same first two axes, with no columns for a basis without labels.
+    Each search basis is the basis, row reduced on a block of pivot columns.  ``generators`` has
+    shape ``(num_sets, dimension, num_columns)``.  ``labels`` holds the quotient labels of the rows
+    (see ``_code_matrices.get_nested_code_basis``), reduced by the same row operations.  ``labels``
+    has the same first two axes as ``generators``, and no columns for a basis without labels.
     ``pivots`` has shape ``(num_sets, dimension)``, padded with -1 beyond each set's rank.
-    ``ranks``, ``weight_divisor``, and ``max_coverage`` are the parameters of its
+    ``ranks``, ``weight_divisor``, and ``max_coverage`` are the parameters of the family's
     :attr:`certificate`.  Compiled code can take the family, since it holds only arrays and
     integers.
     """
@@ -103,8 +104,8 @@ def get_disjoint_family(
         generators[index], reduced_labels[index] = set_generators, set_reduced_labels
         pivots[index, : len(set_pivots)] = set_pivots
     ranks = np.array([len(set_pivots) for *_, set_pivots in sets], dtype=np.int64)
-    # Disjoint sets share no pivot column, so no coordinate is covered more than once.
     weight_divisor = infer_weight_divisor(basis, weight_divisor)
+    # Disjoint sets share no pivot column, so no coordinate is covered more than once.
     return BasisFamily(generators, reduced_labels, pivots, ranks, weight_divisor, 1)
 
 
@@ -299,21 +300,27 @@ def get_partitioned_family(
 ) -> BasisFamily:
     """Stage four: a basis family of bounded coverage, if it does less work.
 
-    For each coverage that it tries, from two and none above ``tuning.partition_max_coverage``,
-    matroid partitioning finds the most information sets, up to ``tuning.max_information_sets``,
-    within that coverage.  If ``tuning.partition_max_coverage`` is one, it finds instead the maximum
-    disjoint family of ``get_maximum_disjoint_family`` (Section 4.4), and prunes it as stage two
-    does.  It skips that family if ``basis_family`` is disjoint and has the pruned disjoint rank
-    bound, since that family could not replace it.  ``basis``, ``labels``, and ``basis_family`` are
-    as in ``get_overlapping_family``.  ``get_competing_work``, if given, returns the work of a
-    family, such as an automorphism family, to which the caller would switch instead, discarding
-    this stage's family (Section 3.7).  It is called only if partitioning may try some coverage and
-    passes its gate, and some family of this stage could do less work than ``basis_family``
-    (Section 4.4).  Partitioning then runs only if the competing work exceeds the least that a
-    family of this stage could do.
+    The stage tries coverages ``b`` from two up to at most ``tuning.partition_max_coverage``.  For
+    each ``b``, matroid partitioning finds as many information sets as it can, up to
+    ``tuning.max_information_sets``, without using a column more than ``b`` times.  If
+    ``tuning.partition_max_coverage`` is one, the stage instead builds, with labels, the maximum
+    disjoint family of ``get_maximum_disjoint_family``, and prunes it as stage two does.  The stage
+    skips the maximum disjoint family if ``basis_family`` is disjoint and has the pruned disjoint
+    rank bound (see ``_has_pruned_disjoint_rank_bound``), since the maximum disjoint family could
+    then not replace ``basis_family`` (Section 4.4).  ``basis``, ``labels``, and ``basis_family``
+    are as in ``get_overlapping_family``.
 
-    Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
-    runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
+    ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
+    to which the caller would switch instead, discarding this stage's family.  The stage calls it
+    only if the stage would try some coverage, would not cost too much for this search (see
+    ``tuning.partition_work_ratio``), and some family of the stage could do less work than
+    ``basis_family``.  The stage then partitions only if the competing work exceeds the least that a
+    family of this stage could do (Section 3.7, "When a search uses an automorphism family").
+
+    Returns:
+        The family that certifies ``upper_bound`` with the least estimated work, if partitioning
+        runs and finds a family that does less work than ``basis_family``.  Otherwise a family with
+        no sets.
     """
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
@@ -417,9 +424,7 @@ def _get_no_replacement(
 ) -> BasisFamily:
     """A family of no sets, for when no better family is found.
 
-    Stages three and four and ``get_maximum_disjoint_family`` return it, and the distance search,
-    the counts, and the routes of coset searches then keep the families that they have
-    (Section 4.4).
+    A caller that gets a family of no sets keeps the family that it already has (Section 4.4).
     """
     dimension = basis.shape[0]
     return BasisFamily(
@@ -586,12 +591,12 @@ class _PartitionPlan(NamedTuple):
     """The coverages that ``get_partitioned_family`` may try for a basis, and the unit of its gate.
 
     Attributes:
-        dimension: The rows ``r`` of the basis.
-        num_columns: The nonzero columns ``N`` of the basis.
-        coverages: The coverages that partitioning may try, which may be none.
-        max_sets: The most information sets of a family of coverage two or more.
-        unit: The sum of ``b**2 * r**2 * N`` over the coverages ``b``, which the gate multiplies
-            by ``partition_work_ratio`` (Section 4.4).
+        dimension: The number ``r`` of rows of the basis.
+        num_columns: The number ``N`` of nonzero columns of the basis.
+        coverages: The coverages that partitioning may try, possibly none.
+        max_sets: The largest number of information sets in a family of coverage two or more.
+        unit: The sum of ``b**2 * r**2 * N`` over the coverages ``b``.  The gate multiplies it by
+            ``partition_work_ratio`` (Section 4.4).
     """
 
     dimension: int
@@ -616,8 +621,10 @@ class _PartitionPlan(NamedTuple):
     ) -> int:
         """A lower bound on the estimated work of a family that partitioning finds at a coverage.
 
-        The coverage is two or more, and the bound is over the most sets that fit within it by
-        counting their pivots (Section 4.4).
+        ``coverage`` is two or more.  The bound is over families of at most
+        ``min(max_sets, coverage * num_columns // dimension)`` sets.  The second term comes from
+        counting pivots: each set has ``dimension`` of them, and each of the ``num_columns`` nonzero
+        columns is a pivot of at most ``coverage`` sets (Section 4.4).
         """
         most_sets = min(self.max_sets, coverage * self.num_columns // self.dimension)
         return _estimate_optimistic_work(
@@ -632,10 +639,11 @@ class _PartitionPlan(NamedTuple):
 
 def _get_partition_plan(basis: npt.NDArray[np.uint8], tuning: SearchTuning) -> _PartitionPlan:
     """The plan of ``get_partitioned_family`` for a basis under a tuning (Section 4.4)."""
-    # Choose the coverages to try and the unit of the gate.  Above a limit of one on coverage,
-    # capping the sets at the most that fit within the limit, by counting their pivots, caps the
-    # coverages.  Those limits leave coverage one to the disjoint packing of stage one, so that
-    # searches at the default limit build no maximum disjoint family.
+    # Choose the coverages to try and the unit of the gate.  A coverage limit of one tries only the
+    # maximum disjoint family.  Above one, cap the number of sets by counting pivots: each set has
+    # ``dimension`` of them, and no nonzero column may be a pivot of more than ``coverage_limit``
+    # sets.  Then try coverages from two.  Coverage one is left to the disjoint packing of stage
+    # one, so that searches at the default limit build no maximum disjoint family.
     dimension = len(basis)
     num_columns = len(get_nonzero_columns(basis))
     max_sets = tuning.max_information_sets

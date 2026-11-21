@@ -2,10 +2,10 @@
 
 """The step of the scans of search bases from one support of a layer to the next.
 
-The work items of a layer on threads rely on the lexicographic order of the steps (Section 5 of
-``brouwer_zimmermann_code.md``, "Keep the scans of a layer splittable across threads").  Compiled
-functions here, such as ``advance_support``, also run within nogil calls of threaded searches, so
-they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
+Splitting a layer into work items for threads relies on the lexicographic order of the steps
+(Section 5 of ``brouwer_zimmermann_code.md``, "Keep the scans of a layer splittable across
+threads").  ``advance_support`` also runs within nogil calls of threaded searches, so it must keep
+the rules for nogil code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations
@@ -31,12 +31,14 @@ def advance_support(
     offset (Section 3.5 of ``brouwer_zimmermann.md``).  The state is the rows chosen so far,
     ``support[:depth]``; the next row to try, ``support[depth]``; and ``prefixes``, whose row
     ``level`` holds the offset plus the rows ``support[:level]``.  Start with ``depth = 0``,
-    ``support[0] = 0``, and the offset in ``prefixes[0]``, which stays unchanged.
+    ``support[0] = 0``, and the offset in ``prefixes[0]``, which stays unchanged.  To continue after
+    a complete support (see Returns), raise ``support[depth]`` at the returned ``depth``, and call
+    again with that depth.  Raising it by one gives the next support.  Raising it past the last row
+    skips the later supports that differ from the current one only in their last row.
 
-    Returns ``len(support) - 1`` once ``support`` is complete, when its word is ``prefixes[depth] ^
-    rows[support[depth]]``, or -1 after the last support.  To continue, raise ``support[depth]``
-    and call again with that depth: by one for the next support, or past the last row to skip the
-    supports that differ from this one only in their last row.
+    Returns:
+        ``len(support) - 1`` once ``support`` is complete, when its word is
+        ``prefixes[depth] ^ rows[support[depth]]``, or -1 after the last support.
     """
     num_rows = rows.shape[0]
     weight = len(support)
