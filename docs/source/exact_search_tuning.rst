@@ -4,7 +4,7 @@ Exact-search performance and tuning
 .. currentmodule:: qldpc.codes.distance._tuning
 
 This page suggests what to try first when exact distance searches or logical-operator counts are slow or memory-hungry, often by changing values of the private module ``qldpc.codes.distance._tuning``.
-The section `Routes and the names that control them`_ below leads from the routes that searches and counts take, such as which optional steps they run, to the values that control them.
+The :ref:`table of routes <tuning-routes>` below leads from the routes that searches and counts take, such as which optional steps they run, to the values that control them.
 Before you change a value, read :ref:`the documentation of that module <tuning-module>` below: what its privacy means, what tuning can and cannot change, how to change the tuning, and how the defaults are chosen.
 The `Brouwer-Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-cluster guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ explain the methods.
 Sections 4 and 5 of the Brouwer-Zimmermann guide are in `brouwer_zimmermann_code.md <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md>`__.
@@ -91,6 +91,8 @@ Start from a symptom
      - Lower :attr:`~SearchTuning.max_distance_sparsifying_rounds`, or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` below it, to start sooner; raise :attr:`~SearchTuning.max_distance_sparsifying_rounds` for sparser checks and a faster search.
    * - Completion tables are used where they cost more than they save, or declined where they would save
      - Lower :attr:`~SearchTuning.completion_bound_max_cost_percent` to use them in fewer layers; to use them in more, see the row on hard distance searches above.
+
+.. _tuning-routes:
 
 Routes and the names that control them
 --------------------------------------
