@@ -1,6 +1,7 @@
 # Brouwer-Zimmermann distance search in qLDPC: the source code and its requirements
 
 This file holds Sections 4 and 5 of the guide to the Brouwer-Zimmermann (BZ) search; [brouwer_zimmermann.md](brouwer_zimmermann.md) holds Sections 1 to 3 and the references, and its Sections 2 and 3 explain the algorithm and its extensions.
+Like code comments, this file calls a search basis a **set** for short.
 
 ## 4. Guide to the source code
 
@@ -12,14 +13,17 @@ The thresholds, limits, and coefficients of the heuristics are fields of `Search
 [README.md](README.md) says what each module of this directory holds, in "[Where to look](README.md#where-to-look)", and in which levels the modules import each other, in "[How the modules depend on each other](README.md#how-the-modules-depend-on-each-other)"; this section says how the searches use the modules.
 
 The distance functions of [distances.py](distances.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py).
-For BZ, they build an adapted basis ([Section 3.4](brouwer_zimmermann.md#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the sectors to `get_distance_brouwer_zimmermann`, both sectors of a CSS code at once in `get_distance_css`, or only the X sector if `_search_css` finds a qubit permutation that maps each sector onto the other.
-`_search_css` finds only the identity and, with pybliss, permutations that map the nonzero X-type gauge generators, as listed, one to one onto the Z-type ones and back (section "Searching one sector of a CSS code" of [problems.md](problems.md#searching-one-sector-of-a-css-code)).
+For BZ, they build an adapted basis ([Section 3.4](brouwer_zimmermann.md#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the sectors to `get_distance_brouwer_zimmermann`.
+`get_distance_css` passes both sectors of a CSS code at once, or only the X sector if a qubit permutation maps each sector onto the other ([problems.md](problems.md#searching-one-sector-of-a-css-code) proves that this suffices).
+Unless the field `sector_maps` of the tuning is off, `_search_css` looks for such a permutation with `get_sector_map` of [_sector_maps.py](_sector_maps.py), whose docstring says which permutations it finds.
 A BZ search that is given automorphisms has [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verify them and build the families of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms), whose certificates are those of [_information_sets/certificates.py](_information_sets/certificates.py).
 
 [logical_counts.py](logical_counts.py) builds its families with the stages of [_information_sets/basis_families.py](_information_sets/basis_families.py) that distance searches use ([Section 4.4](#44-heuristics-and-cost-models)), in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), under the stricter stopping rule of [Section 5](#5-correctness-requirements).
-To find its default weight, the distance, a count runs a distance search from the disjoint families that it keeps.
+To find its default weight, the distance, a count by the BZ method runs a BZ distance search from the disjoint families that it keeps.
 The setup functions of distance searches and counts can be compiled on request through [_compilation.py](../../_compilation.py).
-Every caller of `get_overlapping_family` ([Section 4.4](#44-heuristics-and-cost-models)) gets its `OverlappingFamilyPolicy`, with a fixed-seed generator, from `build_overlapping_family_policy`: the distance search and the counts through `get_overlapping_family_policy`, which reads the tuning, and `CosetRoutes` of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
+Every caller of `get_overlapping_family` ([Section 4.4](#44-heuristics-and-cost-models)) gets its `OverlappingFamilyPolicy` from `build_overlapping_family_policy`.
+The distance search and the counts call `build_overlapping_family_policy` through `get_overlapping_family_policy`, which reads the tuning.
+`CosetRoutes` of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) calls `build_overlapping_family_policy` directly.
 [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py) chooses and builds the tables of [Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables) for distance searches and counts, and sizes and builds them for the routes by tails of coset searches (below).
 
 The distance search and `CosetLeaderSearch` scan with the compiled entry points of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which Numba compiles from one body, `_scan`, separately for each set of constant flags, so no flag costs a branch for each word:
@@ -37,17 +41,18 @@ Each search packs its problem once, before it scans, in an `AffineInstance` of [
 
 `CosetLeaderSearch` of [coset_leaders.py](coset_leaders.py) applies BZ to cosets `u + V`, unless it is built with `method="connected_cluster"`.
 A query of `CosetLeaderSearch`, whether the coset of a syndrome has a word within a maximum weight, runs one or two **coset searches**.
-They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches by Hamming weight of the X and Z parts of the errors, each in a coset of a classical code ([problems.md](problems.md#the-coset-leader-search)).
+They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches of the X and Z parts of the errors, each in a coset of a classical code ([problems.md](problems.md#the-coset-leader-search)).
 
 Each family of search bases of a coset search has a **coset instance**: `get_coset_instance` packs the full rows of the disjoint sets of the code, and `get_coset_family_instance` those of any other family, with the certificate of its ranks and maximum coverage.
 That certificate takes no weight divisor, even when `get_disjoint_family` infers one for `V`, since the words of a coset need not share it ([Section 3.2](brouwer_zimmermann.md#32-rounding-the-certificate-to-a-proven-weight-multiple)).
 If `V` is even, `AffineInstance.get_weight_bounds` rounds the bounds up to a parity that it is given, and `get_search_tables` asks for that rounding when some coset is odd, which holds exactly when some word whose syndrome has one set bit is odd.
 In a search of Pauli errors, an error weighs at least half the Hamming weight of its binary word, so the instance has the weight factor `η = 2`, by which `get_weight_bounds` divides its bounds, rounding up, after any rounding to parity; a search of X or Z parts has `η = 1`.
 
-A query starts from the **word of its syndrome**, the sum of the words with unit syndromes (`get_unit_syndrome_words`) for the set bits of its syndrome.
+A query starts from the **word of its syndrome**, the sum of the words with unit syndromes (`get_unit_syndrome_words` of [_cosets.py](_cosets.py)) for the set bits of its syndrome.
 It stops at its **stopping step**, the first step whose bound exceeds the maximum weight, unless it finds a light enough word sooner.
 Each family of a coset search keeps the bounds of its steps in a **planning buffer**: one table for each parity of the cosets if the search rounds to parity, and one otherwise, and a query takes the table of its coset's parity.
-Each table has an extra row that caches a stopping step; `get_stopping_step` reuses it for a nonnegative maximum weight exactly when it is that weight's stopping step.
+Each table has an extra row that caches one stopping step.
+For a nonnegative maximum weight, `get_stopping_step` reuses the cached step if that step is also the stopping step of the weight, and otherwise finds the step and caches it.
 Callers share the searches that `get_pauli_search` and `get_css_searches` cache, with the planning buffers of their families.
 The batch loops `_find_first_not_within_max_weight` and `_find_min_weights` run without the global interpreter lock ([Section 4.5](#45-behavior-spanning-files)), so each call writes only buffers that no other running call uses.
 `BrouwerZimmermannCosetSearch.find_first_not_within_max_weight` gives each worker of a batch, one on one thread, its own copy of the planning buffer (`_get_own_planning`), whose cached step serves only the queries of that worker; the copy holds a few small tables.
@@ -67,10 +72,14 @@ The distance search plans each layer with `Certificate.get_num_sets_to_certify`,
 Otherwise a query takes the **route** of its maximum weight: a family of search bases, with its coset instance and planning buffer, which `CosetRoutes` of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) chooses once for each maximum weight ([Section 4.4](#44-heuristics-and-cost-models)).
 `find_first_not_within_max_weight` takes the route once for a batch, and for the CSS weight on a CSS state, `CosetLeaderSearch` gives the X parts and the Z parts of a batch to their own searches and routes.
 Both batch queries split a batch across threads, after they take the route ([Section 4.5](#45-behavior-spanning-files)).
-`get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](brouwer_zimmermann.md#310-minimum-weights-of-cosets) through `BrouwerZimmermannCosetSearch.get_min_weights` and `_find_min_weights`, which finds its stopping steps with `find_stopping_step` and leaves the cached steps to the queries.
+`get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](brouwer_zimmermann.md#310-minimum-weights-of-cosets) through `BrouwerZimmermannCosetSearch.get_min_weights`, whose compiled loop `_find_min_weights` searches the coset of each syndrome with `_search_coset_for_min_weight`.
+That search finds its stopping steps with `get_first_step_reaching` of [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py), which calls `find_stopping_step`.
 
-On a **route by tails** ([Section 4.4](#44-heuristics-and-cost-models)), the queries weigh words by their tails, and pass the family's **record of tails**, `CosetTails`, as a plain tuple of its fields to the compiled searches, such as `_search_coset`, in place of None; Numba compiles each search separately for a record and for None, so the choice costs nothing for each word.
-The record holds the tails of the rows of each search basis and of the words with unit syndromes, from which a query sums the tail of its offset, and the completion tables that the routes of the family ask for.
+On a **route by tails** ([Section 4.4](#44-heuristics-and-cost-models)), the queries weigh words by their tails.
+They pass the family's **record of tails**, `CosetTails`, to the compiled searches, such as `_search_coset`, as a plain tuple of its fields in place of None.
+Numba compiles each search separately for a record and for None, so the choice costs nothing for each word.
+The record holds the tails of the rows of each search basis, and the tails of the words with unit syndromes, from which a query sums the tail of its offset.
+It also holds the completion tables that the routes of the family ask for.
 `CosetRoutes` builds the tails of a family, and the tables of each search basis, once, for the first route that needs them (`get_coset_tails`, `CompletionTables.build`).
 It builds new tables in the array of a new record, which copies the earlier tables; the old record keeps those until `CosetRoutes` replaces it.
 A query by tails scans with `scan_coset_layer_by_tails_with_tables` the layers of two or more rows of a search basis that has tables, and the others with `scan_coset_layer_by_tails`.
@@ -100,12 +109,12 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
-| Switch at the end of setup | If setup asked for automorphisms before partitioning and found some, the search checks the rows of their family, which may lower `U`, then considers switching to that family ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); returns if then `U ≤ cutoff` or the lower bound reaches `U` |
+| Switch at the end of setup | If setup asked for automorphisms before partitioning and got a family from them, the search weighs the rows of that family's one search basis and considers switching to the family ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); returns if the search is then finished (see `_SectorSearch.finished`) |
 | Ready search | Returns a `_SectorSearch` that scans from layer two |
 
 | Search location | Outcome |
 | --- | --- |
-| `_SectorSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first get automorphisms, whose family's rows may lower `U` and so finish it, and then switch to an automorphism family ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
+| `_SectorSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; before a costly layer, a search may first get automorphisms and consider switching to an automorphism family, whose rows may lower `U` and whose certificate may finish the search ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
 | `_SectorSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `BrouwerZimmermannSearch.finished` | Marks the search finished once the shared `U ≤ cutoff`, or the search of every sector has finished; `get_distance_brouwer_zimmermann` then returns `U` |
 
@@ -126,18 +135,18 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Maximum coverage `C` | `Certificate.max_coverage` |
 | Dimension `r`, block rank `r_i` | `dimension`, `ranks` (`BasisFamily.ranks`, `AffineInstance.ranks`) |
 | Search basis and its block | One set of a `BasisFamily`: its entries of `generators`, `labels`, `pivots`, and `ranks`; the recorded block is the pivot subset, as explained below |
-| Number of coordinates `N` | The length of `columns` (or `nonzero_columns`), the array of nonzero columns, in the functions that build families of search bases |
-| Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
+| Number of coordinates `N` | `num_columns`, the number of nonzero columns (the length of `columns` or `nonzero_columns`), in the functions of [_information_sets/basis_families.py](_information_sets/basis_families.py) |
+| Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns; `num_columns` in [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), and in the `BasisFamily` docstring for the last axis of `generators` |
 | Labels `M` | `labels`, which has no columns for a classical problem |
 | Eligible rows | `get_eligible_rows` of [_code_matrices.py](_code_matrices.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
-| Support, prefix XORs | `support` and `prefixes` in `_SectorSearch._scan_set` and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
+| Support, prefix XORs | `support` and `prefixes` in `_SectorSearch._scan_set`, in each thread of `_SectorSearch._scan_set_on_threads`, and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion |
 | Batch of a compiled scan | `batch_size`, equal to `1 << search_chunk_exponent` supports, or supports and lookups together in a scan with completion tables, and `num_threads` times as many on threads ([Section 4.5](#45-behavior-spanning-files)) |
 | Work item of a layer, and the threads that scan it ([Section 4.5](#45-behavior-spanning-files)) | `_WorkItems` and `_SectorSearch._scan_set_on_threads` of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), `start_set_items` and `scan_set_items`, and `run_work_items` of [_threads.py](_threads.py); `num_threads` of a search |
 | Split work, and the blocks of a batch of coset queries that threads search ([Section 4.5](#45-behavior-spanning-files)) | `run_blocks` of [_threads.py](_threads.py), which runs a batch on the calling thread until its work reaches the split work, and the rest in blocks with `run_work_items`; `_find_first_on_threads` and `_find_min_weights_on_threads` of [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py); `num_threads` and `split_work` of a `CosetLeaderSearch` |
 | Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
-| Completion tables ([Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), chosen by `select_completion_tables` and kept, with the index of their set, in `completion_tables` and `completion_tables_set` of a distance search, or in `CosetTails` of a coset search |
+| Completion tables ([Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), chosen by `select_completion_tables` and kept, with the index of their set, in `completion_tables` and `completion_tables_set` of a distance search, in `_StepTables` of a count ([_counting/scan.py](_counting/scan.py)), or in `CosetTails` of a coset search |
 
 For the rank-deficient block of [Section 2.4](brouwer_zimmermann.md#24-search-bases-and-rank-deficient-blocks), the implementation records only its `rank` independent pivot columns in its row of `BasisFamily.pivots`, padded with -1, which give the same term `b_i(t)`, and which coverage and pivot-column deletion use.
 
@@ -219,8 +228,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
 ### 4.5 Behavior spanning files
 
 - **Cutoff.**
-  The docstring of `get_distance_from_generators` in [distances.py](distances.py) states the contracts of `cutoff` and of an early exit, which the other distance functions share.
-  The default `cutoff=1` gives the exact distance of a nontrivial problem, which is at least one, and a `cutoff` of zero or less never exits early; `_scan_cutoff` clamps negative values to `-1` for the compiled scan.
+  The docstring of `get_distance_from_generators` in [distances.py](distances.py) states the contracts of `cutoff` and of its early exit, which the other distance functions share.
   [Section 4.2](#42-flow-and-exit-points) lists where `cutoff` is checked.
 - **Weight limit.**
   The same docstring states the contract of `max_weight`.
@@ -231,9 +239,12 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Binary input (`symplectic=False`) is a classical problem, or a pure-X or pure-Z problem with one bit per qubit, and symplectic input (`symplectic=True`) has general Pauli rows.
   For symplectic input, BZ maps rows by `T` ([Section 2.7](brouwer_zimmermann.md#27-pauli-weight-as-hamming-weight)), doubles `cutoff` and the bound of a weight limit, passes `weight_divisor=2`, and halves the result, while `method="brute_force"` uses symplectic weights and the original `cutoff`.
 - **Independence.**
-  `_get_nested_basis` in `distances.py` makes the generators of a caller independent, with `get_independent_rows`, or with `get_nested_code_basis` when the caller gives `S`, for every BZ and brute-force search of `_search`, including those of `search_by_cost`.
+  For every BZ and brute-force search of `_search`, including those of `search_by_cost` of [_auto.py](_auto.py), `_get_nested_basis` in `distances.py` makes the generators of the caller independent.
+  It uses `get_independent_rows` of [qldpc/_binary.py](../../_binary.py), or `get_nested_code_basis` of [_code_matrices.py](_code_matrices.py) when the caller gives `S`.
 - **Resumable layers.**
-  A compiled scan of a distance search returns after at most `batch_size` supports, or supports and lookups together with completion tables, so that it stays responsive while it skips most supports, and successive batches reuse its `support` and `prefixes` arrays.
+  A compiled scan of a distance search returns after at most `batch_size` supports, or, with completion tables, `batch_size` supports and lookups together.
+  Counting lookups keeps the scan responsive while it skips most supports.
+  Successive batches reuse the `support` and `prefixes` arrays of the scan.
   On several threads, each thread has its own arrays, and a chunk of each thread holds at most `batch_size * num_threads` supports and lookups.
   Each thread holds the global interpreter lock between its chunks, so chunks that grow with the number of threads keep the share of time under the lock about constant, at the cost of a longer wait for a keyboard interrupt.
   Once the search bases that `advance` scans have completed a layer, it may raise `lower_bound` ([Section 2.5](brouwer_zimmermann.md#25-the-stopping-certificate)), but it increments `next_weight` only once every search basis has.
@@ -244,14 +255,13 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
 - **Threads.**
   A search scans a layer of a set on `num_threads` threads if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports.
   `BrouwerZimmermannSearch` resolves `num_threads` once from the tuning; README.md's [Threads](README.md#threads) gives its default.
-  Otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
-  A **work item** is the set of supports of the layer whose first `k` rows are fixed: `k = 1`, or `k = 2` if fixing one row leaves fewer than 32 items for each thread and `w ≥ 4`.
+  Any other layer, and every layer on one thread, is scanned on the calling thread with `scan_set`.
+  A **work item** is the set of supports of the layer whose first `k` rows are fixed.
+  `k` is 2 if `w ≥ 4` and fixing one row leaves fewer than `ITEMS_PER_THREAD` items for each thread (see [_threads.py](_threads.py)), and 1 otherwise.
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
   The items are numbered in lexicographic order, the order in which `advance_support` steps through a layer.
-  Their numbers of supports vary widely, and earlier items tend to hold more.
-  The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling, weighted by the number of supports of each item: each range holds the fewest next items whose supports reach about `1 / (2 * num_threads)` of the supports that no thread has claimed, so a heavy item can make a range overshoot that share.
-  So the ranges shrink toward the end of the layer, which balances the threads, and the claims number at most about `2 * num_threads * ln(W / m) + 1`, for the `W` supports of the layer and the `m` supports of its lightest item.
-  Ranges of equal numbers of items would not do, since earlier items tend to hold more supports.
+  Their numbers of supports vary widely, and earlier items tend to hold more, so ranges of equal numbers of items would not balance the threads.
+  The threads, the calling thread among them, claim ranges of consecutive items in increasing order with `run_work_items`, weighted by the number of supports of each item; the docstring of `run_work_items` says how guided self-scheduling sizes the ranges.
   A thread scans its range with `scan_set_items`, which Numba compiles without the global interpreter lock, and which stops once a support passes the last item of the range.
   Splitting depends on the order of the items: `start_set_items` starts a range at its first item's first support, the end of a range is tested in the same order, and completion tables take pairs of rows in scan order.
   `start_set_items` sets `support` and `prefixes` only up to the depth at which a range starts, and leaves the other entries stale, so a scan must read no entry beyond its depth.
@@ -264,33 +274,40 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   The thread that brings `U` to the cutoff stops the others after their chunks.
   The witness, and so the result of an early exit, can then depend on the timing of the threads, though its weight still lies between the distance and the cutoff.
   An exception in any thread stops the others after their chunks, and so does one in the calling thread while it starts or waits for them, such as a keyboard interrupt.
-  The exception is raised again once all threads have returned, except in narrow windows that only a signal handler could close (see `run_work_items` in `_threads.py`).
-  A further interrupt in such a window can end the search while threads still run.
-  If it arrives before any thread has told the others to stop, they run until the layer ends; otherwise, until their chunks end.
+  The exception is raised again once all threads have returned; only in narrow windows, which a comment in `run_work_items` describes, can a further interrupt end the search while threads still run.
   The process waits for them at exit, unless the search ran on a daemon thread, whose threads are daemons too.
 - **Coset batches on threads.**
-  `CosetLeaderSearch` fixes `num_threads` when it is built, and with it a **split work** of `num_threads * batch_size`, as much as each thread of a distance search on `num_threads` threads scans in one chunk.
+  `CosetLeaderSearch` fixes `num_threads` when it is built, and with it a **split work** of `num_threads << search_chunk_exponent` units.
+  The comment of `search_chunk_exponent` in [_tuning.py](_tuning.py) defines these units for the BZ and connected-cluster methods.
   `find_first_not_within_max_weight` and `get_min_weights` of `BrouwerZimmermannCosetSearch` run a batch through `run_blocks` of [_threads.py](_threads.py).
-  The calling thread searches the batch alone, in order, in one call of the compiled loop, `_find_first_not_within_max_weight` or `_find_min_weights`, which stops once the work of its queries reaches the split work: one unit for each query, and one for each word that it weighs after the word of its syndrome.
+  The calling thread searches the batch alone, in order, in one call of the compiled loop, `_find_first_not_within_max_weight` or `_find_min_weights`, which stops once the work of its queries reaches the split work.
   So a batch of cheap queries, and any batch on one thread, runs on the calling thread in one call, and costs about as much as one call of the loop.
-  Once a batch has shown that it is costly, `run_blocks` splits the rest of it into contiguous blocks, about 16 for each thread, which the threads, the calling thread among them, claim in ranges, in increasing order, with `run_work_items`, and search one at a time with the same loop.
+  Once a batch has shown that it is costly, `run_blocks` splits the rest of it into contiguous blocks, about `BLOCKS_PER_THREAD` for each thread.
+  The threads, the calling thread among them, claim ranges of blocks in increasing order with `run_work_items`, and search the blocks one at a time with the same loop.
   Each worker has its own buffer for the lightest word; Numba compiles both loops without the global interpreter lock, and the call on the calling thread compiles them before any thread starts.
   The query takes its route before the threads start, so no thread builds tails or tables, and the threads share the tables of the route, apart from the copies of its planning buffer that `find_first_not_within_max_weight` gives each worker ([Section 4.1](#41-how-the-searches-use-the-modules)).
   The answer for a syndrome depends only on the code, the maximum weight, and the tuning ([Section 5](#5-correctness-requirements)), so the weights of `get_min_weights` are those of one thread.
   In `find_first_not_within_max_weight`, a syndrome without a word within the maximum weight ends the batch.
   On the calling thread, before the split, it ends the query.
-  In a block, `run_items_until_first` of `_threads.py`, which `run_blocks` calls, lowers a limit to the block, and the threads skip each block after the limit, including the rest of a range that they have claimed.
-  The limit only falls, and every row before it runs, so the least index found, with its bound and the lightest word of its own search, is that of one thread.
-  For the CSS weight on a CSS state, the X pass, the Z pass on the syndromes before the index of the X pass, and the passes of `get_min_weights` each run their batch in this way.
+  `run_blocks` runs the blocks with `run_items_until_first` of `_threads.py`, which keeps a limit, a block index that only falls.
+  A block with a syndrome that ends the batch lowers the limit to the index of that block.
+  The threads skip every block after the limit, including the unstarted blocks of ranges that they have claimed.
+  A block runs in one compiled call, which never checks the limit: once it starts, it runs until its end or its first syndrome that ends the batch, even if the limit falls below its index meanwhile.
+  Every block before the limit runs, so the first syndrome in batch order without a word within the maximum weight is the one that one thread finds.
+  The returned bound and lightest word for that syndrome are also those of one thread.
+  For the CSS weight on a CSS state, each batch query runs two batches in this way, one of X parts and then one of Z parts.
+  In `find_first_not_within_max_weight`, the batch of Z parts holds the syndromes before the first whose X part has no word within the maximum weight, or every syndrome if all X parts have such a word.
+  In `get_min_weights`, the batch of Z parts holds the syndromes whose X parts have a word within the maximum weight.
   An exception before the split, while no other thread runs, reaches the caller at once; one after it, in any thread, such as a keyboard interrupt in the calling thread, reaches the caller as the docstring of `run_work_items` says, and the threads stop within their ranges, except in the narrow windows that it describes.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](brouwer_zimmermann.md#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**
   The distance functions take automorphisms as an array or as a function, and pass them to their BZ searches as a function that calls the function of the caller at most once.
-  `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_known_permutation_automorphisms` of the code, which the code caches, so bliss runs at most once for a code.
-  It holds the automorphisms that bliss (`src/qldpc/external/_bliss.py`) finds among each set of checks from `_get_permutation_automorphism_search_matrices`, followed by the generators from `_get_permutation_automorphisms`, without repeats or the identity.
-  The code verifies the generators from `_get_permutation_automorphisms`, and those that bliss finds in sets of checks other than the parity checks, before it appends them.
-  `get_distance_exact` of `ClassicalCode` passes `_known_permutation_automorphisms` in the same way, with bliss searching the parity check matrix and the generators from `_get_permutation_automorphisms` appended, unless it measures the distance from a vector, whose coset an automorphism of the code need not preserve.
+  `get_distance_exact` of `QuditCode`, `CSSCode`, and `ClassicalCode` in `src/qldpc/codes/common.py` pass a function that returns `_known_permutation_automorphisms` of the code.
+  The code caches these automorphisms, so it looks for them with bliss (`src/qldpc/external/_bliss.py`) at most once.
+  The docstrings of `_known_permutation_automorphisms` of `QuditCode` and of `ClassicalCode` say which automorphisms each holds and which it verifies before returning them.
+  "[Where automorphisms come from](brouwer_zimmermann.md#where-automorphisms-come-from)" in Section 3.7 explains where they come from.
+  `ClassicalCode.get_distance_exact` passes none when it measures the distance from a vector, whose coset an automorphism of the code need not preserve.
   A search calls the function only at the points of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms), and uses the generators only after `verify_automorphisms` accepts them; for a CSS code, they must map the row spaces of both parity-check matrices onto themselves.
   For a general Pauli problem, `_get_lifted_automorphisms` lifts them to the coordinates of `T`, except for Pauli strings that `get_distance_pauli` searches as a CSS code.
 
@@ -320,7 +337,8 @@ A change may use other representations, certificates, and search strategies, but
   The certificate of a count uses the ranks and actual coverage of its family, and the `upper_bound=t+1` that it passes to the family stages only aims them.
 - **Keep coset queries reproducible.**
   The family and tables that answer a query must depend only on the code, the maximum weight, and the tuning, not on earlier queries, since the certifier's counterexamples report a query's word and bound.
-  A query therefore reads only the tables that its own route asks for (Sections [4.1](#41-how-the-searches-use-the-modules) and [4.4](#44-heuristics-and-cost-models)).
+  A query therefore uses tables only on the search bases that its own route asks for.
+  The record of tails that it reads may also hold tables of other search bases (Sections [4.1](#41-how-the-searches-use-the-modules) and [4.4](#44-heuristics-and-cost-models)).
   - Since the batch loops run without the global interpreter lock, every call of one, on any number of threads, writes only buffers that no other running call uses ([Section 4.1](#41-how-the-searches-use-the-modules)).
     A call of `_find_first_not_within_max_weight` writes only its worker's lightest word and its worker's copy of the planning buffer, reset to the first step.
     A call of `_find_min_weights` writes only its own buffer for the lightest word and the weights of its own rows.
@@ -334,34 +352,32 @@ A change may use other representations, certificates, and search strategies, but
   - `CosetRoutes` chooses each route once, under `_ROUTE_LOCK`, and there builds the families other than the disjoint one, once, and each record of tails, and a batch query takes its route before its threads start ([Section 4.5](#45-behavior-spanning-files)).
     A record of tails never changes once a query may read it: a route that needs new completion tables gets a new record of its family, which copies the earlier tables and their layout ([Section 4.1](#41-how-the-searches-use-the-modules)).
 - **Count only work without the global interpreter lock in the split of coset batches.**
-  The batch loops count as work only what they do without the global interpreter lock, in the units of [Section 4.5](#45-behavior-spanning-files): one for each query, and one for each word that it weighs after the word of its syndrome.
+  The batch loops count as work only what they do without the global interpreter lock, in the units that the comment of `search_chunk_exponent` in [_tuning.py](_tuning.py) defines ([Section 4.5](#45-behavior-spanning-files)).
   That work decides when `run_blocks` moves the rest of a batch to threads, so this rule keeps the speed of the split, not its answers, which are those of one thread on any split.
 - **Keep the scans of a layer splittable across threads** ([Section 4.5](#45-behavior-spanning-files), "Threads").
   The scans are `scan_set` and `scan_set_items` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which a change to `_scan` reaches; the coset scans split no layer.
   A scan's position is `support`, `prefixes`, and its depth, the number of rows it has fixed, and it reads no entry of `support` or `prefixes` beyond that depth.
   Besides its position, it carries only values derived from its position and from data that no thread writes during the layer, such as the number of pivot rows among its fixed rows; the counts of its work; and its copy of `U`, which starts at the `U` it is given and only falls.
   It must visit the supports of each work item together, in the order in which `_WorkItems` numbers the items, and skip only supports that share the first `w - 2` rows of its current support.
-  Each chunk is exact from any starting `U'`: it returns the minimum of `U'` and the weights of the eligible words of its supports, and skips only words of weight at least its current `U`.
-  The tests on threads and work items below check that work items cover a layer once, in scan order, and compare searches and scans on threads with those on one thread: their distances, their bounds after each layer, and, from a shared `U` that the layer does not lower, the totals of supports weighed and skipped and of bounds looked up.
+  Unless it stops at the cutoff, each chunk is exact from any starting `U'`.
+  It returns the minimum of `U'` and the weights of the eligible words of its supports, and skips only words of weight at least its current `U`.
+  The tests on threads and work items below check that work items cover a layer once, in scan order.
+  They also compare searches and scans on threads with those on one thread: their distances, their bounds after each layer, and, from a shared `U` that the layer does not lower, the totals of supports weighed and skipped and of bounds looked up.
   Tests of results can miss a race or an abort, so each of these rules says what checks it:
   - The compiled scans decide to skip or prune only from their position, the values they carry, and data that no thread writes during the layer.
     Review checks this.
   - The compiled scans write only to arrays that their caller gives the thread that runs them, such as `support` and `prefixes`.
     `test_searches_on_threads_advance_as_searches_on_one_thread` runs the threads with every array of the search read-only, so that numba rejects a write to one in any branch of compiled code, and checks that the arrays are unchanged.
-    Review checks the writes that this misses.
-    Numba compiles some writes to read-only arrays anyway, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`.
-    The test does not mark the arrays that each thread of `_scan_set_on_threads` gets for itself: its `support` and `prefixes`, and the work items that it scans.
-    The test also misses paths that the tests do not run with the arrays read-only, and, in plain Python, writes that tests do not run.
-    Review checks that each thread writes only its own arrays.
-  - Other code that threads run writes shared state only under a lock, through thread-safe objects, or under its own key, as the shared `U`, the claims of items, the stop event, and the result of a row of a coset batch that ends the batch are written.
+    It misses the same kinds of writes as the test of coset batches under "Keep coset queries reproducible".
+    It also does not mark the arrays that each thread of `_scan_set_on_threads` gets for itself: the thread's `support` and `prefixes`, and the work items that it scans.
+    Review checks the writes that the test misses, and that each thread writes only its own arrays.
+  - Other code that threads run writes shared state only under a lock, through thread-safe objects, or under its own key.
+    The shared `U`, the claims of items, the stop event, and the result of a row of a coset batch that ends the batch are written in these ways.
     Review checks this.
   - The shared `U` is lowered only as a minimum, under the lock.
     Review checks this.
-  - Code that threads run calls no numba-parallel code (`parallel=True` or `prange`, such as some functions of galois; see `run_work_items` in `_threads.py`), and reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.
-    `test_nothing_asks_numba_for_parallel_code` of `src/qldpc/_compiled_code_rules_test.py` checks that qLDPC compiles none of its own functions numba-parallel.
-    `test_always_compiled_functions_use_nothing_from_outside_qldpc` of `src/qldpc/_compiled_code_rules_test.py` keeps galois's functions out of compiled code.
-    The fixture `check_code_on_threads` of [conftest.py](conftest.py) fails each test of this package whose threads call numba-parallel code from Python, or read the tuning through `get_tuning`.
-    Review checks such calls on paths that tests do not run on threads.
+  - Code that threads run calls no numba-parallel code, and reads the tuning only from its search.
+    The section "Working here" of [README.md](README.md#working-here) states these rules for the whole package, why they hold, and which tests and reviews check them.
 - **Decide only from what a layer leaves the same on any number of threads** ([Section 4.5](#45-behavior-spanning-files), "Threads").
   After the layer of a set, `U` and the lower bound are those of one thread, and so are the estimates derived from them, such as `get_layer_work` and `estimate_automorphism_family_work`.
   Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [problems.md](problems.md#choosing-a-method)), reads nothing else that the layers leave.
