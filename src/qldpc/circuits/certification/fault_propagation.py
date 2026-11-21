@@ -74,12 +74,9 @@ def certify_bounded_fault_propagation(
     leaves only such an error can fail the bound.
 
     Costly parts of the search run on several threads, as many as the ``num_threads`` field of the
-    search tuning says: by default, the environment variable ``QLDPC_NUM_THREADS`` if it was set
-    when qLDPC was imported, or else ``numba.config.NUMBA_NUM_THREADS``, by default one for each CPU
-    that numba counts.  The result does not depend on the number of threads.  Programs that run
-    certifications in several processes or threads at once should keep each on one thread, with
-    ``QLDPC_NUM_THREADS=1`` set before Python starts, or by calling this function within
-    ``use_tuning(num_threads=1)`` (see :doc:`/exact_search_tuning`).
+    search tuning says, and the result does not depend on their number.  :doc:`/exact_search_tuning`
+    says how many threads a search uses by default, and how to cap them, as programs that run
+    certifications in several processes or threads at once should.
 
     Args:
         state_prep_circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.
