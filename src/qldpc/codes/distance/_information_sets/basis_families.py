@@ -13,7 +13,6 @@ gives the rules of the stages and of the families of the coset searches.
 
 from __future__ import annotations
 
-import dataclasses
 import enum
 import math
 from collections.abc import Callable
@@ -76,34 +75,6 @@ class BasisFamily(NamedTuple):
             self.weight_divisor,
             self.max_coverage,
         )
-
-    def get_search_certificate(
-        self, upper_bound: int, lp_minimum_work: int, lp_max_denominator: int
-    ) -> Certificate:
-        """The certificate with which to search this basis family for ``upper_bound``.
-
-        A search of overlapping sets whose estimated work reaches ``lp_minimum_work`` also solves
-        linear programs (Section 4.4), with dual weights of denominators at most
-        ``lp_max_denominator``.
-        """
-        certificate = self.certificate
-        if self.max_coverage == 1 or certificate.work(upper_bound) < lp_minimum_work:
-            return certificate
-        return dataclasses.replace(
-            certificate,
-            pivot_blocks=get_pivot_blocks(self.pivots, self.ranks),
-            lp_max_denominator=lp_max_denominator,
-        )
-
-
-def get_pivot_blocks(
-    pivots: npt.NDArray[np.int64], ranks: npt.NDArray[np.int64]
-) -> tuple[tuple[int, ...], ...]:
-    """The pivot columns of each set of a family, from its pivots padded beyond each rank."""
-    return tuple(
-        tuple(int(column) for column in set_pivots[:rank])
-        for set_pivots, rank in zip(pivots, ranks, strict=True)
-    )
 
 
 ####################################################################################################

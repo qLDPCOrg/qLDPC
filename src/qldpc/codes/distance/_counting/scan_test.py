@@ -84,15 +84,14 @@ def test_overlapping_basis_families_count_every_word_once(
 def test_counts_through_the_costly_stages_count_every_word_once(
     tune: Tune, costly_stages: CostlyStages
 ) -> None:
-    """Counts with partitioned families and the certificate of linear programs are exact."""
-    tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
+    """Counts with partitioned families are exact."""
+    tune(overlapping_minimum_work=0, partition_work_ratio=0)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert any(
         len(family.ranks) and family.max_coverage > 1
         for family in costly_stages.partitioned_families
     )
-    assert any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
 
 
 @pytest.mark.parametrize("method", METHODS)

@@ -19,9 +19,7 @@ from __future__ import annotations
 
 import functools
 import math
-from collections.abc import Sequence
 from dataclasses import dataclass
-from fractions import Fraction
 
 import numpy as np
 import numpy.typing as npt
@@ -49,15 +47,13 @@ class Certificate:
     family order have completed it (Sections 2.5 and 3.1).  A set interrupted within a layer
     advances neither.  The bounds hold only for the eligible words of the family's sector that the
     family has not visited, and, in a search that skips completions by tables, only for those
-    lighter than its best weight (Sections 3.3 and 3.9).  A certificate of the images of blocks
-    under automorphisms, as of an automorphism family or with ``column_orbits``, holds only for
-    unvisited eligible words lighter than a best weight that every visited eligible word lowers,
-    as in a distance search; counts and coset searches must not use one (Section 3.7).
+    lighter than its best weight (Sections 3.3 and 3.9).  A certificate of the images of an
+    information set under automorphisms, as of an automorphism family, holds only for unvisited
+    eligible words lighter than a best weight that every visited eligible word lowers, as in a
+    distance search; counts and coset searches must not use one (Section 3.7).
 
     Each bound is the occupancy of the sets (see ``get_step_lower_bounds``) divided by
-    ``max_coverage``, rounded up, and then rounded up to a multiple of ``weight_divisor``; with
-    ``pivot_blocks``, it is the larger of that and the bound of ``get_lp_lower_bound``, which with
-    ``column_orbits`` covers the images of the blocks under a group of automorphisms too.
+    ``max_coverage``, rounded up, and then rounded up to a multiple of ``weight_divisor``.
 
     Attributes:
         dimension: Number of rows of the searched basis.
@@ -66,23 +62,12 @@ class Certificate:
             for general Pauli problems or an even basis (Section 3.2).
         max_coverage: An upper bound on the number of pivot blocks that contain any one column,
             which may overestimate but never underestimate.
-        pivot_blocks: The pivot columns of each search basis, in family order, for the bounds of
-            linear programming, or none.
-        lp_max_denominator: The largest denominator of the dual weights of the linear programs,
-            which must be positive with ``pivot_blocks``.
-        column_orbits: For each column, the index of its orbit under a verified group of
-            automorphisms of the searched problem, or none.  These indices take effect only with
-            ``pivot_blocks``, and the linear program is then the program over orbits of Section 3.7,
-            which bounds by the images of the blocks under the group too.
     """
 
     dimension: int
     ranks: tuple[int, ...]
     weight_divisor: int = 1
     max_coverage: int = 1
-    pivot_blocks: tuple[tuple[int, ...], ...] = ()
-    lp_max_denominator: int = 0
-    column_orbits: tuple[int, ...] = ()
 
     def lower_bound(self, completed_weight: int) -> int:
         """Bound the Hamming weight of unvisited eligible words after the given complete layers."""
@@ -94,92 +79,29 @@ class Certificate:
         The first ``num_completed`` sets, in family order, have completed layer ``weight``, and the
         others have completed layer ``weight - 1``.
         """
-        bound = int(self._step_lower_bounds[weight, num_completed])
-        if not self._solves_linear_programs:
-            return bound
-        step = (weight, num_completed)
-        if step not in self._lp_lower_bounds:
-            lp_bound = get_lp_lower_bound(
-                self.pivot_blocks,
-                self._get_requirements(*step),
-                self.lp_max_denominator,
-                self.column_orbits,
-            )
-            if lp_bound < NO_WORD_BOUND:
-                lp_bound += (-lp_bound) % self.weight_divisor
-            self._lp_lower_bounds[step] = lp_bound
-        return max(bound, self._lp_lower_bounds[step])
+        return int(self._step_lower_bounds[weight, num_completed])
 
     def certifies(self, weight: int, num_completed: int, upper_bound: int) -> bool:
-        """Whether ``step_lower_bound(weight, num_completed)`` is at least ``upper_bound``.
-
-        This solves a linear program only if the coverage bound falls short and, without
-        ``column_orbits``, the feasible point that sets each pivot column to the largest positive
-        ``requirement / len(block)`` of its blocks, or zero, does not show the optimum to fall short
-        too (Section 3.1).
-        """
-        if self._step_lower_bounds[weight, num_completed] >= upper_bound:
-            return True
-        if not self._solves_linear_programs:
-            return False
-        if self.column_orbits:
-            # The feasible point below is feasible only for the program of Section 3.1, so it cannot
-            # show that the program over orbits falls short.
-            return self.step_lower_bound(weight, num_completed) >= upper_bound
-        # No requirement exceeds its block, since a set that has completed the last layer makes the
-        # coverage bound certify any upper bound.  So only a nonempty block has a positive
-        # requirement.  Let the share of a block be requirement / len(block) if the requirement is
-        # positive, and zero if not.  The feasible point sets each pivot column to the largest share
-        # of its blocks, which is the share of the first block that holds the column when the
-        # blocks are sorted by decreasing share.  So its value is the sum of each share times the
-        # number of columns that its block holds first.
-        requirements = self._get_requirements(weight, num_completed)
-        shares = [
-            Fraction(requirement, len(block)) if requirement > 0 else Fraction(0)
-            for block, requirement in zip(self.pivot_blocks, requirements)
-        ]
-        order = sorted(range(len(shares)), key=shares.__getitem__, reverse=True)
-        columns = np.concatenate([self._pivot_block_arrays[index] for index in order])
-        owners = np.repeat(order, [len(self.pivot_blocks[index]) for index in order])
-        _, first_entries = np.unique(columns, return_index=True)
-        counts = np.bincount(owners[first_entries], minlength=len(shares))
-        value = sum((share * int(count) for share, count in zip(shares, counts)), Fraction(0))
-        reachable = math.ceil(value)
-        reachable += (-reachable) % self.weight_divisor
-        return (
-            reachable >= upper_bound and self.step_lower_bound(weight, num_completed) >= upper_bound
-        )
-
-    def plan(self, limit: int, layer: int) -> int:
-        """Find the stopping step of layer ``layer`` for ``limit``, and the sets completed there.
-
-        The stopping step is the first step of the layer whose ``step_lower_bound`` exceeds
-        ``limit``, or the last step if none does.  Returns the number of sets that have completed
-        the layer at that step.  With linear programs, this checks every step but the last, in
-        order, with ``certifies`` (Section 4.1).
-        """
-        num_sets = len(self.ranks)
-        if not self._solves_linear_programs:
-            _, num_completed = find_stopping_step(self._step_lower_bounds, limit, layer, layer)
-            return num_completed
-        for num_completed in range(1, num_sets):
-            if self.certifies(layer, num_completed, limit + 1):
-                return num_completed
-        return num_sets
+        """Whether ``step_lower_bound(weight, num_completed)`` is at least ``upper_bound``."""
+        return bool(self._step_lower_bounds[weight, num_completed] >= upper_bound)
 
     def get_num_sets_to_certify(self, weight: int, upper_bound: int) -> int:
         """The fewest leading sets whose completion of layer ``weight`` certifies ``upper_bound``.
 
-        This is ``plan(upper_bound - 1, weight)``: every set if no fewer suffice, in which case the
-        bound may need later layers too.
+        These are the sets completed at the first step of the layer whose ``step_lower_bound``
+        reaches ``upper_bound``, or every set if no fewer suffice, in which case the bound may need
+        later layers too (Section 4.1).
         """
-        return self.plan(upper_bound - 1, weight)
+        _, num_completed = find_stopping_step(
+            self._step_lower_bounds, upper_bound - 1, weight, weight
+        )
+        return num_completed
 
     def work(self, upper_bound: int, first_layer: int = 1) -> int:
         """Estimate the candidate/set evaluations that certify ``upper_bound`` (Section 3.6).
 
-        The estimate uses the coverage bound alone.  From a later ``first_layer``, it is the work
-        left once every set has completed the layers before ``first_layer``.
+        From a later ``first_layer``, it is the work left once every set has completed the layers
+        before ``first_layer``.
         """
         ranks, *_ = self._as_array_arguments()
         binomials = get_capped_binomials(self.dimension)
@@ -220,16 +142,6 @@ class Certificate:
         bounds[self.dimension, 1:] = NO_WORD_BOUND
         return bounds
 
-    @property
-    def _solves_linear_programs(self) -> bool:
-        """Whether the certificate also solves linear programs.
-
-        It does exactly with pivot blocks, and either a maximum coverage above one or column
-        orbits.  With a coverage of one and no orbits, the blocks are disjoint, and the optimum is
-        the coverage bound (Section 3.1).
-        """
-        return bool(self.pivot_blocks) and (self.max_coverage != 1 or bool(self.column_orbits))
-
     def _as_array_arguments(self) -> tuple[npt.NDArray[np.int64], int, int]:
         """The ranks, weight divisor, and maximum coverage that the array functions take."""
         return np.array(self.ranks, dtype=np.int64), self.weight_divisor, self.max_coverage
@@ -238,108 +150,6 @@ class Certificate:
     def _step_lower_bounds(self) -> npt.NDArray[np.int64]:
         """The table of ``get_step_lower_bounds`` for this certificate."""
         return get_step_lower_bounds(self.dimension, *self._as_array_arguments())
-
-    @functools.cached_property
-    def _pivot_block_arrays(self) -> tuple[npt.NDArray[np.int64], ...]:
-        """The pivot blocks as arrays, for ``certifies``."""
-        return tuple(np.array(block, dtype=np.int64) for block in self.pivot_blocks)
-
-    def _get_requirements(self, weight: int, num_completed: int) -> list[int]:
-        """The fewest ones that an unvisited word has in each block after the given step."""
-        return [
-            (weight if index < num_completed else weight - 1) + 1 - (self.dimension - rank)
-            for index, rank in enumerate(self.ranks)
-        ]
-
-    @functools.cached_property
-    def _lp_lower_bounds(self) -> dict[tuple[int, int], int]:
-        """The rounded bounds of ``get_lp_lower_bound`` for the steps computed so far."""
-        return {}
-
-
-def get_lp_lower_bound(
-    pivot_blocks: Sequence[Sequence[int]],
-    requirements: Sequence[int],
-    max_denominator: int,
-    column_orbits: Sequence[int] = (),
-) -> int:
-    """Bound the weight of binary words with at least ``b_i`` ones in each block ``B_i``.
-
-    ``B_i`` is ``pivot_blocks[i]``, and ``b_i`` is ``requirements[i]``.  With ``column_orbits``, the
-    index of the orbit of each column under a group of column permutations, the words also have at
-    least ``b_i`` ones in every image of ``B_i`` under the group.  The bound is the ceiling of the
-    dual value of the linear program of Section 3.1, or of the program over orbits of Section 3.7,
-    at the solver's dual weights, limited to denominators of at most ``max_denominator``, and
-    evaluated exactly as Section 3.1 describes.  Returns ``NO_WORD_BOUND`` if a requirement exceeds
-    its block, since then no word meets it, and zero if no requirement is positive or the solver
-    fails.
-    """
-    blocks = [
-        list(block) for block, requirement in zip(pivot_blocks, requirements) if requirement > 0
-    ]
-    positive = [requirement for requirement in requirements if requirement > 0]
-    if not blocks:
-        return 0
-    if any(requirement > len(block) for block, requirement in zip(blocks, positive)):
-        return NO_WORD_BOUND
-
-    # Import the solver only here, since importing qLDPC does not otherwise load it.
-    import scipy.optimize
-
-    # Group the columns into classes, with one variable each: the orbits, for the program of
-    # Section 3.7, or else the sets of columns that lie in the same blocks, which share a value in
-    # an optimal solution of the program of Section 3.1.  Each block counts its columns in each
-    # class.
-    if column_orbits:
-        classes = np.asarray(column_orbits, dtype=np.int64)
-        sizes = np.bincount(classes)
-    else:
-        columns = np.array(sorted({column for block in blocks for column in block}))
-        membership = np.zeros((columns[-1] + 1, len(blocks)), dtype=bool)
-        for row, block in enumerate(blocks):
-            membership[block, row] = True
-        _, inverse, sizes = np.unique(
-            membership[columns], axis=0, return_inverse=True, return_counts=True
-        )
-        classes = np.zeros(len(membership), dtype=np.int64)
-        classes[columns] = inverse.reshape(-1)
-    incidence = np.zeros((len(blocks), len(sizes)), dtype=np.int64)
-    for row, block in enumerate(blocks):
-        np.add.at(incidence[row], classes[block], 1)
-    used = np.flatnonzero(incidence.any(axis=0))
-    incidence, sizes = incidence[:, used], sizes[used]
-
-    # Solve the linear program over the classes in floating point.
-    result = scipy.optimize.linprog(
-        sizes.astype(float),
-        A_ub=-incidence.astype(float),
-        b_ub=-np.array(positive, dtype=float),
-        bounds=(0, 1),
-        method="highs",
-    )
-    if result.status != 0:
-        return 0
-
-    # Evaluate the dual value exactly, as an integer numerator over the common denominator of the
-    # weights.  The solver gives the dual of each constraint ``-sum x >= -b`` as a nonpositive
-    # marginal.  Each class subtracts its dual term, ``max(0, sum_i count_i y_i - size)``, where
-    # ``count_i`` is the number of its columns in block ``i`` (Sections 3.1 and 3.7).
-    weights = [
-        max(
-            Fraction(0),
-            Fraction(-float(marginal)).limit_denominator(max_denominator),
-        )
-        for marginal in result.ineqlin.marginals
-    ]
-    denominator = math.lcm(*(weight.denominator for weight in weights))
-    numerators = [weight.numerator * (denominator // weight.denominator) for weight in weights]
-    value = sum(
-        int(requirement) * numerator for requirement, numerator in zip(positive, numerators)
-    )
-    for counts, size in zip(incidence.T, sizes):
-        load = sum(int(count) * numerator for count, numerator in zip(counts, numerators))
-        value -= max(0, load - int(size) * denominator)
-    return max(0, -(-value // denominator))
 
 
 @functools.lru_cache(maxsize=_tuning.BINOMIAL_CACHE_SIZE)
@@ -456,7 +266,7 @@ def find_stopping_step(
 ) -> tuple[int, int]:
     """Find the stopping step of ``plan_steps`` by a binary search, since the bounds never decrease.
 
-    The coset searches and ``Certificate.plan`` use it (Section 4.1).
+    The coset searches and ``Certificate.get_num_sets_to_certify`` use it (Section 4.1).
     """
     num_sets = step_bounds.shape[1] - 1
     low, high = 0, (last_layer - first_layer + 1) * num_sets

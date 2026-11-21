@@ -38,7 +38,7 @@ its fields within a ``with`` block::
     from qldpc.codes.distance import _tuning
 
     code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    with _tuning.use_tuning(max_information_sets=8, lp_minimum_work=0):
+    with _tuning.use_tuning(max_information_sets=8, overlapping_minimum_work=0):
         distance = code.get_distance_exact(method="brouwer_zimmermann")
 
 A search reads the active tuning once, when it starts.  The active tuning is a context variable (see
@@ -67,14 +67,13 @@ Retuning:
 
 Each default is in one of these classes, or was chosen by hand:
 
-- A derived value gates an optional step, such as building a family of information sets, solving
-  linear programs, or asking for automorphisms.  The step runs when the estimated work that it acts
-  on reaches the value, or, for ``partition_work_ratio``, the value times a formula; work counts
-  candidate/set evaluations in BZ searches and states in connected-cluster searches.  The value is
-  the cost of the step on a large basis or code, or its cost per unit of the formula, known to an
-  order of magnitude and written as 1, 2, or 5 times a power of ten (Section 4.4 of
-  ``brouwer_zimmermann_code.md``).  On a small search, where the step costs less, a gate can skip a
-  step that would have paid.
+- A derived value gates an optional step, such as building a family of information sets or asking
+  for automorphisms.  The step runs when the estimated work that it acts on reaches the value, or,
+  for ``partition_work_ratio``, the value times a formula; work counts candidate/set evaluations in
+  BZ searches and states in connected-cluster searches.  The value is the cost of the step on a
+  large basis or code, or its cost per unit of the formula, known to an order of magnitude and
+  written as 1, 2, or 5 times a power of ten (Section 4.4 of ``brouwer_zimmermann_code.md``).  On a
+  small search, where the step costs less, a gate can skip a step that would have paid.
 - A limit at equality compares two estimates in one unit.
 - The rough coefficients of the cost model of completion tables (``predict_completion_cost`` in
   ``_information_sets/completion_bounds.py``) are rough estimates, not round values.
@@ -210,23 +209,6 @@ class SearchTuning:
     #: ``brouwer_zimmermann_code.md``).
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
-    #: The estimated work, in candidate/set evaluations, from which a distance search or count that
-    #: uses overlapping information sets also bounds unvisited words by the linear program of
-    #: Section 3.1 of ``brouwer_zimmermann.md``.  Zero turns these programs on in every such search
-    #: or count, and ``MAX_VALUE`` turns them off.  A distance search that gets automorphisms solves
-    #: the program over orbits of Section 3.7 of ``brouwer_zimmermann.md`` in place of that program,
-    #: for the family that it has then, disjoint or overlapping, whatever this value, unless
-    #: ``automorphism_orbit_bounds`` is off.  Defaults to ``5 * 10**7``, a derived value: the cost
-    #: of linear programming, planning included, in a search of a large basis, tens of millions of
-    #: evaluations (Section 3.1 of ``brouwer_zimmermann.md`` and Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
-    lp_minimum_work: int = 50_000_000
-
-    #: The largest denominator of the fractions to which the certificate from linear programming
-    #: rounds the dual weights of its solver.  Defaults to ``2**20``, a convention: rounding moves
-    #: each dual weight by at most ``2**-21`` (Section 4.4 of ``brouwer_zimmermann_code.md``).
-    lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
-
     #: A distance search that does not ask for automorphisms before matroid partitioning considers
     #: switching to its family of automorphism images before the first coefficient layer whose work,
     #: in candidate/set evaluations, reaches this value; zero considers the switch before the first
@@ -237,13 +219,6 @@ class SearchTuning:
     #: code, several million evaluations (Section 3.7 of ``brouwer_zimmermann.md`` and Section 4.4
     #: of ``brouwer_zimmermann_code.md``).
     automorphism_minimum_layer_work: int = 5_000_000
-
-    #: Whether a BZ distance search, once it has verified automorphisms, bounds the weight of
-    #: unvisited words with the images of the pivot blocks of its family under them, by a linear
-    #: program over their orbits (Section 3.7 of ``brouwer_zimmermann.md``).  ``False`` skips these
-    #: bounds, and the search stays exact.  Defaults to ``True``, a switch; ``False`` is for
-    #: comparisons, such as ablations.
-    automorphism_orbit_bounds: bool = True
 
     # Fields of distance searches of CSS codes.
 

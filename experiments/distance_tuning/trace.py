@@ -7,16 +7,16 @@ The script wraps functions of ``qldpc.codes.distance`` in this process only, war
 workload once under the given tuning, on one thread: it refuses a tuning that sets ``num_threads``
 to another value, since its counts of work see only the scans of one thread.  It cannot trace
 ``ccount`` workloads, whose compiled setup calls the stages past the wrappers.  For a
-Brouwer-Zimmermann (BZ) search, it records each family of information sets, certificate, linear
-program, consideration of a switch to automorphism images, prediction of the cost of completion
-tables, comparison of a predicted cost with ``completion_bound_max_cost_percent``, and layer, and
-the first test of each number of rows and weight for tables.  For a connected-cluster search, it
-records each weight limit, and for a count by the MacWilliams method, each walk and test.  The
-wrapper of each event says what it records.  Each layer and weight limit numbers its sector, such as
-the X-type logical operators of a CSS code, in a ``sector`` field (see ``wrap_sectors``).  The
-script prints the events, and with ``--output`` saves them as JSON with the tuning and a fingerprint
-of the qLDPC source.  With ``--setup-only``, it ends the workload before the first layer of a BZ
-distance search, after its setup; workloads of other kinds run in full.
+Brouwer-Zimmermann (BZ) search, it records each family of information sets, consideration of a
+switch to automorphism images, prediction of the cost of completion tables, comparison of a
+predicted cost with ``completion_bound_max_cost_percent``, and layer, and the first test of each
+number of rows and weight for tables.  For a connected-cluster search, it records each weight limit,
+and for a count by the MacWilliams method, each walk and test.  The wrapper of each event says what
+it records.  Each layer and weight limit numbers its sector, such as the X-type logical operators of
+a CSS code, in a ``sector`` field (see ``wrap_sectors``).  The script prints the events, and with
+``--output`` saves them as JSON with the tuning and a fingerprint of the qLDPC source.  With
+``--setup-only``, it ends the workload before the first layer of a BZ distance search, after its
+setup; workloads of other kinds run in full.
 
 With ``--compare``, the script instead says whether two saved traces of one workload, such as traces
 under two tunings or of two checkouts, make the same decisions, and prints the first that differs,
@@ -31,8 +31,8 @@ run the script of that checkout with its own Python.
 Examples:
 
     python experiments/distance_tuning/trace.py distance/qt7/X --output a.json
-    python experiments/distance_tuning/trace.py distance/qt7/X --tuning '{"lp_minimum_work": 0}' \\
-        --output b.json
+    python experiments/distance_tuning/trace.py distance/qt7/X \\
+        --tuning '{"automorphism_minimum_layer_work": 0}' --output b.json
     python experiments/distance_tuning/trace.py --compare a.json b.json
 """
 
@@ -55,7 +55,6 @@ from qldpc.codes.distance._counting import macwilliams
 from qldpc.codes.distance._information_sets import (
     automorphism_families,
     basis_families,
-    certificates,
     completion_bounds,
     matroid_partition,
 )
@@ -201,7 +200,6 @@ def install_wrappers() -> None:
     ]
     patches += [
         (matroid_partition, "get_information_sets_with_coverage", wrap_partition),
-        (basis_families.BasisFamily, "get_search_certificate", wrap_certificate),
         (search_class, "advance", wrap_advance),
         (search_class, "_switch_to_automorphism_family", wrap_switch),
         (search_class, "_scan_set", wrap_scan_set_method),
@@ -211,7 +209,6 @@ def install_wrappers() -> None:
         (affine_search, "scan_set", wrap_scan_set),
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
-        (certificates, "get_lp_lower_bound", wrap_linear_program),
         (distances, "get_distance_brouwer_zimmermann", wrap_sectors),
         (distances, "get_distance_connected_cluster", wrap_sectors),
         (logical_counts, "get_distance_brouwer_zimmermann", wrap_sectors),
@@ -274,30 +271,6 @@ def wrap_prepare(function: Callable[..., Any]) -> Callable[..., Any]:
         if isinstance(prepared, distance._SectorSearch):
             SECTOR_INDICES[id(prepared)] = index
         return prepared
-
-    return wrapper
-
-
-def wrap_certificate(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each certificate of a search, its estimated work, and its seconds.
-
-    A family of overlapping sets whose estimated work reaches ``lp_minimum_work`` also bounds
-    unvisited words by linear programming (see ``BasisFamily.get_search_certificate``).
-    """
-
-    @functools.wraps(function)
-    def wrapper(
-        family: Any, upper_bound: int, lp_minimum_work: int, *args: Any, **kwargs: Any
-    ) -> Any:
-        start = time.perf_counter()
-        result = function(family, upper_bound, lp_minimum_work, *args, **kwargs)
-        seconds = time.perf_counter() - start
-        overlapping = family.max_coverage != 1
-        work = int(family.certificate.work(upper_bound)) if overlapping else None
-        lp = work is not None and work >= lp_minimum_work
-        event = {"event": "certificate", "overlapping": overlapping, "work": work, "lp": lp}
-        EVENTS.append(event | {"seconds": seconds})
-        return result
 
     return wrapper
 
@@ -445,21 +418,6 @@ def get_overlapping_gate(
     }
 
 
-def wrap_linear_program(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each linear program that a certificate solves, its bound, and its seconds."""
-
-    @functools.wraps(function)
-    def wrapper(*args: Any, **kwargs: Any) -> int:
-        start = time.perf_counter()
-        bound = function(*args, **kwargs)
-        weight = None if CURRENT_LAYER is None else CURRENT_LAYER["weight"]
-        event = {"event": "linear program", "weight": weight, "bound": int(bound)}
-        EVENTS.append(event | {"seconds": time.perf_counter() - start})
-        return bound
-
-    return wrapper
-
-
 def wrap_considers(function: Callable[..., Any]) -> Callable[..., Any]:
     """Record, for each number of rows and weight, the first test of whether to consider tables."""
     seen = set()
@@ -503,9 +461,7 @@ def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
     weight after it checks the rows of the automorphism family: the work of that family from layer
     one, and the work left in the current family from the layer before which it considers the
     switch.  The event also records whether the search finished there, as when the rows of the
-    automorphism family lower its best weight to its lower bound, or the images of the blocks raise
-    its lower bound to its best weight.  With ``automorphism_orbit_bounds``, a search that finishes
-    there in either way does not compare the works, but the event records them anyway.
+    automorphism family lower its best weight to its lower bound.
     """
 
     @functools.wraps(function)
@@ -569,8 +525,7 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             "build_seconds": 0.0,
         }
         # The work of the layer that the switch to automorphism images compares with its threshold,
-        # as the source of ``advance`` computes it.  The certificate of the search may solve linear
-        # programs, which the search would solve in this layer anyway.
+        # as the source of ``advance`` computes it.
         if can_switch:
             num_scanned = search.instance.certificate.get_num_sets_to_certify(weight, search.best)
             switch_work = num_scanned * math.comb(dimension, weight)
@@ -901,8 +856,6 @@ def get_decisions(trace: dict[str, Any]) -> list[tuple[Any, ...]]:
             decisions.append(
                 (kind, event["kind"], event["sets"], event.get("stage"), event.get("partitioned"))
             )
-        elif kind == "certificate":
-            decisions.append((kind, event["overlapping"], event["lp"]))
         elif kind == "automorphisms":
             decisions.append((kind, event["switched"]))
         elif kind == "layer":

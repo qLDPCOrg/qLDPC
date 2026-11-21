@@ -3,7 +3,6 @@
 """Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
 import contextlib
-import dataclasses
 import itertools
 import threading
 import warnings
@@ -22,9 +21,9 @@ from qldpc.objects import PauliXZ
 
 from . import _threads, _tuning
 from . import logical_counts as lc
-from ._brouwer_zimmermann import coset_tables
+from ._brouwer_zimmermann import affine_instance, coset_tables
 from ._code_matrices import get_nested_code_basis
-from ._information_sets import basis_families, certificates
+from ._information_sets import basis_families
 from .coset_leaders import CosetLeaderSearch
 
 # How long, in seconds, a test waits for another thread, so that a deadlock fails the test rather
@@ -49,37 +48,39 @@ def plain_search_setup() -> None:
 
 
 class CostlyStages(NamedTuple):
-    """The results of the costly stages of searches, which the costly_stages fixture records."""
+    """The families that matroid partitioning builds and that distance searches pack to scan.
+
+    The costly_stages fixture records them.
+    """
 
     partitioned_families: list[basis_families.BasisFamily]
-    search_certificates: list[certificates.Certificate]
+    search_families: list[basis_families.BasisFamily]
 
 
 @pytest.fixture
 def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
-    """Record the families of matroid partitioning and the certificates that searches choose.
+    """Record the families of matroid partitioning and the families that distance searches pack.
 
-    A family with sets shows that a search took a partitioned family, and a certificate with pivot
-    blocks shows that a search used linear programming.
+    A partitioned family with sets shows that a search built one, and a packed family whose maximum
+    coverage exceeds one shows that the setup of a distance search ended with overlapping sets.
     """
     stages = CostlyStages([], [])
     get_partitioned_family = basis_families.get_partitioned_family
-    get_search_certificate = basis_families.BasisFamily.get_search_certificate
+    get_distance_instance = affine_instance.get_distance_instance
 
     def record_family(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
         family = get_partitioned_family(*args, **kwargs)
         stages.partitioned_families.append(family)
         return family
 
-    def record_certificate(
+    def record_instance(
         basis_family: basis_families.BasisFamily, *args: Any, **kwargs: Any
-    ) -> certificates.Certificate:
-        certificate = get_search_certificate(basis_family, *args, **kwargs)
-        stages.search_certificates.append(certificate)
-        return certificate
+    ) -> affine_instance.AffineInstance:
+        stages.search_families.append(basis_family)
+        return get_distance_instance(basis_family, *args, **kwargs)
 
     monkeypatch.setattr(basis_families, "get_partitioned_family", record_family)
-    monkeypatch.setattr(basis_families.BasisFamily, "get_search_certificate", record_certificate)
+    monkeypatch.setattr(affine_instance, "get_distance_instance", record_instance)
     return stages
 
 
@@ -151,10 +152,8 @@ def assert_certificate_bounds_unvisited_words(
 
     A step is a pair of a layer ``t`` and the number of search bases that have finished it, while
     the others have finished layer ``t - 1``.  A search basis visits a word after layer ``t`` if the
-    word combines at most ``t`` of its rows.  The check covers the family's certificate, with and
-    without the bounds of linear programming.  Also check the weight divisor, and that
-    ``certifies`` agrees with each step's bound.  The family's labels must make every nonzero word
-    eligible.
+    word combines at most ``t`` of its rows.  Also check the weight divisor, and that ``certifies``
+    agrees with each step's bound.  The family's labels must make every nonzero word eligible.
     """
 
     def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
@@ -168,20 +167,10 @@ def assert_certificate_bounds_unvisited_words(
     coefficient_weights = [get_coefficient_weights(generators) for generators in family.generators]
     assert all(set_weights.keys() == words.keys() for set_weights in coefficient_weights)
 
-    # Check the family's certificate both without and with the bounds of linear programming.
     certificate = family.certificate
-    pivot_blocks = tuple(
-        tuple(int(column) for column in pivots[:rank])
-        for pivots, rank in zip(family.pivots, family.ranks, strict=True)
-    )
-    denominator = _tuning.DEFAULT_TUNING.lp_dual_max_denominator
-    checked = [
-        certificate,
-        dataclasses.replace(certificate, pivot_blocks=pivot_blocks, lp_max_denominator=denominator),
-    ]
 
     # Each word's weight is a multiple of the divisor, and, at each step at which no search basis
-    # has visited the word, at least the bound of each certificate.
+    # has visited the word, at least the bound of the certificate.
     hamming_weights = {
         word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words
     }
@@ -197,14 +186,15 @@ def assert_certificate_bounds_unvisited_words(
                 layer if index < num_completed else layer - 1 for index in range(len(family.ranks))
             ]
             if all(item[word] > done for item, done in zip(coefficient_weights, completed)):
-                for each in checked:
-                    assert weight >= each.step_lower_bound(layer, num_completed)
+                assert weight >= certificate.step_lower_bound(layer, num_completed)
 
     # At each step, ``certifies`` agrees with the bound.
-    for each, (layer, num_completed) in itertools.product(checked, steps):
-        bound = each.step_lower_bound(layer, num_completed)
+    for layer, num_completed in steps:
+        bound = certificate.step_lower_bound(layer, num_completed)
         for upper_bound in range(1, basis.shape[1] + 2):
-            assert each.certifies(layer, num_completed, upper_bound) == (bound >= upper_bound)
+            assert certificate.certifies(layer, num_completed, upper_bound) == (
+                bound >= upper_bound
+            )
 
 
 ####################################################################################################

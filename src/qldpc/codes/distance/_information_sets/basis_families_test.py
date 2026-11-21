@@ -22,9 +22,8 @@ from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning
 from ..conftest import assert_certificate_bounds_unvisited_words, get_random_full_rank_matrix
 from . import basis_families, certificates, matroid_partition
 
-# The default numbers of column orders of disjoint families, and denominators of LP dual weights.
+# The default number of column orders of disjoint families.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
-DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
 
 # Two disjoint full blocks and a rank-two remainder.
 PARTIAL_BASIS = np.hstack(
@@ -659,19 +658,6 @@ def test_built_disjoint_families_do_at_least_the_disjoint_bound(
             for family in (maximum, greedy):
                 for each in (family, basis_families.prune_family(family, upper_bound)):
                     assert bound <= each.certificate.work(upper_bound)
-
-
-def test_searches_of_overlapping_sets_use_linear_programming_when_costly() -> None:
-    """Only a costly search of overlapping sets gets the bound of linear programming."""
-    basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
-    disjoint = basis_families.get_disjoint_family(basis, None, random_column_orders=ORDERS)
-    overlapping = _get_overlapping_family(basis, None, disjoint, 3, minimum_work=0)
-    assert overlapping.max_coverage > 1
-    assert not overlapping.get_search_certificate(3, 2**62, DENOMINATOR).pivot_blocks
-    assert len(overlapping.get_search_certificate(3, 0, DENOMINATOR).pivot_blocks) == len(
-        overlapping.ranks
-    )
-    assert not disjoint.get_search_certificate(3, 0, DENOMINATOR).pivot_blocks
 
 
 @pytest.mark.parametrize("max_sets, num_sets", [(3, 0), (4, 4), (16, 4)])

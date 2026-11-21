@@ -67,8 +67,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
      Below that, fixed costs that the estimates leave out, such as setup, dominate the costs that a switch would compare.
      `SupportSearch._predict_states` predicts `MAX_VALUE - 1` states for a first limit that `cutoff` raises, so such a limit ends the free phase at once.
    - `_probe` then runs a BZ search by whole layers within `auto_probe_work`.
-     It skips the costlier stages of setup: overlapping and partitioned families, and so the linear programs of [Section 3.1 of the BZ guide](brouwer_zimmermann.md#31-overlapping-search-bases), which only those take.
-     A probe that gets automorphisms may still solve the program over orbits of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms).
+     It skips the costlier stages of setup: overlapping and partitioned families.
      If the probe finishes, its result is the answer.
      Otherwise, its shared upper bound `U`, the weight of a nontrivial word that it has found or the caller's upper bound if that is less, caps the connected-cluster search, which then stops once its lower bounds reach `U`.
      The search of a sector can hold a lighter witness from its setup, which joins `U` only after the probe advances that search.

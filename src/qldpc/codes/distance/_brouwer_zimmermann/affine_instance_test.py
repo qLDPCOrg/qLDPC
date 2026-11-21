@@ -76,7 +76,7 @@ def test_distance_instances_delete_pivot_columns(pytestconfig: pytest.Config) ->
     basis = get_random_full_rank_matrix(rng, 4, 70)
     labels = np.eye(4, dtype=np.uint8)
     family = basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
-    certificate = family.get_search_certificate(3, 0, 1)
+    certificate = family.certificate
     instance = affine_instance.get_distance_instance(family, certificate)
     assert instance.certificate is certificate
     assert instance.weight_factor == 1
