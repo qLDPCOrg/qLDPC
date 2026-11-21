@@ -702,6 +702,9 @@ def test_decoders() -> None:
         erasing.calibrate(1, 10)
     with pytest.raises(TypeError, match="must be an observable decoder"):
         Consumer(consumer.block_preparation, consumer.circuit, None)  # type: ignore[arg-type]
+    # a decoder class, rather than an instance of it, is rejected before it is used
+    with pytest.raises(TypeError, match="must be an observable decoder"):
+        Consumer(consumer.block_preparation, consumer.circuit, _BatchDecoder)  # type: ignore[arg-type]
 
 
 def test_prediction_shapes() -> None:
