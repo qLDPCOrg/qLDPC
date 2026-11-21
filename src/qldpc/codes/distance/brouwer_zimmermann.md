@@ -222,7 +222,7 @@ The images of the blocks under automorphisms give a program for any family, whic
 
 #### Families for coset searches
 
-The coset searches of [Section 4.1](brouwer_zimmermann_code.md#41-module-map-and-layering) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
+The coset searches of [Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
 For each search basis `G_i`, fix an **offset**, a word of the coset that is zero on the pivot columns of `B_i`.
 Every word of the coset is the offset plus a unique sum of rows of `G_i`, so once `G_i` has completed layer `t`, an unexamined word has at least `b_i(t)` ones on `B_i`, as a word of `V` does.
 So every certificate of this section holds for cosets, and any family of search bases of `V` serves every coset of `V`.
@@ -240,7 +240,7 @@ That stronger test mainly helps doubly even classical codes, since a CSS sector 
 
 By the same identity, a divisor of the weights of `V` need not divide those of a coset `u + V`: every word of `V = {0000, 1111}` has a weight divisible by four, but `1000 + V` has the weights one and three.
 Parity does carry over: if `V` is even, every word of `u + V` has the parity of `wt(u)`.
-So a coset search of an even code rounds each bound up to that parity, which it reads from the word of the coset's syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-module-map-and-layering)), and uses no other rounding:
+So a coset search of an even code rounds each bound up to that parity, which it reads from the word of the coset's syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)), and uses no other rounding:
 
 - A search of the X or Z parts of errors, which searches the cosets of a classical code, rounds when that code is even.
 - A search of Pauli errors by their CSS weight `max(|x|, |z|)` rounds when the words `[x | z]` of its code are even, and bounds the CSS weight by half its bound on the Hamming weight of `[x | z]`, rounded up, after rounding to parity.
@@ -301,7 +301,7 @@ $$
 
 It is pessimistic, since it assumes that no lighter witness turns up, and it is not a runtime guarantee, since runtime also depends on building the bases and on the width of packed words.
 The estimate of a coset query at maximum weight `ω` sums from layer zero, the offset, to the first step whose bound exceeds `ω`, and, like the query, omits the rank-deficient bases that add nothing to that bound.
-If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-module-map-and-layering)), and otherwise at most that many.
+If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)), and otherwise at most that many.
 A distance search on threads computes its estimates from `U` after whole layers, never from the measured counts of a split layer, as "Decide only from what a layer leaves the same on any number of threads" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements) requires.
 
 Exhaustive enumeration, which `method="brute_force"` runs instead of BZ, examines all `(2^q - 1) * 2^(r-q)` eligible words, for `q = dim(V/S)`, in vectorized, packed batches updated by Gray-code steps.
@@ -499,7 +499,7 @@ The search basis need not be an information set, and its pivot rows come first, 
 The bound adds this count to `B` in place of `w`, which it equals for an information set.
 
 A query of maximum weight `ω` skips the completions whose bound reaches `h(ω)`, the least bound that proves a word of the coset heavier than `ω`.
-With the **weight factor** `η` of [Section 4.1](brouwer_zimmermann_code.md#41-module-map-and-layering), two in a search of Pauli errors and one in a search of X or Z parts, `h(ω)` is `η ω + 1`, or `η ω` if the search rounds to the parity of the coset and `η ω` has the other parity.
+With the **weight factor** `η` of [Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules), two in a search of Pauli errors and one in a search of X or Z parts, `h(ω)` is `η ω + 1`, or `η ω` if the search rounds to the parity of the coset and `η ω` has the other parity.
 No skipped word lies within `ω`, and the query visits the other words in the order of a scan without tables, so it finds the same first word within `ω`, if there is one.
 Otherwise, it returns the lightest word that it weighed, possibly heavier than without tables.
 If it skipped any word, it also returns the lower bound `R`: `h(ω)`, rounded up to the coset's parity where the search rounds, then divided by `η` and rounded up ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
@@ -536,7 +536,7 @@ Within `completion_bound_max_table_bytes`, a count keeps the tables of the sets 
 
 The residual-weight estimator of `qldpc.experimental` needs the minimum weight of each coset that it meets, up to a maximum weight `ω`, or `ω + 1` for a coset without a word within `ω`.
 Queries at increasing maximum weights would each repeat the scan of the one before, so the coset searches find this weight with one search.
-The search keeps `U`, the lesser of `ω + 1` and the weight of the lightest word found so far, starting from the word of its syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-module-map-and-layering)).
+The search keeps `U`, the lesser of `ω + 1` and the weight of the lightest word found so far, starting from the word of its syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)).
 It stops after the first step whose bound reaches `U`, or within a step once `U` is at most the bound of the step before, since every unvisited word then weighs at least `U`; `U` is then the minimum weight, if it is at most `ω`.
 It finds that step as a query does, moves it earlier whenever `U` falls, and skips the search bases that add nothing to its bound, which add nothing to an earlier bound either.
 It uses the family and the completion tables of a query at `min(ω, n)`, for `n` qubits ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)), and since it stops no later than that query, those tables cover every layer that it scans.
