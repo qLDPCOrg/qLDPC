@@ -411,7 +411,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         distances.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
         # A search that scans layers, rather than finish while it prepares, scans with batches of
         # 2**search_chunk_exponent supports, on num_threads threads, and passes its tuning to its
-        # certificate and to its choices of completion tables.
+        # choices of completion tables.
         bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
 
     expected = {

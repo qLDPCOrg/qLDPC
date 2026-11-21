@@ -22,7 +22,7 @@ from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning
 from ..conftest import assert_certificate_bounds_unvisited_words, get_random_full_rank_matrix
 from . import basis_families, certificates, matroid_partition
 
-# The default numbers of column orders of disjoint families, and denominators of LP dual weights.
+# The default number of column orders of disjoint families.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
 
 # Two disjoint full blocks and a rank-two remainder.

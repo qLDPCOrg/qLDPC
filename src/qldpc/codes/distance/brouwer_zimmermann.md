@@ -195,8 +195,9 @@ Grassl's chapter (page 291 and Algorithm 2.5, see [References](#references)) cre
 Proposition 5 of Lisoněk and Trummer gives the coverage-divided certificate for blocks of equal bounds `t+1`, and its proof covers the different bounds of rank-deficient blocks and of steps within a layer.
 [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) mentions the overlapping case in its Section 2, citing Grassl, without a formula.
 Neither Zimmermann's certificate nor the coverage-divided one dominates the other.
-Relaxing the coordinates of an unexamined word to `0 ≤ x_c ≤ 1` bounds its weight by the optimum of a linear program, to minimize `Σ_c x_c` subject to `Σ_{c ∈ B_i} x_c ≥ b_i` for each `i`, which is at least both certificates and can exceed them when coverage is uneven.
-On the distance searches and counts measured, it never raised a bound above the coverage-divided certificate, so searches do not solve it.
+Relaxing the coordinates of an unexamined word `v` to `0 ≤ x_c ≤ 1` bounds `wt(v)` below by the optimum of the linear program that minimizes `Σ_c x_c` subject to `Σ_{c ∈ B_i} x_c ≥ b_i(t)` for each `i`.
+That optimum is at least both certificates, and can exceed them when coverage is uneven.
+On a dozen distance searches and a count, with the program in every search of an overlapping family, it never changed the work or the lower bound of a layer, so qLDPC does not solve it.
 
 #### Families for coset searches
 

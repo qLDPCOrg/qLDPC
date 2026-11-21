@@ -74,8 +74,8 @@ def get_distance_instance(
 ) -> AffineInstance:
     """Pack the sets of a basis family for the distance search, with their pivot columns deleted.
 
-    ``certificate`` is the search certificate of the family, or that of the automorphism family
-    whose one set ``basis_family`` holds.
+    ``certificate`` is ``basis_family.certificate``, or that of the automorphism family whose one
+    set ``basis_family`` holds.
     """
     # The scans count the ones of the deleted pivot columns from the support (Section 3.5).
     packed_rows = [

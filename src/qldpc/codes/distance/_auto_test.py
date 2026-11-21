@@ -394,8 +394,9 @@ def test_the_probe_skips_the_costly_stages_of_setup(
 ) -> None:
     """The probe takes no overlapping or partitioned family.
 
-    The tuning asks for those stages.  A BZ search of a sector of this MB code then takes an
-    overlapping family, and one of this basis a partitioned family, but their probes do not.
+    The tuning asks for those stages.  A BZ search of a sector of this MB code then builds an
+    overlapping family, though it scans a family of coverage one, and a search of this basis scans a
+    partitioned family of overlapping sets.  Their probes do neither.
     """
     overlapping_families: list[basis_families.BasisFamily] = []
     get_overlapping_family = basis_families.get_overlapping_family

@@ -85,29 +85,23 @@ class Certificate:
         """Whether ``step_lower_bound(weight, num_completed)`` is at least ``upper_bound``."""
         return bool(self._step_lower_bounds[weight, num_completed] >= upper_bound)
 
-    def plan(self, limit: int, layer: int) -> int:
-        """Find the stopping step of layer ``layer`` for ``limit``, and the sets completed there.
-
-        The stopping step is the first step of the layer whose ``step_lower_bound`` exceeds
-        ``limit``, or the last step if none does.  Returns the number of sets that have completed
-        the layer at that step (Section 4.1).
-        """
-        _, num_completed = find_stopping_step(self._step_lower_bounds, limit, layer, layer)
-        return num_completed
-
     def get_num_sets_to_certify(self, weight: int, upper_bound: int) -> int:
         """The fewest leading sets whose completion of layer ``weight`` certifies ``upper_bound``.
 
-        This is ``plan(upper_bound - 1, weight)``: every set if no fewer suffice, in which case the
-        bound may need later layers too.
+        These are the sets completed at the first step of the layer whose ``step_lower_bound``
+        reaches ``upper_bound``, or every set if no fewer suffice, in which case the bound may need
+        later layers too (Section 4.1).
         """
-        return self.plan(upper_bound - 1, weight)
+        _, num_completed = find_stopping_step(
+            self._step_lower_bounds, upper_bound - 1, weight, weight
+        )
+        return num_completed
 
     def work(self, upper_bound: int, first_layer: int = 1) -> int:
         """Estimate the candidate/set evaluations that certify ``upper_bound`` (Section 3.6).
 
-        The estimate uses the coverage bound alone.  From a later ``first_layer``, it is the work
-        left once every set has completed the layers before ``first_layer``.
+        From a later ``first_layer``, it is the work left once every set has completed the layers
+        before ``first_layer``.
         """
         ranks, *_ = self._as_array_arguments()
         binomials = get_capped_binomials(self.dimension)
@@ -272,7 +266,7 @@ def find_stopping_step(
 ) -> tuple[int, int]:
     """Find the stopping step of ``plan_steps`` by a binary search, since the bounds never decrease.
 
-    The coset searches and ``Certificate.plan`` use it (Section 4.1).
+    The coset searches and ``Certificate.get_num_sets_to_certify`` use it (Section 4.1).
     """
     num_sets = step_bounds.shape[1] - 1
     low, high = 0, (last_layer - first_layer + 1) * num_sets

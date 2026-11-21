@@ -48,7 +48,10 @@ def plain_search_setup() -> None:
 
 
 class CostlyStages(NamedTuple):
-    """The results of the costly stages of searches, which the costly_stages fixture records."""
+    """The families that matroid partitioning builds and that distance searches scan.
+
+    The costly_stages fixture records them.
+    """
 
     partitioned_families: list[basis_families.BasisFamily]
     search_families: list[basis_families.BasisFamily]
@@ -150,8 +153,7 @@ def assert_certificate_bounds_unvisited_words(
     A step is a pair of a layer ``t`` and the number of search bases that have finished it, while
     the others have finished layer ``t - 1``.  A search basis visits a word after layer ``t`` if the
     word combines at most ``t`` of its rows.  Also check the weight divisor, and that ``certifies``
-    agrees with each step's bound.  The family's labels must make every nonzero word
-    eligible.
+    agrees with each step's bound.  The family's labels must make every nonzero word eligible.
     """
 
     def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:

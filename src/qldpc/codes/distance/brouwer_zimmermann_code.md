@@ -61,7 +61,7 @@ Every step that `find_stopping_step` returns, like the initial `(0, 1)`, has a l
 `test_cached_stopping_steps_are_reused_exactly_while_they_stay_first` of [_brouwer_zimmermann/coset_tables_test.py](_brouwer_zimmermann/coset_tables_test.py) plants every such pair.
 
 `find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds stopping steps by a binary search of the steps, whose bounds never decrease, and `plan_steps` also adds up their work ([Section 3.6](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration)).
-The distance search plans each layer with `Certificate.get_num_sets_to_certify`, which calls `Certificate.plan`, which uses `find_stopping_step`.
+The distance search plans each layer with `Certificate.get_num_sets_to_certify`, which uses `find_stopping_step`.
 
 `BrouwerZimmermannCosetSearch.get_min_weight_bound` first looks up the words of weight at most one, and below a maximum weight of two returns the lower bound two without a search, or three for an odd coset in a search of X or Z parts that rounds to parity.
 Otherwise a query takes the **route** of its maximum weight: a family of search bases, with its coset instance and planning buffer, which `CosetRoutes` of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) chooses once for each maximum weight ([Section 4.4](#44-heuristics-and-cost-models)).
@@ -117,7 +117,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | --- | --- |
 | Upper bound `U` | `best`, or `upper_bound` as a parameter |
 | Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage` |
-| Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`, which `Certificate.get_weight_bounds` rounds and divides for coset searches; `get_num_sets_to_certify`, `plan`, `find_stopping_step`, and `plan_steps` find stopping steps ([Section 4.1](#41-how-the-searches-use-the-modules)) |
+| Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`, which `Certificate.get_weight_bounds` rounds and divides for coset searches; `get_num_sets_to_certify`, `find_stopping_step`, and `plan_steps` find stopping steps ([Section 4.1](#41-how-the-searches-use-the-modules)) |
 | Family of search bases | `BasisFamily` of [_information_sets/basis_families.py](_information_sets/basis_families.py), which stacks the search bases into arrays and gives their `Certificate`; packed in an `AffineInstance`, and, in coset searches, with the tables of `CosetSearchTables` and `CosetTails` of [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py) |
 | Automorphisms, generators of `Γ` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_known_permutation_automorphisms` and `_get_permutation_automorphisms` of `QuditCode` and of `ClassicalCode` |
 | Automorphism family | `get_automorphism_family` of [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and sets `uses_automorphism_family` of the search |
