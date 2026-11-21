@@ -10,7 +10,8 @@ experiment (``common/manifest.py``), it
 
 1. refuses a bundle built without a pinned qLDPC commit, unless ``--allow-unfrozen`` is given;
 2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
-   label, and stops if they fail;
+   label, and stops if they fail; each attempt writes to a fresh directory under
+   ``acceptance/<label directory>/`` of the results directory, which ``acceptance.json`` records;
 3. refuses a task list in which a task's memory cap exceeds a job slot's memory (``JOB_MEM_GIB``),
    computes the ceiling of CPU-hours of the task list of pass 1, and refuses to go on unless
    ``--approved-cpu-hours`` covers it;
@@ -46,6 +47,7 @@ import argparse
 import json
 import os
 import pathlib
+import secrets
 import shlex
 import signal
 import socket
@@ -217,7 +219,10 @@ def run_acceptance(
 ) -> bool:
     """Run the self-tests (on the node) and the acceptance tests, unless they passed before.
 
-    A pass in local mode does not count for node mode.
+    A pass in local mode does not count for node mode.  Each attempt writes its runs to a fresh
+    directory, ``acceptance/<label directory>/<UTC>-<random>/`` in the results directory, which
+    ``acceptance.json`` records, so that no attempt reuses the rows of another.  Every attempt's
+    directory is kept.
     """
     record = label_dir / "acceptance.json"
     if record.exists():
@@ -225,12 +230,19 @@ def run_acceptance(
         if previous["passed"] and (previous["node"] or not node):
             print("acceptance tests: passed before for this label", flush=True)
             return True
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    directory = results_dir / "acceptance" / label_dir.name / f"{stamp}-{secrets.token_hex(4)}"
+    directory.mkdir(parents=True)
+    print(f"acceptance tests: in {directory}", flush=True)
     passed = True
     if node:
         selftest = [sys.executable, str(SELFTEST), "--node"]
         passed = subprocess.run(selftest, cwd=ROOT, check=False).returncode == 0
-    passed = passed and bool(module.acceptance(node, results_dir / "acceptance"))
-    record.write_text(json.dumps({"passed": passed, "node": node, "at": time.time()}) + "\n")
+    passed = passed and bool(module.acceptance(node, directory))
+    record.write_text(
+        json.dumps({"passed": passed, "node": node, "at": time.time(), "directory": str(directory)})
+        + "\n"
+    )
     return passed
 
 

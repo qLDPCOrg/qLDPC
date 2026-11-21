@@ -799,6 +799,35 @@ def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
+    """A second acceptance attempt runs its tasks again, in a fresh directory, keeping the first."""
+    from experiments.state_prep_certification.common import local_runs
+
+    run_node = _run_node_module()
+    task = _task("at", [["value", 1]])
+    attempts: list[tuple[pathlib.Path, str]] = []
+
+    class Module:
+        @staticmethod
+        def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
+            row = local_runs.run_locally(results_dir / "AT1", [task])[task["key"]]
+            attempts.append((results_dir, row["run_id"]))
+            return len(attempts) > 1  # the first attempt fails
+
+    module: Any = Module
+    label_dir = directory / "results" / "selftest" / "label"
+    label_dir.mkdir(parents=True)
+    assert not run_node.run_acceptance(module, label_dir, directory / "results", node=False)
+    assert run_node.run_acceptance(module, label_dir, directory / "results", node=False)
+    (first, first_run), (second, second_run) = attempts
+    assert first_run != second_run, "the second attempt passed on the first attempt's row"
+    assert first != second and first.exists()
+    assert first.parent == second.parent == directory / "results" / "acceptance" / "label"
+    record = json.loads((label_dir / "acceptance.json").read_text())
+    assert record["directory"] == str(second), record
+
+
+@test
 def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
     """A label covers the pins, frozen files, harness commit, and a bundle's requirements."""
     from experiments.state_prep_certification.common import manifest
