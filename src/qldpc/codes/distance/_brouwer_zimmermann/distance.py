@@ -183,8 +183,8 @@ class BrouwerZimmermannSearch:
         """The candidate/set evaluations of the layer that ``advance`` scans next, or zero if none.
 
         This plans the layer as ``advance`` does, but leaves out what ``advance`` may do first:
-        attach the bound of the images of the blocks, which can shorten the layer, and switch to an
-        automorphism family, after which the layer scans one set.
+        lower the best weight with the rows of an automorphism family, which can shorten the layer,
+        and switch to that family, after which the layer scans one set.
         """
         if self.finished:
             return 0

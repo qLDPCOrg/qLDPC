@@ -359,9 +359,10 @@ Both estimates depend on `U`, so a search that declines reconsiders before a lat
 The switch keeps both certificates: an eligible word lighter than `U` is unexamined by both families, so both bounds hold for it, and the search takes the larger, while the witnesses of the first family still count in `U`.
 On threads, this decision must keep the requirement "Decide only from what a layer leaves the same on any number of threads" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements).
 
-Once a search has verified automorphisms, the images under `Γ` of the blocks of its current family, or after a switch of both of its families, also bound unexamined words lighter than `U`, through a linear program over the orbits of `Γ` whose optimum is at least either certificate.
+Once a search has verified automorphisms, the images under `Γ` of the blocks of its current family also bound unexamined words lighter than `U`, through a linear program over the orbits of `Γ` whose optimum is at least the family's certificate.
+After a switch, the images of the blocks of both families give one such program, whose optimum is at least either certificate.
 Theorem 3.10 of White's thesis ([References](#references)) bounds unexamined words with the images of windows of cycles of automorphisms in a related way.
-On the default distance searches measured, these bounds never changed the work of a layer, so searches do not compute them.
+On 14 default distance searches, the bound of the current family never changed the work of a layer, and on default searches of about 80 CSS codes, the bound of both families never ended a search sooner than the larger certificate, so searches compute neither.
 
 #### Where automorphisms come from
 
@@ -379,7 +380,7 @@ For a classical code, bliss searches only the parity check matrix, whose automor
 Classical code classes supply generators through `ClassicalCode._get_permutation_automorphisms`.
 A cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
 A wrong generator would make the certificate unsound, so a search first checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
-A BZ distance search uses automorphisms to certify from the images of one information set, once it switches to them.
+A BZ distance search uses automorphisms to certify from the images of one information set, once it switches to an automorphism family.
 The BZ count scan of [Section 3.11](#311-counting-logical-operators) does not use automorphisms: it counts each word individually and does not track orbit sizes.
 For a general Pauli problem, a permutation of qubits moves the three thirds of the coordinates of `T` ([Section 2.7](#27-pauli-weight-as-hamming-weight)) alike, and `T` commutes with it, so verifying the lifted permutation checks the original one.
 

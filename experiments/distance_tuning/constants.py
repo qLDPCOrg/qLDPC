@@ -65,8 +65,8 @@ LARGE_LIMIT = 10**4
 # The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop after
 # setup.  Linear programs are off in BZ searches that run layers, so that layer times exclude the
 # planning that ``trace.py`` repeats.  Traces that stop after setup keep the default of linear
-# programs.  Connected-cluster searches ask for automorphisms before
-# their first weight limit, so that each of their traces measures that step.
+# programs.  Connected-cluster searches ask for automorphisms before their first weight limit, so
+# that each of their traces measures that step.
 TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (
         name,

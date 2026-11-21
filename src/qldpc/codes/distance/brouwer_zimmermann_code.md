@@ -100,12 +100,12 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
-| Switch at the end of setup | If setup asked for automorphisms before partitioning and found some, the search bounds with the images of its family's blocks, then considers switching to their family ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); returns if then `U ≤ cutoff` or the lower bound reaches `U` |
+| Switch at the end of setup | If setup asked for automorphisms before partitioning and found some, the search checks the rows of their family, which may lower `U`, then considers switching to that family ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); returns if then `U ≤ cutoff` or the lower bound reaches `U` |
 | Ready search | Returns a `_SectorSearch` that scans from layer two |
 
 | Search location | Outcome |
 | --- | --- |
-| `_SectorSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first get automorphisms, then bound its words with the images of its family's blocks, which may finish it, and then switch to an automorphism family ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
+| `_SectorSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first get automorphisms, whose family's rows may lower `U` and so finish it, and then switch to an automorphism family ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
 | `_SectorSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `BrouwerZimmermannSearch.finished` | Marks the search finished once the shared `U ≤ cutoff`, or the search of every sector has finished; `get_distance_brouwer_zimmermann` then returns `U` |
 
