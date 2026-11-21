@@ -425,14 +425,13 @@ def test_steane_swap_decoder_specifications(basis: PauliXZ) -> None:
 def test_steane_swap_per_step_specifications(rng: np.random.Generator) -> None:
     """Per-step decoders built from a specification agree with the default decoder.
 
-    A lookup decoder that covers every syndrome of a code's checks of one type predicts the logical
-    flips of a lightest error with each syndrome, as the default decoder does.  On the Steane code
-    and the distance-3 surface code, the lightest errors with each syndrome have the same logical
-    flips, so the two decoders predict the same flips for every syndrome of the window.  Matching
-    with equal weights also predicts the flips of a lightest error, and builds per step on the
-    surface code, whose qubits are each in at most two checks of each type.  For the
-    Steane code, the specification builds decoders without batch decoding, which covers the
-    consumer's decoding of one syndrome at a time.
+    The default decoder predicts the logical flips of a lightest error with each syndrome.  So does
+    a lookup decoder that covers every syndrome of a code's checks of one type, here for the Steane
+    code, and so does matching with equal weights, here for the distance-3 surface code, whose
+    qubits are each in at most two checks of each type.  On both codes, the lightest errors with
+    each syndrome have the same logical flips, so the decoders predict the same flips for every
+    syndrome of the window.  For the Steane code, the specification builds decoders without batch
+    decoding, which covers the consumer's decoding of one syndrome at a time.
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
 
@@ -458,12 +457,13 @@ def test_steane_swap_single_error_check() -> None:
 
     On the Steane code, BP-OSD with its default options mispredicts a single-qubit error of each
     type, while BP-OSD with more iterations of minimum-sum BP corrects all of them.  A lookup
-    decoder that predicts a logical flip for the empty syndrome mispredicts no error.  A lookup
-    decoder that signals erasure predicts one flip too many.  The check applies only when the
-    correctable weight is at least 1, and also to the default decoder.  A rectangular surface code
-    of distances 2 and 3 has a logical operator of weight 2 of one Pauli type, so no decoder
-    corrects every single-qubit error of that type, and each orientation of the code fails the
-    check for one type.  Whole-window decoding is not checked.
+    decoder that predicts a logical flip for the empty syndrome mispredicts no error, also on a
+    degenerate code, on which some decoder corrects every single-qubit error although two of them
+    share a syndrome.  A lookup decoder that signals erasure predicts one flip too many.  The check
+    applies only when the correctable weight is at least 1, and also to the default decoder.  A
+    rectangular surface code of distances 2 and 3 has a logical operator of weight 2 of one Pauli
+    type, so no decoder corrects every single-qubit error of that type, and each orientation of the
+    code fails the check for one type.  Whole-window decoding is not checked.
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
     with pytest.raises(ValueError, match="mispredicts"):
@@ -483,8 +483,13 @@ def test_steane_swap_single_error_check() -> None:
     flipping = observable_decoder_spec("flipping_lookup", build_flipping)()
     with pytest.raises(ValueError, match="mispredicts"):
         get_steane_swap_consumer(_CODE, model, decoder=flipping)
+    # Shor's [[9,1,3]] code, whose single-qubit Z errors in one triple share their syndrome
+    shor_x = [[1] * 6 + [0] * 3, [0] * 3 + [1] * 6]
+    shor_z = [[int(qubit in (pair, pair + 1)) for qubit in range(9)] for pair in (0, 1, 3, 4, 6, 7)]
+    with pytest.raises(ValueError, match="mispredicts"):
+        get_steane_swap_consumer(codes.CSSCode(shor_x, shor_z), model, decoder=flipping)
     erasing = decoders.lookup(max_weight=1, add_erasure_bit=True)
-    with pytest.raises(ValueError, match=r"of shape \(8, 1\)"):
+    with pytest.raises(ValueError, match=r"of shape \(\d+, 1\)"):
         get_steane_swap_consumer(_CODE, model, decoder=erasing)
 
     for code, decoder in [(codes.SurfaceCode(3, 2), None), (codes.SurfaceCode(2, 3), tuned)]:

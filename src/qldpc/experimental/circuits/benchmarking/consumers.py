@@ -1182,8 +1182,8 @@ class _SteaneSwapDecoder:
         """Decode the detectors of a batch of shots, and return predicted observable flips."""
         syndromes = np.asarray(syndromes, dtype=np.uint8)
         flips = {
-            pauli: np.zeros((len(syndromes), self._dimension), dtype=np.uint8)
-            for pauli in (Pauli.X, Pauli.Z)
+            check_type: np.zeros((len(syndromes), self._dimension), dtype=np.uint8)
+            for check_type in (Pauli.X, Pauli.Z)
         }
         # split the detectors into the syndrome of each step and the two of the final readout, and
         # add the predicted flips of each to the observables of its type
@@ -1210,7 +1210,7 @@ class _SteaneSwapDecoder:
     def can_correct_single_errors(self, check_type: PauliXZ) -> bool:
         """Whether any decoder of a type of check passes ``corrects_single_errors``.
 
-        This fails exactly when an error of weight 1 or 2 of the Pauli type that the checks detect
+        It is False exactly when an error of weight 1 or 2 of the Pauli type that the checks detect
         has no syndrome but flips a logical operator: when a single-qubit error with no syndrome
         flips a logical operator, or two single-qubit errors have the same syndrome but different
         flips.
