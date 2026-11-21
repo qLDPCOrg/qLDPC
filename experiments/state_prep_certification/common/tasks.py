@@ -3,14 +3,15 @@
 """Task lists for GNU parallel: pass 1, pass 2, the cores of the job slots, and the ceiling.
 
 A task is a JSON object with a unique ``key``, the ``experiment``, ``arm``, ``mode``, ``repeat``,
-``limit_s``, and ``mem_cap_gib``, and whatever the experiment needs to run it, such as an input.
-``write_pass1`` writes every task of pass 1 to ``tasks.json`` and their keys, shuffled with a fixed
-seed, to ``tasks-pass1.txt``.  ``write_pass2`` writes the repeats that the experiment's repeat
-policy asks for, once every task of pass 1 has a final row, to ``tasks-pass2.json`` and
-``tasks-pass2.txt``, in the order of pass 1.  A task file is written once and never changed, since
-GNU parallel's resumption depends on its order; writing it again with other contents is an error,
-because a changed input must give a new label.  ``cores.txt`` lists the logical CPU of each job
-slot.
+``limit_s``, and ``mem_cap_gib``.  It may also set ``post_s``, ``startup_cap_s``, and ``grace_s``,
+which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Beyond
+these, it holds whatever the experiment needs to run it, such as an input.  ``write_pass1`` writes
+every task of pass 1 to ``tasks.json`` and their keys, shuffled with a fixed seed, to
+``tasks-pass1.txt``.  ``write_pass2`` writes the repeats that the experiment's repeat policy asks
+for, once every task of pass 1 has a final row, to ``tasks-pass2.json`` and ``tasks-pass2.txt``, in
+the order of pass 1.  A task file is written once and never changed, since GNU parallel's
+resumption depends on its order; writing it again with other contents is an error, because a
+changed input must give a new label.  ``cores.txt`` lists the logical CPU of each job slot.
 
 The ceiling is the worst-case CPU time of the task list, with the runner's retries.  For each task
 of pass 1, the experiment's ``worst_case_s`` W counts its first run and the repeats that it can
@@ -178,13 +179,14 @@ def choose_cpus(
 
     Each slot gets the first logical CPU of its own physical core, and the slots skip the first
     ``RESERVED_CORES`` physical cores, all of whose logical CPUs go to the runners, GNU parallel,
-    and the system.  The number of slots J is the smaller of the free physical cores and the runs
-    that fit in the memory beyond ``RESERVED_MEM_GIB``, or ``jobs`` if that is smaller.
+    and the system.  The number of slots J is the smallest of the number of free physical cores,
+    the number of slots of ``mem_per_job_gib`` each that fit in the memory beyond
+    ``RESERVED_MEM_GIB``, and ``jobs``, if given.
 
     Args:
         lscpu_output: The output of ``lscpu -p=CPU,CORE,SOCKET``.
         mem_total_bytes: The machine's total memory.
-        mem_per_job_gib: The memory cap of each run.
+        mem_per_job_gib: The memory of each job slot (the experiment's ``JOB_MEM_GIB``).
         jobs: An upper bound on the number of slots, if any.
     """
     cpus_of_core: dict[tuple[int, int], list[int]] = {}

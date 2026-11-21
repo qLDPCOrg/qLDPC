@@ -19,8 +19,8 @@ one directory of the same name, with:
   qLDPC's own wheel;
 * ``python/``: the pinned python-build-standalone CPython;
 * ``parallel/``: the pinned GNU parallel release, whose ``src/parallel`` is a Perl script;
-* ``SHA256SUMS`` over every file, and ``bundle.json``: the label, the commits, the platform, every
-  command run, and every fallback taken.
+* ``SHA256SUMS`` over every file, and ``bundle.json``: the bundle's name, the commits, the platform,
+  every command run, and every fallback taken.
 
 ``bundle.json`` records the SHA-256 of the resolved requirements, which enters the label of every
 run on the node, so that a label fixes the versions of the third-party packages too.

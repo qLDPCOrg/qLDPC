@@ -9,7 +9,8 @@ Each experiment is a subdirectory with an ``experiment.py`` module that defines:
 * ``DATA``: directories of the experiment, relative to it, that are not committed but travel in the
   offline bundle, such as built input files;
 * ``FROZEN_FILES``: files of the experiment, relative to it, that enter the label;
-* ``JOB_MEM_GIB``: the memory cap of a run, which sets how many job slots fit on a machine;
+* ``JOB_MEM_GIB``: the memory of a job slot, which sets how many job slots fit on a machine, and
+  which must be at least the ``mem_cap_gib`` of every task of pass 1, as ``run_node.py`` checks;
 * ``prepare(label_dir)``: generate or load the inputs, and check them against the frozen files;
 * ``tasks(label_dir, subset)``: the tasks of pass 1 of a subset, such as ``"main"`` or ``"smoke"``;
 * ``worst_case_s(task)``: the worst-case CPU seconds of a task of pass 1, with its repeats, but

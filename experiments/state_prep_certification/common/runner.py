@@ -19,16 +19,17 @@ child and the runner in ``active/<task_key>``, and watches the child:
 * **After the measured call:** once it has ended, the child has ``post_s`` (by default
   ``FINISH_S``) to send its result and exit.  An experiment with untimed post-processing, such as
   describing a counterexample, sends its measured result first with ``send_result`` and declares a
-  longer ``post_s``; running out of it, or failing in it, then marks only the row's
-  ``post_status``, and the measured result stands.  Without ``send_result``, running out of
+  longer ``post_s``; running out of it then marks only the row's ``post_status``, and the
+  measured result stands.  Without ``send_result``, running out of
   ``post_s`` makes the run an ``error``.
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
   process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.
 * **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
   partial results and the report of a compilation that the child wrote before the kill, waits up
-  to ``grace_s`` for the processes to go, and accepts no other message.  A process is killed only
-  if its start time is the one recorded when it was seen, so that a reused process id is never
-  killed.
+  to ``grace_s`` for the processes to go, and accepts no other message.  On the node, a kill
+  signals the run's process group, whose id cannot be reused while a member lives.  Locally, a
+  process is killed only if its start time is the one recorded when it was seen, so that a reused
+  process id is never killed.
 * **Compilation:** while the measured call runs, the child listens to two of numba's documented
   events: ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and
   ``"numba:run_pass"``, which it sends for each compiler pass of any compilation, including those
@@ -154,8 +155,7 @@ def run_task(
 
     Args:
         label_dir: The label's directory, which holds ``tasks.json`` and ``runs.jsonl``.
-        task: The task, with at least ``key``, ``experiment``, ``arm``, ``repeat``, ``limit_s``,
-            and ``mem_cap_gib``, and optionally ``post_s``, ``startup_cap_s``, and ``grace_s``.
+        task: The task, with the fields that ``tasks.py`` describes.
         local: Whether to keep the child in this session and kill by process tree.
         job_slot: GNU parallel's job slot of this task, if any.
         cpu: The logical CPU to which the child pins itself, if any (Linux only).
@@ -594,9 +594,9 @@ _CHANNEL = _Channel()
 def timed(function: Callable[..., _ReturnType], *args: Any, **kwargs: Any) -> _ReturnType:
     """Call the measured function once, timing it, and tell the runner when it starts and ends.
 
-    T is the wall time by ``time.perf_counter``, and the CPU time includes child processes.  While
-    the function runs, the first compilation by numba in this process, on any thread, is reported
-    to the runner (see the module docstring).
+    T is the wall time by ``time.perf_counter``, and the CPU time includes the child processes that
+    this process waited for during the call.  While the function runs, the first compilation by
+    numba in this process, on any thread, is reported to the runner (see the module docstring).
     """
     # numba is imported here, in the child, so that the runner's own process does not load it
     from numba.core import event
