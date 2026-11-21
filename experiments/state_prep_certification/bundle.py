@@ -26,9 +26,10 @@ one directory of the same name, with:
 run on the node, so that a label fixes the versions of the third-party packages too.
 
 A requirement without a wheel for the platform is built into a wheel here, from its sdist checked
-against the resolution's hash, if it is pure Python (``py3-none-any``); the lockfile's hash for it
-is then replaced by the hash of that wheel, since an install with ``--require-hashes`` would
-otherwise reject it.  Any other requirement without a wheel stops the script.
+against the resolution's hash, if it is pure Python (``py3-none-any`` or ``py2.py3-none-any``); the
+lockfile's hash for it is then replaced by the hash of that wheel, since an install with
+``--require-hashes`` would otherwise reject it.  Any other requirement without a wheel stops the
+script.
 
 The script refuses a named experiment whose frozen files (``FROZEN_FILES``) are not all in the
 staged tree, before any download; ranking's frozen files include certification's ``circuits.json``,
@@ -113,7 +114,8 @@ def main() -> None:
     requirements = download_wheels(
         requirements, staging / "wheels", cache, pins["python"]["version"], wheel_platforms
     )
-    requirements += f"qldpc=={_wheel_version(qldpc_wheel)} \\\n    --hash=sha256:{store.sha256_file(qldpc_wheel)}\n"
+    qldpc_hash = store.sha256_file(qldpc_wheel)
+    requirements += f"qldpc=={_wheel_version(qldpc_wheel)} \\\n    --hash=sha256:{qldpc_hash}\n"
     (staging / "requirements-node.txt").write_text(requirements)
 
     # the bundle's name: a hash of the pins, the harness commit, the experiments, the platforms,
@@ -403,11 +405,10 @@ def build_pure_python_wheel(
     built.mkdir(exist_ok=True)
     _run(["uv", "build", "--wheel", "--out-dir", str(built), str(sdist)])
     (wheel,) = [
-        path
-        for path in built.glob("*.whl")
-        if path.name.lower().startswith(name.lower().replace("-", "_") + "-" + version)
+        path for path in built.glob("*.whl") if _wheel_name(path) == (_normalized(name), version)
     ]
-    if not wheel.name.endswith("-py3-none-any.whl"):
+    python, abi, platform = wheel.name.removesuffix(".whl").split("-")[-3:]
+    if "py3" not in python.split(".") or (abi, platform) != ("none", "any"):
         sys.exit(
             f"{name}=={version} has no wheel for the node's platform, and its build "
             f"{wheel.name} is not pure Python: pin another version, or add a wheel platform"
@@ -471,6 +472,17 @@ def _git(*args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True
     ).stdout.strip()
+
+
+def _normalized(name: str) -> str:
+    """A distribution's name, normalized as in wheel file names."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _wheel_name(wheel: pathlib.Path) -> tuple[str, str] | None:
+    """The normalized name and the version of a wheel, from ``name-version[-build]-tags.whl``."""
+    parts = wheel.name.removesuffix(".whl").split("-")
+    return (_normalized(parts[0]), parts[1]) if len(parts) in (5, 6) else None
 
 
 def _wheel_version(wheel: pathlib.Path) -> str:

@@ -208,7 +208,11 @@ def choose_cpus(
     if jobs is not None:
         count = min(count, jobs)
     if count < 1:
-        raise ValueError("No job slot fits on this machine")
+        raise ValueError(
+            f"No job slot fits on this machine: it has {len(cores)} physical cores, of which "
+            f"{RESERVED_CORES} are reserved, and memory for {max(by_memory, 0)} slots of "
+            f"{mem_per_job_gib:g} GiB beyond the reserved {RESERVED_MEM_GIB:g} GiB"
+        )
     slots = [min(core) for core in cores[RESERVED_CORES : RESERVED_CORES + count]]
     reserved = sorted(cpu for core in cores[:RESERVED_CORES] for cpu in core)
     return slots, reserved

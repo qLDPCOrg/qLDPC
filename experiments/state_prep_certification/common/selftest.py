@@ -1024,6 +1024,37 @@ def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_run_node_jobs(directory: pathlib.Path, node: bool) -> None:
+    """--jobs is auto or a positive integer, and a machine without room for a slot is refused."""
+    from experiments.state_prep_certification.common import manifest, plugin
+
+    run_node = _run_node_module()
+    for jobs in ("0", "-1", "two"):
+        with (
+            _patched(sys, "argv", ["run_node.py", "selftest", "--jobs", jobs]),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            _expect_exit(run_node.parse_args)
+    with _patched(sys, "argv", ["run_node.py", "selftest", "--jobs", "3"]):
+        assert run_node.parse_args().jobs == "3"
+
+    lscpu = "# CPU,Core,Socket\n0,0,0\n1,1,0\n"  # two physical cores, both reserved
+    module = plugin.load_experiment("selftest")
+    with (
+        _patched(
+            run_node.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, lscpu)
+        ),
+        _patched(manifest, "mem_total_bytes", lambda: 2**40),
+    ):
+        try:
+            run_node.choose_slots(module, directory, "auto", local=False)
+        except SystemExit as error:
+            assert "No job slot fits on this machine: it has 2" in str(error.code), error.code
+        else:
+            raise AssertionError("no slot fits, but none was refused")
+
+
+@test
 def test_run_node_missing_row(directory: pathlib.Path, node: bool) -> None:
     """A pass after which a task has no final row stops, names the rerun command, and reruns none.
 
@@ -1444,6 +1475,29 @@ def test_bundle_frozen_files(directory: pathlib.Path, node: bool) -> None:
     (experiments_dir / "certification" / "data").mkdir()
     (experiments_dir / "certification" / "data" / "circuits.json").write_text("{}")
     bundle.check_frozen_files(directory, [certification, ranking])
+
+
+@test
+def test_bundle_pure_wheel(directory: pathlib.Path, node: bool) -> None:
+    """A built wheel is matched by its normalized name and version, and may be py2.py3."""
+    from experiments.state_prep_certification import bundle
+
+    cache, wheels = directory / "cache", directory / "wheels"
+    for path in ("sdists/foo.bar-1.1.tar.gz", "built/foo_bar-1.10-py3-none-any.whl"):
+        (cache / path).parent.mkdir(parents=True, exist_ok=True)
+        (cache / path).write_text("")
+    wheels.mkdir()
+    built = cache / "built"
+    with _patched(bundle, "_run", lambda command: None):
+        (built / "foo_bar-1.1-py2.py3-none-any.whl").write_text("")
+        target = bundle.build_pure_python_wheel("Foo-Bar", "1.1", directory, wheels, cache)
+        assert target == wheels / "foo_bar-1.1-py2.py3-none-any.whl", target
+        (built / "foo_bar-1.1-py2.py3-none-any.whl").rename(
+            built / "foo_bar-1.1-cp312-cp312-linux_x86_64.whl"
+        )
+        _expect_exit(
+            lambda: bundle.build_pure_python_wheel("Foo-Bar", "1.1", directory, wheels, cache)
+        )
 
 
 @workstation_only

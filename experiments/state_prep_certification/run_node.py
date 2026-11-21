@@ -199,7 +199,10 @@ def parse_args() -> argparse.Namespace:
         "--results-dir", type=pathlib.Path, help="default: state_prep_certification/results"
     )
     parser.add_argument(
-        "--jobs", default="auto", help="the number of job slots: auto (the default) or a bound"
+        "--jobs",
+        default="auto",
+        type=_jobs,
+        help="the number of job slots: auto (the default) or a positive bound",
     )
     parser.add_argument("--approved-cpu-hours", type=float, help="the approved CPU-hours")
     parser.add_argument("--local", action="store_true", help="run locally, one task at a time")
@@ -219,6 +222,13 @@ def parse_args() -> argparse.Namespace:
         help="accept this environment variable in a node start, deliberately (repeatable)",
     )
     return parser.parse_args()
+
+
+def _jobs(value: str) -> str:
+    """The value of ``--jobs``, if it is "auto" or a positive integer."""
+    if value != "auto" and not (value.isdigit() and int(value) > 0):
+        raise argparse.ArgumentTypeError(f"must be auto or a positive integer, not {value!r}")
+    return value
 
 
 ####################################################################################################
@@ -260,7 +270,12 @@ def choose_slots(
         ["lscpu", "-p=CPU,CORE,SOCKET"], capture_output=True, text=True, check=True
     ).stdout
     bound = None if jobs == "auto" else int(jobs)
-    cpus, reserved = tasks.choose_cpus(lscpu, manifest.mem_total_bytes(), module.JOB_MEM_GIB, bound)
+    try:
+        cpus, reserved = tasks.choose_cpus(
+            lscpu, manifest.mem_total_bytes(), module.JOB_MEM_GIB, bound
+        )
+    except ValueError as error:
+        sys.exit(f"{error}.  No task was run.")
     tasks.write_cores(label_dir, cpus)
     return len(cpus), cpus, reserved
 
