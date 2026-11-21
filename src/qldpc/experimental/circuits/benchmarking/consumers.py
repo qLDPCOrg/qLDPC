@@ -803,9 +803,10 @@ def get_steane_swap_consumer(
     adds errors only to the block under test.  The noise model applies to the CNOTs and measurements
     of each step, including any idle noise that it specifies for the two blocks of the step.  It
     sees each step on its own, with the current block on qubits 0, ..., n - 1 and the fresh block on
-    qubits n, ..., 2 n - 1, for a code on n qubits.  Finally, the checks of the last block are
-    measured without noise.  See ``consumer_calibration.md`` for why the window has this form, and
-    for the approximations of its calibrations.
+    qubits n, ..., 2 n - 1, for a code on n qubits.  Finally, the checks of the last block, which
+    holds the logical qubits after the last step, are measured without noise.  See
+    ``consumer_calibration.md`` for why the window has this form, and for the approximations of its
+    calibrations.
 
     The detectors of each step come from a maximal independent subset of the code's own checks of
     the type that the step measures, in their order in the code.  The final readout uses such

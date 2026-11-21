@@ -94,7 +94,8 @@ We call these two places for fresh blocks the **slots** of the cycle.
 The consumer runs a **window**, a short run of consecutive steps.
 The block under test enters the window as the fresh block of its **entry step**.
 The window starts with the logical qubits on an ideal **data block** in logical `|0>`.
-It ends with a noiseless **final readout**, which measures the checks of the **last block**, the block that holds the logical qubits after the last step, to define detectors.
+It ends with a noiseless **final readout**, which measures the checks of the **last block** to define detectors.
+The last block is the block that holds the logical qubits after the last step.
 For `basis="Z"`, the following table numbers the steps of the window relative to the entry step.
 The [window section](#the-window) explains its last row.
 
@@ -125,14 +126,14 @@ The errors also flip the logical outcomes that the two steps measure, and these 
 With the default decoder, Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
 
 The errors that noise in a step leaves are decoded in that step, in one of the next two steps, or in the final readout.
-The errors of the block under test are decoded in steps 0 to +2, so noise in steps −2 to +2 can leave errors that one of these steps also decodes, and noise outside these steps cannot.
+The errors of the block under test are decoded in steps 0 to +2, so noise in steps −2 to +2 can leave errors that one of steps 0 to +2 also decodes, and noise in other steps cannot.
 The window runs these five steps, each with the noise of the noise model.
 A further noisy step before or after the window adds error mechanisms whose errors no step decodes together with the block's errors.
 For a code of distance at least 3, the default decoder corrects every fault of weight one, so it corrects each such mechanism when it is the consumer's only fault, without changing the cost of the block's errors.
-So with the default decoder and a code of distance at least 3, further steps change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
 
+So with the default decoder and a code of distance at least 3, further steps change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
 For a code of distance less than 3, the default decoder can fail to correct a fault of weight one, and further steps can change the excesses at first order.
-A decoder built from a decoder specification decodes the syndromes of the whole window together, so neither the cancellation of twice-decoded errors nor the second-order effect of further steps is guaranteed for it.
+A decoder built from a decoder specification decodes the syndromes of the whole window together, so neither the cancellation of twice-decoded errors nor the second-order bound on the effect of further steps is guaranteed for it.
 
 ### What a calibration measures
 
@@ -161,7 +162,7 @@ The docstring of `get_steane_swap_consumer` gives its size limits and the layout
 Other decoders are passed as decoder specifications, which the consumer builds from the detector error model of its window.
 The detectors of the window come from the code's own checks, so these decoders see the weight and locality of those checks.
 For example, `decoders.mwpm(decompose_errors=True)` suits a code whose checks give a matching graph, such as a surface code.
-Such a decoder decodes the whole window together, so neither the cancellation of twice-decoded errors nor the second-order effect of further steps that [the window section](#the-window) describes is guaranteed for it.
+Such a decoder decodes the whole window together, so neither the cancellation of twice-decoded errors nor the second-order bound on the effect of further steps, which [the window section](#the-window) describes, is guaranteed for it.
 
 ## The stratified calibration
 

@@ -289,7 +289,8 @@ def test_excess_failure_matches_brute_force() -> None:
 
     The preparation flips each qubit of logical |0> with probability r, and also applies Z errors,
     which do not affect the readout consumer.  A correlated error that fires a post-selected flag
-    detector leaves a logical error, which post-selection removes.
+    detector leaves a logical error, which post-selection removes.  The ``pauli`` option keeps one
+    part of each error, and runs with the same seed share their shots.
     """
     error_rate, preparation_error_rate, num_samples = 0.05, 0.03, 40_000
     consumer = _get_readout_consumer(error_rate)
@@ -319,10 +320,23 @@ def test_excess_failure_matches_brute_force() -> None:
         )[0]
         for pauli in (None, Pauli.X, Pauli.Z)
     }
-    # the readout consumer ignores Z errors, and runs with the same seed share their shots, so
+    # runs with the same seed share their shots, and the readout consumer ignores Z errors, so
     # keeping only the X part of each error leaves the estimate unchanged
-    assert values[Pauli.X] == values[None] != 0
+    assert values[Pauli.X] == values[None]
+    assert values[None] != 0
     assert values[Pauli.Z] == 0
+
+    # a Steane-swap consumer reacts to Z errors, and these preparations leave only Z errors, so
+    # keeping only the Z part of each error leaves the estimate unchanged
+    steane = get_steane_swap_consumer(_CODE, _WINDOW_NOISE)
+    preparation = _get_noisy_preparation(0, 0.01)
+    values = {
+        pauli: steane.estimate_excess_failure_probability(preparation, 1000, pauli=pauli, seed=1)[0]
+        for pauli in (None, Pauli.X, Pauli.Z)
+    }
+    assert values[Pauli.Z] == values[None]
+    assert values[None] != 0
+    assert values[Pauli.X] == 0
 
 
 def test_two_call_workflow() -> None:
@@ -496,7 +510,12 @@ def test_steane_swap_window_length(basis: PauliXZ) -> None:
     for num_before, num_after, same in [(3, 2, True), (2, 3, True), (1, 2, False), (2, 1, False)]:
         variant = _get_window_variant(_CODE, basis, num_before, num_after)
         variant_terms = _get_low_order_terms(variant)
-        assert np.allclose(reference_terms, variant_terms, rtol=1e-9, atol=0) == same
+        # the zeroth-order terms never change, and the first-order terms change only if the window
+        # is too short
+        assert np.allclose(reference_terms[..., 0], variant_terms[..., 0], rtol=1e-9, atol=0)
+        assert (
+            np.allclose(reference_terms[..., 1], variant_terms[..., 1], rtol=1e-9, atol=0) == same
+        )
 
 
 def test_steane_swap_distance_two() -> None:
@@ -518,7 +537,8 @@ def test_steane_swap_distance_two() -> None:
         variant_terms = _get_low_order_terms(
             _get_window_variant(code, Pauli.Z, num_before, num_after)
         )
-        assert not np.allclose(reference_terms, variant_terms, rtol=1e-9, atol=0)
+        assert np.allclose(reference_terms[..., 0], variant_terms[..., 0], rtol=1e-9, atol=0)
+        assert not np.allclose(reference_terms[..., 1], variant_terms[..., 1], rtol=1e-9, atol=0)
 
 
 def test_steane_swap_symmetry() -> None:
