@@ -206,8 +206,8 @@ An earlier version of qLDPC solved the program, but qLDPC no longer does, since 
 
 This guide at commit 0870f6a derives the program's bound and works an example in which it beats both certificates ([A certificate from linear programming](https://github.com/qLDPCOrg/qLDPC/blob/0870f6ac5273aa9544490a4835868c4da691a75c/src/qldpc/codes/distance/brouwer_zimmermann.md#a-certificate-from-linear-programming)).
 
-Section 6 of Tillmann's preprint writes the least number of linearly dependent columns of a matrix, which for a parity-check matrix is the distance of its code, as an integer program of the covering form above ([References](#references)).
-Tillmann's program has a constraint for each information set, which the support of every nonzero codeword meets.
+Section 6 of Tillmann's preprint gives an integer program like the linear program above, with binary `x_c` and right-hand sides of one, for the size of the smallest set of linearly dependent columns of a matrix over the real numbers ([References](#references)).
+Tillmann's argument holds over any field, and over GF(2), for a parity-check matrix, the program computes the distance of the code, with one constraint for each information set.
 
 #### Families for coset searches
 
@@ -216,8 +216,9 @@ For each search basis `G_i`, fix an **offset**, a word of the coset that is zero
 Every word of the coset is the offset plus a unique sum of rows of `G_i`, so once `G_i` has completed layer `t`, an unexamined word has at least `b_i(t)` ones on `B_i`, as a word of `V` does.
 So every certificate of this section holds for cosets, and any family of search bases of `V` serves every coset of `V`.
 A coset search can thus use an overlapping family, or a disjoint family that matroid partitioning finds ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
-GUAVA's `MinimumDistance(C, w)` searches a coset of a linear code in the same way, over a disjoint family of information sets, with an offset for each set that is zero on that set ([References](#references)).
-The distance program Qubitserf instead finds the minimum weight of a coset `u + V`, for `u` outside `V`, by a distance search, as in [Section 2.1](#21-the-problem), for the words of `V + span(u)` outside `V`, which are the words of the coset ([References](#references)).
+The GAP package GUAVA searches a coset of a linear code in the same way, over a disjoint family of information sets, with the two-argument form of its function `MinimumDistance` ([References](#references)).
+The distance program Qubitserf instead turns the minimum weight of a coset `u + V`, for `u` outside `V`, into a distance search ([References](#references)).
+That search is the problem of [Section 2.1](#21-the-problem) with `S = V` and `V + span(u)` in place of `V`, whose eligible words are those of the coset.
 
 ### 3.2 Rounding the certificate to a proven weight multiple
 
@@ -383,7 +384,7 @@ This guide at commit 0870f6a derives these bounds and compares them with White's
 
 #### Where automorphisms come from
 
-With the optional `pybliss` package, bliss, by Junttila and Kaski ([References](#references)), searches the parity checks of a binary classical or quantum code for automorphisms.
+With the optional `pybliss` package, the graph-automorphism tool bliss of Junttila and Kaski ([References](#references)) searches the parity checks of a binary classical or quantum code for automorphisms.
 For a quantum code, the class of the code can also supply other sets of checks that span the same space, through `QuditCode._get_permutation_automorphism_search_matrices`.
 Bliss can then find automorphisms that do not map parity checks to parity checks.
 `QTCode`, for example, supplies its canonical local checks where they are few enough.
@@ -391,7 +392,7 @@ Bliss finds the automorphisms of the Tanner graph of each set, whose edges are c
 These Tanner-graph automorphisms permute the checks and leave their Paulis unchanged, so they preserve the stabilizers, gauge operators, and logical operators, and for a CSS code those of each sector.
 They form a subgroup of the automorphisms of the code, which suffices, since any group of automorphisms gives a sound certificate.
 For a classical code, bliss searches only the parity check matrix, whose automorphisms permute checks and bits.
-G. Lee (Appendix C.4) likewise finds the automorphisms of Tanner graphs automatically, with the graph-automorphism package pynauty, but for the roots of a connected-cluster search ([References](#references)).
+G. Lee (Appendix C.4) likewise finds the automorphisms of Tanner graphs automatically, but for the roots of a connected-cluster search ([Section 3.5 of connected_cluster.md](connected_cluster.md#35-symmetries); [References](#references)).
 
 With or without `pybliss`, the class of the code can supply generators of automorphisms that its construction provides.
 Quantum code classes supply them through `QuditCode._get_permutation_automorphisms`, such as the translations of the group of an `MBCode`, and classical code classes through `ClassicalCode._get_permutation_automorphisms`.
@@ -454,10 +455,10 @@ The table for `s` starts from that for `s + 1`: the new pairs of row `s` lower t
 The breadth-first search halts at each value whose distance it does not lower, since the distances beyond are already at most that distance plus their steps from it.
 With blocks of `β` columns, the tables take `(r - 1) Σ_b 2^|J_b|` bytes, and building them costs about `2^β β^2` steps for each block, plus a step for each pair of rows on each block, and writing each table.
 A lookup reads one entry per block.
-In heuristic search, tables like these, whose entries for disjoint parts of a problem add up to a lower bound, are called additive pattern databases, after Korf and Felner and after Felner, Korf, and Hanan ([References](#references)).
 The scan looks up the bound each time it tries a new first row `s` for the pair that completes a prefix, and if `w + B ≥ U`, skips every completion of the prefix from row `s` on.
 A bound for a larger `s` is stronger, so a support is skipped exactly if the bound of its own `s` reaches `U - w`.
 The threads of a split layer ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)), and coset queries that run at once, each read shared tables, so a table must be complete before any scan reads it, and unchanged while scans do ([Section 5](brouwer_zimmermann_code.md#5-correctness-requirements)).
+In the heuristic search of artificial intelligence, as by A*, tables like these, whose entries for disjoint parts of a problem add up to a lower bound, are additive pattern databases, from the work of Korf and Felner and of Felner, Korf, and Hanan ([References](#references)).
 
 #### Certificates and contracts
 
@@ -548,7 +549,7 @@ For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then
 `CSSLogicalCounter` of [logical_counts.py](logical_counts.py) counts the nontrivial logical operators of a given weight `t` in a binary CSS code, where `t` is by default the distance `d`.
 Its BZ method, which `"auto"` takes, scans each sector in layers of a family of search bases, but stops and skips only as Sections [3.9](#39-skipping-completions-by-completion-tables) and [5](brouwer_zimmermann_code.md#5-correctness-requirements) allow, so that it visits every eligible word of weight `t`.
 A word lies in the layer of its coefficient weight in each search basis, so one step visits it first, and only that step counts it.
-Bouyuklieva and Bouyukliev (page 6) likewise list the words of a given weight without repetition, keeping each only where the first of their search bases visits it ([References](#references)).
+Bouyuklieva and Bouyukliev (page 6) likewise list the words of a given weight without repetition, keeping each only in the first of their search bases that visits it ([References](#references)).
 A count uses no automorphisms, since it counts each word individually and does not track orbit sizes.
 The X and Z sectors of a self-dual code, whose X and Z checks span the same space, are equal.
 So a counter scans only one of them if it knows the code to be self-dual: if it was built from such checks, or deformed from such a counter by a gate that acts alike on X and Z.
@@ -583,11 +584,12 @@ It can also change the distance and the weights of check words, so the counter s
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 the coverage-divided certificate, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - G. White, *Enumeration-Based Algorithms in Linear Coding Theory*, PhD thesis, University of Sydney, 2006: Section 3.3 and Theorem 3.10 (pages 81-84) bound the weight of unexamined words of a code with known automorphisms by a sum over disjoint sets of columns: one term for each chosen cycle of an automorphism longer than `r`, from the images of a window of the cycle within an information set, rounded up on its own, and the usual terms on the other sets ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
-- A. M. Tillmann, "Computing the spark: mixed-integer programming for the (vector) matroid girth problem," *Computational Optimization and Applications* 74, 387-441, 2019 ([doi:10.1007/s10589-019-00114-9](https://doi.org/10.1007/s10589-019-00114-9)): Section 6 of its 2018 preprint ([Optimization Online 6525](https://optimization-online.org/2018/03/6525/)), with Lemma 13 and program (14), writes the spark of a matrix, the least number of its linearly dependent columns, as an integer program whose constraints ask a set of columns to meet the complement of every basis of the matroid of the columns; for a parity-check matrix, these complements are the information sets of its code ([Section 3.1](#31-overlapping-search-bases)).
+- A. M. Tillmann, "Computing the spark: mixed-integer programming for the (vector) matroid girth problem," *Computational Optimization and Applications* 74, 387-441, 2019 ([doi:10.1007/s10589-019-00114-9](https://doi.org/10.1007/s10589-019-00114-9)): Section 6 of its 2018 preprint ([Optimization Online 6525](https://optimization-online.org/2018/03/6525/)), with Lemma 13 and program (13), writes the girth of a matroid, the size of its smallest dependent set, as an integer program that asks a set to meet the complement of every basis, and program (14) applies it to the spark of a real matrix.
+  For the columns of a binary parity-check matrix, with linear dependence over GF(2), the girth is the distance of the code, and the complements of bases are its information sets ([Section 3.1](#31-overlapping-search-bases)).
 - [gap-packages/guava](https://github.com/gap-packages/guava/blob/e3bce700b7dfd100b17241ebfd95b9cfe0757060/lib/codeops.gi#L568-L686), `lib/codeops.gi`, lines 568-686 at commit `e3bce70`: `MinimumDistance(C, w)` searches the coset `w + C` of a linear code `C` over disjoint information sets, with an offset of the coset for each set that is zero on that set ("Families for coset searches" in [Section 3.1](#31-overlapping-search-bases)).
-- [Quantinuum/Qubitserf](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/css.cpp#L150-L174), by S. Cercelescu, `cpp/distfind/css.cpp`, lines 150-174 at commit `04b9349`: `coset_problem` turns the minimum weight of a coset `u + V`, for `u` outside `V`, into a distance search for the words of `V + span(u)` outside `V`, which its BZ search runs by default; lines 9-36 of `cpp/distfind/op_weight.cpp` use it for the least weights of the X and Z parts of a Pauli operator modulo a CSS group ("Families for coset searches" in [Section 3.1](#31-overlapping-search-bases)).
+- [Quantinuum/Qubitserf](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/css.cpp#L150-L174), by S. Cercelescu, `cpp/distfind/css.cpp`, lines 150-174 at commit `04b9349`: `coset_problem` makes the reduction of "Families for coset searches" in [Section 3.1](#31-overlapping-search-bases), and its BZ search runs the result by default; lines 9-36 of `cpp/distfind/op_weight.cpp` use `coset_problem` for the least weights of the X and Z parts of a Pauli operator modulo a CSS group.
 - T. Junttila and P. Kaski, "Engineering an efficient canonical labeling tool for large and sparse graphs," in *Proceedings of the Ninth Workshop on Algorithm Engineering and Experiments (ALENEX)*, SIAM, 2007, pp. 135-149 ([doi:10.1137/1.9781611972870.13](https://doi.org/10.1137/1.9781611972870.13)), and "Conflict propagation and component recursion for canonical labeling," in *Theory and Practice of Algorithms in (Computer) Systems (TAPAS)*, Springer, 2011, pp. 151-162 ([doi:10.1007/978-3-642-19754-3_16](https://doi.org/10.1007/978-3-642-19754-3_16)): the bliss tool, which `pybliss` wraps ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
-- G. Lee, "Bicycle race: small two-block codes on the Pareto frontier," [arXiv:2610.13880v2](https://arxiv.org/abs/2610.13880v2): Appendix C.4 takes the roots of a connected-cluster search from the automorphisms of the Tanner graph, which pynauty finds ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
-- R. E. Korf and A. Felner, "Disjoint pattern database heuristics," *Artificial Intelligence* 134, 9-22, 2002 ([doi:10.1016/S0004-3702(01)00092-3](https://doi.org/10.1016/S0004-3702%2801%2900092-3)), and A. Felner, R. E. Korf, and S. Hanan, "Additive pattern database heuristics," *Journal of Artificial Intelligence Research* 22, 279-318, 2004 ([doi:10.1613/jair.1480](https://doi.org/10.1613/jair.1480)): precomputed tables of the costs of disjoint subproblems, whose sum is a lower bound on the cost of the whole problem ([Section 3.9](#39-skipping-completions-by-completion-tables)).
+- G. Lee, "Bicycle race: small two-block codes on the Pareto frontier," ([arXiv:2610.13880v2](https://arxiv.org/abs/2610.13880v2)): Appendix C.4 takes the roots of a connected-cluster search from the automorphisms of the Tanner graph, which pynauty finds ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
+- R. E. Korf and A. Felner, "Disjoint pattern database heuristics," *Artificial Intelligence* 134, 9-22, 2002 ([doi:10.1016/S0004-3702(01)00092-3](https://doi.org/10.1016/S0004-3702%2801%2900092-3)), and A. Felner, R. E. Korf, and S. Hanan, "Additive pattern database heuristics," *Journal of Artificial Intelligence Research* 22, 279-318, 2004 ([doi:10.1613/jair.1480](https://doi.org/10.1613/jair.1480)): disjoint and additive pattern databases ([Section 3.9](#39-skipping-completions-by-completion-tables)).
 - S. Bouyuklieva and I. Bouyukliev, "An extension of the Brouwer-Zimmermann algorithm for calculating the minimum weight of a linear code," *Mathematics* 9(19), 2354, 2021 ([doi:10.3390/math9192354](https://doi.org/10.3390/math9192354)): page 6 lists the codewords of a given weight without repetition ([Section 3.11](#311-counting-logical-operators)).
 - The implementation and its tests: "[Where to look](README.md#where-to-look)" in README.md names the module of each part, and the end of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements) names the tests that check the requirements.
