@@ -1368,6 +1368,31 @@ def test_manifest_dirty_digest(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_node_sh_refusals(directory: pathlib.Path, node: bool) -> None:
+    """node.sh stops with a message on a missing pin, a missing bundle, or a misplaced option."""
+    shutil.copy(ROOT / "experiments" / "state_prep_certification" / "node.sh", directory)
+    pins = {"python": {"version": "3.12"}, "platform": {}, "gnu_parallel": {"version": "20240122"}}
+    (directory / "pins.json").write_text(json.dumps(pins))
+    for arguments, message in (
+        ([], "node.sh EXPERIMENT --approved-cpu-hours H"),
+        (["--check"], 'pins.json has no string "min_glibc" in "platform"'),
+        (["selftest", "--status"], "no bundle.json beside node.sh"),
+        (["selftest", "--results-dir", "x"], "set FTSP_RESULTS"),
+    ):
+        result = subprocess.run(
+            ["bash", str(directory / "node.sh"), *arguments],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={key: value for key, value in os.environ.items() if key != "FTSP_RESULTS"},
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode == 1 and message in output, (arguments, result)
+        # neither the system's python nor run_node.py ran
+        assert "/bin/python:" not in output and "can't open file" not in output, (arguments, result)
+
+
+@test
 def test_bundle_requirements(directory: pathlib.Path, node: bool) -> None:
     """Compiled requirements split into entries with their hashes, comments dropped."""
     from experiments.state_prep_certification import bundle

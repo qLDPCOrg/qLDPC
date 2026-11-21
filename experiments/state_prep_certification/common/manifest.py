@@ -142,15 +142,18 @@ def write_manifest(
 
     Args:
         label_dir: The label's directory.
-        results_dir: The results directory, which may hold ``preflight.json`` from ``node.sh``.
+        results_dir: The results directory, which may hold the record of ``node.sh``'s preflight,
+            ``preflight-<bundle>.json``.
         extra: Further fields, such as the number of job slots.
     """
+    bundle = bundle_record()
+    preflight = _read_json(results_dir / f"preflight-{bundle['name']}.json") if bundle else None
     manifest = {
         "label": label_dir.name,
         "pins": load_pins(),
         "harness": harness_commit(),
-        "bundle": bundle_record(),
-        "preflight": _read_json(results_dir / "preflight.json"),
+        "bundle": bundle,
+        "preflight": preflight,
         "machine": machine_info(),
         "python": sys.version,
         "executable": sys.executable,
