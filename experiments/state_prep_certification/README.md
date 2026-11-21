@@ -80,7 +80,7 @@ bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hour
 
 `node.sh --check` runs only the preflight, and needs only `node.sh` and `pins.json`, so it can run on the node before any bundle exists.
 Before the experiment first runs for its label, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
-Repeating the command resumes the run.
+Repeating the command resumes the run, on any host with the same CPU model, but not while the label's `active/` directory lists runs of another host.
 After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming; `--status` prints the progress.
 The archive that the run prints at its end is the one file to copy back.
 

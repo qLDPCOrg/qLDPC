@@ -28,10 +28,15 @@ experiment (``common/manifest.py``), it
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that
 ended with status 0, and the task runner skips tasks that already have a final row.  The script
-refuses to start while a run of an earlier start is still alive.  After a hard kill of this script
-or of GNU parallel, run it once with ``--cleanup``, which kills every run still listed in the
-label's ``active/`` directory, if its processes are still the ones recorded.  ``--status`` prints
-the progress of the label.
+refuses to start while a run of an earlier start is still alive.  It also refuses to start, and
+``--cleanup`` refuses to act, while the label's ``active/`` directory lists a run of another host,
+which this host can neither see nor stop.  A start refuses a machine whose CPU model differs from
+the one in the label's manifest, so that one label never mixes the times of two CPU models; another
+host with the same CPU model may resume, since the allocations of one cluster can get new
+hostnames, and ``starts.jsonl`` records each start's host and number of job slots.  After a hard
+kill of this script or of GNU parallel, run it once with ``--cleanup``, which kills every run still
+listed in the label's ``active/`` directory, if its processes are still the ones recorded.
+``--status`` prints the progress of the label.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session,
 and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development
@@ -76,6 +81,7 @@ def main() -> None:
     results_dir = (args.results_dir or DEFAULT_RESULTS).resolve()
     label_dir = get_label_dir(module, results_dir, args.subset, args.local)
     if args.cleanup:
+        refuse_other_hosts(label_dir)
         cleanup(label_dir)
         return
     if args.status:
@@ -86,6 +92,8 @@ def main() -> None:
     if not args.local and _unfrozen_bundle() and not args.allow_unfrozen:
         sys.exit("This bundle has no pinned qLDPC commit; pass --allow-unfrozen only for a trial")
     label_dir.mkdir(parents=True, exist_ok=True)
+    refuse_other_hosts(label_dir)
+    refuse_other_cpu(label_dir)
     live = live_runs(label_dir)
     if live:
         sys.exit(f"Runs of an earlier start are still alive ({live[:3]}...); run --cleanup first")
@@ -124,6 +132,8 @@ def main() -> None:
             "jobs": jobs,
             "cpus": cpus,
             "runner_cpus": reserved,
+            "cpu_model": runner._cpu_model(),
+            "host": socket.gethostname(),
             "ceiling_cpu_hours": ceiling,
             "approved_cpu_hours": args.approved_cpu_hours,
             "local": args.local,
@@ -352,6 +362,30 @@ def pin_runners(reserved: list[int]) -> None:
             sys.exit(f"Could not pin to the reserved CPUs {reserved}: {error}")
         if os.sched_getaffinity(0) != set(reserved):
             sys.exit(f"Could not pin to the reserved CPUs {reserved}")
+
+
+def refuse_other_hosts(label_dir: pathlib.Path) -> None:
+    """Exit if the label's ``active/`` directory lists a run of another host."""
+    host = socket.gethostname()
+    for path in sorted((label_dir / "active").glob("*")):
+        other = json.loads(path.read_text()).get("host", host)
+        if other != host:
+            sys.exit(
+                f"{path} lists a run on host {other}, which this host ({host}) can neither see nor "
+                f"stop.  Resume, or run --cleanup, on {other}; if that host's runs are gone, "
+                "delete the file."
+            )
+
+
+def refuse_other_cpu(label_dir: pathlib.Path) -> None:
+    """Exit if this machine's CPU model differs from the one in the label's manifest."""
+    path = label_dir / "manifest.json"
+    recorded = json.loads(path.read_text()).get("cpu_model") if path.exists() else None
+    if recorded is not None and recorded != runner._cpu_model():
+        sys.exit(
+            f"This label's runs were made on {recorded!r}, and this machine has "
+            f"{runner._cpu_model()!r}; a label never mixes the times of two CPU models."
+        )
 
 
 def live_runs(label_dir: pathlib.Path) -> list[str]:

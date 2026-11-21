@@ -865,6 +865,31 @@ def test_run_node_missing_row(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_run_node_other_host(directory: pathlib.Path, node: bool) -> None:
+    """A start and --cleanup refuse a label whose ``active/`` lists a run of another host."""
+    label_dir, command = _local_label(directory)
+    (label_dir / "active").mkdir(parents=True)
+    record = {"pid": 1, "pid_start": None, "pgid": None, "runner_pid": 1, "runner_start": None}
+    (label_dir / "active" / "t").write_text(json.dumps(record | {"host": "elsewhere.example"}))
+    for extra in ([], ["--cleanup"]):
+        refused = subprocess.run(command + extra, capture_output=True, text=True, check=False)
+        assert refused.returncode != 0 and "elsewhere.example" in refused.stderr, refused.stderr
+    assert (label_dir / "active" / "t").exists()
+    assert not (label_dir / tasks.TASKS_FILE).exists()
+
+
+@test
+def test_run_node_cpu_model(directory: pathlib.Path, node: bool) -> None:
+    """A start refuses a CPU model other than the one in the label's manifest."""
+    label_dir, command = _local_label(directory)
+    label_dir.mkdir(parents=True)
+    (label_dir / "manifest.json").write_text(json.dumps({"cpu_model": "Another CPU 9000"}))
+    refused = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert refused.returncode != 0 and "Another CPU 9000" in refused.stderr, refused.stderr
+    assert not (label_dir / tasks.TASKS_FILE).exists()
+
+
+@test
 def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
     """A second acceptance attempt runs its tasks again, in a fresh directory, keeping the first."""
     from experiments.state_prep_certification.common import local_runs
@@ -1265,6 +1290,20 @@ def _run_node_module() -> Any:
     import run_node
 
     return run_node
+
+
+def _local_label(directory: pathlib.Path) -> tuple[pathlib.Path, list[str]]:
+    """The stand-in's label directory for local runs in ``directory/results``, and a start of it.
+
+    The start is a dry run, which stops after writing the task list and the manifest.
+    """
+    from experiments.state_prep_certification.common import plugin
+
+    results = directory / "results"
+    module = plugin.load_experiment("selftest")
+    label_dir = _run_node_module().get_label_dir(module, results, "main", True)
+    command = [sys.executable, str(RUN_NODE), "selftest", "--local", "--results-dir", str(results)]
+    return label_dir, command + ["--approved-cpu-hours", "10", "--dry-run"]
 
 
 def _require_parallel() -> None:

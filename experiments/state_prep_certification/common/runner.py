@@ -6,8 +6,8 @@ The parent side, ``run_task``, starts the child with the thread variables of ``T
 set to 1, and, if it is given a CPU, has the child pin itself to that CPU.  On the node, the
 runner itself inherits the CPUs of the reserved cores from ``run_node.py``, so that its polling
 of processes every second runs off the measured cores; rows record both affinities.  The runner
-records the child's process group (or, in local mode, its process id) and the start times of the
-child and the runner in ``active/<task_key>``, and watches the child:
+records the child's process group (or, in local mode, its process id), the start times of the
+child and the runner, and the host in ``active/<task_key>``, and watches the child:
 
 * **Start-up cap:** the child must report that timing started within ``startup_cap_s`` of its
   launch (process start, imports, and any untimed preparation); otherwise it is killed and the
@@ -301,6 +301,7 @@ class _Watcher:
                     "pgid": self.group,
                     "runner_pid": os.getpid(),
                     "runner_start": process_start(os.getpid()),
+                    "host": socket.gethostname(),
                 }
             )
         )
