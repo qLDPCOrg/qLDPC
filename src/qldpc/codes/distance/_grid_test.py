@@ -197,11 +197,11 @@ def _check_vector_cosets(method: Any, rng: np.random.Generator, threads: bool) -
         expected = int(_get_words_with_syndrome(checks, syndrome).sum(axis=1).min())
         assert code.get_distance_exact(vector=vector, method=method) == expected
 
-    # On threads, a fixed code and vector whose coset weighs four, and whose BZ search reaches a
-    # layer of three rows, which splits onto threads; a small random case may stop earlier, and may
-    # not split even the connected-cluster search.  Its expected weight comes from the span of the
-    # code's generator, which the library computes; the random cases above use an oracle independent
-    # of the library.
+    # On threads, also search a fixed code and vector whose coset weighs four.  Its BZ search
+    # reaches a layer of three rows, which splits onto threads, and its connected-cluster search
+    # splits too, while a small random case may do neither.  Its expected weight comes from the span
+    # of the code's generator, which the library computes, while the random cases above use an
+    # oracle independent of the library.
     if threads:
         fixed_rng = np.random.default_rng(3)
         code = codes.ClassicalCode(fixed_rng.integers(2, size=(9, 20), dtype=np.uint8))

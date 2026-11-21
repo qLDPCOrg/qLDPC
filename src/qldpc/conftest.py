@@ -122,31 +122,31 @@ def vary_default_transformer_seed(pytestconfig: pytest.Config) -> Iterator[None]
 @pytest.fixture(scope="session")
 def ring_cyclic3_gf2() -> abstract.GroupRing:
     """Construct a small ring with a pre-built Wedderburn-Artin transformer."""
-    return _get_ring("cyclic3_gf2")
+    return _build_ring("cyclic3_gf2")
 
 
 @pytest.fixture(scope="session")
 def ring_cyclic3_gf4() -> abstract.GroupRing:
     """Construct a ring over a non-prime field with a pre-built Wedderburn-Artin transformer."""
-    return _get_ring("cyclic3_gf4")
+    return _build_ring("cyclic3_gf4")
 
 
 @pytest.fixture(scope="session")
 def ring_dihedral3_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a pre-built Wedderburn-Artin transformer."""
-    return _get_ring("dihedral3_gf5")
+    return _build_ring("dihedral3_gf5")
 
 
 @pytest.fixture(scope="session")
 def ring_cyclic5_gf2() -> abstract.GroupRing:
     """Construct a ring with a degree-4 field-extension component (over a prime field)."""
-    return _get_ring("cyclic5_gf2")
+    return _build_ring("cyclic5_gf2")
 
 
 @pytest.fixture(scope="session")
 def ring_alternating4_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a size-3 matrix component."""
-    return _get_ring("alternating4_gf5")
+    return _build_ring("alternating4_gf5")
 
 
 @pytest.fixture(scope="session")
@@ -156,13 +156,13 @@ def ring_dihedral7_gf9() -> abstract.GroupRing:
     In GF(9) with the irreducible polynomial x^2 + 1, the element x is not primitive.  This ring has
     a matrix component over a field extension (size 2, degree 3).
     """
-    return _get_ring("dihedral7_gf9")
+    return _build_ring("dihedral7_gf9")
 
 
 @pytest.fixture(name="ring", scope="session", params=["cyclic3_gf4", "dihedral3_gf5"])
 def rings_to_test(request: pytest.FixtureRequest) -> abstract.GroupRing:
     """Retrieve a ring for which we have pre-built a Wedderburn-Artin transformer."""
-    return _get_ring(request.param)
+    return _build_ring(request.param)
 
 
 @pytest.fixture(
@@ -173,22 +173,22 @@ def rings_to_test(request: pytest.FixtureRequest) -> abstract.GroupRing:
 def wedderburn_artin_rings_to_test(request: pytest.FixtureRequest) -> abstract.GroupRing:
     """Retrieve a ring for exercising the Wedderburn-Artin machinery.
 
-    These rings jointly cover matrix components of size 2 and 3 (dihedral3_gf5, alternating4_gf5),
-    field-extension components of degree 2, 3, and 4 (alternating4_gf5, dihedral7_gf9,
-    cyclic5_gf2), a commutative ring (cyclic5_gf2), and a field that is not prime and whose
-    irreducible polynomial is not the default one (dihedral7_gf9).  The matrix component of
-    dihedral7_gf9 is itself over a field extension: it consists of 2x2 matrices over GF(9^3).
+    dihedral3_gf5 and alternating4_gf5 have matrix components of size 2 and 3.  alternating4_gf5,
+    dihedral7_gf9, and cyclic5_gf2 have components that are field extensions of degree 2, 3, and 4.
+    cyclic5_gf2 is commutative.  The field of dihedral7_gf9 is not prime, and its irreducible
+    polynomial is not the default one.  dihedral7_gf9 also has a matrix component over a field
+    extension, of 2x2 matrices over GF(9^3).
     """
-    return _get_ring(request.param)
+    return _build_ring(request.param)
 
 
-def _get_ring(name: str) -> abstract.GroupRing:
-    """Construct a ring of the fixtures above, with a pre-built Wedderburn-Artin transformer.
+def _build_ring(name: str) -> abstract.GroupRing:
+    """Construct a named ring of the ring fixtures, with a pre-built Wedderburn-Artin transformer.
 
-    The parametrized fixtures build only the ring of their parameter, rather than requesting the
-    fixture of every ring, since galois compiles code for the fields of each ring.  They do not
-    request that fixture dynamically either, since between test files, the coverage check tears
-    down only the fixtures that tests request statically.
+    The parametrized fixtures ``ring`` and ``wa_ring`` call this to build only the ring of their
+    parameter, since galois compiles code for the fields of each ring.  Between test files, the
+    coverage check tears down only the fixtures that tests request statically, so these fixtures
+    build their ring rather than request the fixture of that ring with ``getfixturevalue``.
     """
     group: abstract.Group
     field: int | type[galois.FieldArray]

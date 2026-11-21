@@ -428,9 +428,9 @@ def test_a_search_of_an_mb_code_takes_overlapping_sets(
 def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> None:
     """A search whose overlapping family has no row as light as the distance still finds it."""
 
-    # Shorten a systematic BCH(31,21) basis to [26,16] and isolate a one-bit quotient.  The rows
-    # of ``qldpc.codes.BCHCode(31, 21).generator`` span the cyclic code that the binary polynomial
-    # 1 + x + x^2 + x^4 + x^5 + x^7 + x^10 generates, which needs no field GF(32) to build.
+    # Shorten a systematic basis of the cyclic [31, 21] BCH code to [26, 16], and isolate a one-bit
+    # quotient.  Building the basis from the binary polynomial 1 + x + x^2 + x^4 + x^5 + x^7 + x^10
+    # that generates the code needs no field GF(32), which ``qldpc.codes.BCHCode`` builds.
     basis = get_independent_rows(_get_cyclic_basis("11101101001", 31))[5:, 5:]
     logicals = basis[13:14]
     stabilizers = np.delete(basis, 13, axis=0)
@@ -1187,9 +1187,9 @@ def test_completion_tables_keep_distances_exact(completion_tables: CompletionRec
         assert expected is not qldpc.codes.NO_DISTANCE
         for upper_bound in (None, expected + 1):
             skipped = completion_tables.skipped
-            # Each sector of this [[24, 4, 4]] code has rank ten, so one sixteen-column block covers
-            # the tails, which makes the bounds exact, and a bound that is too high changes the
-            # distance.
+            # The checks of each sector of this [[24, 4, 4]] code have rank ten, so its search basis
+            # has ten tail columns, which one sixteen-column block covers.  That makes the bounds
+            # exact, so a bound that is too high changes the distance.
             with use_tuning(completion_bound_block_bits=16):
                 distance = bz.get_distance_brouwer_zimmermann(
                     [get_sector(code, pauli)],
@@ -1587,10 +1587,10 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
 ) -> None:
     """Threads find the lightest words of searches whose lightest words lie in split layers.
 
-    The searches are of a random [50, 30] classical code, and of the X sector of a [[54, 4]]
-    bivariate bicycle code, whose X distance is eight, and they find the distances of searches on
-    one thread.  Only the search of the bivariate bicycle code, whose stabilizers weigh six, tests,
-    on threads, the labels that tell its logical operators from its stabilizers.
+    The searches are of a random [50, 30] classical code and of the X sector of a [[54, 4]]
+    bivariate bicycle code, whose X distance is eight.  Each finds the distance that a search on one
+    thread finds.  The stabilizers of the bivariate bicycle code weigh six, so only its search tests
+    on threads the labels that tell its logical operators from its stabilizers.
     """
     random_code = get_random_full_rank_matrix(np.random.default_rng(1), 30, 50)
     bicycle = qldpc.codes.BBCode({x: 9, y: 3}, 1 + x + x**6 * y, 1 + y + x**2 * y)

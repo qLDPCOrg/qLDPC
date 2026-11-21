@@ -110,9 +110,9 @@ def test_special_codes() -> None:
     """More complicated classical codes."""
     code: codes.ClassicalCode
 
-    # galois compiles costly functions for each field, so the Reed-Solomon code and the binary BCH
-    # code below share GF(4), which holds the symbols of the one and the roots of the other, and
-    # which other tests in this file use too
+    # galois compiles costly functions for each field, so both codes below use GF(4), which other
+    # tests in this file use too.  GF(4) holds the symbols of the Reed-Solomon code and the roots of
+    # the binary BCH code.
     bits, dimension = 3, 2
     code = codes.ReedSolomonCode(bits, dimension)
     assert code.dimension == codes.ClassicalCode(code.matrix).dimension == dimension

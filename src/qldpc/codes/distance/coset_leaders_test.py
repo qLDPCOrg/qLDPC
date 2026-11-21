@@ -277,8 +277,9 @@ def test_bounds_match_per_block_minima(
     matrix = get_stabilizer_matrix(_block_generators(block, num_blocks))
     search = CosetLeaderSearch(matrix, css_weight=css_weight)
 
-    # Bounds hold for random syndromes at each maximum weight, and on five blocks for the syndrome
-    # of the check below, which comes first.
+    # Bounds hold for random syndromes at each maximum weight.  On five blocks, the syndromes start
+    # with one whose query by physical weight stops by its certificate, which the end of this test
+    # checks.
     syndromes = rng.integers(1 << (num_blocks * len(block)), size=4 if phased else 7).tolist()
     if not phased:
         syndromes.insert(0, 443351)

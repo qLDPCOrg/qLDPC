@@ -639,14 +639,21 @@ def test_get_transformer_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_get_transformer_is_reproducible() -> None:
-    """Without a seed, separately built rings have the same Wedderburn-Artin decomposition."""
-    rings = [abstract.GroupRing(abstract.QuaternionGroup(), field=3) for _ in range(3)]
-    transformer, *other_transformers = [ring.get_transformer() for ring in rings]
-    for other_transformer in other_transformers:
-        for component, other_component in zip(
-            transformer.transformers, other_transformer.transformers, strict=True
-        ):
-            assert np.array_equal(component.matrix_basis, other_component.matrix_basis)
+    """Without a seed, separately built rings have the same Wedderburn-Artin decomposition.
+
+    The ring of the alternating group A_4 over GF(5) has a 3x3 matrix component and a component that
+    is a field extension of degree 2, so its decompositions choose both a matrix basis and a power
+    basis at random.
+    """
+    transformer_a, transformer_b = [
+        abstract.GroupRing(abstract.AlternatingGroup(4), field=5).get_transformer()
+        for _ in range(2)
+    ]
+    for component_a, component_b in zip(
+        transformer_a.transformers, transformer_b.transformers, strict=True
+    ):
+        assert np.array_equal(component_a.matrix_basis, component_b.matrix_basis)
+        assert np.array_equal(component_a.power_basis, component_b.power_basis)
 
 
 def test_transpose() -> None:
