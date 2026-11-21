@@ -30,7 +30,7 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
 * ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every finished deletion task
   whose parent is certified at K = t, with whether its circuit is a disagreement.
 * ``deletion_table.csv``: one row per finished deletion task whose parent is certified at K = t, on
-  a circuit without a disagreement, the BB [[72,12,6]] rows first: the family, with the MQT QECC
+  a circuit without a disagreement, in the order of circuit ids: the family, with the MQT QECC
   release of a synthesized circuit, gate counts (encoder and verification), measured qubits,
   measurements, and acceptance probabilities of parent and final circuit, the final m*, and the
   deletions attempted and accepted.
@@ -278,7 +278,7 @@ def write_applications(
                     notes["rebuild_mismatches"].append({"id": circuit_id, "arm": arm})
                 (out / "pruned" / f"{arm}.{circuit_id}.stim").write_text(result["final_circuit"])
                 table.append(row)
-    table.sort(key=lambda row: ("bb72" not in row["id"], row["id"], row["arm"]))
+    table.sort(key=lambda row: row["id"])
     _write_csv(out / "deletion.csv", steps)
     _write_csv(out / "deletion_table.csv", table)
     _write_csv(out / "deletion_tasks.csv", tasks)
