@@ -14,6 +14,7 @@ from .benchmarking import (
     ResidualWeightHistogram,
     estimate_downstream_fault_weight,
     estimate_residual_weight_histogram,
+    get_steane_swap_consumer,
 )
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     "benchmarking",
     "estimate_downstream_fault_weight",
     "estimate_residual_weight_histogram",
+    "get_steane_swap_consumer",
     "transforms",
 ]
