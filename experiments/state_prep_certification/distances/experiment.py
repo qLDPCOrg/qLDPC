@@ -32,9 +32,9 @@ SMOKE = ("golay", "bb72", "surface9", "five_five")
 
 
 def prepare(label_dir: pathlib.Path) -> None:
-    """Regenerate the codes into the label's directory, and stop if any differs from the sample.
+    """Regenerate the codes into the label directory, and stop if any differs from the sample.
 
-    Then copy the sample into the label's directory, where ``analyze.py`` reads it, so that the run
+    Then copy the sample into the label directory, where ``analyze.py`` reads it, so that the run
     keeps the sample that it ran with.
     """
     sample = codes.generate(label_dir)

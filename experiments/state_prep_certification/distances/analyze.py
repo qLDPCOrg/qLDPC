@@ -6,15 +6,15 @@
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of an arm's runs on the
-code, its first run and its repeats, with each run that did not finish counted as the limit L, or
-the first run's T if that run did not finish.  An arm counts as finished if its first run finished,
-even if its repeats did not; ``summary.csv`` records the number of unfinished repeats in
-``repeats_unfinished``, and a median that is L is in effect a bound.  A row with
-``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A repeat with it is left out of
-the median, as a missing repeat is.  A first run with it leaves the arm without T, and its T cell in
-``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged runs in
-``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The cases, in
-order:
+code, its first run and its repeats, with a repeat that timed out counted as the limit L.  If the
+first run did not finish, or a repeat ended in an error or memout, T is the first run's time.  An
+arm counts as finished if its first run finished, even if its repeats did not; ``summary.csv``
+records the number of unfinished repeats in ``repeats_unfinished``, and a median that is L is in
+effect a bound.  A row with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A
+repeat with it is left out of the median, as a missing repeat is.  A first run with it leaves the
+arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
+``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats``
+and ``repeats_unfinished``.  The cases, in order:
 
 1. **disagreement:** the arms or their repeats report different distances, or a distance that
    differs from the code's reference distance; no ratio;
@@ -35,8 +35,9 @@ upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 For each family, the table gives the counts of each class of R_T and the median of R_T over the
 codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
 "<=" if upper bounds are, and omitted if there are both.  The table also gives the number of codes
-in the median, and how many are lower or upper bounds.  The anchors' row gives counts only;
-anchors are reported per code and never pooled with the families.
+in the median, and how many of them are lower bounds and how many upper bounds.  The anchors' row
+gives the counts of each class only; anchors are reported per code and never pooled with the
+families.
 
 The analysis reads the sample from the label directory, where ``experiment.prepare`` copies
 ``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
@@ -114,7 +115,7 @@ def _unpack(archive: pathlib.Path) -> pathlib.Path:
 
 
 def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
-    """The run's copy of ``sample.json``, which ``experiment.prepare`` writes into its directory.
+    """The run's copy of ``sample.json``, which ``experiment.prepare`` puts in the label directory.
 
     Raises:
         ValueError: If the label directory has no copy, as for a run made before runs kept one.
@@ -122,8 +123,7 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
     path = label_dir / "sample.json"
     if not path.exists():
         raise ValueError(
-            f"{label_dir} has no sample.json (a run made before runs kept a copy of the sample has"
-            " none)"
+            f"{label_dir} has no sample.json, as for a run made before runs kept a copy of the sample"
         )
     sample: dict[str, Any] = json.loads(path.read_text())
     return sample
@@ -346,11 +346,21 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
                 "family": family,
                 "codes": len(members),
                 **{name: sum(m["class"] == name for m in members) for name in classes},
-                "median_R_T": _median(times) if family != "anchors" else "-",
-                "ratios_in_median": len(times),
-                "lower_bounds": sum(r["bound"] == ">=" for r in times),
-                "upper_bounds": sum(r["bound"] == "<=" for r in times),
+                "median_R_T": "-",
+                "ratios_in_median": "-",
+                "lower_bounds": "-",
+                "upper_bounds": "-",
             }
+            | (
+                {}
+                if family == "anchors"
+                else {
+                    "median_R_T": _median(times),
+                    "ratios_in_median": len(times),
+                    "lower_bounds": sum(r["bound"] == ">=" for r in times),
+                    "upper_bounds": sum(r["bound"] == "<=" for r in times),
+                }
+            )
         )
     with open(out / "families.csv", "w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0]) if rows else ["family"])
