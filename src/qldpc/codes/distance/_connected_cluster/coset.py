@@ -89,6 +89,7 @@ class ConnectedClusterCosetSearch:
         columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
         self._singles, _, _ = tabulate_singles(columns, num_variables, symplectic=symplectic)
 
+        # Make the checks sparser, with the same span (Section 3.8 of connected_cluster.md).
         rows, transform = get_sparser_rows(
             matrix,
             symplectic=symplectic,
@@ -151,10 +152,10 @@ class ConnectedClusterCosetSearch:
         """Run ``get_min_weight_bound`` from a first weight limit, and count the states it visits.
 
         The search tries each weight limit from ``max(min(first_limit, max_weight), 2)`` through
-        ``max_weight``, or, without ``first_limit``, only ``max_weight`` if it is at least two, and
-        stops at the first within which it finds a word (Section 3.8 of ``connected_cluster.md``).
-        A first limit above two suits callers to which any word within it gives the same answer.
-        The class docstring states the lower bounds of the answers.
+        ``max_weight``, and stops at the first within which it finds a word (Section 3.8 of
+        ``connected_cluster.md``).  Without ``first_limit``, it tries only ``max_weight``, if that
+        is at least two.  A first limit above two suits callers to which any word within it gives
+        the same answer.  The class docstring states the lower bounds of the answers.
         """
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)
@@ -185,7 +186,7 @@ class ConnectedClusterCosetSearch:
     def _get_word(self, symbols: npt.NDArray[np.int64]) -> int:
         """Pack symbols into a word, in which the values 0, 1, and 2 of a symbol are X, Z, and Y.
 
-        The symbols of an X or Z part all have the value 0.
+        The symbols are those of ``SupportSearch``.  Those of an X or Z part all have the value 0.
         """
         num_variables = self._search.num_variables
         word = 0
@@ -218,7 +219,7 @@ def find_first_cluster_bound(
     ``_threads.run_blocks`` moves the rest of a costly batch to ``num_threads`` threads once its
     work reaches ``split_work``, and returns the least index of a syndrome whose class has no error
     within ``max_weight``, which, with its bound, is that of one thread.  The work of a query is the
-    number of states that its searches visit, as a BZ query counts the words that it weighs; a query
+    number of states that its searches visit (see ``SearchTuning.search_chunk_exponent``).  A query
     that looks up its error and visits no state does none, since it spends its time holding Python's
     global interpreter lock.  Threads run ``run_rows`` at once, so the code that it calls must keep
     the requirements on threads in Section 5 of ``connected_cluster.md``.
@@ -289,9 +290,9 @@ def _get_min_cluster_weight(
 ) -> tuple[int, int]:
     """Find the minimum weight of the class of a syndrome with connected-cluster searches.
 
-    The searches try increasing weight limits from two.  A Z-part search starts at the weight of the
-    X part instead, since any Z part within it gives the class that weight (Section 3.8 of
-    ``connected_cluster.md``).
+    The searches try increasing weight limits from two.  A Z-part search starts instead at the
+    weight of the X part, if that is more than two, since any Z part within it gives the class that
+    weight (Section 3.8 of ``connected_cluster.md``).
 
     Returns:
         The minimum weight of the class, or ``max_weight + 1`` if that is larger, and the number of

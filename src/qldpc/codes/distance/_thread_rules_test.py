@@ -5,10 +5,9 @@
 Section 5 of ``brouwer_zimmermann_code.md`` and ``connected_cluster.md``, and the docstring of
 ``qldpc/_compilation.py``, state the rules.  An entry point compiled with ``nogil=True`` runs on
 several threads at once, without Python's global interpreter lock, and so does every compiled
-function that it calls.  A race between them would rarely change a result that tests compare, so
-a test here reads the code instead: it checks that Section 5 of the guide of its method names each
-such entry point of this package.  That section, with the docstring of ``_compilation.py``, states
-the rules of the entry point.  ``test_nothing_asks_numba_for_parallel_code`` of
+function that it calls.  A race between these threads would rarely change a result that tests
+compare.  So a test here finds each such entry point of this package in the code, and checks that
+Section 5 of its method's guide names it.  ``test_nothing_asks_numba_for_parallel_code`` of
 ``qldpc/_compiled_code_rules_test.py`` keeps qLDPC's own compiled code from being numba-parallel.
 
 While every test of this package runs, its fixture ``check_code_on_threads`` of ``conftest.py``
@@ -39,9 +38,9 @@ from . import conftest as distance_conftest
 def test_entry_points_without_the_lock_are_named_in_section_5_of_their_guides() -> None:
     """Section 5 of the guide of each entry point's method names it.
 
-    The entry points are those of this package, whose guides state the rules on threads.  One of
-    the Brouwer-Zimmermann or connected-cluster method is named in its method's guide, and any other
-    in either guide.
+    The entry points are those of this package, whose guides state the rules on threads.  An entry
+    point in ``_brouwer_zimmermann/`` or ``_connected_cluster/`` is named in its method's guide, and
+    any other in either guide.
     """
     guides = {
         method: _get_section_5(Path(__file__).with_name(guide))

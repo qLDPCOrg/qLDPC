@@ -18,11 +18,11 @@ class MinWeightBound:
 
     Attributes:
         within_max_weight: Whether some error with the syndrome has weight at most ``max_weight``.
-        representative: An error with the syndrome, packed into an integer with its X part in bits
-            ``0`` to ``n - 1`` and its Z part in bits ``n`` to ``2 n - 1``, for ``n`` qubits
-            (see :meth:`~qldpc.codes.distance.coset_leaders.CosetLeaderSearch.unpack_pauli`).  If
-            ``within_max_weight`` is True, its weight is at most ``max_weight``, but it need not be
-            a lightest error with the syndrome.
+        representative: An error with the syndrome, packed into an integer: for ``n`` qubits, bits
+            ``0`` to ``n - 1`` hold its X part, and bits ``n`` to ``2 n - 1`` its Z part (see
+            :meth:`~qldpc.codes.distance.CosetLeaderSearch.unpack_pauli`).  If ``within_max_weight``
+            is True, its weight is at most ``max_weight``, but it need not be a lightest error with
+            the syndrome.
         lower_bound: A lower bound on the weight of every error with the syndrome.  If
             ``within_max_weight`` is False, it exceeds ``max_weight``.
     """

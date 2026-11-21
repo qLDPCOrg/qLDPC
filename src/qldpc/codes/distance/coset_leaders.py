@@ -93,8 +93,8 @@ class CosetLeaderSearch:
 
     :meth:`find_first_not_within_max_weight` and :meth:`get_min_weights` move the rest of a costly
     batch to several threads.  The calling thread starts a batch alone, and a batch of cheap queries
-    stays there.  The search fixes the number of threads when it is built, from the ``num_threads``
-    field of the tuning, and the results of the queries do not depend on it.
+    stays there.  The search fixes its number of threads when it is built, from the ``num_threads``
+    field of the tuning.  The results of the queries do not depend on the number of threads.
     :doc:`/exact_search_tuning` says how many threads a search uses by default, and how to cap them,
     as programs that run queries in several processes or threads at once should.
 
@@ -140,8 +140,8 @@ class CosetLeaderSearch:
         # Read the active tuning, and prepare the searches.
         tuning = get_tuning()
         # A batch query moves to threads once its queries on the calling thread have done the split
-        # work: words that BZ queries weigh (Section 4.5 of brouwer_zimmermann_code.md), or states
-        # that connected-cluster queries visit (Section 3.11 of connected_cluster.md).
+        # work (Section 4.5 of brouwer_zimmermann_code.md), in the units that the comment of
+        # ``search_chunk_exponent`` in ``_tuning.py`` defines.
         num_threads = _threads.get_num_threads(tuning.num_threads)
         split_work = min(num_threads << tuning.search_chunk_exponent, _threads.NO_WORK_LIMIT)
         self._thread_options = {"num_threads": num_threads, "split_work": split_work}

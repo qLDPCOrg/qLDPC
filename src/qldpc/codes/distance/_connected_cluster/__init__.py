@@ -3,5 +3,6 @@
 """Searches of the supports that are connected in a Tanner graph: of distances, and of cosets.
 
 ``qldpc.codes.distance.distances`` and ``qldpc.codes.distance.coset_leaders`` are the interfaces of
-these modules.
+these modules, and ``qldpc.codes.distance._auto`` also advances their distance searches, one weight
+limit at a time, for ``method="auto"``.
 """

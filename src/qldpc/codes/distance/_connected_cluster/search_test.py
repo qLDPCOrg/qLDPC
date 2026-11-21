@@ -2079,7 +2079,7 @@ def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
 
 
 ####################################################################################################
-# native search
+# compiled search
 
 
 def run_search_supports(

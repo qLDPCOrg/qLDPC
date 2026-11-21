@@ -41,8 +41,8 @@ def plain_search_setup() -> None:
     A test needs this if it replaces a function that compiled-on-request code calls, since compiled
     callers would not call the replacement, or if it compares the plain set-up code with its
     compiled version.  This fixture sets every compiled-on-request function back to plain Python,
-    which undoes an earlier replacement of one, so a fixture that replaces one must request this
-    fixture, which then runs first.
+    which undoes any earlier replacement of a compiled-on-request function.  A fixture that replaces
+    such a function must therefore request this fixture, which pytest then runs first.
     """
     _compilation.set_on_request_functions_compiled(False)
 
@@ -148,7 +148,7 @@ def get_random_full_rank_matrix(
 def assert_certificate_bounds_unvisited_words(
     basis: npt.NDArray[np.uint8], family: basis_families.BasisFamily
 ) -> None:
-    """Check that each step's certificate bounds every word that no search basis has visited.
+    """Check that a family's certificate bounds, at each step, each word that no basis has visited.
 
     A step is a pair of a layer ``t`` and the number of search bases that have finished it, while
     the others have finished layer ``t - 1``.  A search basis visits a word after layer ``t`` if the
@@ -471,12 +471,12 @@ def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     compiled with ``parallel=True``, such as some of galois's, or of ``_tuning.get_tuning``, raises
     an ``AssertionError``, which ``run_work_items`` raises again.  The workers include the threads
     of ``iterate_in_order``, which start through ``run_work_items``.  Two threads that run
-    numba-parallel code at once abort the process under numba's workqueue layer, and a new thread
-    reads the default tuning.  The fixture sees only the calls that tests make on workers.  In
-    compiled code, two tests of ``qldpc/_compiled_code_rules_test.py`` check the rest:
-    ``test_nothing_asks_numba_for_parallel_code`` keeps the functions of qLDPC from being
-    numba-parallel, and ``test_always_compiled_functions_use_nothing_from_outside_qldpc`` keeps out
-    those of galois.
+    numba-parallel code at once can abort the process (see ``run_work_items``), and a new thread
+    normally reads the default tuning, not that of its search.  The fixture sees only the calls that
+    tests make on workers.  In compiled code, two tests of ``qldpc/_compiled_code_rules_test.py``
+    check the rest: ``test_nothing_asks_numba_for_parallel_code`` keeps the functions of qLDPC from
+    being numba-parallel, and ``test_always_compiled_functions_use_nothing_from_outside_qldpc``
+    keeps out those of galois.
     """
     run_work_items = _threads.run_work_items
 
@@ -661,8 +661,7 @@ def _checking_numba_calls() -> Iterator[None]:
 class _CheckedTuning:
     """The context variable of the active tuning, which workers of ``run_work_items`` may not read.
 
-    Code that threads run reads the tuning only from its search, since new threads start with the
-    default tuning (see the module docstring of ``_tuning.py``).
+    Code that threads run reads the tuning only from its search (see ``check_code_on_threads``).
     """
 
     def __init__(self, variable: Any) -> None:
@@ -696,10 +695,10 @@ def _get_shared_arrays(*roots: object) -> list[_SharedArray]:
     """A record of each array that some objects reach: its path, a copy, and its writeable flag.
 
     The objects reach arrays through the items of dictionaries, lists, and tuples, and through the
-    attributes of objects of qLDPC, which must have a ``__dict__``.  A path on which threads write
-    shared data under a lock, such as a cache that they fill, would need that data left out of the
-    records, for example by a parameter that names the attributes that this function skips, and a
-    test of its own for the lock.  A path ``roots[i]...`` starts at the object ``roots[i]``.
+    attributes of objects of qLDPC, which must have a ``__dict__``.  ``shared_arrays_read_only``
+    checks the arrays that this function records.  The check therefore fails if threads write any
+    of them, even under a lock, for example to fill a preallocated cache.  It misses entries that
+    threads add to a dictionary or list.  A path ``roots[i]...`` starts at the object ``roots[i]``.
     """
     arrays = []
     seen = set()

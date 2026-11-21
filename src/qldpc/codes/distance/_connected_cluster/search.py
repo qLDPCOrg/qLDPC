@@ -151,10 +151,11 @@ class ConnectedClusterSearch:
 
     The arguments are those of ``get_distance_connected_cluster``, which advances the search until
     it finishes.  Each advance searches the sector with the lowest lower bound on its witnesses
-    through its next weight limit (Section 3.6 of ``connected_cluster.md``), on the threads of the
-    tuning if the limit is costly, with the same results and counts of states as a search on one
-    thread (Section 3.11).  The searches of the sectors that have witnesses are numbered in the
-    order of those sectors.
+    through its next weight limit (Section 3.6 of ``connected_cluster.md``).  A limit runs on the
+    threads of the tuning if it passes the gate that ``connected_cluster_split_shift`` of
+    ``SearchTuning`` describes, with the same results and counts of states as a search on one thread
+    (Section 3.11).  The searches of the sectors that have witnesses are numbered in the order of
+    those sectors.
 
     Raises:
         ValueError: If there are neither sectors nor an upper bound, or if a sector is not valid
@@ -221,10 +222,11 @@ class ConnectedClusterSearch:
 
     @property
     def finished(self) -> bool:
-        """Whether no sector has witnesses, or the best weight is at most the cutoff or each bound.
+        """Whether no sector has witnesses, or the best weight is low enough to finish the search.
 
-        The best weight is that of the lightest witness found, or ``upper_bound`` if that is less,
-        and the bounds are the lower bounds of the sectors on the weights of their witnesses.
+        The best weight is that of the lightest witness found, or ``upper_bound`` if that is less.
+        It is low enough if it is at most ``cutoff``, or if, for every sector with witnesses, it is
+        at most that sector's lower bound on the weights of its witnesses.
         """
         if not self._searches:
             return True
@@ -287,8 +289,8 @@ class ConnectedClusterSearch:
 
         The states of its last limit without a witness grow by ``get_growth`` for each unit of
         weight, and a prediction too large for a float is infinite.  Without a growth factor, the
-        prediction for any later limit is the search's own prediction for its next limit (Section
-        3.5 of ``connected_cluster.md``).
+        prediction is ``SupportSearch._predict_states(max_weight)`` (Section 3.5 of
+        ``connected_cluster.md``), which ignores ``max_weight`` once the search has run a limit.
         """
         growth = self.get_growth(index)
         if growth is None:
@@ -358,6 +360,12 @@ class SupportSearch:
     The checks need not be independent.  The search grows supports through unsatisfied checks, so it
     is fast only if ``checks`` is sparse (Sections 2 and 3.3 of ``connected_cluster.md``).  It also
     finds light vectors with a given syndrome (see ``find_vector_with_syndrome``).
+
+    Threads share a search and only read it (Section 3.11 of ``connected_cluster.md``).  Four calls
+    write the overlap cuts of syndrome queries (see ``stabilizer_overlap_cuts``) to the search:
+    ``use_query_overlap_words``, ``tabulate_query_cuts``, ``find_vector_with_syndrome`` when it
+    finds the cuts untabulated, and ``find_witness`` when it takes automorphisms.  No query may run
+    during these calls.
 
     Keyword args:
         get_automorphisms: As in ``get_distance_connected_cluster``.
@@ -444,7 +452,7 @@ class SupportSearch:
         if np.any(multiply_binary(checks, excluded.T)):
             raise ValueError("The excluded rows must satisfy the checks")
         # Keep the first copy of each nonzero check, in order, since zero and duplicate checks add
-        # nothing.  Map each given check to the kept check that equals it, or to -1 if it is zero;
+        # nothing.  Map each given check to the kept check that equals it, or to -1 if it is zero.
         # ``position_of_unique`` maps each of the sorted unique rows to its position among kept
         # checks.
         nonzero_rows = np.flatnonzero(np.any(checks, axis=1))
@@ -455,8 +463,8 @@ class SupportSearch:
         self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
         self._kept_index_of_check[nonzero_rows] = position_of_unique[unique_index_of_row]
 
-        # The search also branches on and weighs the sums of the pairs of kept checks in
-        # ``summed_pairs``, which follow the kept checks (Section 3.4 of connected_cluster.md).
+        # With pair_sum_checks, add the light sums of pairs of kept checks after the kept checks,
+        # and keep the pair of each in ``_summed_pairs`` (Section 3.4 of connected_cluster.md).
         searched_checks = self._checks
         self._summed_pairs = np.zeros((0, 2), dtype=np.int64)
         if pair_sum_checks:
@@ -490,9 +498,8 @@ class SupportSearch:
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)
         self._inverse_overlaps[1:] = scale // np.arange(1, max_column_weight + 1)
 
-        # The excluded rows are known words for the overlap cuts, and queries may have more.  With
-        # pair sums, so are the light sums of pairs of those excluded rows that are no heavier than
-        # the heaviest check (Section 3.4 of connected_cluster.md).
+        # Build the known words of the overlap cuts of find_witness (see stabilizer_overlap_cuts and
+        # pair_sum_checks).  Queries use the excluded rows and the words of use_query_overlap_words.
         self._known_words = excluded
         if pair_sum_checks and stabilizer_overlap_cuts:
             max_check_weight = get_row_weights(self._checks, symplectic=symplectic).max(initial=0)
@@ -501,9 +508,8 @@ class SupportSearch:
             sums, _ = get_light_pair_sums(light_words, symplectic=symplectic)
             self._known_words = np.vstack([excluded, sums])
         self._query_words = np.zeros((0, checks.shape[1]), dtype=np.uint8)
-        # find_witness tabulates its cuts at its first weight limit.  use_query_overlap_words and
-        # tabulate_query_cuts tabulate the cuts of queries; otherwise find_vector_with_syndrome does
-        # so at its first query.  Each search tabulates only the kind it uses.
+        # find_witness tabulates its cuts on its first call, and again after it takes automorphisms.
+        # The cuts of queries are tabulated as the class docstring says.
         self._cuts: _CutTables | None = None
         self._query_cuts: _CutTables | None = None
 
@@ -540,7 +546,7 @@ class SupportSearch:
             if automorphisms is not None:
                 self._use_automorphisms(automorphisms)
         # Tabulate the cuts of the known words under the current ranks, if they are not tabulated,
-        # before any thread starts, so that threads only read the search.
+        # before any thread starts (see the class docstring).
         if self._cuts is None:
             words = self._known_words
             if not self._stabilizer_overlap_cuts:
@@ -614,9 +620,8 @@ class SupportSearch:
         returns, but not whether it finds one within ``max_weight``.
 
         Coset searches call ``find_vector_with_packed_syndrome`` instead, which skips validation.
-        Unless ``use_query_overlap_words`` or ``tabulate_query_cuts`` has tabulated the cuts of
-        queries, the first call tabulates them and writes to the search, so no other query of the
-        search may run during that call.
+        The first call may tabulate the cuts of queries, which writes to the search (see the class
+        docstring).
 
         Returns:
             The sorted symbols of a vector with the syndrome, or None if every such vector weighs
@@ -694,8 +699,7 @@ class SupportSearch:
         and help most with light ones.  ``find_witness`` does not use these words, since its cuts
         are exact only for words in the row space of ``excluded`` (Section 3.4).  The cuts do
         nothing unless ``stabilizer_overlap_cuts`` is set.  Call this method only while no query or
-        search of this object runs, as the constructor of ``CosetLeaderSearch`` does, since it
-        rebuilds the cuts that threads read (Section 3.11).
+        search of this object runs (see the class docstring).
 
         Raises:
             ValueError: If the words are not a binary matrix as wide as the checks, or do not
@@ -725,11 +729,14 @@ class SupportSearch:
     def _predict_states(self, max_weight: int) -> int:
         """The number of states that the next weight limit, ``max_weight``, is expected to visit.
 
-        The number is expected to grow by the ratio between those of the last two limits, or not to
-        grow if the earlier of them visited no states, as before the second limit (Section 3.5 of
-        ``connected_cluster.md``).  A first limit is expected to visit no states if it is at most
-        the weight divisor, and otherwise, with no limits below it to predict from, enough to reach
-        any ``automorphism_minimum_states`` short of ``MAX_VALUE``.
+        Let ``last`` and ``previous`` be the numbers of states that the last limit and the limit
+        before it visited, with ``previous`` zero when predicting the second limit.  The prediction
+        is ``last * last // previous``, or ``last`` if ``previous`` is zero (Section 3.5 of
+        ``connected_cluster.md``).  A first limit at most the weight divisor is expected to visit no
+        states.  A first limit above the divisor has no earlier limits to predict from, so it gets
+        ``MAX_VALUE - 1``, which stands for no prediction.  Sections 3.5 and 3.11 of
+        ``connected_cluster.md`` say how that value affects asking for symmetries and splitting a
+        limit across threads.
         """
         if self._last_two_num_states is None:
             return MAX_VALUE - 1 if max_weight > self.weight_divisor else 0
@@ -788,19 +795,16 @@ def _get_overlap_cuts(
 
     The cut of a word ``g`` limits the load of a support on ``g``, which a support passes if the
     load is at most the capacity ``|g| - 1`` (Section 3.4 of ``connected_cluster.md``).  Each symbol
-    on a variable of ``g`` adds 2 to the load if it has the value of ``g`` there and 1 otherwise,
-    except that the lowest-ranked variable of ``g`` adds nothing, unless the problem is binary and
-    ``|g|`` is odd.  Words of weight at most one are left out.  In a symplectic problem they cut
-    nothing, since their one variable ranks lowest.  In a binary problem, such a word would forbid
-    only its variable, which no lightest witness or solution holds, and the search stays exact
-    without it.
+    on a variable of ``g`` adds 2 to the load if it has the value of ``g`` there, and 1 otherwise.
+    The exception is the lowest-ranked variable of ``g``, whose symbols add nothing unless the
+    problem is binary and ``|g|`` is odd.  Words of weight at most one are left out, and the search
+    is exact with any subset of the cuts (Section 3.4).  A word of weight one would cut nothing in a
+    symplectic problem, since its one variable ranks lowest.  In a binary problem, it would forbid
+    only its own variable, which no lightest witness or solution holds.
 
     Returns:
-        ``symbol_starts`` and ``symbol_entries``, which list ``_LOAD_BASE c + l`` for each cut
-        ``c`` to which symbol ``s`` adds the load ``l``, at ``symbol_entries[symbol_starts[s] :
-        symbol_starts[s + 1]]``; ``cut_starts`` and ``cut_entries``, which list ``_LOAD_BASE s +
-        l`` for the same pairs by cut; the capacity of each cut; and the symbols whose load alone
-        exceeds the capacity of a cut, once for each such cut.
+        The six tables that ``_search_supports`` takes as its arguments from ``cut_symbol_starts``
+        on, in that order, as its docstring describes them.
     """
     # Find the support of each distinct word, and the value of the word on each variable, and keep
     # the words of weight at least two.
@@ -1032,7 +1036,7 @@ def _search_on_threads(
 
 
 ####################################################################################################
-# native search
+# compiled search
 
 
 @always_compiled(nogil=True)
@@ -1069,19 +1073,9 @@ def _search_supports(
 ]:
     """Search the supports that grow from each root through unsatisfied checks.
 
-    This is the depth-first search of Sections 3.3, 3.4, and 3.7 of ``connected_cluster.md``, in
-    which symbol ``s`` gives variable ``s % n`` the value ``s // n``, for ``n = len(ranks)``.  Check
-    ``c`` is flipped by the symbols ``check_symbols[check_starts[c] : check_starts[c + 1]]``, row
-    ``s`` of ``symbol_masks`` packs the checks that symbol ``s`` flips, and row ``s`` of
-    ``test_columns`` packs the tests that its word fails.  Entry ``k`` of ``inverse_overlaps`` is
-    ``1 / k`` in units of ``1 / scale``, rounded down, so entry 1 is the scale.  The search from a
-    root uses only variables of higher rank.  A root of -1 starts a syndrome query (Section 3.8)
-    from ``start_syndrome``, which is not empty, is packed as a row of ``symbol_masks``, and is
-    ignored by the other roots.  ``fixed_words`` is empty, or has an entry for each word of a row of
-    ``symbol_masks``, as ``_get_fixed_words`` makes it, and numba compiles a version for each of its
-    lengths (see ``_MAX_FIXED_WORDS``).  With ``memoize``, each state computes the overlap and
-    repair of each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.
-    The remaining arguments tabulate the overlap cuts, as ``_get_overlap_cuts`` returns them.
+    This is the depth-first search of Sections 3.3, 3.4, and 3.7 of ``connected_cluster.md``, over
+    the symbols of ``SupportSearch`` on ``len(ranks)`` variables.  The search from a root uses only
+    variables of higher rank.
 
     The search runs work items in turn, as threads do (Section 3.11).  Item ``i`` is the subtree of
     a state at depth ``P = paths.shape[1]``, which holds ``P`` symbols: from root ``roots[i]``,
@@ -1090,8 +1084,8 @@ def _search_supports(
     goes back above depth ``P``.  It counts only the states at depth ``P`` or more.  With ``P = 0``,
     the items are whole roots, as in a search of one thread.  A ``frontier_depth`` of ``P + 1``
     enters no state at that depth, and lists each such state that it would enter instead, in DFS
-    order, by the index of its item and its branch at each depth below it.  A ``frontier_depth`` of
-    zero lists nothing.  A path must lead to a state that the search enters.
+    order, by the index of its item and its branch at each depth below it.  A path must lead to a
+    state that the search enters.
 
     The search stops early once it has counted ``max_states`` states, which must be at least one, at
     the next state that does not replay a path, just before that state takes its next branch.  It
@@ -1109,6 +1103,39 @@ def _search_supports(
     comes after the first call in DFS order.  The witness of the call that was split is that of the
     first call if it has one, and otherwise that of the second, and the call counts the states of
     the first, and also those of the second if the first has no witness.
+
+    Args:
+        check_starts: Where the symbols of each check start in ``check_symbols``: check ``c`` is
+            flipped by the symbols ``check_symbols[check_starts[c] : check_starts[c + 1]]``.
+        check_symbols: The symbols that flip each check, check by check.
+        symbol_masks: Row ``s`` packs the checks that symbol ``s`` flips.
+        test_columns: Row ``s`` packs the tests that the word of symbol ``s`` fails.
+        roots: The root of each item.  A root of -1 starts a syndrome query (Section 3.8).
+        paths: The path of each item, as a row of ``P`` branches.
+        frontier_depth: ``P + 1`` to list the states at that depth, or zero to list nothing.
+        ranks: The rank of each variable.
+        inverse_overlaps: Entry ``k`` is ``1 / k`` in units of ``1 / scale``, rounded down, so
+            entry 1 is the scale.
+        max_weight: The weight limit.
+        resume: The path from which the first item goes on, or an empty array.
+        ends: The end of each state of ``resume``, or an empty array.
+        max_states: The count of states at which the search stops early (see above).
+        start_syndrome: The nonempty syndrome from which a root of -1 starts, packed as a row of
+            ``symbol_masks``.  The other roots ignore it.
+        fixed_words: Empty, or an entry for each 64-bit word of a row of ``symbol_masks``, as
+            ``_get_fixed_words`` makes it.  Numba compiles a version for each length of
+            ``fixed_words`` (see ``_MAX_FIXED_WORDS``).
+        memoize: Whether each state computes the overlap and repair of each symbol at most once.
+        restrict_viable_symbols: As for ``_get_branches``.
+        cut_symbol_starts: Where the entries of each symbol start in ``cut_symbol_entries``.
+        cut_symbol_entries: For each symbol in turn, ``_LOAD_BASE c + l`` for each overlap cut
+            ``c`` to which the symbol adds the load ``l``.
+        cut_starts: Where the entries of each cut start in ``cut_entries``.
+        cut_entries: For each cut in turn, ``_LOAD_BASE s + l`` for each symbol ``s`` that adds the
+            load ``l`` to the cut.
+        cut_capacities: The capacity of each cut.
+        cut_blocked_symbols: The symbols whose load alone exceeds the capacity of a cut, once for
+            each such cut.
 
     Returns:
         The symbols of a witness, or of a vector with the syndrome, of weight at most
@@ -1397,8 +1424,7 @@ def _search_supports(
 
 
 # Unlike the small helpers, _get_branches is long and has two call sites, but inlining it makes each
-# state about 3 to 12 percent cheaper with a fixed number of words, and up to about 6 percent
-# cheaper without, for the cost of compiling its code at both sites.
+# state up to about a tenth cheaper, for the cost of compiling its code at both sites.
 @always_compiled(inline=True)
 def _get_branches(
     check_starts: npt.NDArray[np.int64],
@@ -1423,20 +1449,41 @@ def _get_branches(
 ) -> int:
     """Choose the branches of the state at ``depth``, whose syndrome is not empty, and count them.
 
-    A symbol is available if its level is ``available_level``.  A row of ``syndromes`` has
-    ``num_words`` words.  The support can take ``slack`` more variables.  The weights of the
-    unsatisfied checks are in units of ``1 / inverse_overlaps[1]``.
     Section 3.4 of ``connected_cluster.md`` says when the state is pruned, and when it allows only
-    viable symbols in its subtree, which it does only if ``restrict_viable_symbols``.  A state that
-    restricts its subtree raises the levels of the symbols that it allows, lists them in
-    ``allowances`` from ``allowance_starts[depth]``, and sets ``restricts[depth]``.  The branches
-    are the available symbols of the unsatisfied check with the fewest, after any restriction.  They
-    go to ``branches[depth]``, most repairing first, and their number is zero if the state is
-    pruned.  ``check_weights`` and ``branch_repairs`` are scratch space.
+    viable symbols in its subtree.  A state that restricts its subtree raises the levels of the
+    symbols that it allows, lists them in ``allowances`` from ``allowance_starts[depth]``, and sets
+    ``restricts[depth]``.  The branches are the available symbols of the unsatisfied check with the
+    fewest available symbols, after any restriction.  They go to ``branches[depth]``, most repairing
+    first.
 
-    If ``memos`` has a column for each symbol, row 0 holds the stamp of the call that computed the
-    overlap of each symbol, row 1 that overlap, and rows 2 and 3 the same for repairs.  ``stamp`` is
-    the stamp of this call, which no other call uses.
+    Args:
+        check_starts: As for ``_search_supports``.
+        check_symbols: As for ``_search_supports``.
+        symbol_masks: As for ``_search_supports``.
+        levels: The level of each symbol (see the comment on levels in ``_search_supports``).
+        available_level: The level of an available symbol.
+        syndromes: The syndrome of the state at each depth, as a row of ``num_words`` 64-bit words.
+        num_words: The number of words of a row of ``syndromes``.
+        branches: The branches of the state at each depth, a row for each.
+        restricts: Whether the state at each depth restricts its subtree.
+        allowance_starts: Where the symbols that the state at each depth allows start in
+            ``allowances``.
+        allowances: The symbols that the states of the stack allow.
+        depth: The depth of the state.
+        slack: The number of variables that the support can still take.
+        inverse_overlaps: As for ``_search_supports``.  The weights of the unsatisfied checks are
+            in units of ``1 / inverse_overlaps[1]``.
+        check_weights: Scratch space for the weights of the checks.
+        branch_repairs: Scratch space for the repairs of the branches.
+        memos: An array of four rows: with no columns, to turn memoization off, or with a column
+            for each symbol.  For each symbol, row 0 holds the stamp of the call that last
+            computed its overlap, and row 1 that overlap.  Rows 2 and 3 hold the same for its
+            repair.
+        stamp: The stamp of this call, which no other call uses.
+        restrict_viable_symbols: Whether a state may allow only viable symbols in its subtree.
+
+    Returns:
+        The number of branches, which is zero if the state is pruned.
     """
     scale = inverse_overlaps[1]
     memoize = memos.shape[1] > 0

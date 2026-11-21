@@ -66,29 +66,33 @@ compiled function that it calls.  Such an entry point, and every compiled functi
 may write only to arrays that it allocates, or to arrays or entries that nothing else reads or
 writes while it runs, such as buffers that its caller gives to one thread.  It must read nothing
 that anything else writes while it runs, and call no numba code compiled with ``parallel=True`` or
-``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  For a distance search,
-Section 5 of its guide, ``qldpc/codes/distance/brouwer_zimmermann_code.md`` or
-``qldpc/codes/distance/connected_cluster.md``, states the requirements on threads in full, and says
-which tests check them, and for the certifier's fault lister, "Threads" in
-``qldpc/circuits/certification/fault_propagation.md`` does.
-``qldpc/codes/distance/_thread_rules_test.py`` checks that Section 5 names each such entry point of
-that package, and ``qldpc/circuits/certification/_fault_search_test.py`` that the certifier's guide
-names those of the certifier.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of
-qLDPC asks numba for parallel code, that no module of the library other than this one and tests
-calls numba's ``njit`` or ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``,
-the only form that the tests read.  A compiled function without ``nogil=True`` keeps the lock when
-Python calls it while it is compiled, so threads that call it at once from Python take turns.
+``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  Guides state the
+requirements on threads and say which tests check them.  For the distance package, Section 5 of
+``qldpc/codes/distance/brouwer_zimmermann_code.md`` and Section 5 of
+``qldpc/codes/distance/connected_cluster.md`` state them, each for its method.  For the certifier's
+fault lister, the section "Threads" of ``qldpc/circuits/certification/fault_propagation.md`` states
+them.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC asks numba for
+parallel code, that no module of the library other than this one and tests calls numba's ``njit`` or
+``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the only form that the
+tests read.  A compiled function without ``nogil=True`` keeps the lock when Python calls it while it
+is compiled, so threads that call it at once from Python take turns.
 
-Another subpackage may compile entry points with ``nogil=True`` only if, like the distance and
-certification packages, it has a guide that states their requirements on threads and which tests
-check them, and a test that the guide names each entry point that
-``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds.  If the package starts
-threads, it starts them through ``run_work_items`` of ``qldpc/codes/distance/_threads.py`` or the
-helpers there.  Its ``conftest.py`` then imports the fixture ``check_code_on_threads`` of
-``qldpc/codes/distance/conftest.py``, which checks what the package's workers call, and a test
-checks that the fixture is active, as the certifier's
-``test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads`` does.  The package is then
-listed in ``_PACKAGES_WITH_RULES_ON_THREADS`` of ``qldpc/_compiled_code_rules_test.py``.
+A subpackage other than the distance and certification packages may compile entry points with
+``nogil=True`` only if it meets these conditions:
+
+- It has a guide that states the requirements on threads of its entry points and names the tests
+  that check them.
+- It has a test that checks that the guide names each entry point that
+  ``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds in the subpackage.
+  ``qldpc/codes/distance/_thread_rules_test.py`` has such a test.
+- If it starts threads, it starts them through ``run_work_items`` of
+  ``qldpc/codes/distance/_threads.py`` or the helpers there.  The subpackage's ``conftest.py`` then
+  imports the fixture ``check_code_on_threads`` of ``qldpc/codes/distance/conftest.py``, which
+  fails workers of ``run_work_items`` that call numba-parallel code or ``get_tuning`` from Python.
+  A test of the subpackage checks that the fixture is active.
+  ``test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads`` of
+  ``qldpc/circuits/certification/_fault_search_test.py`` is such a test.
+- It is listed in ``_PACKAGES_WITH_RULES_ON_THREADS`` of ``qldpc/_compiled_code_rules_test.py``.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
 function of both kinds runs as plain Python, much more slowly.  :func:`always_compiled` then returns

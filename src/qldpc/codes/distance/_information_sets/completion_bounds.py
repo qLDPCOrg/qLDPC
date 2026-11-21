@@ -2,18 +2,17 @@
 
 """Tables that bound the weights of the words that complete a BZ support with two more rows.
 
-A BZ scan weighs the sums of sets of ``w`` rows of a systematic basis ``[I | P]``.  For the first
-``w - 2`` rows of such a set and a row ``s``, ``CompletionTables`` bound, on the columns of ``P``,
-the weight of the words that complete those rows with two rows from ``s`` on.  A scan adds the least
-number of their pivot ones to this bound, and skips the words if the sum reaches its limit: the best
-weight ``U`` in a distance search, ``t + 1`` in a count of the words of weight ``t``, the least
-bound that proves a word heavier than the maximum weight in a coset query, and a limit that falls
-as lighter words turn up in a search for a minimum weight.  Sections 3.9 and 3.10 of
-``brouwer_zimmermann.md`` derive the bound and the limits.
+A BZ scan weighs the sums of supports of ``w`` rows of a systematic basis ``[I | P]``.  For the
+first ``w - 2`` rows of such a support and a row ``s``, ``CompletionTables`` bound, on the columns
+of ``P``, the weight of the words that complete those rows with two rows from ``s`` on.  A scan adds
+the least number of their pivot ones to this bound, and skips the words if the sum reaches the limit
+of the scan, such as the best weight ``U`` of a distance search.  Sections 3.9 and 3.10 of
+``brouwer_zimmermann.md`` derive the bound, and the limit of each kind of scan.
 
-Threads read shared tables at once (Sections 3.9, "Tables and lookups", and 5 of that guide).
-Compiled functions here, such as ``get_completion_bound``, also run within nogil calls of threaded
-searches, so they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
+Threads read shared tables at once (Section 3.9 of ``brouwer_zimmermann.md``, "Tables and lookups",
+and Section 5 of ``brouwer_zimmermann_code.md``).  ``get_completion_bound`` and its helper
+``_get_block_value`` also run within nogil calls of threaded searches, so they must keep the rules
+for nogil code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations
@@ -184,10 +183,10 @@ def is_within_cost_limit(cost: float, tuning: SearchTuning) -> bool:
 def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
     """Whether a tuning considers completion tables for layer ``weight`` of a basis of ``num_rows``.
 
-    The layer must have two to ``num_rows`` rows (tables bound completions by two rows) and at
-    least ``tuning.completion_bound_minimum_layer_work`` supports.  That count saturates at
-    ``WORK_CAP``, which lies below the largest threshold, so that threshold considers no layer.  A
-    tuning that allows no cost or no bytes of tables considers none.
+    The layer must have two to ``num_rows`` rows (tables bound completions by two rows) and at least
+    ``tuning.completion_bound_minimum_layer_work`` supports.  That count saturates at ``WORK_CAP``,
+    so a threshold above it, such as ``MAX_VALUE``, considers no layer.  A tuning that allows no
+    cost or no bytes of tables considers none.
     """
     return (
         2 <= weight <= num_rows

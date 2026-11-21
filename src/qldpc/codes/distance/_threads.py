@@ -10,8 +10,8 @@ threads in Section 5 of the guide of its method, ``brouwer_zimmermann_code.md`` 
 ``connected_cluster.md``.  The fault lister of the certifier of bounded fault propagation, which
 calls ``iterate_in_order``, must keep those in "Threads" of
 ``qldpc/circuits/certification/fault_propagation.md``.  Workers read the tuning only from their
-search, never through ``get_tuning``, since new threads start with the default tuning (see the
-module docstring of ``_tuning.py``).
+search, never through ``get_tuning``, since new threads normally start with the default tuning (see
+the module docstring of ``_tuning.py``).
 """
 
 from __future__ import annotations
@@ -77,12 +77,13 @@ def run_work_items(
 ) -> None:
     """Run the work items ``0, ..., num_items - 1`` on up to ``num_threads`` threads.
 
-    The calling thread and ``min(num_threads, num_items) - 1`` new threads each call
-    ``start_worker`` once with a shared stop event.  It returns the function that runs, on that
-    thread, the items of a range ``start, ..., end - 1``, given as ``(start, end)``.  Each thread
-    then claims the next range of items that no thread has claimed, in increasing order, and runs
-    it, until every item is claimed or the event is set.  A function that runs a range should check
-    the event between chunks of its work, and may set it to stop every thread.
+    The calling thread and ``max(1, min(num_threads, num_items)) - 1`` new threads each call
+    ``start_worker`` at most once with a shared stop event, and not at all if the event is already
+    set when they begin.  ``start_worker`` returns the function that runs, on that thread, the items
+    of a range ``start, ..., end - 1``, given as ``(start, end)``.  Each thread then claims the next
+    range of items that no thread has claimed, in increasing order, and runs it, until every item is
+    claimed or the event is set.  A function that runs a range should check the event between chunks
+    of its work, and may set it to stop every thread.
 
     Ranges follow guided self-scheduling: a range holds the fewest next items whose weight reaches
     about ``1 / (2 * num_threads)`` of the weight that no thread has claimed, so a heavy item can
@@ -96,17 +97,16 @@ def run_work_items(
     weight would leave them to one thread.
 
     The functions that run ranges must not call numba code compiled with ``parallel=True`` or
-    ``prange``, such as some of galois's: two threads that call it at once abort the process under
-    numba's default threading layer.
+    ``prange``, such as some functions of galois.  Two threads that call such code at once abort the
+    process under numba's workqueue threading layer.
 
-    If a thread raises an exception, the event is set, and once every thread has returned, the
-    exception is raised again: that of the calling thread, as at a keyboard interrupt, or else the
-    first that another thread raised.  An exception while the calling thread starts or waits for
-    the others, such as a keyboard interrupt, also sets the event, and is raised again once every
-    thread that started has returned, except in narrow windows in which a further interrupt can end
-    this function while threads still run (see the comment in the code).  A thread whose start was
-    interrupted before it counted as started may still run, but it finds the event set and returns
-    without starting its worker.  No thread claims a range once the event is set.
+    If any thread raises an exception, the event is set.  This includes an exception, such as a
+    keyboard interrupt, that the calling thread raises while it starts or waits for the others.
+    Once every thread that started has returned, the calling thread's exception is raised again if
+    it has one, and otherwise the first that another thread raised.  In narrow windows, which a
+    comment in the code describes, a further interrupt can end this function while threads still
+    run.  A thread whose start was interrupted may run after the wait has skipped it as not started,
+    but it finds the event set and returns without calling ``start_worker``.
     """
     stop = threading.Event()
     lock = threading.Lock()
@@ -188,16 +188,16 @@ def run_items_until_first(
     """Run work items on threads until the first item that ends the work, and return that item.
 
     ``run_work_items`` runs the items ``0, ..., num_items - 1``, with ``single_items`` as there.
-    Each thread calls ``start_worker`` once with a function ``needed``.  ``start_worker`` returns a
-    function that runs an item, given its index, and returns whether the item ends the work, as the
-    first item with a witness of a search does.  An item that ends the work lowers a limit to
-    itself, and the threads skip every item after the limit, including the rest of a range that they
-    have claimed.  ``needed(item)`` says whether an item is still before the limit and the stop
-    event of ``run_work_items`` is not set, so that a function that runs an item in chunks can call
-    it between them, and stop.  The limit only falls, and every item before it runs, so the item
-    returned is the first that ends the work, as on one thread, or ``num_items`` if no item does.
-    Items after the returned one may have run, in part or in full, so a caller reads only results up
-    to it.  Exceptions propagate as in ``run_work_items``.
+    Each thread calls ``start_worker`` at most once, as in ``run_work_items``, with a function
+    ``needed``.  ``start_worker`` returns a function that runs an item, given its index, and returns
+    whether the item ends the work, as the first item with a witness of a search does.  An item that
+    ends the work lowers a limit to itself, and the threads skip every item after the limit,
+    including the rest of a range that they have claimed.  ``needed(item)`` says whether an item is
+    still before the limit and the stop event of ``run_work_items`` is not set, so that a function
+    that runs an item in chunks can call it between them, and stop.  The limit only falls, and every
+    item before it runs, so the item returned is the first that ends the work, as on one thread, or
+    ``num_items`` if no item does.  Items after the returned one may have run, in part or in full,
+    so a caller reads only results up to it.  Exceptions propagate as in ``run_work_items``.
     """
     lock = threading.Lock()
     first = num_items
@@ -286,18 +286,20 @@ def run_blocks(
 
     The calling thread first runs the batch alone, in order, until its work reaches ``split_work``.
     So a batch of cheap rows, or any batch on one thread, runs on the calling thread in one call of
-    ``run_rows``.  The work is the signal that the rest of the batch gains from threads, so each
-    caller defines it, in its own units, as work that threads run in parallel: work done without
-    Python's global interpreter lock, such as words that compiled code weighs, and none for rows
-    too cheap to gain, such as rows that spend much of their time holding the lock.  ``split_work``
-    should be enough such work to cost many times as much as starting the threads.  Elapsed time
-    would not serve: a long batch of cheap rows that hold the lock takes long, yet runs more slowly
-    on threads.  If rows remain after that, ``run_items_until_first`` runs them on ``num_threads``
-    threads, in about ``BLOCKS_PER_THREAD`` contiguous blocks for each thread, which they claim in
-    increasing order.  ``run_items_until_first`` returns the first block that ends the batch, and
-    every row before that block runs, so the first row that ends the batch is the one that one
-    thread would find.  Exceptions propagate as in ``run_work_items``, and the threads stop within
-    their ranges, except in the narrow windows that its docstring describes.
+    ``run_rows``.  Reaching ``split_work`` signals that the rest of the batch would gain from
+    threads.  Each caller defines the work in its own units, and counts only work that threads run
+    in parallel, done without Python's global interpreter lock, such as words that compiled code
+    weighs.  It counts none for rows too cheap to gain from threads, such as rows that spend much of
+    their time holding the lock.  ``split_work`` should be enough such work to cost many times as
+    much as starting the threads.  Elapsed time would not serve: a long batch of cheap rows that
+    hold the lock takes long, yet runs more slowly on threads.
+
+    If rows remain once the calling thread's work reaches ``split_work``, ``run_items_until_first``
+    runs them on up to ``num_threads`` threads, in about ``BLOCKS_PER_THREAD`` contiguous blocks for
+    each thread, which they claim in increasing order.  ``run_items_until_first`` returns the first
+    block that ends the batch, and every row before that block runs, so the first row that ends the
+    batch is the one that one thread would find.  Exceptions propagate as in ``run_work_items``, and
+    the threads stop within their ranges, except in the narrow windows that its docstring describes.
 
     Returns:
         The first row that ends the batch, or ``num_rows`` if no row does.
@@ -396,6 +398,7 @@ def iterate_in_order(
     comment in ``run_work_items`` describes; since the halt event and the stop event are set first,
     they stop before their next output or their iterator's next check of the stop event, or within
     ``_HALT_CHECK_SECONDS`` if they wait to add an output.
+
     An exception of a thread, or a thread that cannot be started, stops the others, and is raised on
     the calling thread once they have returned.  It can be raised before outputs that come before
     it in item order, so before the calling thread reaches what one thread would have reached

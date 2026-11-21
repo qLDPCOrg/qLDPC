@@ -2,11 +2,11 @@
 
 """Automorphism families: the images of one information set under automorphisms of a problem.
 
-A BZ search can scan one information set ``I`` and certify with all of its images under a group
-``Γ`` of automorphisms.  Sections cited in this module are those of ``brouwer_zimmermann.md``, whose
-Section 3.7 derives the certificate and the choice of ``I``.  The connected-cluster search also
-uses ``verify_automorphisms`` and ``get_orbits``, and ranks its variables by the orbit numbers of
-``get_orbits`` (Section 3.5 of ``connected_cluster.md``).
+A BZ search can scan the search basis of one information set ``I`` and certify with all of the
+images of ``I`` under a group ``Γ`` of automorphisms.  Sections cited in this module are those of
+``brouwer_zimmermann.md``, whose Section 3.7 derives the certificate and the choice of ``I``.  The
+connected-cluster search also uses ``verify_automorphisms`` and ``get_orbits``, and ranks its
+variables by the orbit numbers of ``get_orbits`` (Section 3.5 of ``connected_cluster.md``).
 """
 
 from __future__ import annotations
@@ -66,15 +66,16 @@ def get_automorphism_family(
     automorphisms: npt.NDArray[np.int_],
     weight_divisor: int,
 ) -> tuple[BasisFamily, Certificate]:
-    """Choose an information set ``I`` to scan, and certify it with its images (Section 3.7).
+    """Build the search basis of a chosen information set ``I``, and the certificate of its images.
 
     ``basis``, ``labels``, and ``automorphisms`` are as in ``verify_automorphisms``, which must
     accept them, and ``weight_divisor`` is a proven divisor of the Hamming weight of every eligible
     word.  ``I`` is chosen to lower the largest share ``|I ∩ O| / |O|`` over the orbits ``O``, since
-    the certificate depends on that share (see ``_balance_orbit_shares``).
+    the certificate depends on that share (Section 3.7; see ``_balance_orbit_shares``).
 
     Returns:
-        A basis family of ``I`` alone, and the certificate of all of its images.
+        A basis family of the search basis of ``I`` alone, and the certificate of all of the images
+        of ``I``.
     """
     dimension, num_columns = basis.shape
     orbits = get_orbits(automorphisms, num_columns)

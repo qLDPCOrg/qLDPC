@@ -3,9 +3,10 @@
 """Parts that the coset searches of ``CosetLeaderSearch`` share.
 
 They are the words with unit syndromes, the sums of the rows that a support selects, and the tables
-of the errors of weight zero or one by syndrome.
-Compiled functions here, such as ``xor_selected_rows``, also run within nogil calls of threaded
-searches, so they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
+of the errors of weight zero or one by syndrome.  ``get_sparser_rows`` of
+``_connected_cluster/sparse_checks.py`` also uses the words with unit syndromes.
+``xor_selected_rows``, the compiled function here, also runs within nogil calls of threaded
+searches, so it must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations

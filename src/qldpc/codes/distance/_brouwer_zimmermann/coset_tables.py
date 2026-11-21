@@ -3,9 +3,9 @@
 """Tables of the Brouwer-Zimmermann coset searches: bounds of steps, stopping steps, and tails.
 
 Sections cited in this module are those of ``brouwer_zimmermann.md`` and
-``brouwer_zimmermann_code.md``, whose Section 4.1 says how the coset searches use these tables.
-Threads that answer queries at once read them, so a change here must keep the requirements on
-threads under "Keep coset queries reproducible" in Section 5.
+``brouwer_zimmermann_code.md``.  Section 4.1 says how the coset searches use these tables.  Threads
+that answer queries at once read them, so a change here must keep the requirements on threads under
+"Keep coset queries reproducible" in Section 5.
 """
 
 from __future__ import annotations
@@ -48,12 +48,11 @@ class CosetSearchTables(NamedTuple):
     Attributes:
         inverse: Row ``j`` is the packed embedded word of a word whose syndrome has only bit ``j``
             set.
-        generators: The packed rows of each set of a family of information sets of the code, in
+        generators: For each set, or search basis, of a basis family of the code, its packed rows as
             embedded words (Section 4.4).  The last set of a disjoint family may be partial.
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family (see ``_get_planning``).
-            Single queries write only its cached stopping steps, which callers that share a cached
-            search share, and batch queries write those of their own copies (Section 4.1).
+            Section 4.1 says which queries write its cached stopping steps.
         x_mask: Selects the bits of a packed embedded word that form its X part, with one machine
             word for each machine word of the embedded words.  Only searches of Pauli errors by
             CSS weight scan with it, but every search reads it when it weighs the word of a
@@ -133,13 +132,16 @@ def get_coset_tails(
 ) -> CosetTails:
     """Build the record of the tails of the family of a coset instance, with tables of some sets.
 
-    ``inverse`` holds embedded words whose syndromes have one bit set, with every column.  Given the
-    ``record`` of the family, or None, the function returns a record with its tails and tables, plus
-    the completion tables of each set of ``sets`` that has none, unless they would be empty or
-    exceed ``max_table_bytes`` bytes (see ``completion_bounds.get_table_bytes_within``).  A record
-    built anew has blocks of ``block_bits`` columns.  The function returns ``record`` itself if it
-    adds no tables, and otherwise a new record, whose ``completion_tables`` copies the earlier
-    tables (Section 4.1).
+    ``inverse`` holds embedded words whose syndromes have one bit set, with every column.
+    ``record`` is the earlier record of the family, or None.  The function adds the completion
+    tables of each set of ``sets`` that has none, unless they would be empty or exceed
+    ``max_table_bytes`` bytes (see ``completion_bounds.get_table_bytes_within``).  A record built
+    anew has blocks of ``block_bits`` columns.
+
+    Returns:
+        ``record`` itself if it is given and the function adds no tables, and otherwise a new
+        record, whose ``completion_tables`` copies the earlier tables before the new ones (Section
+        4.1).
     """
     # Build the tails of the family once, with a layout of no tables.
     if record is None:
@@ -206,13 +208,12 @@ def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[in
     """Find the step at which a coset query stops, and cache it in a table of the planning buffer.
 
     The stopping step is the first step whose bound exceeds ``max_weight``: the step at which
-    ``stop_num_completed`` sets complete layer ``stop_layer``.  The cached step ``(w, j)`` is reused
-    if its bound exceeds ``max_weight`` and entry ``[w, j - 1]``, the bound of the step before it,
-    does not; otherwise ``certificates.find_stopping_step`` finds the step, which replaces it.  A
-    negative ``max_weight`` gives the first step, and the largest native integer, the only
-    ``max_weight`` that no bound exceeds, gives the last.  Single queries on several threads may
-    share the buffer, since each holds the global interpreter lock (Section 4.1); the batch loop of
-    queries gives each worker its own copy.
+    ``stop_num_completed`` sets complete layer ``stop_layer``.  The function reuses the cached step
+    ``(w, j)`` if its bound exceeds ``max_weight`` and entry ``[w, j - 1]``, the bound of the step
+    before it, does not.  Otherwise ``certificates.find_stopping_step`` finds the step, and the
+    function caches it.  A negative ``max_weight`` gives the first step.  The largest native
+    integer, the only ``max_weight`` that no bound exceeds, gives the last.  Section 4.1 says which
+    queries share a buffer, and why their writes of cached steps are safe.
 
     Returns:
         ``stop_layer``, ``stop_num_completed``, and the bound of that step.

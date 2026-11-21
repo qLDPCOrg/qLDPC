@@ -43,14 +43,14 @@ class Certificate:
     """Lower bounds on the Hamming weight of the eligible words that a family has not visited.
 
     ``lower_bound`` holds once every set of the family has completed each layer through
-    ``completed_weight``, and ``step_lower_bound`` part way through a layer, once the first sets in
-    family order have completed it (Sections 2.5 and 3.1).  A set interrupted within a layer
+    ``completed_weight``.  ``step_lower_bound`` holds part way through a layer, once the first sets
+    in family order have completed it (Sections 2.5 and 3.1).  A set interrupted within a layer
     advances neither.  The bounds hold only for the eligible words of the family's sector that the
-    family has not visited, and, in a search that skips completions by tables, only for those
-    lighter than its best weight (Sections 3.3 and 3.9).  A certificate of the images of an
+    family has not visited (Section 3.3).  In a search that skips completions by tables, they hold
+    only for those lighter than its best weight (Section 3.9).  A certificate of the images of an
     information set under automorphisms, as of an automorphism family, holds only for unvisited
     eligible words lighter than a best weight that every visited eligible word lowers, as in a
-    distance search; counts and coset searches must not use one (Section 3.7).
+    distance search.  Counts and coset searches must not use one (Section 3.7).
 
     Each bound is the occupancy of the sets (see ``get_step_lower_bounds``) divided by
     ``max_coverage``, rounded up, and then rounded up to a multiple of ``weight_divisor``.
@@ -60,8 +60,7 @@ class Certificate:
         ranks: Rank of the pivot block of each search basis, in family order.
         weight_divisor: A proven divisor of the Hamming weight of every eligible word, such as two
             for general Pauli problems or an even basis (Section 3.2).
-        max_coverage: An upper bound on the number of pivot blocks that contain any one column,
-            which may overestimate but never underestimate.
+        max_coverage: An upper bound on the number of pivot blocks that contain any one column.
     """
 
     dimension: int
@@ -225,23 +224,23 @@ def plan_steps(
 ) -> tuple[int, int, int]:
     """Plan a search of layers ``first_layer`` to ``last_layer`` that stops above a limit.
 
-    ``step_bounds`` has a row for each layer from zero to the dimension, and column zero and then a
-    column for each of ``num_sets`` sets.  Step ``(w, j)`` completes layer ``w`` of the ``j``-th
-    set, and its bound is ``step_bounds[w, j]``, as in the table of ``get_step_lower_bounds``.  The
-    steps run layer by layer, and their bounds must not decrease in that order, as holds for that
-    table and the tables of ``Certificate.get_weight_bounds``.  The stopping step ``(w*, j*)`` is
-    the first step whose bound exceeds ``limit``, or ``(last_layer, num_sets)`` if none does.
-    There, the first ``j*`` sets have completed layer ``w*``, and the others ``w* - 1``; call the
-    last layer that set ``i`` has completed ``w_i``.
+    ``step_bounds`` has the layout of ``get_step_lower_bounds`` for a family of ``num_sets`` sets:
+    step ``(w, j)`` completes layer ``w`` of the ``j``-th set, and its bound is entry ``[w, j]``.
+    The bounds must not decrease in step order: layer by layer, and set by set within a layer.
+
+    The stopping step ``(w*, j*)`` is the first step whose bound exceeds ``limit``, or
+    ``(last_layer, num_sets)`` if none does.  There, the first ``j*`` sets have completed layer
+    ``w*``, and the others ``w* - 1``.  Call the last layer that set ``i`` has completed ``w_i``.
 
     The work adds ``binomials[w]`` candidate/set evaluations for each set ``i`` that the plan keeps
-    and each layer ``w`` from ``first_layer`` to ``w_i``, and is zero for empty ``binomials``.  With
-    ``skip_unused``, the plan leaves out, as a coset search does, the unused sets, which add nothing
-    to the bound since their rank deficiency, read from ``ranks``, exceeds ``w_i``.  Without it, the
-    plan reads no ranks.  The work saturates at ``WORK_CAP`` once a layer through ``w*`` has a
-    binomial above ``WORK_CAP // num_sets``, or the sum reaches the cap.  From layer one for a limit
-    one below the best weight, the work is the estimate of a distance search, and from layer zero
-    for a maximum weight, skipping unused sets, that of a coset query (Section 3.6).
+    (see ``skip_unused`` below) and each layer ``w`` from ``first_layer`` to ``w_i``.  It is zero
+    for empty ``binomials``.  An unused set is one whose rank deficiency, read from ``ranks``,
+    exceeds ``w_i``, so it adds nothing to the bound.  With ``skip_unused``, the plan leaves out the
+    unused sets, as a coset search does.  Without ``skip_unused``, the plan reads no ranks.  The
+    work saturates at ``WORK_CAP`` once a layer through ``w*`` has a binomial above
+    ``WORK_CAP // num_sets``, or the sum reaches the cap.  From layer one, for a limit one below the
+    best weight, the work is the estimate of a distance search.  From layer zero, for a maximum
+    weight, and skipping unused sets, it is that of a coset query (Section 3.6).
 
     Returns:
         The stopping step ``(w*, j*)``, and the work.
@@ -266,7 +265,8 @@ def find_stopping_step(
 ) -> tuple[int, int]:
     """Find the stopping step of ``plan_steps`` by a binary search, since the bounds never decrease.
 
-    The coset searches and ``Certificate.get_num_sets_to_certify`` use it (Section 4.1).
+    Returns:
+        The stopping step ``(w*, j*)``.
     """
     num_sets = step_bounds.shape[1] - 1
     low, high = 0, (last_layer - first_layer + 1) * num_sets
@@ -293,10 +293,10 @@ def is_unused_set(
 ) -> bool:
     """Whether a set is an unused set of step ``(layer, num_completed)`` (see ``plan_steps``).
 
-    ``pivots`` holds the pivot columns of each set of ``num_rows`` rows, padded with -1 beyond its
-    rank.  A set that has completed layer ``c``, which must be at least zero, is unused if its rank
-    deficiency exceeds ``c``, that is, if its pivot at index ``num_rows - c - 1`` is padding.  A set
-    that has completed layer ``num_rows`` is used.
+    ``pivots`` holds the pivot columns of each set, padded with -1 beyond its rank, in rows of
+    ``r = pivots.shape[1]`` entries.  A set that has completed layer ``c`` is unused if its rank
+    deficiency exceeds ``c``, that is, if its pivot at index ``r - c - 1`` is padding.  A set that
+    has completed layer ``r`` is used.  The completed layer ``c`` must be at least zero.
     """
     position = pivots.shape[1] - get_completed_layer(set_index, layer, num_completed) - 1
     return position >= 0 and pivots[set_index, position] < 0

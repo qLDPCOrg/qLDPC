@@ -205,10 +205,10 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
 @pytest.mark.parametrize(("syndrome", "minimum"), [(44, 2), (108, 3)])
 def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimum: int) -> None:
     """Rank-deficient sets give valid bounds whether a weight-two error exists or not."""
-    # Qubit 6 is isolated, so the last information set has rank five rather than eight, and a search
-    # that took it as full rank would miss the error of weight two with syndrome 44.  Syndrome 108
-    # also flips the stabilizer of qubit 6, and certifying it at maximum weight two skips this set,
-    # whose first two layers add nothing.
+    # Qubit 6 is isolated, so the last set has rank five rather than eight, and a search that took
+    # it as full rank would miss the error of weight two with syndrome 44.  Syndrome 108 also flips
+    # the stabilizer of qubit 6, and certifying it at maximum weight two skips this set, whose first
+    # two layers add nothing.
     edges = [(0, 1), (0, 2), (0, 7), (1, 3), (1, 5), (2, 4), (3, 5), (4, 7), (5, 7)]
     matrix = get_graph_state(8, edges)
     assert _class_weights(matrix, syndrome, False).min() == minimum

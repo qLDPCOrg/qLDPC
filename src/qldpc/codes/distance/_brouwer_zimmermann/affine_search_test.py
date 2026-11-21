@@ -88,7 +88,7 @@ def test_scans_of_sets_of_any_rank() -> None:
 
 
 def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
-    """Chunked scans of an information set find the lightest eligible word of a layer."""
+    """Chunked scans of one information set's search basis find a layer's lightest eligible word."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     no_tables = completion_bounds.NO_TABLES
     for dimension, num_label_words in itertools.product(range(2, 7), (0, 2)):
