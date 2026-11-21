@@ -1,5 +1,5 @@
 # Temporary: profiles the coverage shards and the compiled runs of continuous-integration.yaml on CI's
-# runners, twice each.  It runs only on pushes to the branch ci/timing-probe, which is never merged.
+# runners, twice each.  It runs only on pushes to the branch ci/timing-probe-2, which is never merged.
 # Each test step prints PROBE lines: each process's phases, CPU and numba compile time (split into
 # galois and qLDPC), the slowest test files and tests, and the functions that take longest to
 # compile (see experiments/ci_timing/).
@@ -8,7 +8,7 @@ name: CI timing probe
 
 on:
   push:
-    branches: [ ci/timing-probe ]
+    branches: [ ci/timing-probe-2 ]
 
 permissions:
   contents: read
