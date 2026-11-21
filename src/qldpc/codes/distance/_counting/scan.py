@@ -88,12 +88,7 @@ def count_words(
         rows, packed_labels, extractors = _pack_basis_family(
             basis_family, basis.shape[1], labels.shape[1]
         )
-        last_layer, last_num_completed = _get_last_step(
-            basis_family.get_search_certificate(
-                weight + 1, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
-            ),
-            weight,
-        )
+        last_layer, last_num_completed = _get_last_step(basis_family.certificate, weight)
 
     # Each row's machine words are followed by those of its label, so that one prefix XOR carries
     # both.  A step that skips completions also appends the row's tail (see _StepTables).

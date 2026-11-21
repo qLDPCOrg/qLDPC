@@ -45,11 +45,11 @@ from .conftest import (
 def test_tuning_changes_apply_within_their_block() -> None:
     """Changes apply until their block exits, nest with the inner one first, and survive errors."""
     assert _tuning.get_tuning() == _tuning.DEFAULT_TUNING
-    with _tuning.use_tuning(max_information_sets=4, lp_minimum_work=0) as outer:
+    with _tuning.use_tuning(max_information_sets=4, overlapping_minimum_work=0) as outer:
         assert _tuning.get_tuning() is outer
-        assert (outer.max_information_sets, outer.lp_minimum_work) == (4, 0)
+        assert (outer.max_information_sets, outer.overlapping_minimum_work) == (4, 0)
         with _tuning.use_tuning(max_information_sets=2) as inner:
-            assert (inner.max_information_sets, inner.lp_minimum_work) == (2, 0)
+            assert (inner.max_information_sets, inner.overlapping_minimum_work) == (2, 0)
         assert _tuning.get_tuning() is outer
         with pytest.raises(RuntimeError), _tuning.use_tuning(max_information_sets=1):
             raise RuntimeError
@@ -93,7 +93,10 @@ def test_tunings_are_validated() -> None:
     numpy_tuning = _tuning.SearchTuning(**numpy_fields)
     assert type(numpy_tuning.max_information_sets) is int
     assert numpy_tuning.restrict_viable_symbols is False
-    assert _tuning.SearchTuning(lp_minimum_work=_tuning.MAX_VALUE).lp_minimum_work == 2**62
+    assert (
+        _tuning.SearchTuning(overlapping_minimum_work=_tuning.MAX_VALUE).overlapping_minimum_work
+        == 2**62
+    )
     # Float fields hold Python floats, from any real number.
     floats: dict[str, Any] = {"completion_bound_confidence_z": 3, "completion_bound_samples": 8}
     assert type(_tuning.SearchTuning(**floats).completion_bound_confidence_z) is float
@@ -104,12 +107,12 @@ def test_tunings_are_validated() -> None:
 
     invalid: list[tuple[type[Exception], str, dict[str, Any]]] = [
         (TypeError, "must be an integer", {"max_information_sets": True}),
-        (TypeError, "must be an integer", {"lp_minimum_work": 1.5}),
+        (TypeError, "must be an integer", {"automorphism_minimum_layer_work": 1.5}),
         (TypeError, "must be an integer", {"num_threads": 2.0}),
-        (TypeError, "must be an integer", {"lp_minimum_work": None}),
+        (TypeError, "must be an integer", {"automorphism_minimum_layer_work": None}),
         (TypeError, "must be a bool", {"restrict_viable_symbols": 1}),
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
-        (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),
+        (ValueError, "between 0 and", {"automorphism_minimum_layer_work": _tuning.MAX_VALUE + 1}),
         (ValueError, "between 1 and", {"scan_chunk_size": 0}),
         (ValueError, "between 0 and 62", {"search_chunk_exponent": 63}),
         (ValueError, "must be one of", {"completion_bound_block_bits": 12}),
@@ -128,7 +131,6 @@ def test_tunings_are_validated() -> None:
     # reject values past them.
     widths = {"choices": (1, 2, 4, 8, 16)}
     narrowed: dict[str, dict[str, Any]] = {
-        "lp_dual_max_denominator": {"minimum": 1},
         "partition_max_coverage": {"minimum": 1},
         "max_information_sets": {"maximum": 2**10},
         "completion_bound_block_bits": widths,
@@ -168,25 +170,23 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
     """Exact distances and counts are the same under tunings that take different routes.
 
     With every threshold below at zero, matroid partitioning finds overlapping information sets for
-    some search, and some search bounds unvisited words by linear programming.  By default, and with
-    every threshold below at ``MAX_VALUE``, neither happens.  No route here uses completion tables;
-    the tests of ``_brouwer_zimmermann/distance_test.py`` force them.
+    some search.  By default, and with every threshold below at ``MAX_VALUE``, it does not.  No
+    route here uses completion tables; the tests of ``_brouwer_zimmermann/distance_test.py`` force
+    them.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
         "overlapping_minimum_work": 0,
         "partition_work_ratio": 0,
-        "lp_minimum_work": 0,
         "automorphism_minimum_layer_work": 0,
         "scan_chunk_size": 1,
         "scan_chunks_per_call": 1,
         "macwilliams_shared_walk_rank": 0,
     }
     reluctant = dict.fromkeys(eager, _tuning.MAX_VALUE)
-    results, partitioned, solves_programs = [], [], []
+    results, partitioned = [], []
     for changes in ({}, eager, reluctant):
         costly_stages.partitioned_families.clear()
-        costly_stages.search_certificates.clear()
         with _tuning.use_tuning(**changes):
             # New codes and counters, since codes and counters remember their distances.
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
@@ -207,11 +207,8 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
                 for family in costly_stages.partitioned_families
             )
         )
-        solves_programs.append(
-            any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
-        )
     assert results[0] == results[1] == results[2]
-    assert partitioned == solves_programs == [False, True, False]
+    assert partitioned == [False, True, False]
 
 
 def test_limits_on_partitioned_coverage_change_routes_but_not_results(
@@ -354,12 +351,6 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(basis_families, "_get_disjoint_sets", "random_column_orders")
     record(basis_families, "get_overlapping_family_policy", "tuning", prefix="overlapping ")
     record(basis_families, "get_partitioned_family", "tuning")
-    record(
-        basis_families.BasisFamily,
-        "get_search_certificate",
-        "lp_minimum_work",
-        "lp_max_denominator",
-    )
     record(distances, "get_nested_distance_brute_force", "batch_exponent", prefix="distances ")
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
@@ -394,8 +385,6 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         overlapping_minimum_work=0,
         overlapping_attempts_per_set=3,
         partition_work_ratio=0,
-        lp_minimum_work=0,
-        lp_dual_max_denominator=97,
         enumeration_batch_exponent=6,
         scan_chunk_size=1001,
         scan_chunks_per_call=3,
@@ -429,8 +418,6 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "random_column_orders": {5},
         "overlapping tuning": {tuning},
         "tuning": {tuning},
-        "lp_minimum_work": {0},
-        "lp_max_denominator": {97},
         "distances batch_exponent": {6},
         "count batch_exponent": {6},
         "shared_walk_rank": {5},

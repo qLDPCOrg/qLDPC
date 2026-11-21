@@ -709,12 +709,7 @@ def _prepare_sector_search(
             return best
 
     search = _SectorSearch(
-        affine_instance.get_distance_instance(
-            basis_family,
-            basis_family.get_search_certificate(
-                best, tuning.lp_minimum_work, tuning.lp_dual_max_denominator
-            ),
-        ),
+        affine_instance.get_distance_instance(basis_family, basis_family.certificate),
         cutoff=cutoff,
         tuning=tuning,
         best=best,

@@ -411,7 +411,7 @@ def test_a_search_of_an_mb_code_takes_overlapping_sets(
     )
     distance = code.forget_distance().get_distance_exact("X", cutoff=0, method="brouwer_zimmermann")
     assert distance == 8
-    assert any(certificate.max_coverage > 1 for certificate in costly_stages.search_certificates)
+    assert any(family.max_coverage > 1 for family in costly_stages.search_families)
 
 
 def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> None:
@@ -485,13 +485,8 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
 def test_a_search_through_the_costly_stages_finds_the_distance(
     tune: Tune, costly_stages: CostlyStages
 ) -> None:
-    """A search with a partitioned family and linear programs finds the distance."""
-    tune(
-        overlapping_minimum_work=0,
-        lp_minimum_work=0,
-        partition_work_ratio=0,
-        max_information_sets=16,
-    )
+    """A search with a partitioned family finds the distance."""
+    tune(overlapping_minimum_work=0, partition_work_ratio=0, max_information_sets=16)
     basis = get_costly_basis()
     assert (
         qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
@@ -505,7 +500,6 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
         len(family.ranks) and family.max_coverage > 1
         for family in costly_stages.partitioned_families
     )
-    assert any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
 
 
 def test_a_coverage_limit_of_one_partitions_into_disjoint_sets(

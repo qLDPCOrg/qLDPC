@@ -4,22 +4,17 @@
 
 from __future__ import annotations
 
-import dataclasses
 import itertools
 import math
 
 import numpy as np
 import numpy.typing as npt
 import pytest
-import scipy.optimize
 
 from qldpc._binary import row_reduce_binary
 
-from .._tuning import DEFAULT_TUNING
 from ..conftest import assert_certificate_bounds_unvisited_words, get_random_full_rank_matrix
 from . import basis_families, certificates
-
-DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
 
 
 def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None:
@@ -251,155 +246,6 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
                     if last >= 0:
                         unused = last + 1 <= dimension - rank
                         assert certificates.is_unused_set(pivots, index, *step) == unused
-
-
-def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:
-    """With linear programs, fewer sets can certify a bound than the coverage bound needs."""
-    # In the example of test_linear_programming_can_beat_the_coverage_bound, the coverage bound
-    # needs all five sets to certify four in layer one, and cannot certify six in layer two.
-    certificate = certificates.Certificate(
-        3,
-        (3,) * 5,
-        max_coverage=3,
-        pivot_blocks=((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6)),
-        lp_max_denominator=DENOMINATOR,
-    )
-    assert certificate.get_num_sets_to_certify(1, 4) == 3
-    assert certificate.get_num_sets_to_certify(2, 6) == 2
-    assert certificate.get_num_sets_to_certify(1, 5) == 5
-
-
-def test_certificates_with_overlapping_blocks_of_different_sizes_follow_their_definition() -> None:
-    """``certifies`` agrees with ``step_lower_bound`` when blocks overlap and differ in size.
-
-    In the second certificate, a set of rank one in dimension three that has not completed layer
-    one requires at least ``-1`` ones in its block, which asks for nothing.  In the third, a set of
-    rank zero has an empty block.
-    """
-    for dimension, ranks, blocks in [
-        (2, (1, 1, 2), ((2,), (2,), (1, 3))),
-        (3, (1, 3, 1), ((0,), (0, 1, 2), (3,))),
-        (2, (2, 0, 2), ((0, 1), (), (1, 2))),
-    ]:
-        certificate = certificates.Certificate(
-            dimension,
-            ranks,
-            max_coverage=2,
-            pivot_blocks=blocks,
-            lp_max_denominator=DENOMINATOR,
-        )
-        for num_completed, upper_bound in itertools.product(range(4), range(1, 6)):
-            bound = certificate.step_lower_bound(1, num_completed)
-            assert certificate.certifies(1, num_completed, upper_bound) == (bound >= upper_bound)
-
-
-def test_plans_with_linear_programs_solve_their_programs_lazily(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A plan with linear programs stops at the first step that certifies, and solves lazily."""
-    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
-
-    def get_certificate() -> certificates.Certificate:
-        return certificates.Certificate(
-            3, (3,) * 5, max_coverage=3, pivot_blocks=blocks, lp_max_denominator=DENOMINATOR
-        )
-
-    reference = get_certificate()
-    coverage = certificates.Certificate(3, (3,) * 5, max_coverage=3)
-    # The requirements of a step's program identify the step.
-    steps_by_requirements = {
-        tuple((layer if index < count else layer - 1) + 1 for index in range(5)): (layer, count)
-        for layer, count in itertools.product(range(1, 4), range(1, 6))
-    }
-    solved: list[tuple[int, int]] = []
-    get_lp_lower_bound = certificates.get_lp_lower_bound
-
-    def record(
-        pivot_blocks: tuple[tuple[int, ...], ...],
-        requirements: list[int],
-        max_denominator: int,
-    ) -> int:
-        solved.append(steps_by_requirements[tuple(requirements)])
-        return get_lp_lower_bound(pivot_blocks, requirements, max_denominator)
-
-    monkeypatch.setattr(certificates, "get_lp_lower_bound", record)
-    num_solved = 0
-    for layer, limit in itertools.product(range(1, 4), range(9)):
-        steps = [(layer, count) for count in range(1, 6)]
-        stop = next(
-            (step for step in steps[:-1] if reference.step_lower_bound(*step) > limit), steps[-1]
-        )
-        solved.clear()
-        assert get_certificate().plan(limit, layer) == stop[1]
-        assert steps[-1] not in solved
-        for step in solved:
-            assert steps.index(step) <= steps.index(stop)
-            assert coverage.step_lower_bound(*step) <= limit
-        num_solved += len(solved)
-    assert num_solved
-
-    # The estimate of work solves no program.
-    solved.clear()
-    for upper_bound in range(9):
-        assert get_certificate().work(upper_bound) == coverage.work(upper_bound)
-    assert not solved
-
-
-def test_linear_programming_can_beat_the_coverage_bound() -> None:
-    """Linear programming certifies five in the example of Section 3.1 of brouwer_zimmermann.md."""
-    # The columns are e1, e2, e3, e1 + e2 + e3, e1, e2, e3, and after layer one each block holds at
-    # least two ones of an unvisited word, so the coverage bound, with coverage three, is
-    # ceil(10 / 3) = 4.
-    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
-    assert certificates.get_lp_lower_bound(blocks, [2] * 5, DENOMINATOR) == 5
-    # Dual weights of thirds need a denominator of three; coarser ones round part of the bound away.
-    bounds = [certificates.get_lp_lower_bound(blocks, [2] * 5, d) for d in (1, 2, 3)]
-    assert bounds == [2, 4, 5]
-    certificate = certificates.Certificate(3, (3,) * 5, max_coverage=3)
-    assert certificate.lower_bound(1) == 4
-    assert (
-        dataclasses.replace(
-            certificate, pivot_blocks=blocks, lp_max_denominator=DENOMINATOR
-        ).lower_bound(1)
-        == 5
-    )
-
-    # No word has three ones in a block of two columns, and requirements of zero ask for nothing.
-    assert certificates.get_lp_lower_bound([(0, 1)], [3], DENOMINATOR) == certificates.NO_WORD_BOUND
-    assert certificates.get_lp_lower_bound([(0, 1)], [0], DENOMINATOR) == 0
-
-    # A word with every column of two blocks of three that share two columns has weight four.
-    assert certificates.get_lp_lower_bound([(0, 1, 2), (0, 1, 3)], [3, 3], DENOMINATOR) == 4
-
-
-def test_bounds_of_linear_programming_round_up_to_the_weight_divisor() -> None:
-    """Where every eligible word is even, the bound of linear programming rounds up to be even.
-
-    In the seven-column example of Section 3.1 of ``brouwer_zimmermann.md``, under "A certificate
-    from linear programming", the program bounds the weight by five after layer one, and the
-    coverage bound by four.  A step of the last layer, after which no word remains, keeps
-    ``NO_WORD_BOUND``.
-    """
-    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
-    certificate = certificates.Certificate(
-        3,
-        (3,) * 5,
-        weight_divisor=2,
-        max_coverage=3,
-        pivot_blocks=blocks,
-        lp_max_denominator=DENOMINATOR,
-    )
-    assert certificate.lower_bound(1) == 6
-    assert certificate.certifies(1, 5, 6)
-    assert certificate.step_lower_bound(3, 1) == certificates.NO_WORD_BOUND
-
-
-def test_a_failed_linear_program_gives_no_bound(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If the solver reports a failure, the bound claims nothing rather than a solver's guess."""
-    failure = scipy.optimize.OptimizeResult(status=4, message="numerical difficulties")
-    monkeypatch.setattr(scipy.optimize, "linprog", lambda *args, **kwargs: failure)
-    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
-    assert certificates.get_lp_lower_bound(blocks, [2] * 5, DENOMINATOR) == 0
 
 
 @pytest.mark.parametrize("dimension, num_sets", [(300, 16), (60, 8192)])

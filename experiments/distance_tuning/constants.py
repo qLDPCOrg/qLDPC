@@ -35,23 +35,18 @@ import pathlib
 import statistics
 import subprocess
 import sys
-import time
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from qldpc.codes.distance import _tuning
-from qldpc.codes.distance._information_sets import certificates
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.distance_tuning.*, and would silently treat a bare "import sweep" as untyped.
 if TYPE_CHECKING:
-    from experiments.distance_tuning import sweep, trial, workloads
+    from experiments.distance_tuning import sweep
 else:
     import sweep
-    import trial
-    import workloads
 
 CONSTANTS_NAME = "constants"  # name of the directory of measurements in the results directory
 COST_MODEL_NAME = "cost-model"  # name of its directory of the traces of the cost data set
@@ -63,17 +58,10 @@ LARGE_LAYER = 10**7
 LARGE_LIMIT = 10**4
 
 # The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop after
-# setup.  Linear programs are off in BZ searches that run layers, so that layer times exclude the
-# planning that ``trace.py`` repeats.  Traces that stop after setup keep the default of linear
-# programs.  Connected-cluster searches ask for automorphisms before their first weight limit, so
-# that each of their traces measures that step.
+# setup.  Connected-cluster searches ask for automorphisms before their first weight limit, so that
+# each of their traces measures that step.
 TRACES: list[tuple[str, str, dict[str, int], bool]] = [
-    (
-        name,
-        workload,
-        {"lp_minimum_work": _tuning.MAX_VALUE},
-        False,
-    )
+    (name, workload, {}, False)
     for name, workload in (
         ("qt7", "distance/qt7/X"),
         ("lp13s5", "distance/lp13s5/X"),
@@ -84,7 +72,7 @@ TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (
         "classical-128",
         "distance/classical:128:80:6/-",
-        {"lp_minimum_work": _tuning.MAX_VALUE, "partition_work_ratio": 0},
+        {"partition_work_ratio": 0},
         False,
     ),
     (
@@ -104,13 +92,6 @@ TRACES += [
     )
     for code in ("qt7", "pp276", "bb288", "gross", "lp13s5", "pp232", "surface:17")
 ]
-
-# The search whose linear programming is timed, and its changes of the tuning.  Automorphisms are
-# off, so that the search keeps its certificate throughout.
-LINEAR_PROGRAMS = (
-    "distance/qt7/X",
-    {"lp_minimum_work": 0, "automorphism_minimum_layer_work": _tuning.MAX_VALUE},
-)
 
 # The cost data set, on which the script measures the coefficients of the cost model of completion
 # tables, and how many times it traces each search under each tuning.  Its searches build tables of
@@ -147,12 +128,9 @@ class Constant:
 
 
 def main() -> None:
-    """Measure the assumed costs, or time the linear programming of one search."""
+    """Measure the assumed costs."""
     args = parse_args()
     sweep.check_local_import()
-    if args.linear_programs_of is not None:
-        time_linear_programs(args.linear_programs_of, json.loads(args.tuning), args.output)
-        return
     directory = args.results_dir / CONSTANTS_NAME
     measure(get_quick_commands(directory), directory, args.timeout)
     report(directory)
@@ -174,20 +152,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--timeout", type=float, default=3600, help="seconds per measurement (default: %(default)s)"
     )
-    parser.add_argument(
-        "--linear-programs-of",
-        metavar="WORKLOAD",
-        help="only time the linear programming of one search, in this process, and save it",
-    )
-    parser.add_argument(
-        "--tuning", default="{}", help="with --linear-programs-of, changes of the tuning"
-    )
-    parser.add_argument(
-        "--output", type=pathlib.Path, help="with --linear-programs-of, a JSON file to save"
-    )
     args = parser.parse_args()
-    if args.linear_programs_of is not None and args.output is None:
-        parser.error("--linear-programs-of needs --output")
     # Measurements run in the directory of the repository, so they need an absolute path.
     args.results_dir = args.results_dir.resolve()
     return args
@@ -199,20 +164,10 @@ def parse_args() -> argparse.Namespace:
 
 def get_quick_commands(directory: pathlib.Path) -> dict[pathlib.Path, list[str]]:
     """The file and the arguments, up to that file, of each quick measurement."""
-    commands = {
+    return {
         directory / f"{name}.json": get_trace_command(workload, changes, setup_only)
         for name, workload, changes, setup_only in TRACES
     }
-    workload, changes = LINEAR_PROGRAMS
-    commands[directory / "linear-programs.json"] = [
-        str(pathlib.Path(__file__).resolve()),
-        "--linear-programs-of",
-        workload,
-        "--tuning",
-        json.dumps(changes),
-        "--output",
-    ]
-    return commands
 
 
 def get_cost_model_commands(directory: pathlib.Path) -> dict[pathlib.Path, list[str]]:
@@ -286,55 +241,6 @@ def is_current(path: pathlib.Path, source: dict[str, str]) -> bool:
     return path.exists() and json.loads(path.read_text(encoding="utf-8")).get("source") == source
 
 
-def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib.Path) -> None:
-    """Time the methods of one search's certificates that solve linear programs, and save the times.
-
-    The methods ``plan``, ``certifies``, and ``step_lower_bound`` of such a certificate plan its
-    steps with exact arithmetic and solve its programs, so their seconds, outside nested calls, are
-    the cost of linear programming in the search.
-    """
-    trial.check_workload(workload)
-    source = sweep.get_source_fingerprint()
-    record: dict[str, Any] = {"bound_seconds": 0.0, "programs": 0}
-    depth = [0]
-
-    def wrap_bound(function: Callable[..., Any]) -> Callable[..., Any]:
-        def wrapper(certificate: certificates.Certificate, *args: Any) -> Any:
-            if not certificate._solves_linear_programs:
-                return function(certificate, *args)
-            depth[0] += 1
-            start = time.perf_counter()
-            try:
-                return function(certificate, *args)
-            finally:
-                depth[0] -= 1
-                if not depth[0]:
-                    record["bound_seconds"] += time.perf_counter() - start
-
-        return wrapper
-
-    def count_program(*args: Any, **kwargs: Any) -> Any:
-        record["programs"] += 1
-        return get_lp_lower_bound(*args, **kwargs)
-
-    get_lp_lower_bound = certificates.get_lp_lower_bound
-    with _tuning.use_tuning(**changes):
-        trial.warm_up("distance")
-        for name in ("plan", "certifies", "step_lower_bound"):
-            setattr(
-                certificates.Certificate,
-                name,
-                wrap_bound(getattr(certificates.Certificate, name)),
-            )
-        certificates.get_lp_lower_bound = count_program
-        start = time.perf_counter()
-        result = workloads.run_workload(workload)
-        seconds = time.perf_counter() - start
-    record |= {"workload": workload, "tuning": changes, "source": source}
-    record |= {"result": result, "seconds": seconds}
-    output.write_text(json.dumps(record, indent=1), encoding="utf-8")
-
-
 ####################################################################################################
 # constants and rounded costs
 
@@ -344,7 +250,7 @@ def report(directory: pathlib.Path) -> None:
 
     Print nothing else if a measurement is missing, or was made on other source code.
     """
-    names = [name for name, *_ in TRACES] + ["linear-programs"]
+    names = [name for name, *_ in TRACES]
     paths = {name: directory / f"{name}.json" for name in names}
     if not all(path.exists() for path in paths.values()):
         print("Some measurements of gates are missing; run the script again.")
@@ -355,7 +261,6 @@ def report(directory: pathlib.Path) -> None:
     if stale:
         print(f"Measurements of other source code: {', '.join(stale)}; run the script again.")
         return
-    linear_programs = traces.pop("linear-programs")
 
     # Each constant, with the constant that converts it into the unit of its fields.
     evaluation = get_evaluation_seconds(traces)
@@ -366,14 +271,6 @@ def report(directory: pathlib.Path) -> None:
         "costliest prediction": (get_prediction_seconds(traces), "evaluation"),
         "overlapping family": (get_overlapping_seconds(traces), "evaluation"),
         "automorphisms of a BZ search": (get_automorphism_seconds(traces), "evaluation"),
-        "linear programming of a search": (
-            Constant(
-                linear_programs["bound_seconds"],
-                f"{linear_programs['workload']}: {linear_programs['programs']} programs, with"
-                " planning",
-            ),
-            "evaluation",
-        ),
         "asking for automorphisms": (get_ask_seconds(traces), "state"),
     }
     counts = {
@@ -386,7 +283,6 @@ def report(directory: pathlib.Path) -> None:
         "partition_work_ratio": "partitioning, per unit",
         "completion_bound_minimum_layer_work": "costliest prediction",
         "overlapping_minimum_work": "overlapping family",
-        "lp_minimum_work": "linear programming of a search",
         "automorphism_minimum_layer_work": "automorphisms of a BZ search",
         "automorphism_minimum_states": "asking for automorphisms",
     }

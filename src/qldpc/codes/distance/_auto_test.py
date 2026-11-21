@@ -392,11 +392,10 @@ def test_searches_by_cost_use_lifted_automorphisms(routes: Routes) -> None:
 def test_the_probe_skips_the_costly_stages_of_setup(
     monkeypatch: pytest.MonkeyPatch, costly_stages: CostlyStages
 ) -> None:
-    """The probe takes no overlapping or partitioned family, and so no certificate from LP.
+    """The probe takes no overlapping or partitioned family.
 
     The tuning asks for those stages.  A BZ search of a sector of this MB code then takes an
-    overlapping family, and one of this basis a partitioned family with a certificate from LP, but
-    their probes do not.
+    overlapping family, and one of this basis a partitioned family, but their probes do not.
     """
     overlapping_families: list[basis_families.BasisFamily] = []
     get_overlapping_family = basis_families.get_overlapping_family
@@ -411,13 +410,12 @@ def test_the_probe_skips_the_costly_stages_of_setup(
         DEFAULT_TUNING,
         overlapping_minimum_work=0,
         partition_work_ratio=0,
-        lp_minimum_work=0,
         max_information_sets=16,
         auto_probe_work=0,
     )
     mb_code = qldpc.codes.MBCode({x: 4, y: 4, z: 2}, 1 + x + y + x * y * z, 1 + y + x * z + x * y)
     basis = get_costly_basis()
-    for sector, families, uses_lp in (
+    for sector, families, scans_overlaps in (
         (get_sector(mb_code, Pauli.X), overlapping_families, False),
         ((basis, np.empty((len(basis), 0), np.uint8)), costly_stages.partitioned_families, True),
     ):
@@ -427,14 +425,14 @@ def test_the_probe_skips_the_costly_stages_of_setup(
         problem = _auto.BrouwerZimmermannProblem([sector])
         BrouwerZimmermannSearch(problem.sectors, cutoff=0, tuning=eager)
         assert any(len(family.ranks) for family in families)
-        certificates = costly_stages.search_certificates
-        assert any(certificate.pivot_blocks for certificate in certificates) is uses_lp
+        scanned = costly_stages.search_families
+        assert any(family.max_coverage > 1 for family in scanned) is scans_overlaps
 
         for recording in recordings:
             recording.clear()
         _auto._probe(problem, 0, None, eager)
         assert families and not any(len(family.ranks) for family in families)
-        assert certificates and not any(certificate.pivot_blocks for certificate in certificates)
+        assert scanned and not any(family.max_coverage > 1 for family in scanned)
 
 
 def test_a_switch_compares_work_to_a_level_or_with_faster_growth_to_the_probe_bound() -> None:

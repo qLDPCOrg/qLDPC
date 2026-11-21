@@ -202,8 +202,7 @@ def _probe(
     """A BZ search of the sectors, advanced by whole layers within ``auto_probe_work``.
 
     The probe skips the costlier stages of setup: families of overlapping and partitioned
-    information sets, and so the linear programs of Section 3.1 of ``brouwer_zimmermann.md``, which
-    only those take.
+    information sets.
     """
     scale = problem.weight_scale
     search = BrouwerZimmermannSearch(

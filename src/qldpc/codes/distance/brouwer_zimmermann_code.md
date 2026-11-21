@@ -61,7 +61,7 @@ Every step that `find_stopping_step` returns, like the initial `(0, 1)`, has a l
 `test_cached_stopping_steps_are_reused_exactly_while_they_stay_first` of [_brouwer_zimmermann/coset_tables_test.py](_brouwer_zimmermann/coset_tables_test.py) plants every such pair.
 
 `find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds stopping steps by a binary search of the steps, whose bounds never decrease, and `plan_steps` also adds up their work ([Section 3.6](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration)).
-The distance search plans each layer with `Certificate.get_num_sets_to_certify`, which calls `Certificate.plan`; `plan` uses `find_stopping_step` when the certificate solves no linear programs, and otherwise checks every step of the layer but the last in order with `certifies`.
+The distance search plans each layer with `Certificate.get_num_sets_to_certify`, which calls `Certificate.plan`, which uses `find_stopping_step`.
 
 `BrouwerZimmermannCosetSearch.get_min_weight_bound` first looks up the words of weight at most one, and below a maximum weight of two returns the lower bound two without a search, or three for an odd coset in a search of X or Z parts that rounds to parity.
 Otherwise a query takes the **route** of its maximum weight: a family of search bases, with its coset instance and planning buffer, which `CosetRoutes` of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) chooses once for each maximum weight ([Section 4.4](#44-heuristics-and-cost-models)).
@@ -118,7 +118,6 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Upper bound `U` | `best`, or `upper_bound` as a parameter |
 | Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage` |
 | Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`, which `Certificate.get_weight_bounds` rounds and divides for coset searches; `get_num_sets_to_certify`, `plan`, `find_stopping_step`, and `plan_steps` find stopping steps ([Section 4.1](#41-how-the-searches-use-the-modules)) |
-| Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
 | Family of search bases | `BasisFamily` of [_information_sets/basis_families.py](_information_sets/basis_families.py), which stacks the search bases into arrays and gives their `Certificate`; packed in an `AffineInstance`, and, in coset searches, with the tables of `CosetSearchTables` and `CosetTails` of [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py) |
 | Automorphisms, generators of `Γ` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_known_permutation_automorphisms` and `_get_permutation_automorphisms` of `QuditCode` and of `ClassicalCode` |
 | Automorphism family | `get_automorphism_family` of [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and sets `uses_automorphism_family` of the search |
@@ -147,7 +146,7 @@ For the rank-deficient block of [Section 2.4](brouwer_zimmermann.md#24-search-ba
 Every family gets the certificate of its own verified ranks and maximum coverage, so the heuristics below change how much work a search does, not whether its certificate holds; with a cutoff above one, they can change which witness at or below the cutoff it returns ([Section 4.5](#45-behavior-spanning-files)).
 Searches read the heuristics' fields as README.md's [Tuning](README.md#tuning) section says.
 A heuristic must also keep the requirements on threads of [Section 5](#5-correctness-requirements), such as "Decide only from what a layer leaves the same on any number of threads".
-Some fields are thresholds of gates on optional steps, such as building a family of search bases, solving linear programs, asking for automorphisms, or predicting the cost of completion tables.
+Some fields are thresholds of gates on optional steps, such as building a family of search bases, asking for automorphisms, or predicting the cost of completion tables.
 A step can save at most the work that it acts on, so its gate lets it run once an estimate of that work, in candidate/set evaluations, reaches the cost of the step, which the threshold need match only to an order of magnitude.
 The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fields, such as budgets and rough coefficients, and says how the defaults are set and when to change them.
 
@@ -186,8 +185,6 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Every maximum disjoint family then has `f` information sets and a block of rank at most `N - f*r`, but at least that of any block of `F` (see `CosetRoutes`).
   Pruning drops a block of lower rank if it drops one of rank `N - f*r`, since the lower rank gives a larger deficiency `d`, and information sets that certify `U` by one layer also certify it by every later one.
   Once pruned, a maximum disjoint family therefore has the ranks of `F`, does the same work, and cannot replace `F`.
-- **`get_search_certificate`** adds the linear programs of [Section 3.1](brouwer_zimmermann.md#31-overlapping-search-bases) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, a gate that breaks even with their cost, since each costs far more than examining a word; the work estimates that choose families use only the coverage-divided certificate.
-  The rational dual weights `y` have denominators of at most `lp_dual_max_denominator`, a convention: every positive limit is sound by weak duality, a smaller one can round away part of the bound, and a larger one lengthens the exact arithmetic.
 - **`get_automorphism_family`** row reduces in natural column order and balances the shares of the orbits in `_balance_orbit_shares` ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)).
   The gate `automorphism_minimum_layer_work` of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms) breaks even with the cost of finding automorphisms, verifying them, and building their family.
   A search gets automorphisms only before costly work: before matroid partitioning that passes `partition_work_ratio`, or before a layer of at least `automorphism_minimum_layer_work` evaluations ([Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms)).

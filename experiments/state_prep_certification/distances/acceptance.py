@@ -74,7 +74,6 @@ LOCAL_LIMIT_S = 60.0
 PLAN_BZ_PRIOR = {
     "partition_max_coverage": 1,
     "overlapping_minimum_work": _tuning.MAX_VALUE,
-    "lp_minimum_work": _tuning.MAX_VALUE,
     "completion_bound_minimum_layer_work": _tuning.MAX_VALUE,
     "completion_bound_max_table_bytes": 0,
     "automorphism_minimum_layer_work": _tuning.MAX_VALUE,

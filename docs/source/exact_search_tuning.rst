@@ -31,7 +31,7 @@ Start from a symptom
    * - A hard distance search spends its time in its last, costliest layers
      - Raise :attr:`~SearchTuning.completion_bound_max_cost_percent` or lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` to use completion tables in more layers.
        For a basis too large for its tables, raise :attr:`~SearchTuning.completion_bound_max_table_bytes` or lower :attr:`~SearchTuning.completion_bound_block_bits`.
-       Also raise :attr:`~SearchTuning.max_information_sets`, or lower :attr:`~SearchTuning.lp_minimum_work` or :attr:`~SearchTuning.automorphism_minimum_layer_work`.
+       Also raise :attr:`~SearchTuning.max_information_sets`, or lower :attr:`~SearchTuning.automorphism_minimum_layer_work`.
    * - A cheap search spends its time building families of information sets
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
    * - Queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method at moderate maximum weights are slow, as in its searches for minimum weights in residual-weight estimates
@@ -117,10 +117,6 @@ Routes and the names that control them
      - :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.partition_work_ratio`, :attr:`SearchTuning.partition_max_coverage`
      -
      - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models>`__
-   * - Ending a search of overlapping sets sooner with a certificate from linear programming
-     - :attr:`SearchTuning.lp_minimum_work`, :attr:`SearchTuning.lp_dual_max_denominator`
-     -
-     - `Section 3.1 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#31-overlapping-search-bases>`__
    * - Searching the images of one information set under permutation automorphisms
      - :attr:`SearchTuning.automorphism_minimum_layer_work`
      -

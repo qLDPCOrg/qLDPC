@@ -7,8 +7,8 @@ configures qLDPC with only the techniques that some public exact tool shares wit
 
 * ``q_bz_on``: ``code.get_distance_exact(method="brouwer_zimmermann")``.
 * ``q_bz_prior``: the same call inside ``use_tuning(**BZ_PRIOR)``: no overlapping families or
-  their coverage certificate, no LP bound, no completion tables, and no automorphism images, with
-  disjoint matroid partitioning on (``partition_max_coverage=1``).
+  their coverage certificate, no completion tables, and no automorphism images, with disjoint
+  matroid partitioning on (``partition_max_coverage=1``).
 
 The connected-cluster search is not compared: the certification experiment measures it as an
 oracle of the certifier.  Both arms make the same code-method call, so they search the same

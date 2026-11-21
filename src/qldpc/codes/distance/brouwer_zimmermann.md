@@ -194,30 +194,9 @@ Its three pairs of columns are information sets with `C = 2`, so after layer one
 Grassl's chapter (page 291 and Algorithm 2.5, see [References](#references)) credits Zimmermann with a certificate for an ordered list of information sets, `sum_i max(0, t+1 - o_i)`, where `o_i` counts the columns of block `i` that lie in an earlier block (`r - o_i` is its relative rank).
 Proposition 5 of Lisoněk and Trummer gives the coverage-divided certificate for blocks of equal bounds `t+1`, and its proof covers the different bounds of rank-deficient blocks and of steps within a layer.
 [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) mentions the overlapping case in its Section 2, citing Grassl, without a formula.
-Neither Zimmermann's certificate nor the coverage-divided one dominates the other, but the linear program below dominates both.
-
-#### A certificate from linear programming
-
-The coverage-divided certificate is weak when coverage is uneven.
-An unexamined eligible word `v` satisfies `wt(v|_{B_i}) ≥ b_i` for each `i`, with `b_i` the bound of the completed layer or step, so relaxing its coordinates to `0 ≤ x_c ≤ 1` bounds `wt(v)` by the optimum of
-
-$$
-\text{minimize} \sum_c x_c \quad \text{subject to} \quad \sum_{c \in B_i} x_c \ge b_i \text{ for each } i, \quad 0 \le x_c \le 1.
-$$
-
-By weak duality, every `y ≥ 0` gives the bound
-
-$$
-\operatorname{wt}(v) \ge \sum_i b_i y_i - \sum_c \max\Big(0, \sum_{i : c \in B_i} y_i - 1\Big).
-$$
-
-The coverage-divided certificate is the value of `y_i = 1/C`, and Zimmermann's is at most the value of `y_i = 1` on the blocks that contribute to it, so the optimum is at least both.
-It can be larger: for the seven columns `e1, e2, e3, e1+e2+e3, e1, e2, e3`, with `b_i = 2` on the four 3-subsets of the first four columns and on the last three, both certificates are four in every order of the blocks, but the linear program gives `ceil(14/3) = 5`.
-Its optimum is `14/3`, the value both of the point `x_c = 2/3` and of the dual weights `y_i = 1/3` on the four subsets and `y_i = 1` on the block of the last three columns.
-
-qLDPC solves the program with `scipy.optimize.linprog`, evaluates the dual bound at the solver's `y` in exact rational arithmetic, and takes its ceiling, so rounding in the solver can only weaken the certificate.
-For disjoint blocks the program separates into the certificate of [Section 2.5](#25-the-stopping-certificate), so only overlapping families use it, and only in costly searches ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
-A search solves it at the end of each layer, and within a layer only when the coverage-divided certificate falls short of `U` and the value of a feasible point does not show the optimum to be below `U`.
+Neither Zimmermann's certificate nor the coverage-divided one dominates the other.
+Relaxing the coordinates of an unexamined word to `0 ≤ x_c ≤ 1` bounds its weight by the optimum of a linear program, to minimize `Σ_c x_c` subject to `Σ_{c ∈ B_i} x_c ≥ b_i` for each `i`, which is at least both certificates and can exceed them when coverage is uneven.
+On the distance searches and counts measured, it never raised a bound above the coverage-divided certificate, so searches do not solve it.
 
 #### Families for coset searches
 
@@ -444,7 +423,7 @@ The certificate `L` bounds only such words, and can exceed the weights of skippe
 Since no skipped word is lighter than `U` at any later time, a scan with tables on one thread finds the same witnesses in the same order as one without, an early exit ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)) returns the same weight, and the search stops when it would without skipping.
 On several threads, the witnesses and their order can differ, and so can the result of an early exit, which still lies between the distance and the cutoff.
 `U` after each layer, and so where the search stops, is the same as on one thread ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)).
-These arguments hold for each search basis, with its own tables, so a search can skip in each basis of a layer that it scans one at a time, and stop after any basis whose step `(t, j)` certifies `U` by the certificate of its family, which may need a linear program ([Section 3.1](#31-overlapping-search-bases)).
+These arguments hold for each search basis, with its own tables, so a search can skip in each basis of a layer that it scans one at a time, and stop after any basis whose step `(t, j)` certifies `U` by the certificate of its family.
 
 Words that weigh exactly `U` can be skipped, since they cannot lower `U`.
 But a search whose answer depends on the words up to a weight may never skip a word of that weight, so it replaces `U` with the least bound that proves a word heavier than that weight.

@@ -8,7 +8,6 @@
  "bz_prior": {
   "partition_max_coverage": 1,
   "overlapping_minimum_work": "MAX_VALUE",
-  "lp_minimum_work": "MAX_VALUE",
   "completion_bound_minimum_layer_work": "MAX_VALUE",
   "completion_bound_max_table_bytes": 0,
   "automorphism_minimum_layer_work": "MAX_VALUE"
