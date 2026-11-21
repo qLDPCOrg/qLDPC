@@ -109,7 +109,6 @@ from __future__ import annotations
 import argparse
 import csv
 import dataclasses
-import hashlib
 import itertools
 import json
 import math
@@ -270,7 +269,8 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
         for name in ("pins.json", "certification/config.json")
     ]
     label_circuits = (label_dir / "circuits.json").read_bytes()
-    expected = certification_label(
+    expected = manifest.compute_label(
+        certification.NAME,
         [("pins.json", files[0]), ("config.json", files[1]), ("circuits.json", label_circuits)],
         commit,
         record["bundle"]["requirements_sha256"],
@@ -282,19 +282,6 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
             f"{archive.name} ran with another circuits.json than the ranking label froze"
         )
     return label_dir
-
-
-def certification_label(files: list[tuple[str, bytes]], commit: str, requirements: str) -> str:
-    """The label that ``manifest.compute_label`` gives a bundle's certification run.
-
-    ``files`` are the names and contents of ``pins.json`` and the frozen files, in order.
-    """
-    digest = hashlib.sha256()
-    for name, data in files:
-        digest.update(name.encode() + b"\0" + data + b"\0")
-    digest.update(commit.encode())
-    digest.update(requirements.encode())
-    return f"{certification.NAME}-{digest.hexdigest()[:12]}"
 
 
 def admit(

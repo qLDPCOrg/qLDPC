@@ -17,7 +17,10 @@ in this order:
 
 The harness commit is the Git commit of the qLDPC tree that holds the experiments.  On the node,
 whose tree is a ``git archive`` without history, ``bundle.py`` records it in
-``experiments/state_prep_certification/bundle.json``.
+``experiments/state_prep_certification/bundle.json``, with the SHA-256 of the bundle's
+requirements; ``bundle_record`` reads that record.  ``compute_label`` reads no file: its callers
+pass the contents of the files and the requirements' SHA-256, such as an archive's own, from its
+manifest.
 """
 
 from __future__ import annotations
@@ -43,14 +46,22 @@ BUNDLE_RECORD = FT_STATE_PREP_DIR / "bundle.json"
 # label
 
 
+def bundle_record() -> dict[str, Any] | None:
+    """The record ``bundle.json`` of the bundle that holds this tree, or None outside a bundle."""
+    if not BUNDLE_RECORD.exists():
+        return None
+    record: dict[str, Any] = json.loads(BUNDLE_RECORD.read_text())
+    return record
+
+
 def harness_commit() -> dict[str, Any]:
     """The commit of the harness, and whether the tree differs from it.
 
     ``dirty`` says whether tracked files have uncommitted changes, staged or not, and
     ``diff_sha256`` is then the SHA-256 of ``git diff HEAD --binary``, which covers them.
     """
-    if BUNDLE_RECORD.exists():
-        record = json.loads(BUNDLE_RECORD.read_text())
+    record = bundle_record()
+    if record is not None:
         return {
             "commit": record["harness_commit"],
             "dirty": False,
@@ -74,15 +85,34 @@ def harness_commit() -> dict[str, Any]:
     }
 
 
-def compute_label(experiment: str, frozen_files: Sequence[pathlib.Path], commit: str) -> str:
-    """The label of a run: its pins, frozen files, harness commit, and a bundle's requirements."""
+def compute_label(
+    experiment: str,
+    files: Sequence[tuple[str, bytes]],
+    commit: str,
+    requirements_sha256: str | None,
+) -> str:
+    """The label of a run: its pins, frozen files, harness commit, and a bundle's requirements.
+
+    Args:
+        experiment: The experiment's name.
+        files: The names and contents of ``pins.json`` and the experiment's frozen files, in order,
+            as ``label_files`` gives them.
+        commit: The harness commit.
+        requirements_sha256: The SHA-256 of the bundle's resolved requirements, or None for a run
+            outside a bundle.
+    """
     digest = hashlib.sha256()
-    for path in (PINS_FILE, *frozen_files):
-        digest.update(path.name.encode() + b"\0" + path.read_bytes() + b"\0")
+    for name, data in files:
+        digest.update(name.encode() + b"\0" + data + b"\0")
     digest.update(commit.encode())
-    if BUNDLE_RECORD.exists():
-        digest.update(json.loads(BUNDLE_RECORD.read_text())["requirements_sha256"].encode())
+    if requirements_sha256 is not None:
+        digest.update(requirements_sha256.encode())
     return f"{experiment}-{digest.hexdigest()[:12]}"
+
+
+def label_files(frozen_files: Sequence[pathlib.Path]) -> list[tuple[str, bytes]]:
+    """The names and contents of ``pins.json`` and the frozen files, for ``compute_label``."""
+    return [(path.name, path.read_bytes()) for path in (PINS_FILE, *frozen_files)]
 
 
 def load_pins() -> dict[str, Any]:
@@ -109,7 +139,7 @@ def write_manifest(
         "label": label_dir.name,
         "pins": load_pins(),
         "harness": harness_commit(),
-        "bundle": json.loads(BUNDLE_RECORD.read_text()) if BUNDLE_RECORD.exists() else None,
+        "bundle": bundle_record(),
         "preflight": _read_json(results_dir / "preflight.json"),
         "machine": machine_info(),
         "python": sys.version,

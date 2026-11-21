@@ -191,7 +191,13 @@ def get_label_dir(
     if commit["dirty"] and not local:
         sys.exit("The qLDPC tree has uncommitted changes; commit them, or pass --local")
     frozen = [plugin.experiment_dir(module.NAME) / name for name in module.FROZEN_FILES]
-    label = manifest.compute_label(module.NAME, frozen, commit["commit"])
+    bundle = manifest.bundle_record()
+    label = manifest.compute_label(
+        module.NAME,
+        manifest.label_files(frozen),
+        commit["commit"],
+        bundle["requirements_sha256"] if bundle else None,
+    )
     label += f"-dirty-{commit['diff_sha256'][:8]}" if commit["dirty"] else ""
     label += "-local" if local else ""
     label += "" if subset in ("main", "acceptance") else f"-{subset}"
@@ -251,9 +257,8 @@ def run_acceptance(
 
 def _unfrozen_bundle() -> bool:
     """Whether this tree comes from a bundle built without a frozen qLDPC commit."""
-    if not manifest.BUNDLE_RECORD.exists():
-        return False
-    return bool(json.loads(manifest.BUNDLE_RECORD.read_text()).get("unfrozen"))
+    bundle = manifest.bundle_record()
+    return bool(bundle and bundle.get("unfrozen"))
 
 
 ####################################################################################################

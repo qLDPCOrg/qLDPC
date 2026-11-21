@@ -853,7 +853,10 @@ def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
-    """A label covers the pins, frozen files, harness commit, and a bundle's requirements."""
+    """A label covers the pins, frozen files, harness commit, and the requirements it is given.
+
+    The label reads no bundle record: a ``bundle.json`` beside the code leaves it unchanged.
+    """
     from experiments.state_prep_certification.common import manifest
 
     frozen = directory / "frozen.json"
@@ -863,15 +866,22 @@ def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
     record = directory / "bundle.json"
     labels = set()
     with _patched(manifest, "BUNDLE_RECORD", record), _patched(manifest, "PINS_FILE", pins):
-        labels.add(manifest.compute_label("exp", [frozen], "c1"))
-        labels.add(manifest.compute_label("exp", [frozen], "c2"))
+        assert manifest.label_files([frozen]) == [("pins.json", b"{}"), ("frozen.json", b"{}")]
+        assert manifest.bundle_record() is None
+        unbundled = manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None)
+        labels.add(unbundled)
+        labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c2", None))
         for digest in ("aa", "bb"):
-            record.write_text(json.dumps({"requirements_sha256": digest}))
-            labels.add(manifest.compute_label("exp", [frozen], "c1"))
+            labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c1", digest))
+        record.write_text(json.dumps({"requirements_sha256": "aa"}))
+        assert manifest.bundle_record() == {"requirements_sha256": "aa"}
+        assert (
+            manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None) == unbundled
+        )
         frozen.write_text('{"changed": 1}')
-        labels.add(manifest.compute_label("exp", [frozen], "c1"))
+        labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None))
         pins.write_text('{"changed": 1}')
-        labels.add(manifest.compute_label("exp", [frozen], "c1"))
+        labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None))
     assert len(labels) == 6, labels
 
 

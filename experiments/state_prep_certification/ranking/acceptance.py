@@ -1145,7 +1145,9 @@ def synthetic_certification_archive(
         experiment.CIRCUITS_JSON.parents[2] / "config.json",
         experiment.CIRCUITS_JSON,
     ]
-    label = label or manifest.compute_label("certification", frozen, commit + requirements)
+    label = label or manifest.compute_label(
+        "certification", manifest.label_files(frozen), commit, requirements
+    )
     label_dir = directory / label
     label_dir.mkdir(parents=True, exist_ok=True)
     (label_dir / "circuits.json").write_bytes(experiment.CIRCUITS_JSON.read_bytes())

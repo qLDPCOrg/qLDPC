@@ -254,16 +254,17 @@ def check_frozen_files(label_dir: pathlib.Path) -> None:
         print(f"warning: {label_dir.name} has no manifest.json; its frozen files are not checked")
         return
     record = json.loads(record_path.read_text())
-    commit = record["harness"]["commit"]
-    if record.get("bundle") and not manifest.BUNDLE_RECORD.exists():
-        # compute_label hashes the commit and then the bundle's requirements, so appending them to
-        # the commit gives the same hash
-        commit += record["bundle"]["requirements_sha256"]
+    bundle = record.get("bundle")
     frozen = [
         label_dir / "circuits.json" if name.endswith("circuits.json") else HERE / name
         for name in experiment.FROZEN_FILES
     ]
-    expected = manifest.compute_label(experiment.NAME, frozen, commit)
+    expected = manifest.compute_label(
+        experiment.NAME,
+        manifest.label_files(frozen),
+        record["harness"]["commit"],
+        bundle["requirements_sha256"] if bundle else None,
+    )
     if not record["label"].startswith(expected):
         print(
             f"warning: the label {record['label']} does not match its circuits.json and the "
