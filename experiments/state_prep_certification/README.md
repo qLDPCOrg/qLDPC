@@ -82,6 +82,7 @@ bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hour
 Before the experiment first runs for its label, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
 Repeating the command resumes the run, on any host with the same CPU model, but not while the label's `active/` directory lists runs of another host.
 After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming; `--status` prints the progress.
+Both act on one label directory, which `--status` names: give them the run's `--subset` if it was not `main`, and the same `FTSP_RESULTS`.
 The archive that the run prints at its end is the one file to copy back.
 
 For development on a workstation, `--local` runs the tasks one at a time, without GNU parallel or pinning, and `--subset` selects tasks, as in the commands below.

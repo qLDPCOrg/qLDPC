@@ -119,7 +119,10 @@ def main() -> None:
     refuse_other_cpu(label_dir)
     live = live_runs(label_dir)
     if live:
-        sys.exit(f"Runs of an earlier start are still alive ({live[:3]}...); run --cleanup first")
+        sys.exit(
+            f"Runs of an earlier start are still alive ({live[:3]}...); run --cleanup first, with "
+            f"--subset {args.subset}"
+        )
     print(f"label directory: {label_dir}", flush=True)
 
     # 2. self-tests and acceptance tests, once per label
@@ -207,8 +210,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--approved-cpu-hours", type=float, help="the approved CPU-hours")
     parser.add_argument("--local", action="store_true", help="run locally, one task at a time")
     parser.add_argument("--dry-run", action="store_true", help="write the task files and stop")
-    parser.add_argument("--status", action="store_true", help="print the label's progress")
-    parser.add_argument("--cleanup", action="store_true", help="kill runs left by a hard kill")
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="print the progress of the label of --subset (and --local, --results-dir)",
+    )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="kill the runs that a hard kill left in the label of --subset (and --local, "
+        "--results-dir)",
+    )
     parser.add_argument("--subset", default="main", help="the subset of tasks (default: main)")
     parser.add_argument(
         "--allow-unfrozen", action="store_true", help="run a bundle without a pinned qLDPC commit"
@@ -416,9 +428,10 @@ def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, lo
 
 
 def print_status(label_dir: pathlib.Path) -> None:
-    """Print the final rows of the label by pass and status, and the active runs."""
+    """Print the label's directory, its final rows by pass and status, and its active runs."""
+    print(f"label directory: {label_dir}")
     if not (label_dir / tasks.TASKS_FILE).exists():
-        print(f"{label_dir}: no task list yet")
+        print("no task list yet")
         return
     final, problems = store.final_rows(label_dir)
     for name in ("1", "2"):

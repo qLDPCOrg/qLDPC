@@ -825,7 +825,10 @@ def test_parallel_stop_and_resume(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
-    """run_node.py refuses without approval, then runs both passes and writes an archive."""
+    """run_node.py refuses without approval, runs both passes, writes an archive, and reports.
+
+    ``--status`` names the label directory that it reads.
+    """
     command = [
         sys.executable,
         str(RUN_NODE),
@@ -843,6 +846,10 @@ def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     pass1, pass2 = tasks.pass_keys(label_dir, "1"), tasks.pass_keys(label_dir, "2")
     assert len(pass1) == 3 and len(pass2) == 6 and set(final) == set(pass1 + pass2), problems
     assert list((label_dir / "archive").glob("*.tar.gz"))
+    status = subprocess.run(command + ["--status"], capture_output=True, text=True, check=True)
+    assert f"label directory: {label_dir.resolve()}\npass 1: 3 tasks" in status.stdout, (
+        status.stdout
+    )
 
 
 @test
