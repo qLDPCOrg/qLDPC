@@ -46,8 +46,7 @@ class ConnectedClusterCosetSearch:
 
     - The weight of the word, for a coset with a word of weight zero or one, which a table finds.
     - Two, for any other coset whose word the search finds within its first weight limit
-      (``max_weight`` for ``get_min_weight_bound``, and two for the batch queries), since the word
-      can be lighter than that limit.
+      (``max_weight`` for ``get_min_weight_bound``), since the word can be lighter than that limit.
     - The weight limit, for a coset whose word the search finds within a later limit, which is then
       the weight of the lightest words.
     - The larger of two and ``max_weight + 1``, for any other coset without a word within

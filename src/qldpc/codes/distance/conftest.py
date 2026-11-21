@@ -696,7 +696,7 @@ def _get_shared_arrays(*roots: object) -> list[_SharedArray]:
 
     The objects reach arrays through the items of dictionaries, lists, and tuples, and through the
     attributes of objects of qLDPC, which must have a ``__dict__``.  ``shared_arrays_read_only``
-    checks the arrays that this function records.  The check therefore fails if threads write any
+    checks the arrays that this function records.  The check therefore fails if threads change any
     of them, even under a lock, for example to fill a preallocated cache.  It misses entries that
     threads add to a dictionary or list.  A path ``roots[i]...`` starts at the object ``roots[i]``.
     """

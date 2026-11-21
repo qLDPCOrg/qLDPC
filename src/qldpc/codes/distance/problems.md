@@ -57,8 +57,6 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
 
 1. Brute force runs if `is_cheap_to_enumerate` finds that it examines at most `auto_brute_force_max_words` packed 64-bit integers.
    Brute force runs on one thread, whatever `num_threads` is, at under a nanosecond per integer, so unlike that of the other methods its cost is known before it runs.
-   The default, `2**20`, is about a millisecond of enumeration, the fixed cost of a BZ search of a small code.
-   On larger spaces, a BZ search is usually faster (see "Refining the choice").
 2. Otherwise, a search of binary words that excludes no nonzero word, as for a classical code, takes the BZ method, and so does every search of a function that takes generators, since it has no checks.
    A connected-cluster search can be much slower than BZ on classical codes whose checks are only moderately sparse.
 3. Every other search, as of a quantum code or of the faults of a circuit, runs `search_by_cost` in `_auto.py`.
@@ -86,7 +84,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
 
 The choice keeps every result exact, and `cutoff` and `upper_bound` mean what they mean for each method.
 Since `U` is the weight of a nontrivial word or the caller's upper bound, a search with `U` as its upper bound returns the smaller of the distance and the caller's upper bound, as a search without it does.
-When the connected-cluster search switches, a BZ search of the same sectors, in the same order, replaces it, and takes nothing from it but `U`.
+When the connected-cluster search switches, a BZ search of the same sectors, in the same order, replaces it, with `U` as its upper bound, and takes nothing from it.
 For Pauli strings, that BZ search searches their images under `symplectic_to_hamming` (Section 2.7 of `brouwer_zimmermann.md`) and halves the weight that it finds.
 The tuning of the probe changes only its family of information sets and their certificate, which no result depends on.
 Which method runs can still change which word an early exit at `cutoff` finds, as can the timing of the threads of a BZ search ("Returns" of `get_distance_from_generators`).
@@ -154,9 +152,7 @@ Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`),
 `find_first_not_within_max_weight` returns the bound that a single BZ search found for the first syndrome without an error within `max_weight`, or, with two BZ searches, the bound that `get_min_weight_bound` gives for that syndrome.
 `get_min_weights` answers a batch in one compiled loop per coset search (`BrouwerZimmermannCosetSearch.get_min_weights`; Section 3.10 of `brouwer_zimmermann.md`).
 Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](README.md#threads)).
-The calling thread starts the batch alone, and a batch of cheap queries stays there.
-Once the queries of a batch on the calling thread have done `num_threads` chunks of work, `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks (Section 4.5 of `brouwer_zimmermann_code.md`).
-The comment of `search_chunk_exponent` in `_tuning.py` defines the unit of this work for each method.
+The comment of `search_chunk_exponent` in `_tuning.py` says when a batch moves to threads, and in what units its queries count their work; `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks (Section 4.5 of `brouwer_zimmermann_code.md`).
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
 With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query (Section 3.8 of `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.

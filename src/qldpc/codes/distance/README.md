@@ -39,7 +39,7 @@ The cells that are empty, or on one thread only:
 - Coset leaders by brute force: tests check the coset searches against the exhaustive minima of `get_exhaustive_minima` in `conftest.py`, and a library method would serve only states of a dozen qubits.
 - Counts by `connected_cluster`: the search finds one word of each weight limit and prunes the others, rather than enumerating them, and a count above the distance must also count words whose supports the checks do not connect.
 - `macwilliams` for distances and coset problems: it needs a CSS stabilizer code whose X and Z checks have rank at most 63, and has no form for cosets; counts already give the distance that it finds.
-- Brute force on threads: it serves small codes and tests, and `auto` takes it only for at most `auto_brute_force_max_words` packed words, about a millisecond.
+- Brute force on threads: it serves small codes and tests, and `auto` takes it only for at most `auto_brute_force_max_words` packed 64-bit integers, about a millisecond.
 - Not yet: counts, single coset queries, and the MacWilliams method on threads.
 
 Where the code, guide, and tests of each supported cell live:
@@ -51,7 +51,7 @@ Where the code, guide, and tests of each supported cell live:
 | Distance, `connected_cluster` | `_connected_cluster/search.py` | Sections 3.1 to 3.7, 3.9, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/search_test.py` |
 | Distance, `auto` | `distances.py` and `_auto.py` | [Choosing a method](problems.md#choosing-a-method) in `problems.md` | `distances_test.py` and `_auto_test.py` |
 | Coset weight of a vector, every method | `_get_coset_weight` of `distances.py` | For `connected_cluster`, "The distance of a vector from a classical code" in Section 3.8 of `connected_cluster.md`.  For the others, the vector `v` is the only generator and the words of the code `C` are excluded, which is the problem of Section 2.1 of `brouwer_zimmermann.md`.  Over GF(2), the words spanned by `v` and `C` but outside `C` are the coset `v + C` | `distances_test.py` and `src/qldpc/codes/common_test.py` |
-| Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, Sections 3.1 ("Families for coset searches"), 3.9, and 3.10 of `brouwer_zimmermann.md`, and Sections 4.1, 4.4, and 4.5 of `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
+| Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, Sections 3.1 ("Families for coset searches"), 3.2, 3.9, and 3.10 of `brouwer_zimmermann.md`, and Sections 4.1, 4.4, 4.5, and 5 of `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
 | Coset leaders, `connected_cluster` | `_connected_cluster/coset.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, and Sections 3.8, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/coset_test.py` and `coset_leaders_test.py` |
 | Logical counts, `brute_force`, `brouwer_zimmermann`, and `auto` | `logical_counts.py` and `_counting/scan.py` | Section 3.11 of `brouwer_zimmermann.md` | `_counting/scan_test.py` and `logical_counts_test.py` |
 | Logical counts, `macwilliams` | `logical_counts.py` and `_counting/macwilliams.py` | [The MacWilliams method](problems.md#the-macwilliams-method) in `problems.md` | `_counting/macwilliams_test.py` and `logical_counts_test.py` |
@@ -202,9 +202,8 @@ They are not arguments of public functions, whose arguments say what to compute 
 - Only a value that qLDPC fixes before any search starts is a constant in `_tuning.py`, such as the size of a cache, which `functools.lru_cache` fixes at import.
   Code reads cache sizes as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
-  The seeds make results reproducible rather than tune anything, though an early exit of a BZ search on several threads can still depend on the timing of its threads (see "Returns" of `get_distance_from_generators`).
-  A speed-only value that users may plausibly want to change to run faster is a field.
-  Other speed-only constants, whose best value does not depend materially on the user, the code, or the machine, stay in their modules:
+  The seeds make results reproducible rather than tune anything.
+  Speed-only constants whose best value does not depend materially on the user, the code, or the machine stay in their modules:
   - `ITEMS_PER_THREAD` and `BLOCKS_PER_THREAD` in `_threads.py`, which only balance threads at the end of the work
   - `RANGES_PER_THREAD` and `OUTPUTS_PER_THREAD` in `_threads.py`, which balance the threads of `iterate_in_order` and bound the outputs that they hold
   - `_MAX_ITEMS` and `_MAX_FIXED_WORDS` in `_connected_cluster/search.py`, which bound the items of a frontier and the compiled versions of its search
@@ -217,7 +216,7 @@ They are not arguments of public functions, whose arguments say what to compute 
   Where a guide section or a cost model explains the field's heuristic, the comment points there.
   A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
   Comments, docstrings, and guides in this package follow the [writing standard's rule on measurements](../../../../docs/source/contributing/standards/writing.rst#where-documentation-belongs).
-- Change a default only as the "Retuning" section allows.
+- Change a default only as the "Retuning" section allows; [experiments/distance_tuning](../../../../experiments/distance_tuning/README.md) says how to check one.
 - [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders these comments after hand-written tables that lead from symptoms and routes to the values; update the tables, and for a constant the list of constants, when you add, rename, or remove a value.
   `_tuning_test.py` checks that the table of routes names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each value has its own comment.
   The documentation build fails on a broken reference into `_tuning`.
@@ -230,8 +229,6 @@ They are not arguments of public functions, whose arguments say what to compute 
 
 A BZ distance search scans each costly layer of a search basis on `num_threads` threads, which share one copy of the completion tables of that basis (Section 4.5 of `brouwer_zimmermann_code.md`).
 A connected-cluster distance search searches each costly weight limit on `num_threads` threads, which give the same witness and count of states as a search on one thread (Section 3.11 of `connected_cluster.md`).
-On any number of threads, it searches in chunks of at most `2**search_chunk_exponent` states (Section 3.6 of `connected_cluster.md` says when it takes keyboard interrupts).
-Once an earlier work item has a witness, a thread stops a later item after its current chunk.
 With either method, the batch queries of `CosetLeaderSearch`, `find_first_not_within_max_weight` and `get_min_weights`, move the rest of a costly batch to `num_threads` threads ([The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`).
 A `CosetLeaderSearch` fixes its number of threads when it is built.
 By default, `num_threads` is `None`, which takes the value of the environment variable `QLDPC_NUM_THREADS` when qLDPC was imported, if it was set, and otherwise `numba.config.NUMBA_NUM_THREADS`.
@@ -241,15 +238,11 @@ Numba's parallel code, such as some of galois's, uses numba's own count, which n
 So `QLDPC_NUM_THREADS` sets numba's count too only if qLDPC is imported before numba, and so before galois: qLDPC then sets `NUMBA_NUM_THREADS` to the same value.
 If numba was imported first with another count, qLDPC warns that numba keeps it; to avoid that, also set `NUMBA_NUM_THREADS` to the same value before Python starts.
 The docstring of `src/qldpc/_num_threads.py` gives the other warnings.
-Numba does not read the CPU quotas of containers, so in a container, set `QLDPC_NUM_THREADS` to its CPU quota rounded down, or to 1 if the quota is below 1.
 `numba.set_num_threads` changes only the count of the calling thread's numba parallel code, not `QLDPC_NUM_THREADS` or `numba.config.NUMBA_NUM_THREADS`, nor the threads of searches.
-`NUMBA_NUM_THREADS` alone still sets the count of searches when `QLDPC_NUM_THREADS` is not set.
-Programs that run searches in several processes or threads at once should keep each search on one thread, since each search would otherwise start a thread for each CPU.
-To do so, set `QLDPC_NUM_THREADS=1` before Python starts, which reaches every thread and worker process, or run the searches within `use_tuning(num_threads=1)`.
-New threads and spawned processes normally start with the default tuning (see the module docstring of `_tuning.py`), so a program that runs searches in a pool of workers must enter `use_tuning` in the function that each worker runs.
-That covers only the searches built there: a `CosetLeaderSearch` that the workers share must be built within `use_tuning(num_threads=1)`.
+Programs that run searches in several processes or threads at once should keep each search on one thread, since each search would otherwise start a thread for each CPU; the row on cores of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) says how, in pools of workers and in containers.
 Neither `QLDPC_NUM_THREADS` nor `num_threads` limits BLAS threads, which follow the BLAS library's own variables, such as `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS` (Accelerate on macOS), or `OMP_NUM_THREADS`.
 Exhaustive enumeration, single coset queries, and counts run on one thread, except the BZ distance search with which a count may find its default weight.
+[Working here](#working-here) gives the rules for code that threads run, and the tests that check them.
 
 ## Compiled code
 
@@ -288,7 +281,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   Review checks such calls on paths that tests do not run on threads.
   `_thread_rules_test.py` checks that each entry point compiled with `nogil=True` is named in Section 5 of the guide of its method, `brouwer_zimmermann_code.md` or `connected_cluster.md`.
   `test_nothing_asks_numba_for_parallel_code` of `src/qldpc/_compiled_code_rules_test.py` checks that no function of qLDPC is compiled with numba's `parallel` option.
-  `test_always_compiled_functions_use_nothing_from_outside_qldpc` of the same file checks that the functions marked `@always_compiled` use no names imported from outside qLDPC, such as functions of galois.
+  `test_always_compiled_functions_use_nothing_from_outside_qldpc` of the same file checks that the functions marked `@always_compiled` use no names imported from packages other than qLDPC, NumPy, and numba, such as functions of galois.
   Four tests on threads run with every array of their search read-only, through `check_shared_arrays_on_threads` or `shared_arrays_read_only` of `conftest.py`.
   Numba then rejects a write to such an array in any branch of compiled code.
   Section 5 of `brouwer_zimmermann_code.md` and of `connected_cluster.md` names these tests and lists the writes that they miss.
