@@ -1198,13 +1198,15 @@ def test_completion_tables_keep_distances_exact(completion_tables: CompletionRec
     # Relabel the columns, and the automorphisms alike: column ``j`` is column ``columns[j]`` of
     # the given sector, so a generator ``g`` maps it to ``inverse[g[columns[j]]]``, for the inverse
     # permutation ``np.argsort(columns)``.  The connected-cluster method also finds the distance 8.
+    # The relabeled basis is C-ordered, as the searches pass it, so that numba compiles no version
+    # for another layout.
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     basis, labels = get_sector(code, Pauli.X)
     columns = rng.permutation(len(code))
     automorphisms = np.asarray(code._get_permutation_automorphisms())
     skipped = completion_tables.skipped
     distance = bz.get_distance_brouwer_zimmermann(
-        [(basis[:, columns], labels)],
+        [(np.ascontiguousarray(basis[:, columns]), labels)],
         cutoff=0,
         get_automorphisms=functools.partial(
             np.array, np.argsort(columns)[automorphisms[:, columns]]

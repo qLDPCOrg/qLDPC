@@ -1286,6 +1286,8 @@ def _assert_searches_by_tails_match_searches_of_words(
         weight_factor=2 if scale == 2 else 1,
     )
     tables = coset_tables.get_search_tables(instance, inverse, num_columns)
+    # Pass the fields of the tails as a plain tuple, as the searches do, so that numba compiles the
+    # searches for the type of argument that they use.
     tails = coset_tables.get_coset_tails(
         instance,
         list(range(len(sets))) if block_bits else [],
@@ -1293,7 +1295,7 @@ def _assert_searches_by_tails_match_searches_of_words(
         inverse=inverse,
         block_bits=block_bits or 8,
         max_table_bytes=MAX_VALUE,
-    )
+    )[:]
     even = scale == 1 and not np.any(generators.sum(axis=1) % 2)
     packed_syndromes = split_syndromes_into_words(syndromes, len(inverse))
     total_skipped = 0
