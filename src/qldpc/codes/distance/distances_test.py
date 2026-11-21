@@ -310,7 +310,9 @@ def test_brute_force_never_looks_for_sector_maps(monkeypatch: pytest.MonkeyPatch
     )
     searched: list[str] = []
     monkeypatch.setattr(
-        distances, "_search_checks", _record_call(searched, "sector", distances._search_checks)
+        distances,
+        "_search_by_brute_force",
+        _record_call(searched, "sector", distances._search_by_brute_force),
     )
     steane_code = qldpc.codes.SteaneCode()
     for method in ("brute_force", "auto"):
@@ -320,6 +322,25 @@ def test_brute_force_never_looks_for_sector_maps(monkeypatch: pytest.MonkeyPatch
             )
         assert distance == 3
     assert not looked and len(searched) == 4
+
+
+def test_auto_enumerates_only_if_every_sector_is_cheap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "auto" weighs every sector before it enumerates, not only the first.
+
+    Without X-type checks, the X sector of the code that the parity checks of the [7, 4] Hamming
+    code give as Z-type checks has 2**4 words, which are cheap to enumerate, but its Z sector has
+    2**7.
+    """
+    searched: list[str] = []
+    monkeypatch.setattr(
+        distances,
+        "_search_by_brute_force",
+        _record_call(searched, "sector", distances._search_by_brute_force),
+    )
+    checks_z = qldpc.codes.HammingCode(3).matrix.view(np.ndarray)
+    with use_tuning(auto_brute_force_max_words=2**5):
+        assert distances.get_distance_css(np.zeros((0, 7), dtype=int), checks_z) == 1
+    assert not searched
 
 
 @pytest.mark.parametrize("method", METHODS)
@@ -565,9 +586,10 @@ def test_connected_cluster_searches_take_the_active_tuning(
 ) -> None:
     """CSS and Pauli distances search by connected clusters with the active tuning.
 
-    ``get_distance_css`` searches through ``_search_css``, and ``get_distance_pauli``, whose
-    searches are symplectic, through ``_search_checks``.  Each search takes both of its switches
-    from the active tuning, whether they are on or off.
+    ``get_distance_css`` searches the Steane code as binary sectors, and ``get_distance_pauli``
+    searches the five-qubit code, which is not CSS, as Pauli strings.  Each search takes
+    ``restrict_viable_symbols`` and ``pair_sum_checks`` from the active tuning, whether they are on
+    or off.
     """
     switches: list[tuple[bool, bool, bool]] = []
     initialize = SupportSearch.__init__

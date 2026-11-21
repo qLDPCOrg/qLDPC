@@ -238,7 +238,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Binary input (`symplectic=False`) is a classical problem, or a pure-X or pure-Z problem with one bit per qubit, and symplectic input (`symplectic=True`) has general Pauli rows.
   For symplectic input, BZ maps rows by `T` ([Section 2.7](brouwer_zimmermann.md#27-pauli-weight-as-hamming-weight)), doubles `cutoff` and the bound of a weight limit, passes `weight_divisor=2`, and halves the result, while `method="brute_force"` uses symplectic weights and the original `cutoff`.
 - **Independence.**
-  `_get_nested_basis` in `distances.py` makes the generators of a caller independent, with `get_independent_rows`, or with `get_nested_code_basis` when the caller gives `S`, for every BZ and brute-force search of `_search_generators` and `_search_checks`, including those of `search_by_cost`; `_search_css` calls `get_nested_code_basis` itself for its BZ searches and those of `search_by_cost`.
+  `_get_nested_basis` in `distances.py` makes the generators of a caller independent, with `get_independent_rows`, or with `get_nested_code_basis` when the caller gives `S`, for every BZ and brute-force search of `_search`, including those of `search_by_cost`.
 - **Resumable layers.**
   A compiled scan of a distance search returns after at most `batch_size` supports, or supports and lookups together with completion tables, so that it stays responsive while it skips most supports, and successive batches reuse its `support` and `prefixes` arrays.
   On several threads, each thread has its own arrays, and a chunk of each thread holds at most `batch_size * num_threads` supports and lookups.
