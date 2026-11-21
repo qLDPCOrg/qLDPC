@@ -828,13 +828,14 @@ def get_steane_swap_consumer(
             block, or ``Pauli.X`` (or ``"X"``) for a fresh ``|+>`` block.
         decoder: A decoder specification, such as ``decoders.mwpm(decompose_errors=True)`` for a
             code whose checks give a matching graph, like a surface code.  The consumer builds the
-            decoder from the detector error model of the window, as for ``Consumer``, so the
-            decoder decodes the whole window together.  Default: None, for the default decoder
-            described above.  With the default decoder and a code of distance at least 3, further
-            noisy steps before or after the window change the excesses of the calibration only at
-            second order; see ``consumer_calibration.md``.  For a code of distance less than 3, the
-            excesses can depend on the length of the window.  For a decoder built from a
-            specification, the second-order dependence is not guaranteed.
+            decoder from the detector error model of the window, as for ``Consumer``, so the decoder
+            decodes the whole window together.  Default: None, for the default decoder described
+            above.  With the default decoder and a code of distance at least 3, further noisy steps
+            before or after the window change the excess ``c_s(m) - c_s(0)`` of each residual
+            weight ``m``, and so the score of a preparation circuit, only at second order in the
+            window's error probabilities; see ``consumer_calibration.md``.  For a smaller distance,
+            further steps can change these excesses at first order.  This second-order bound is not
+            guaranteed for a decoder built from a specification.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
             ``(d - 1) // 2`` for the distance ``d`` of the code.  If the code does not know its
