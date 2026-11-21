@@ -42,7 +42,7 @@ class CosetSearchTables(NamedTuple):
 
     The search runs on embedded words.  The embedded word of a Pauli error is its packed Pauli for
     the CSS weight, and its packed Pauli followed by ``x xor z`` for the physical weight (see
-    ``symplectic_to_hamming`` in ``_binary.py`` of this package).  An X or Z part is its own
+    ``symplectic_to_hamming`` in ``_code_matrices.py`` of this package).  An X or Z part is its own
     embedded word.
 
     Attributes:

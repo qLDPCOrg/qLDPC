@@ -13,7 +13,7 @@ import numpy.typing as npt
 
 from qldpc import codes
 from qldpc._binary import get_independent_rows
-from qldpc.codes.distance._binary import _as_dense
+from qldpc.codes.distance._code_matrices import _as_dense
 from qldpc.objects import Pauli, PauliXZLike
 
 from ._sectors import Sector, get_sector

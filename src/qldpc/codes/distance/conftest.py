@@ -22,8 +22,8 @@ from qldpc.objects import PauliXZ
 
 from . import _threads, _tuning
 from . import logical_counts as lc
-from ._binary import get_nested_code_basis
 from ._brouwer_zimmermann import coset_tables
+from ._code_matrices import get_nested_code_basis
 from ._information_sets import basis_families, certificates
 from .coset_leaders import CosetLeaderSearch
 

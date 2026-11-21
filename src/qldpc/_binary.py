@@ -10,8 +10,9 @@ The packing functions, the functions on packed rows, and ``get_inverse``, which 
 matrix with one uint8 entry per bit, are compiled with ``always_compiled`` from
 ``qldpc._compilation``, so they can be called from Python and from other compiled code.  In compiled
 code, ``popcount_word`` and ``trailing_zeros_word`` become single LLVM instructions.  The functions
-``row_reduce_binary``, ``get_independent_rows``, and ``get_kernel`` are Python-level wrappers for
-binary matrices with one uint8 entry per bit, which pack and unpack around the compiled functions.
+``row_reduce_binary``, ``get_independent_rows``, ``get_kernel``, and ``multiply_binary`` are
+Python-level wrappers for binary matrices with one uint8 entry per bit, which pack and unpack around
+the compiled functions, though ``multiply_binary`` multiplies small matrices through BLAS instead.
 ``row_ints`` packs the rows of a binary matrix into Python integers, and ``words_to_int`` and
 ``int_to_words`` convert packed rows to and from them, with bit ``j`` of a row in bit ``j`` of its
 integer.  ``get_num_words`` counts the words of a packed row.
@@ -42,6 +43,12 @@ if TYPE_CHECKING:
 
 # The default ``max_rank`` of ``row_reduce_packed`` and ``get_rank_packed``, which no rank reaches.
 _NO_RANK_LIMIT = 2**63 - 1
+
+# Products with at least this many rows and columns use the Method of Four Russians.  Its tables pay
+# off only over many rows, and each of its additions covers only as many columns as the product has.
+# If either dimension is smaller, float32 BLAS can be several times faster, and otherwise the Method
+# of Four Russians is usually faster.
+_MIN_FOUR_RUSSIANS_SIZE = 512
 
 ####################################################################################################
 # linear algebra of unpacked binary matrices
@@ -93,6 +100,36 @@ def get_kernel(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     basis[:, free] = np.eye(len(free), dtype=np.uint8)
     basis[:, pivots] = reduced[: len(pivots), free].T
     return basis
+
+
+def multiply_binary(
+    left: npt.NDArray[np.uint8], right: npt.NDArray[np.uint8]
+) -> npt.NDArray[np.uint8]:
+    """The product over GF(2) of two matrices of zeros and ones, as a uint8 array.
+
+    A product with at least ``_MIN_FOUR_RUSSIANS_SIZE`` rows and columns adds packed rows by the
+    Method of Four Russians (see ``multiply_packed``).  Any other product multiplies the matrices in
+    float32 through BLAS, which is exact while their inner dimension is below ``2**24``, and faster
+    than in integers.
+
+    Raises:
+        ValueError: If ``left`` has a different number of columns than ``right`` has rows.
+    """
+    if left.shape[1] != len(right):
+        raise ValueError(
+            f"Cannot multiply a matrix with {left.shape[1]} columns by one with {len(right)} rows"
+        )
+    if min(len(left), right.shape[1]) >= _MIN_FOUR_RUSSIANS_SIZE:
+        # Pack C-ordered arrays, so that inputs in any memory layout share compiled specializations.
+        packed = multiply_packed(
+            pack_bits(np.ascontiguousarray(left)), pack_bits(np.ascontiguousarray(right))
+        )
+        return unpack_bits(packed, right.shape[1])
+    assert left.shape[1] < 2**24
+    # The float32 entries are exact integers, which reduce modulo two several times faster as int32
+    # than as floats.
+    product = left.astype(np.float32) @ right.astype(np.float32)
+    return (product.astype(np.int32) & 1).astype(np.uint8)
 
 
 ####################################################################################################

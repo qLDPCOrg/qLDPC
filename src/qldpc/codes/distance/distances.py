@@ -13,23 +13,22 @@ from typing import Literal, SupportsIndex, get_args
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import get_independent_rows, get_kernel
+from qldpc._binary import get_independent_rows, get_kernel, multiply_binary
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
 
 from ._auto import BrouwerZimmermannProblem, is_cheap_to_enumerate, search_by_cost
-from ._binary import (
+from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann
+from ._brute_force import get_nested_distance_brute_force
+from ._code_matrices import (
     as_binary_matrix,
     as_binary_matrix_pair,
     as_integer,
     get_css_stabilizers,
     get_nested_code_basis,
     get_pauli_stabilizers,
-    multiply_binary,
     swap_pauli_halves,
     symplectic_to_hamming,
 )
-from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann
-from ._brute_force import get_nested_distance_brute_force
 from ._connected_cluster.search import get_distance_connected_cluster
 from ._connected_cluster.sparse_checks import get_row_weights, get_sparser_rows
 from ._sector_maps import get_sector_map

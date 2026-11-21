@@ -535,7 +535,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_cluster` |
-| Sectors of a CSS code | `_search_css` of `distances.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
+| Sectors of a CSS code | `_search_css` of `distances.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_code_matrices.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `distances.py` |
 | Problems of Section 3.7, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance over several sectors | `get_distance_connected_cluster`, which advances `ConnectedClusterSearch` one weight limit at a time |

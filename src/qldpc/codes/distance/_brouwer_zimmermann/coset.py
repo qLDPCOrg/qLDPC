@@ -27,7 +27,7 @@ from qldpc._binary import (
 from qldpc._compilation import always_compiled
 
 from .. import _threads, _tuning
-from .._binary import swap_pauli_halves, symplectic_to_hamming
+from .._code_matrices import swap_pauli_halves, symplectic_to_hamming
 from .._cosets import (
     get_unit_syndrome_words,
     tabulate_singles,

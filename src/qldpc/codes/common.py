@@ -25,7 +25,7 @@ import scipy.sparse
 import stim
 
 from qldpc import _deprecations, abstract, decoders, external, math
-from qldpc._binary import get_independent_rows, get_rank_packed, pack_bits
+from qldpc._binary import get_independent_rows, get_rank_packed, multiply_binary, pack_bits
 from qldpc._deprecations.decoders import (
     merge_legacy_css_decoder_args,
     merge_legacy_decoder_args,
@@ -56,11 +56,10 @@ from .distance import (
     get_distance_from_generators,
     get_distance_pauli,
 )
-from .distance._binary import (
+from .distance._code_matrices import (
     get_css_stabilizers,
     get_pauli_stabilizers,
     infer_field,
-    multiply_binary,
 )
 from .distance.distances import _get_coset_weight, _validate_distance_method
 from .monte_carlo import ErrorRateFunc

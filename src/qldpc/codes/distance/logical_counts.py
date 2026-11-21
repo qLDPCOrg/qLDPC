@@ -20,14 +20,14 @@ import numpy.typing as npt
 from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
 
-from ._binary import (
+from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann
+from ._brute_force import get_nested_distance_brute_force
+from ._code_matrices import (
     as_binary_matrix_pair,
     as_integer,
     get_css_stabilizers,
     get_nested_code_basis,
 )
-from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann
-from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
 from ._information_sets import basis_families
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning

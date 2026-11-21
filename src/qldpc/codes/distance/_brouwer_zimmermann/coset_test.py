@@ -20,7 +20,7 @@ from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 
 from ...conftest import Tune
 from .. import _cosets, _threads
-from .._binary import symplectic_to_hamming
+from .._code_matrices import symplectic_to_hamming
 from .._information_sets import basis_families, certificates, completion_bounds
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, get_tuning, use_tuning
 from ..conftest import (

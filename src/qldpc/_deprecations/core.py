@@ -427,7 +427,7 @@ def get_distance_classical(
     get_distance_from_generators, it gives a code without nonzero words its length as its distance.
     """
     from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
-    from qldpc.codes.distance._binary import as_binary_matrix
+    from qldpc.codes.distance._code_matrices import as_binary_matrix
 
     warn_deprecated(
         "get_distance_classical is deprecated; use"
@@ -459,7 +459,7 @@ def get_distance_css_brouwer_zimmermann(
     result at most ``cutoff`` can be an upper bound on the distance.
     """
     from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
-    from qldpc.codes.distance._binary import as_binary_matrix_pair
+    from qldpc.codes.distance._code_matrices import as_binary_matrix_pair
 
     warn_deprecated(
         "get_distance_css_brouwer_zimmermann is deprecated; use"
@@ -512,7 +512,7 @@ def get_distance_quantum(
     of qubits otherwise.
     """
     from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
-    from qldpc.codes.distance._binary import as_binary_matrix_pair
+    from qldpc.codes.distance._code_matrices import as_binary_matrix_pair
 
     warn_deprecated(
         "get_distance_quantum is deprecated; use"

@@ -26,7 +26,7 @@ from qldpc._binary import pack_bits, row_reduce_binary, row_reduce_packed, unpac
 from qldpc._compilation import always_compiled, compiled_on_request
 
 from .. import _tuning
-from .._binary import get_nonzero_columns
+from .._code_matrices import get_nonzero_columns
 from .._tuning import SearchTuning
 from . import matroid_partition
 from .certificates import (

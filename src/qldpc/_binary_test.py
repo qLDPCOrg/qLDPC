@@ -76,6 +76,36 @@ def test_get_kernel(shape: tuple[int, int]) -> None:
     assert np.linalg.matrix_rank(galois.GF2(kernel)) == len(kernel)
 
 
+@pytest.mark.parametrize("shape, four_russians", [((5, 70, 4), False), ((1024, 9, 1024), True)])
+def test_binary_products(
+    shape: tuple[int, int, int], four_russians: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Binary products match products of integers, reduced modulo two.
+
+    The small product is computed in floats, and the large one by the Method of Four Russians.
+    Matrices whose inner dimensions differ cannot be multiplied by either.
+    """
+    calls: list[object] = []
+    multiply_packed = binary.multiply_packed
+
+    def record(*args: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
+        calls.append(args)
+        return multiply_packed(*args)
+
+    monkeypatch.setattr(binary, "multiply_packed", record)
+    num_rows, num_inner, num_cols = shape
+    rng = np.random.default_rng(0)
+    left = rng.integers(2, size=(num_rows, num_inner), dtype=np.uint8)
+    # Callers often pass transposes, which are not C-ordered.
+    right = rng.integers(2, size=(num_cols, num_inner), dtype=np.uint8).T
+    product = binary.multiply_binary(left, right)
+    assert product.dtype == np.uint8
+    np.testing.assert_array_equal(product, left.astype(int) @ right.astype(int) % 2)
+    assert bool(calls) == four_russians
+    with pytest.raises(ValueError, match="Cannot multiply"):
+        binary.multiply_binary(left, right[1:])
+
+
 ####################################################################################################
 # compiled linear algebra
 

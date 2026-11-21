@@ -20,8 +20,8 @@ from qldpc._binary import get_kernel
 from qldpc.objects import Pauli
 
 from . import _auto, distances
-from ._binary import get_nested_code_basis
 from ._brouwer_zimmermann.distance import BrouwerZimmermannSearch
+from ._code_matrices import get_nested_code_basis
 from ._connected_cluster.search import ConnectedClusterSearch, SupportSearch
 from ._information_sets import basis_families
 from ._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning

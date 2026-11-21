@@ -116,7 +116,7 @@ from typing import Any
 
 import numpy as np
 
-from ._binary import as_integer
+from ._code_matrices import as_integer
 
 #: The largest value of an integer field.  Searches add and multiply some fields in compiled code
 #: with 64-bit integers; a larger value could overflow them, or make numba compile again for another

@@ -21,7 +21,7 @@ import scipy.sparse
 from qldpc import codes
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 from qldpc.codes.distance import count_logical_ops_css
-from qldpc.codes.distance._binary import get_nested_code_basis
+from qldpc.codes.distance._code_matrices import get_nested_code_basis
 from qldpc.objects import Pauli, PauliXZ
 
 from ._sectors import Sector, get_sector

@@ -26,7 +26,7 @@ from qldpc.objects import Pauli
 
 from ..conftest import Tune
 from . import _brute_force, distances
-from ._binary import get_css_stabilizers
+from ._code_matrices import get_css_stabilizers
 from ._connected_cluster.search import SupportSearch
 from ._tuning import use_tuning
 from .conftest import get_pauli_weight, get_random_full_rank_matrix, get_span
