@@ -20,7 +20,7 @@ import numpy.typing as npt
 
 from qldpc._binary import row_ints
 
-from .._binary import get_nonzero_columns
+from .._code_matrices import get_nonzero_columns
 
 
 def get_information_sets_with_coverage(

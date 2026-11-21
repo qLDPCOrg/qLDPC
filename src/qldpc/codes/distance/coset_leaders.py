@@ -19,6 +19,7 @@ import numpy.typing as npt
 from qldpc._binary import (
     get_kernel,
     get_num_words,
+    multiply_binary,
     pack_bits,
     row_ints,
     row_reduce_binary,
@@ -27,12 +28,12 @@ from qldpc._binary import (
 from qldpc._compilation import always_compiled
 
 from . import _threads
-from ._binary import as_binary_matrix, as_integer, multiply_binary, swap_pauli_halves
 from ._brouwer_zimmermann.coset import (
     BrouwerZimmermannCosetSearch,
     get_css_searches,
     get_pauli_search,
 )
+from ._code_matrices import as_binary_matrix, as_integer, swap_pauli_halves
 from ._connected_cluster.coset import (
     ConnectedClusterCosetSearch,
     find_first_cluster_bound,

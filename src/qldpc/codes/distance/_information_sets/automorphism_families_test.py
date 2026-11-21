@@ -15,7 +15,7 @@ from qldpc import codes
 from qldpc._binary import get_rank_packed, pack_bits
 from qldpc.objects import Pauli
 
-from .._binary import get_eligible_rows
+from .._code_matrices import get_eligible_rows
 from ..conftest import get_sector
 from . import automorphism_families, certificates
 

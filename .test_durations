@@ -41,7 +41,7 @@
     "src/qldpc/codes/_code_capacity_test.py": 0.22883135800009313,
     "src/qldpc/codes/classical_test.py": 11.728715571999942,
     "src/qldpc/codes/common_test.py": 37.37345506500003,
-    "src/qldpc/codes/distance/_binary_test.py": 0.08287303399998791,
+    "src/qldpc/codes/distance/_code_matrices_test.py": 0.08287303399998791,
     "src/qldpc/codes/distance/_brouwer_zimmermann/affine_instance_test.py": 0.36417880099992317,
     "src/qldpc/codes/distance/_brouwer_zimmermann/affine_search_test.py": 2.8064658279998866,
     "src/qldpc/codes/distance/_brouwer_zimmermann/coset_routes_test.py": 1.5742107639998153,

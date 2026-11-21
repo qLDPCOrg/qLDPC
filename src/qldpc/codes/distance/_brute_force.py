@@ -9,7 +9,7 @@ import numpy.typing as npt
 
 from qldpc._binary import count_trailing_zeros, pack_bits
 
-from ._binary import get_eligible_rows
+from ._code_matrices import get_eligible_rows
 
 # The low bit of each aligned pair of bits of a riffled word, one pair for each qubit.
 _MASK55 = np.uint64(0x5555555555555555)

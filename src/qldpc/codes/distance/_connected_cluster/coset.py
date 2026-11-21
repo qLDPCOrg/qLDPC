@@ -17,7 +17,7 @@ import numpy.typing as npt
 from qldpc._binary import get_num_words, int_to_words, row_ints, words_to_int
 
 from .. import _threads, _tuning
-from .._binary import swap_pauli_halves
+from .._code_matrices import swap_pauli_halves
 from .._cosets import get_unit_syndrome_words, tabulate_singles, xor_selected
 from ..min_weight_bounds import MinWeightBound
 from .search import SupportSearch

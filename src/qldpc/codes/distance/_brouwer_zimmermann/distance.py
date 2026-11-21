@@ -27,7 +27,7 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits
 
 from .. import _threads
-from .._binary import get_eligible_rows
+from .._code_matrices import get_eligible_rows
 from .._information_sets import (
     automorphism_families,
     basis_families,

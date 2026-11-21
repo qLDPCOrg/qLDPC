@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc._binary import (
+    multiply_binary,
     pack_bits,
     popcount_word,
     row_reduce_packed,
@@ -22,7 +23,6 @@ from qldpc._binary import (
 )
 from qldpc._compilation import always_compiled
 
-from .._binary import multiply_binary
 from .._cosets import get_unit_syndrome_words
 
 # The seed of the random column orders of ``get_sparser_rows``, which makes its rows reproducible.

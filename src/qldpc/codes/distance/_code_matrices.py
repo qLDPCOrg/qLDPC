@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Binary input checks, products, nested bases, stabilizers, and the symplectic map for searches.
+"""Binary input checks, nested bases, stabilizers, and the symplectic map for searches.
 
 The generic bit-packed linear algebra over GF(2) that the searches use is in ``qldpc._binary``.
 """
@@ -16,21 +16,8 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 
-from qldpc._binary import (
-    get_independent_rows,
-    get_kernel,
-    multiply_packed,
-    pack_bits,
-    row_reduce_binary,
-    unpack_bits,
-)
+from qldpc._binary import get_independent_rows, get_kernel, multiply_binary, row_reduce_binary
 from qldpc._compilation import always_compiled
-
-# Products with at least this many rows and columns use the Method of Four Russians.  Its tables pay
-# off only over many rows, and each of its additions covers only as many columns as the product has.
-# If either dimension is smaller, float32 BLAS can be several times faster, and otherwise the Method
-# of Four Russians is usually faster.
-_MIN_FOUR_RUSSIANS_SIZE = 512
 
 ####################################################################################################
 # input checks
@@ -192,36 +179,6 @@ def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
 def get_nonzero_columns(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.int64]:
     """The indices of the columns of a binary matrix that hold a one, in increasing order."""
     return np.flatnonzero(matrix.sum(axis=0))
-
-
-def multiply_binary(
-    left: npt.NDArray[np.uint8], right: npt.NDArray[np.uint8]
-) -> npt.NDArray[np.uint8]:
-    """The product over GF(2) of two matrices of zeros and ones, as a uint8 array.
-
-    A product with at least ``_MIN_FOUR_RUSSIANS_SIZE`` rows and columns adds packed rows by the
-    Method of Four Russians (see ``multiply_packed``).  Any other product multiplies the matrices in
-    float32 through BLAS, which is exact while their inner dimension is below ``2**24``, and faster
-    than in integers.
-
-    Raises:
-        ValueError: If ``left`` has a different number of columns than ``right`` has rows.
-    """
-    if left.shape[1] != len(right):
-        raise ValueError(
-            f"Cannot multiply a matrix with {left.shape[1]} columns by one with {len(right)} rows"
-        )
-    if min(len(left), right.shape[1]) >= _MIN_FOUR_RUSSIANS_SIZE:
-        # Pack C-ordered arrays, so that inputs in any memory layout share compiled specializations.
-        packed = multiply_packed(
-            pack_bits(np.ascontiguousarray(left)), pack_bits(np.ascontiguousarray(right))
-        )
-        return unpack_bits(packed, right.shape[1])
-    assert left.shape[1] < 2**24
-    # The float32 entries are exact integers, which reduce modulo two several times faster as int32
-    # than as floats.
-    product = left.astype(np.float32) @ right.astype(np.float32)
-    return (product.astype(np.int32) & 1).astype(np.uint8)
 
 
 def swap_pauli_halves(paulis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

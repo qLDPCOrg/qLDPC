@@ -22,14 +22,20 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 
-from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_word, unpack_bits
+from qldpc._binary import (
+    get_kernel,
+    multiply_binary,
+    pack_bits,
+    popcount_word,
+    trailing_zeros_word,
+    unpack_bits,
+)
 from qldpc._compilation import always_compiled
 
 from .. import _threads
-from .._binary import (
+from .._code_matrices import (
     assert_binary,
     get_nested_code_basis,
-    multiply_binary,
     swap_pauli_halves,
     symplectic_to_hamming,
 )

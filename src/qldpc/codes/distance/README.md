@@ -100,7 +100,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see "Searching one sector of a CSS code").
 - `_tuning.py` holds the settings of the searches.
 - `_threads.py` runs the work items of a search, or the blocks of a batch of queries, on several threads, and yields the outputs of work items in order on the calling thread, for the fault lister of `src/qldpc/circuits/certification/`.
-- `_binary.py` holds the binary input checks, binary products, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
+- `_code_matrices.py` holds the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
   The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
 
 ## Where to look
@@ -135,8 +135,8 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
 | The settings that a search reads when it starts (`SearchTuning` and `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
 | How a search runs its work items on threads (`run_work_items`), or until the first item that ends its work (`run_items_until_first`); how a batch of queries splits into blocks on threads (`run_blocks`); how the outputs of work items come back in order (`iterate_in_order`); and the default number of threads | `_threads.py`; how the BZ distance search splits a layer into work items is in `_brouwer_zimmermann/distance.py`, how the connected-cluster distance search splits a weight limit, in `_connected_cluster/search.py`, how BZ coset queries search their blocks, in `_brouwer_zimmermann/coset.py`, and how connected-cluster coset queries do, in `_connected_cluster/coset.py` |
-| Binary input checks, binary products, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
-| Bit packing, bit counts, row reduction, or products of packed rows over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
+| Binary input checks, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_code_matrices.py` |
+| Bit packing, bit counts, row reduction, or binary products over GF(2), packed or not, which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
 ## How the modules depend on each other
@@ -150,7 +150,7 @@ From the top:
 5. `_information_sets/`, `_cosets.py`, and `min_weight_bounds.py`, which the methods build on, and `_sector_maps.py`, which `distances.py` uses.
    The connected-cluster search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`.
 6. `_tuning.py`.
-7. `_binary.py` and `_threads.py`.
+7. `_code_matrices.py` and `_threads.py`.
 
 A top-level module or subpackage imports only from lower levels, and a module also from its own subpackage.
 `_layering_test.py` checks this.
@@ -342,7 +342,7 @@ They are not arguments of public functions, whose arguments say what to compute 
   Other speed-only constants, whose best value does not depend materially on the user, the code, or the machine, stay in their modules:
   - `ITEMS_PER_THREAD` and `BLOCKS_PER_THREAD` in `_threads.py`, which only balance threads at the end of the work
   - `_MAX_ITEMS` and `_MAX_FIXED_WORDS` in `_connected_cluster/search.py`, which bound the items of a frontier and the compiled versions of its search
-  - `_MIN_FOUR_RUSSIANS_SIZE` in `_binary.py`, the crossover of a kernel that searches call only in their setup
+  - `_MIN_FOUR_RUSSIANS_SIZE` in `src/qldpc/_binary.py`, the crossover of a kernel that searches call only in their setup
   - `_NUM_RANDOM_WORDS` in `_sector_maps.py`, the size of a cheap prefilter
 - Each field and constant has its own `#:` comment directly above it, for Sphinx to render, with no colon on its first line, since Sphinx reads text before such a colon as a type.
   A field's comment says what the field controls, with its unit and special values, and the class and rule of its default, as the "Retuning" section of the module docstring defines them, or why a field in no class has its default; where a guide section or a cost model explains its heuristic, the comment points there.

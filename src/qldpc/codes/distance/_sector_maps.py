@@ -13,10 +13,8 @@ import math
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import get_independent_rows
+from qldpc._binary import get_independent_rows, multiply_binary
 from qldpc.external import _bliss
-
-from ._binary import multiply_binary
 
 # How many random words of a row space _may_hold tests.
 _NUM_RANDOM_WORDS = 16
