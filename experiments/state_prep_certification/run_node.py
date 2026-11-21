@@ -77,6 +77,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_task.py"
 SELFTEST = ROOT / "experiments" / "state_prep_certification" / "common" / "selftest.py"
 DEFAULT_RESULTS = ROOT / "experiments" / "state_prep_certification" / "results"
+# GNU parallel's record in a label's active/ directory, beside the runs' records, which task keys
+# name (no task key starts with "_")
+PARALLEL_RECORD = "_parallel"
 
 # The environment variables that a node start refuses, and when: plain-Python qLDPC or numba,
 # Python's -O, which strips the acceptance tests' asserts, and paths that can import other code.
@@ -345,10 +348,28 @@ def run_pass(label_dir: pathlib.Path, name: str, jobs: int, local: bool) -> None
         )
 
 
-def run_parallel(command: list[str]) -> int:
-    """Run GNU parallel from the qLDPC root, passing SIGTERM on to it; return its exit status."""
+def run_parallel(label_dir: pathlib.Path, command: list[str]) -> int:
+    """Run GNU parallel from the qLDPC root, passing SIGTERM on to it; return its exit status.
+
+    While it runs, ``active/_parallel`` records its process id, start time, process group, and
+    host, so that after a hard kill of this script, ``live_runs`` and ``cleanup`` find it.
+    """
     print("+ " + shlex.join(command), flush=True)
     process = subprocess.Popen(command, cwd=ROOT)
+    record = label_dir / "active" / PARALLEL_RECORD
+    try:
+        record.parent.mkdir(exist_ok=True)
+        fields = {
+            "pid": process.pid,
+            "pid_start": runner.process_start(process.pid),
+            "process_group": os.getpgid(process.pid),
+            "host": socket.gethostname(),
+        }
+        store.write_atomic(record, json.dumps(fields), label_dir)
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
 
     def forward(signum: int, frame: Any) -> None:
         process.send_signal(signum)
@@ -358,6 +379,8 @@ def run_parallel(command: list[str]) -> int:
         return process.wait()
     finally:
         signal.signal(signal.SIGTERM, previous)
+        if process.poll() is not None:
+            record.unlink(missing_ok=True)
 
 
 def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, local: bool) -> None:
@@ -369,7 +392,7 @@ def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, lo
                 sys.exit(f"Task {key} ended without a final row; rerun to resume")
         return
     command = tasks.parallel_command(label_dir, pathlib.Path(sys.executable), name, jobs)
-    if run_parallel(command):
+    if run_parallel(label_dir, command):
         sys.exit(f"Pass {name} did not finish; rerun the same command to resume")
 
 
@@ -393,6 +416,9 @@ def print_status(label_dir: pathlib.Path) -> None:
             counts[status] = counts.get(status, 0) + 1
         print(f"pass {name}: {len(keys)} tasks; {counts}")
     active = sorted(path.name for path in (label_dir / "active").glob("*"))
+    if PARALLEL_RECORD in active:
+        active.remove(PARALLEL_RECORD)
+        print(f"GNU parallel: recorded in active/{PARALLEL_RECORD}")
     print(f"active runs: {len(active)}" + "".join(f"\n  {key}" for key in active))
     for problem in problems:
         print(f"note: {problem}")
@@ -450,7 +476,7 @@ def refuse_other_cpu(label_dir: pathlib.Path) -> None:
 
 
 def live_runs(label_dir: pathlib.Path) -> list[str]:
-    """The tasks of ``active/`` whose runner or run is still the recorded process.
+    """The records of ``active/`` whose GNU parallel, runner, or run is still the recorded process.
 
     A run is also live if its process group's leader is gone but members of the group remain, which
     ``cleanup`` reports without killing them.  An unreadable record counts as live, since nothing
@@ -462,10 +488,9 @@ def live_runs(label_dir: pathlib.Path) -> list[str]:
         if record is None:
             live.append(path.name)
             continue
-        recorded = [
-            (record["runner_pid"], record["runner_start"]),
-            (record["pid"], record["pid_start"]),
-        ]
+        recorded = [(record["pid"], record["pid_start"])]
+        if path.name != PARALLEL_RECORD:
+            recorded.append((record["runner_pid"], record["runner_start"]))
         same = any(
             start is not None and pid in table and table[pid].start == start
             for pid, start in recorded
@@ -478,13 +503,20 @@ def live_runs(label_dir: pathlib.Path) -> list[str]:
 def cleanup(label_dir: pathlib.Path) -> None:
     """Kill every run listed in the label's ``active/`` directory, and remove the files.
 
-    Each task runner is killed first, so that it cannot write a row for a run that it lost.  A
+    GNU parallel is killed first, if it is still the recorded process, so that it starts no other
+    task, and then each task runner, so that it cannot write a row for a run that it lost.  A
     process is killed only if its start time is the recorded one, and a run's process group only if
     its leader is the recorded process, so that a process that has reused an id is never killed.
     If the leader is gone but members of its group remain, they may belong to a later group that
     reused the id, since nothing tells the two apart: ``cleanup`` lists them, kills none, and keeps
     the record.  An unreadable record is removed, with a note.
     """
+    for path, record in _active_records(label_dir):
+        if path.name == PARALLEL_RECORD and record is not None:
+            killed = _kill_if_same(record["pid"], record["pid_start"], group=False)
+            print(f"GNU parallel: {'killed it' if killed else 'it had already ended'}")
+            path.unlink(missing_ok=True)
+    # listed again, after GNU parallel, which may have started a task meanwhile
     for path, record in _active_records(label_dir):
         if record is None:
             print(

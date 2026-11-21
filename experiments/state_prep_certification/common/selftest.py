@@ -857,6 +857,33 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_cleanup_parallel(directory: pathlib.Path, node: bool) -> None:
+    """After a hard kill of run_node.py, its GNU parallel is live until --cleanup kills it."""
+    run_node = _run_node_module()
+    stand_in = [sys.executable, "-c", "import time; time.sleep(53.25)"]  # for GNU parallel
+    script = (
+        f"import pathlib, sys; sys.path.insert(0, {str(RUN_NODE.parent)!r}); import run_node; "
+        f"run_node.run_parallel(pathlib.Path({str(directory)!r}), {stand_in!r})"
+    )
+    record = directory / "active" / run_node.PARALLEL_RECORD
+    process = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.DEVNULL)
+    try:
+        _wait_for(lambda: process.poll() is not None or record.exists())
+        assert record.exists(), "no record of GNU parallel"
+        process.kill()
+        process.wait()
+        assert _processes_matching("time.sleep(53.25)")
+        assert run_node.live_runs(directory) == [run_node.PARALLEL_RECORD]
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_node.cleanup(directory)
+        time.sleep(1)
+        assert not _processes_matching("time.sleep(53.25)"), "GNU parallel survived --cleanup"
+        assert not list((directory / "active").iterdir())
+    finally:
+        _kill(process)
+
+
+@test
 def test_cleanup_reused_ids(directory: pathlib.Path, node: bool) -> None:
     """--cleanup never kills a process that has reused a recorded id, even as a group's id."""
     from experiments.state_prep_certification.common import runner
