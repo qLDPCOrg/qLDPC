@@ -3,7 +3,8 @@
 ## 1. Purpose and scope
 
 The Brouwer-Zimmermann (BZ) algorithm computes the distance of a classical code ([arXiv:1603.06757](https://arxiv.org/abs/1603.06757)), and has been adapted to quantum codes ([arXiv:2408.10743](https://arxiv.org/abs/2408.10743)).
-This guide explains how qLDPC computes exact distances of binary codes with BZ, and how it counts logical operators ([Section 3.11](#311-counting-logical-operators)), for contributors who need to understand, debug, or modify the BZ code in this directory.
+This guide, in this file and [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), is for contributors who need to understand, debug, or modify the BZ code in this directory.
+It explains how qLDPC computes exact distances of binary codes with BZ, and how it counts logical operators ([Section 3.11](#311-counting-logical-operators)).
 [connected_cluster.md](connected_cluster.md) describes another exact search, for codes with sparse checks.
 
 - [Section 2](#2-the-brouwer-zimmermann-algorithm) explains BZ as published, including its adaptation to quantum codes.
@@ -75,14 +76,14 @@ v|_I = a\,G_I[:,I] = a\,I_r = a,
 $$
 
 so `wt(v) ≥ wt(v|_I) = wt(a)`: the coefficient weight of a word in `G_I` bounds its weight.
-**Searching a basis through weight `t`** means examining every XOR of at most `t` of its rows.
+**Searching a basis through weight `t`** means examining every XOR of at most `t` of its rows; each XOR that a search examines is a **candidate**.
 After searching `G_I` through weight `t`, every unexamined word `v` therefore has `wt(v) ≥ wt(v|_I) ≥ t+1`.
 
 ### 2.4 Search bases and rank-deficient blocks
 
 BZ searches a **disjoint family** of `m` **search bases** `G_1, ..., G_m` of `V`, each row reduced on its own **block** `B_i` of columns, with the blocks pairwise disjoint.
 The blocks are chosen greedily: `B_1` is an information set, `B_2` an information set among the other columns, and so on, and any columns that contain no further information set form one last block, of rank less than `r`.
-Once qLDPC has taken `2^r - 1` information sets ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)), it leaves any remaining columns out.
+Once qLDPC has taken `2^r - 1` information sets, it leaves any remaining columns out ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models) gives the reason).
 
 If `B_i` has rank `r_i`, row reducing on `B_i` gives a basis `G_i` of `V` whose first `r_i` rows, the **pivot rows**, have distinct pivot columns in `B_i`, and whose other rows are zero on `B_i`.
 A word `v` of coefficient weight at least `t+1` in `G_i` selects at least `t + 1 - (r - r_i)` pivot rows, each of which contributes a distinct one to `v|_{B_i}`, so
@@ -109,11 +110,11 @@ It bounds only unexamined words, so it can exceed the distance, and once `L(t) �
 BZ is therefore the following loop:
 
 1. Build the search bases `G_1, ..., G_m` from disjoint blocks, as in [Section 2.4](#24-search-bases-and-rank-deficient-blocks).
-2. Find the lightest eligible row among the rows of the search bases, which gives an initial `U`.
-3. For `t = 1, 2, ...`, examine every selection of `t` rows in each search basis, lowering `U` whenever a lighter eligible word is found.
-   Then compute `L(t)`, and stop if `L(t) ≥ U`.
+2. Examine layer one, the rows of the search bases, and let `U` be the weight of the lightest eligible row.
+3. For `t = 1, 2, ...`, compute `L(t)`, and stop if `L(t) ≥ U`.
+   Otherwise examine every selection of `t + 1` rows in each search basis, lowering `U` whenever a lighter eligible word is found.
 
-The search terminates with the exact distance, at the latest after `t = r`, when every nonzero word has been examined.
+The search terminates with the exact distance, at the latest after layer `r`, when every nonzero word has been examined.
 Algorithm 1 of [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) gives this loop and this certificate for disjoint and rank-deficient blocks.
 
 The certificate can also advance within a layer.
@@ -131,7 +132,7 @@ Stopping within a layer can save most of the last layer, which often dominates t
 Grassl notes this improvement in footnote 2 of his chapter, on page 295 of *Discovering Mathematics with Magma*, and Magma uses it.
 Equation (5) of Lisoněk and Trummer gives the same certificate.
 
-The cost of a search is counted in **candidate/set evaluations**, examinations of one selection of rows in one basis ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
+The cost of a search is counted in **candidate/set evaluations**, examinations of one candidate in one search basis, which code comments and `brouwer_zimmermann_code.md` call a **set** for short ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
 
 ### 2.6 Excluding stabilizers
 
@@ -172,8 +173,7 @@ qLDPC goes beyond [Section 2](#2-the-brouwer-zimmermann-algorithm) as follows; e
 
 An information set has `r` columns, so a disjoint family has at most `floor(N / r)` of them, and the other columns form at most one rank-deficient block, which can add little or nothing to `L(t) = Σ_i b_i(t)` ([Section 3.8](#38-worked-example) gives an example).
 An **overlapping family of search bases** lets blocks share columns, so it can hold more information sets, but a column in several blocks then counts in several terms `b_i(t)`.
-Distance searches and counts build overlapping families in `get_overlapping_family` and `get_partitioned_family` ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
-In [_tuning.py](_tuning.py), `overlapping_minimum_work` at `MAX_VALUE` turns off the first, and `partition_max_coverage` at one restricts the second to disjoint families.
+Distance searches and counts build overlapping families in `get_overlapping_family` and `get_partitioned_family` ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models), which also names the tuning fields that decide whether they are built and how large they grow).
 
 #### The certificate
 
@@ -195,9 +195,15 @@ Grassl's chapter (page 291 and Algorithm 2.5, see [References](#references)) cre
 Proposition 5 of Lisoněk and Trummer gives the coverage-divided certificate for blocks of equal bounds `t+1`, and its proof covers the different bounds of rank-deficient blocks and of steps within a layer.
 [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) mentions the overlapping case in its Section 2, citing Grassl, without a formula.
 Neither Zimmermann's certificate nor the coverage-divided one dominates the other.
-Relaxing the coordinates of an unexamined word `v` to `0 ≤ x_c ≤ 1` bounds `wt(v)` below by the optimum of the linear program that minimizes `Σ_c x_c` subject to `Σ_{c ∈ B_i} x_c ≥ b_i(t)` for each `i`.
-That optimum is at least both certificates, and can exceed them when coverage is uneven.
-On 14 distance searches and two counts at the defaults, and on 12 of these searches and one count with the program in every search of an overlapping family, it never changed the work or the lower bound of a layer, so qLDPC does not solve it.
+A linear program gives a third bound.
+It minimizes `Σ_c x_c` over real `0 ≤ x_c ≤ 1` subject to `Σ_{c ∈ B_i} x_c ≥ b_i(t)` for each `i`.
+The coordinates of an unexamined word `v` satisfy these constraints, so `wt(v)` is at least the optimum.
+That optimum, rounded up to an integer, is at least both certificates, and can exceed them when coverage is uneven.
+An earlier version of qLDPC solved the program, but qLDPC no longer does, since the program never changed the work or the lower bound of a layer in either group of searches measured:
+
+- 14 distance searches and two counts at that version's defaults, which solved the program only in searches whose estimated work reached a threshold;
+- 12 of those distance searches and one count, with the program solved in every search that used an overlapping family.
+
 This guide at commit 0870f6a derives the program's bound and works an example in which it beats both certificates ([A certificate from linear programming](https://github.com/qLDPCOrg/qLDPC/blob/0870f6ac5273aa9544490a4835868c4da691a75c/src/qldpc/codes/distance/brouwer_zimmermann.md#a-certificate-from-linear-programming)).
 
 #### Families for coset searches
@@ -223,8 +229,10 @@ Parity does carry over: if `V` is even, every word of `u + V` has the parity of 
 So a coset search of an even code rounds each bound up to that parity, which it reads from the word of the coset's syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)), and uses no other rounding:
 
 - A search of the X or Z parts of errors, which searches the cosets of a classical code, rounds when that code is even.
-- A search of Pauli errors by their CSS weight `max(|x|, |z|)` rounds when the words `[x | z]` of its code are even, and bounds the CSS weight by half its bound on the Hamming weight of `[x | z]`, rounded up, after rounding to parity.
-  Until it has visited every word, each step of [Section 2.5](#25-the-stopping-certificate) raises its Hamming bound by at most one, so the halved bound of the step at which a query stops early is exactly its maximum weight plus one, with or without parity.
+- A search of Pauli errors by their CSS weight `max(|x|, |z|)` rounds when the words `[x | z]` of its code are even.
+  It first rounds its bound on the Hamming weight of `[x | z]` up to the coset's parity, and then bounds the CSS weight by half that bound, rounded up.
+  Until it has visited every word, each step of [Section 2.5](#25-the-stopping-certificate) raises its Hamming bound by at most one.
+  So, with or without parity, the first step whose halved bound exceeds the query's maximum weight has a halved bound of exactly that maximum weight plus one, unless it is the step that visits every word.
   Rounding can still stop a query of an odd coset sooner: once its Hamming bound reaches twice the maximum weight, rather than exceeds it.
 - A search of Pauli errors by their physical weight does not round, since every word `T(x, z)` is even, and rounding up to an even integer does not change the half, rounded up.
 
@@ -252,7 +260,8 @@ Every row operation `G' = EG` that builds a search basis must also give `M' = EM
 
 ### 3.5 Packed enumeration with pivot-column deletion
 
-Packing stores a word of `N` coordinates in `ceil(N/64)` 64-bit machine words, so that an XOR costs one operation per machine word and a weight is a population count ([arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2)).
+Packing stores a word in `ceil(N_stored/64)` 64-bit machine words, so that an XOR costs one operation per machine word and a weight is a population count ([arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2)).
+Here `N_stored`, unlike `N` ([Section 2.2](#22-the-idea-upper-bounds-and-lower-certificates)), counts every column of the stored basis, even all-zero ones.
 A search enumerates the **supports** of a layer, its sets of selected row indices, in lexicographic order.
 Consecutive supports share their first rows, whose XOR is computed once, so extending a support costs one XOR of a row, following the saved additions of [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2).
 
@@ -261,13 +270,11 @@ In `G_i`, each pivot row has a one in its own pivot column of `B_i`, and the oth
 The support alone determines that count, so qLDPC deletes the pivot columns before packing, and weighs a word as its pivot ones plus the population count of its **tail**, its restriction to the remaining columns.
 For example, with `r = 2` and rows `1 0 | 1 1` and `0 1 | 1 0`, the support `{0, 1}` has the tail `0 1` and the weight `2 + 1 = 3` of the full word `1 1 0 1`.
 
-Deletion shrinks a stored row from `ceil(N_stored/64)` to `ceil((N_stored - r_i)/64)` machine words, where `N_stored`, unlike `N` ([Section 2.2](#22-the-idea-upper-bounds-and-lower-certificates)), counts every column of the stored basis, even all-zero ones.
+Deletion shrinks a stored row from `ceil(N_stored/64)` to `ceil((N_stored - r_i)/64)` machine words.
 With `N_stored ≤ 64`, as in [Section 3.8](#38-worked-example), a row takes at most one machine word either way.
-For wide rows the ratio is about `N_stored / (N_stored - r_i)`: about two for an information set of an X sector whose Z checks `H_z` have rank near `N_stored/2`, since `r = N_stored - rank(H_z)`.
-Rounding can move it either way: deleting 65 pivots of 129 columns leaves one machine word of three.
-These are counts of packed words, not speedups, since label XORs, comparisons with `U`, and loop overhead do not shrink.
+Deletion saves packed words, not time in proportion, since label XORs, comparisons with `U`, and loop overhead do not shrink.
 
-Coset searches by Hamming weight also weigh words by their tails, in the queries that they predict to examine many words ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
+Coset searches by Hamming weight ([Terms](README.md#terms) in README.md) also weigh words by their tails, in the queries that they predict to examine many words ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
 The offset of a search basis is zero on its pivot columns ([Section 3.1](#31-overlapping-search-bases)), so the count of pivot ones still holds, and the tail keeps every remaining column, even one on which no row has a one, since an offset can have ones there.
 
 ### 3.6 Work estimates and exhaustive enumeration
@@ -282,10 +289,10 @@ $$
 It is pessimistic, since it assumes that no lighter witness turns up, and it is not a runtime guarantee, since runtime also depends on building the bases and on the width of packed words.
 The estimate of a coset query at maximum weight `ω` sums from layer zero, the offset, to the first step whose bound exceeds `ω`, and, like the query, omits the rank-deficient bases that add nothing to that bound.
 If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)), and otherwise at most that many.
-A distance search on threads computes its estimates from `U` after whole layers, never from the measured counts of a split layer, as "Decide only from what a layer leaves the same on any number of threads" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements) requires.
+A distance search on threads computes its estimates from `U` after whole layers, never from the measured counts of a layer split across threads ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)).
+This keeps the requirement "Decide only from what a layer leaves the same on any number of threads" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements).
 
 Exhaustive enumeration, which `method="brute_force"` runs instead of BZ, examines all `(2^q - 1) * 2^(r-q)` eligible words, for `q = dim(V/S)`, in vectorized, packed batches updated by Gray-code steps.
-A batch holds at most `2^enumeration_batch_exponent` packed 64-bit integers, or one word if a word needs more.
 For classical codes of low dimension whose distance is a large fraction of their length, it can cost less than the setup and work of BZ.
 Algorithm 2.11 of Grassl's chapter (page 300) makes this choice itself, by comparing the work estimate of BZ with the number of codewords of the code or of its dual.
 
@@ -296,8 +303,10 @@ Such a group lets a search certify with many information sets while scanning onl
 
 #### The certificate of an automorphism family
 
-An **automorphism** of a problem is a permutation `g` of the coordinates that maps `V` and `S` onto themselves, and so maps eligible words to eligible words of the same weight, and an information set `I` to an information set `g(I)`.
-qLDPC supplies only permutation automorphisms of a code, which permute qudits and apply no single-qudit gates, lifted for a Pauli problem alike to the three parts `x`, `z`, and `x+z` of `T` in [Section 2.7](#27-pauli-weight-as-hamming-weight).
+An **automorphism** of a problem is a permutation `g` of the coordinates that maps `V` and `S` onto themselves.
+It therefore maps eligible words to eligible words of the same weight, and an information set `I` to an information set `g(I)`.
+qLDPC supplies only permutation automorphisms of a code, which permute bits or qubits and apply no single-qubit gates.
+For a Pauli problem, it applies the same permutation of the qubits to each of the three parts `x`, `z`, and `x+z` of `T` in [Section 2.7](#27-pauli-weight-as-hamming-weight).
 A permutation that exchanges a qubit's coordinates among those parts applies a single-qubit Clifford gate; it can also satisfy the definition, and the certificate below holds for it, but qLDPC never supplies one.
 For a group `Γ` of automorphisms, the images `g(I)` for `g ∈ Γ` form an **automorphism family**.
 
@@ -315,64 +324,87 @@ L(t) = \left\lceil (t+1) \min_O \frac{|O|}{|I \cap O|} \right\rceil
 $$
 
 over the orbits that meet `I`.
-It is strongest when every orbit meets `I` in the same share, `r/N`, as a single orbit does, or the two halves of a multivariate bicycle code with `r/2` columns of `I` in each.
+It is strongest when every orbit `O` has the same **share** `|I ∩ O| / |O|`, which is then `r/N`: for example, when there is a single orbit, or when the orbits are the two halves of a multivariate bicycle code and `I` has `r/2` columns in each.
 Then `L(t) = ceil(N(t+1)/r)`, which no coverage-divided certificate of a family of information sets beats, since `m` sets of maximum coverage `C` have `m r ≤ C N`.
 
 #### Choosing the scanned set
 
-qLDPC row reduces on the nonzero columns in natural order, then exchanges pivots between orbits while an exchange can move a pivot from an orbit of the largest share to one that stays emptier; pivoting a row on another column with a one in that row gives another information set.
-For two orbits, the exchanges reach the least largest share of any information set: they stop once the emptier orbit's own pivot columns span all of its columns, or one more pivot would make it at least as full.
-In the first case, no information set has more pivots in the emptier orbit, so none has fewer in the fuller one; in the second, any set with fewer there gives the emptier orbit at least the scanned set's largest share.
+By the formula above, the certificate grows as the **largest share** of `I`, `max_O |I ∩ O| / |O|`, falls.
+qLDPC row reduces on the nonzero columns in natural order, and then exchanges pivots to lower the largest share.
+An exchange pivots a row on another column with a one in that row, which gives another information set.
+Let `O` be the orbit of the largest share, the one with the least column if several tie.
+qLDPC looks for a row whose pivot lies in `O` and that has a one in a column of another orbit.
+It pivots that row on that column only if the share of the other orbit after the exchange would be less than the current share of `O`.
+After each exchange, it finds `O` again, and it repeats until no such exchange is possible.
+For two orbits, the exchanges end at an information set whose largest share is the least of any information set.
+Call the other orbit `E`, whose share is at most that of `O`.
+The exchanges end in one of two cases, and in each no information set does better:
+
+1. The pivot columns in `E` span all of its columns.
+   Then no information set has more columns in `E`, so none has fewer in `O`.
+2. One more pivot in `E` would give it a share at least that of `O`.
+   Then any information set with fewer columns in `O` has more in `E`, whose share is then at least the largest share that the exchanges reached.
+
 With more orbits, the exchanges are a heuristic.
 
 #### When a search uses an automorphism family
 
 Finding automorphisms, verifying them, and building their family can cost more than a whole easy search, and before a light witness turns up, the estimate of [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) cannot tell whether a search is easy.
-So a search starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases), and asks for automorphisms at most once:
+So the search of each sector starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases), and asks for automorphisms at most once:
 
-- before matroid partitioning ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)), if partitioning may try some coverage, the search's estimated work passes the gate `partition_work_ratio`, and some partitioned family could do less work than the search's current family;
+- before matroid partitioning, if the search would try it ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models));
 - otherwise, before the first layer that would cost at least `automorphism_minimum_layer_work` evaluations.
 
 A search asks before partitioning because switching would discard the partitioned family.
 It then skips partitioning if the automorphism family would do no more work than any partitioned family could, and considers switching at the end of setup.
-It switches if the work estimate of the automorphism family is less than the work that its current family has left from its next layer, and then scans the new set from layer two.
-Both estimates depend on `U`, so a search that declines reconsiders before a later such layer once `U` has dropped; at the same `U`, the work left in its family only falls, so it would decline again.
-The switch keeps both certificates: an eligible word lighter than `U` is unexamined by both families, so both bounds hold for it, and the search takes the larger, while the witnesses of the first family still count in `U`.
+When it considers switching, it first weighs the rows of `G_I`, its layer one, which may lower `U`.
+It switches if the work estimate of the automorphism family is less than the work that its current family has left from its next layer, and then scans `G_I` from layer two.
+Both estimates depend on `U`.
+At the same `U`, the work left in the current family only falls, so a search that declines would decline again.
+So a search that declines reconsiders only before a later layer of at least `automorphism_minimum_layer_work` evaluations, and only if `U` has dropped since it declined.
+The switch keeps the bound that the first family has reached.
+An eligible word lighter than `U` is unexamined by both families, so both bounds hold for it, and the search takes the larger.
+The witnesses that the first family found still count in `U`.
 On threads, this decision must keep the requirement "Decide only from what a layer leaves the same on any number of threads" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements).
 
-Once a search has verified automorphisms, the images under `Γ` of the blocks of its current family also bound unexamined words lighter than `U`, through a linear program over the orbits of `Γ` whose optimum is at least the family's certificate.
-After a switch, the images of the blocks of both families give one such program, whose optimum is at least either certificate.
-Theorem 3.10 of White's thesis ([References](#references)) bounds unexamined words with the images of windows of cycles of automorphisms in a related way.
-On 14 default distance searches, the bound of the current family never changed the work of a layer, and on default searches of about 80 CSS codes, the bound of both families never ended a search sooner than the larger certificate, so searches compute neither.
+Once a search has verified automorphisms, the images under `Γ` of the blocks of its current family could also bound the unexamined words lighter than `U`, through a linear program over the orbits of `Γ`.
+Its optimum, rounded up to a multiple of the search's weight divisor, is at least the family's certificate.
+After a switch, the images of the blocks of both families could give one such program, whose rounded optimum is at least either certificate.
+Theorem 3.10 of White's thesis ([References](#references)) gives a bound of this kind from the images of windows of cycles of automorphisms.
+Searches solve neither program.
+On 14 default distance searches, the bound from the program for the current family never changed the work of a layer.
+On default searches of about 80 CSS codes, the bound from the program for both families never ended a search sooner than the larger certificate.
 This guide at commit 0870f6a derives these bounds and compares them with White's theorem ([Images of the blocks of a family](https://github.com/qLDPCOrg/qLDPC/blob/0870f6ac5273aa9544490a4835868c4da691a75c/src/qldpc/codes/distance/brouwer_zimmermann.md#images-of-the-blocks-of-a-family)).
 
 #### Where automorphisms come from
 
 With the optional `pybliss` package, bliss searches the parity checks of a binary classical or quantum code for automorphisms.
-With or without `pybliss`, the class of the code can supply generators of automorphisms that its construction provides.
-For a quantum code, the class can also supply other sets of checks that span the same space, through `QuditCode._get_permutation_automorphism_search_matrices`, so that bliss can find automorphisms that do not map parity checks to parity checks.
+For a quantum code, the class of the code can also supply other sets of checks that span the same space, through `QuditCode._get_permutation_automorphism_search_matrices`.
+Bliss can then find automorphisms that do not map parity checks to parity checks.
 `QTCode`, for example, supplies its canonical local checks where they are few enough.
 Bliss finds the automorphisms of the Tanner graph of each set, whose edges are colored by the Pauli operators of the checks.
 These Tanner-graph automorphisms permute the checks and leave their Paulis unchanged, so they preserve the stabilizers, gauge operators, and logical operators, and for a CSS code those of each sector.
 They form a subgroup of the automorphisms of the code, which suffices, since any group of automorphisms gives a sound certificate.
-Quantum code classes supply the generators of their construction through `QuditCode._get_permutation_automorphisms`, such as the translations of the group of an `MBCode`.
-Searches use these generators together with those that bliss finds.
-Bliss finds only automorphisms of the Tanner graphs of the sets of checks that it searches, so it can miss the generators of a construction.
 For a classical code, bliss searches only the parity check matrix, whose automorphisms permute checks and bits.
-Classical code classes supply generators through `ClassicalCode._get_permutation_automorphisms`.
+
+With or without `pybliss`, the class of the code can supply generators of automorphisms that its construction provides.
+Quantum code classes supply them through `QuditCode._get_permutation_automorphisms`, such as the translations of the group of an `MBCode`, and classical code classes through `ClassicalCode._get_permutation_automorphisms`.
+Bliss finds only automorphisms of the Tanner graphs of the sets of checks that it searches, so it can miss these generators.
 A cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
+Searches use these generators together with those that bliss finds.
+
 A wrong generator would make the certificate unsound, so a search first checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
-A BZ distance search uses automorphisms to certify from the images of one information set, once it switches to an automorphism family.
-The BZ count scan of [Section 3.11](#311-counting-logical-operators) does not use automorphisms: it counts each word individually and does not track orbit sizes.
 For a general Pauli problem, a permutation of qubits moves the three thirds of the coordinates of `T` ([Section 2.7](#27-pauli-weight-as-hamming-weight)) alike, and `T` commutes with it, so verifying the lifted permutation checks the original one.
 
 ### 3.8 Worked example
 
-One CSS sector of the MB64 code of the test suite ([_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py)) has 64 coordinates and dimension `r = 41`, a lightest eligible row of weight eight, so initially `U = 8`, and only even words, so `D = 2`.
+Take the X sector of the 64-qubit `MBCode` of `test_a_search_of_an_mb_code_takes_overlapping_sets` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py).
+It has 64 coordinates and dimension `r = 41`.
+Its lightest eligible row has weight eight, so initially `U = 8`, and all its words are even, so `D = 2`.
 
-A disjoint family holds `floor(64/41) = 1` information set, and the rank-deficient block of the other columns adds nothing to `L(t)` for `t ≤ 17`.
-So `L(t) = t + 1`, and the search stops after layer six, when `L(6) = 7` rounds up to eight.
-An overlapping family of `m = 3` information sets with `C = 2` reaches `L(4) = ceil(3·5/2) = 8` after layer four, even before rounding.
+A disjoint family holds `floor(64/41) = 1` information set, and the rank-deficient block of the other columns adds nothing to `L(t)` for `t ≤ 17`, so `prune_family` drops it ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
+Then `L(t) = t + 1`, and the search stops after layer six, when `L(6) = 7` rounds up to eight.
+An overlapping family of `m = 3` information sets with `C = 2`, for example, reaches `L(4) = ceil(3·5/2) = 8` after layer four, even before rounding.
 Within a layer ([Section 2.5](#25-the-stopping-certificate)), qLDPC stops sooner: after the first search basis of layer four, the bound `ceil((5+4+4)/2) = 7` rounds up to eight.
 
 | Family | Last layer | Candidate/set evaluations in layers two and above |
@@ -385,10 +417,11 @@ The counts leave out layer one, whose rows give the initial `U`, and the cost of
 ### 3.9 Skipping completions by completion tables
 
 The layers that a search scans last dominate its cost, and most of their words weigh far more than `U`.
-For example, certifying distance eighteen for the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) with an automorphism family scans layer eight of a basis of `r = 150` rows, which has `binom(150, 8)`, about `5 × 10^12`, supports.
+For example, the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) has dimension `r = 150`.
+So in each of its search bases, the layer of eight rows has `binom(150, 8)` supports, about `5 × 10^12`.
 qLDPC skips whole groups of supports when a lower bound read from **completion tables** proves that none of their words is lighter than `U`.
 A distance search can build tables for each search basis whose block is an information set, such as the one set of an automorphism family, if they pay (see "When a search uses the tables" below).
-Coset searches by Hamming weight use them too, in their costly queries, even in search bases that are not information sets.
+Coset searches by Hamming weight use them too, in the queries that they predict to examine many words ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)), even in search bases whose blocks are not information sets.
 
 #### The bound
 
@@ -436,10 +469,16 @@ A coset query of maximum weight `ω` skips with the limit `h(ω)` of "Coset sear
 
 #### Coset searches
 
-The costly queries of a coset search by Hamming weight ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)) skip completions by tables in layers of two or more rows.
-The scan seeds every prefix with the tail `o` of the offset ([Section 3.1](#31-overlapping-search-bases)), so the tables bound `wt(o + p + P_i + P_j)`; they cover the tail columns up to the last on which a row has a one, and ones of `o` beyond it only weaken the bound.
-The search basis need not be an information set, and its pivot rows come first, so a completion's pivot ones are those of its prefix's rows below the rank of the basis, plus at least `max(0, 2 - d)` from its last two rows, where `d` is the basis's rank deficiency.
-The bound adds this count to `B` in place of `w`, which it equals for an information set.
+In a coset search by Hamming weight, the queries that the search predicts to examine many words ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)) skip completions by tables in layers of two or more rows.
+The scan seeds every prefix with the tail `o` of the offset ([Section 3.1](#31-overlapping-search-bases)), so the tables bound `wt(o + p + P_i + P_j)`.
+The tables cover the tail columns up to the last on which a row has a one.
+Ones of `o` beyond that column only weaken the bound.
+The block of the search basis need not be an information set.
+If the block has rank `r_i`, the first `r_i` rows of the search basis are its pivot rows ([Section 2.4](#24-search-bases-and-rank-deficient-blocks)).
+The word of a support has one pivot one for each pivot row in the support, and none for the other rows of the support ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)).
+So a completion has one pivot one for each pivot row of its prefix.
+The pair of rows that completes the prefix adds at least `max(0, 2 - (r - r_i))` more, since only `r - r_i` rows are not pivot rows.
+The bound adds the sum of these two counts to `B` in place of `w`; for an information set, that sum is `w`.
 
 A query of maximum weight `ω` skips the completions whose bound reaches `h(ω)`, the least bound that proves a word of the coset heavier than `ω`.
 With the **weight factor** `η` of [Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules), two in a search of Pauli errors and one in a search of X or Z parts, `h(ω)` is `η ω + 1`, or `η ω` if the search rounds to the parity of the coset and `η ω` has the other parity.
@@ -455,11 +494,12 @@ A search for the minimum weight of a coset skips at `h(ω)` too until it finds a
 
 #### When a search uses the tables
 
-A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), or with `scan_set_items` on several threads ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)), with tables only for an information set; in a basis of deficient rank, it counts pivot ones only for rows below its rank, as coset searches do.
-A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), and chooses tables as a distance search does (below) for each of its steps of two or more rows of an information set, with `_StepTables`.
+Distance searches and counts use completion tables only on search bases whose blocks are information sets.
+A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), or with `scan_set_items` on several threads ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)).
+A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), and its `_StepTables` choose tables for each of its steps `(t, j)` with `t ≥ 2`, by the same four rules as a distance search (below).
 
 Tables cost memory, a build, and lookups, and save only the supports that they skip, so they pay on large layers where they skip many supports, but not on small layers or in easy searches.
-The share that they skip depends on the code, the scanned set, and the order of its rows, so tables can pay on one layer and not on a layer of the same size of another code.
+The share that they skip depends on the code, the scanned search basis, and the order of its rows, so tables can pay on one layer and not on a layer of the same size of another code.
 They save at most a constant factor in a layer, since the scan still looks up a bound for each prefix, and prefixes grow like supports for fixed `w/r`; nor do they reduce the number of layers.
 So, just before scanning a search basis in a layer, a search:
 
@@ -473,17 +513,20 @@ On threads, this choice must keep the requirement "Decide only from what a layer
 Tables use blocks of `completion_bound_block_bits` columns, and a basis whose tables would exceed `completion_bound_max_table_bytes` gets none.
 A distance search keeps the tables of one basis at a time, for its later layers, and drops them before another basis chooses tables or when its family changes, so a search whose layers scan several bases rebuilds their tables in each layer, which the prediction counts.
 A joint search can hold twice `completion_bound_max_table_bytes`, half for each sector, until it finishes.
-Within `completion_bound_max_table_bytes`, a count keeps the tables of the sets that it has used, besides those that it is building, and rebuilds them in each layer when they do not all fit.
+Within `completion_bound_max_table_bytes`, a count keeps the tables of the search bases that it has used, besides those that it is building, and rebuilds them in each layer when they do not all fit.
 
 ### 3.10 Minimum weights of cosets
 
 The residual-weight estimator of `qldpc.experimental` needs the minimum weight of each coset that it meets, up to a maximum weight `ω`, or `ω + 1` for a coset without a word within `ω`.
 Queries at increasing maximum weights would each repeat the scan of the one before, so the coset searches find this weight with one search.
 The search keeps `U`, the lesser of `ω + 1` and the weight of the lightest word found so far, starting from the word of its syndrome ([Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)).
-It stops after the first step whose bound reaches `U`, or within a step once `U` is at most the bound of the step before, since every unvisited word then weighs at least `U`; `U` is then the minimum weight, if it is at most `ω`.
-It finds that step as a query does, moves it earlier whenever `U` falls, and skips the search bases that add nothing to its bound, which add nothing to an earlier bound either.
+It stops after the first step whose bound reaches `U`.
+It also stops within a step once `U` is at most the bound of the step before, since every unvisited word then weighs at least `U`.
+`U` is then the minimum weight, if it is at most `ω`.
+The search finds its stopping step, the first step whose bound reaches `U`, by a binary search of the steps, and moves that step earlier whenever `U` falls.
+It skips the search bases that add nothing to its bound, and these add nothing to any earlier bound either.
 It uses the family and the completion tables of a query at `min(ω, n)`, for `n` qubits ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)), and since it stops no later than that query, those tables cover every layer that it scans.
-Batches run these searches on several threads at once, so they cache no stopping step in the shared planning buffer, as "Keep coset queries reproducible" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements) requires.
+Batches run these searches on several threads at once, so they cache no stopping step in the planning buffer that queries share ([Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)), as "Keep coset queries reproducible" of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements) requires.
 
 In a search by Hamming weight, the scans keep only the words lighter than an **incumbent**: `h(ω)` of [Section 3.9](#39-skipping-completions-by-completion-tables) until the search finds a word within `ω`, and then `η U`, the Hamming weight of the lightest word.
 In a search of Pauli errors by physical weight, whose words `T(x, z)` are all even, and of X or Z parts of an even code, every word of the coset has the parity of `η U`, so scans then lower the incumbent to `η U - 1`, keeping the same words and letting tables skip more.
@@ -498,6 +541,7 @@ For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then
 `CSSLogicalCounter` of [logical_counts.py](logical_counts.py) counts the nontrivial logical operators of a given weight `t` in a binary CSS code, where `t` is by default the distance `d`.
 Its BZ method, which `"auto"` takes, scans each sector in layers of a family of search bases, but stops and skips only as Sections [3.9](#39-skipping-completions-by-completion-tables) and [5](brouwer_zimmermann_code.md#5-correctness-requirements) allow, so that it visits every eligible word of weight `t`.
 A word lies in the layer of its coefficient weight in each search basis, so one step visits it first, and only that step counts it.
+A count uses no automorphisms, since it counts each word individually and does not track orbit sizes.
 The X and Z sectors of a self-dual code, whose X and Z checks span the same space, are equal.
 So a counter scans only one of them if it knows the code to be self-dual: if it was built from such checks, or deformed from such a counter by a gate that acts alike on X and Z.
 [problems.md](problems.md#the-macwilliams-method) explains the MacWilliams method, which counts from the weight distributions of the checks.
@@ -520,7 +564,7 @@ Above `d`, an operator need not have the support of a nontrivial X or Z logical,
 A local CSS-preserving Clifford gate maps the X part of an operator on its target qubits by an invertible binary matrix `matrix_x`, and the Z part by `(matrix_x^-1)^T`, which preserves commutation.
 So the gate maps the gauge operators, stabilizers, and sectors of a code onto those of the deformed code, and a basis of a sector, row by row, to a basis of the new sector with the same quotient labels ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)).
 For each basis family that a counter keeps, the deformed counter reduces each mapped search basis again on the pivot columns of its block, with its labels.
-If every search basis keeps its rank there, the family keeps its blocks, ranks, and coverage, and so its certificate; otherwise the counter builds the family again.
+If every search basis keeps its rank there, the family keeps its blocks, ranks, and coverage; otherwise the counter builds the family again.
 A gate can change the parity of words, so the counter infers the weight divisor of [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) again.
 It can also change the distance and the weights of check words, so the counter searches for the distance again, and the MacWilliams method recomputes the weight distributions of the checks.
 
@@ -531,5 +575,4 @@ It can also change the distance and the weights of check words, so the counter s
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 the coverage-divided certificate, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - G. White, *Enumeration-Based Algorithms in Linear Coding Theory*, PhD thesis, University of Sydney, 2006: Section 3.3 and Theorem 3.10 (pages 81-84) bound the weight of unexamined words of a code with known automorphisms by a sum over disjoint sets of columns: one term for each chosen cycle of an automorphism longer than `r`, from the images of a window of the cycle within an information set, rounded up on its own, and the usual terms on the other sets ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
-- [distances.py](distances.py), [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [coset_leaders.py](coset_leaders.py), [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py), [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py), [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py), [_cosets.py](_cosets.py), [min_weight_bounds.py](min_weight_bounds.py), [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), [_brouwer_zimmermann/affine_instance.py](_brouwer_zimmermann/affine_instance.py), [_information_sets/basis_families.py](_information_sets/basis_families.py), [_information_sets/certificates.py](_information_sets/certificates.py), [_information_sets/support_stepping.py](_information_sets/support_stepping.py), [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), [_information_sets/matroid_partition.py](_information_sets/matroid_partition.py), [logical_counts.py](logical_counts.py), [_counting/scan.py](_counting/scan.py), [_brute_force.py](_brute_force.py), [_code_matrices.py](_code_matrices.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
-- [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py), [coset_leaders_test.py](coset_leaders_test.py), [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py), [_brouwer_zimmermann/coset_tables_test.py](_brouwer_zimmermann/coset_tables_test.py), [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py), [_cosets_test.py](_cosets_test.py), [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py), [_brouwer_zimmermann/affine_instance_test.py](_brouwer_zimmermann/affine_instance_test.py), [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py), [_information_sets/certificates_test.py](_information_sets/certificates_test.py), [_information_sets/support_stepping_test.py](_information_sets/support_stepping_test.py), [_information_sets/automorphism_families_test.py](_information_sets/automorphism_families_test.py), [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py), [logical_counts_test.py](logical_counts_test.py), [_counting/scan_test.py](_counting/scan_test.py), and [distances_test.py](distances_test.py): executable invariants and independent small-instance oracles.
+- The implementation and its tests: "[Where to look](README.md#where-to-look)" in README.md names the module of each part, and the end of [Section 5](brouwer_zimmermann_code.md#5-correctness-requirements) names the tests that check the requirements.

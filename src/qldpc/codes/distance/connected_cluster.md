@@ -5,9 +5,9 @@
 The connected-cluster search computes the exact distance of a binary code from the Tanner graph of its parity checks.
 The code can be classical, CSS, or a qubit code that is not CSS, and a quantum code can be a subsystem code.
 The search is `method="connected_cluster"` of `get_distance_exact` on the code classes.
-The default, `method="auto"`, runs it for the distances of quantum codes and the fault distances of circuits, unless enumerating every word is cheap.
-`"auto"` switches to Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) when BZ is predicted to cost less (section "Choosing a method" of [problems.md](problems.md#choosing-a-method)).
+The default, `method="auto"`, runs it for most distance searches of quantum codes and circuits, and may switch to Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)); the section "Choosing a method" of [problems.md](problems.md#choosing-a-method) says when.
 The connected-cluster search also finds light vectors with a given syndrome for `CosetLeaderSearch`, which `certify_bounded_fault_propagation` uses.
+
 The search is the connected-cluster algorithm of Dumer, Kovalev, and Pryadko, and later works cite their 2017 paper for it (see the [references](#references)).
 Its earliest known application to quantum codes is the linked-cluster technique of Kovalev, Dumer, and Pryadko (2013), for the distances of quantum LDPC codes.
 Dumer, Kovalev, and Pryadko (2014) then grew each cluster through the checks that it leaves unsatisfied, as qLDPC does.
@@ -17,19 +17,20 @@ G. Lee (Appendix C.4) takes the roots from general groups of automorphisms of th
 Related searches of classical LDPC codes look for small stopping sets and low-weight codewords: those of Richter, of Rosnes and Ytrehus, and of Khatami et al.
 The method's name, `"connected_cluster"`, follows `dist-m4ri`, the program of Pryadko and Zeng, which calls the search the "connected-cluster (CC) algorithm" of Dumer, Kovalev, and Pryadko.
 Webster, Jacob, and Higgott (Section 4.3.2) note that it is "also referred to as the irreducible cluster or linked cluster algorithm".
+
 This guide says what the cost of the search depends on ([Section 2](#2-what-the-cost-of-the-search-depends-on)), explains the algorithm and the techniques that it does not use ([Section 3](#3-the-algorithm)), maps it to the source code ([Section 4](#4-guide-to-the-source-code)), and lists what every change must preserve ([Section 5](#5-correctness-requirements)).
 
 ## 2. What the cost of the search depends on
 
 The search grows supports, sets of variables (the columns of the check matrix `H`), from a root variable, and adds variables only through unsatisfied checks, those that hold an odd number of the variables of the support ([Section 3.3](#33-the-depth-first-search)).
-Such a check offers at most `w - 1` further variables, where `w` is the largest weight of a check, so a search for words of weight at most `W` visits at most of the order of `(w - 1)^(W - 1)` supports from each root, fewer once pruning ([Section 3.4](#34-pruning)) cuts subtrees.
+Such a check offers at most `q - 1` further variables, where `q` is the largest weight of a check.
+So a search for words of weight at most `W` visits at most of the order of `(q - 1)^(W - 1)` supports from each root, and fewer once pruning ([Section 3.4](#34-pruning)) cuts subtrees.
 The cost thus grows with the weight of the checks, with `W`, and with the number of roots, which symmetries reduce ([Section 3.5](#35-symmetries)).
 The search raises `W` until it finds a nontrivial word ([Section 3.6](#36-from-a-search-to-the-distance)), each limit costing roughly a constant factor more than the last, so dense checks, whose factor is large, make the search slow unless the distance is small.
 Checks much lighter than the distance, as in surface codes, also slow the search: a support can leave few checks unsatisfied yet need many more variables, so the bounds of Section 3.4 prune little.
 
 The stabilizers that `get_distance_css` and `get_distance_pauli` derive for a subsystem code can be much heavier than its lightest stabilizer generators ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
-A caller who knows sparse stabilizer generators can search them as given.
-For a CSS subsystem code with Z-type stabilizer generators `S_Z` and X-type gauge generators `G_X`, `get_distance_from_checks(S_Z, G_X, method="connected_cluster")` gives the dressed X-distance; passing X-type stabilizers in place of `G_X` would count gauge operators that are not stabilizers as logical operators.
+A caller who knows sparse stabilizer generators can search them as given with `get_distance_from_checks`, whose docstring says which matrices to pass.
 
 A code that is not CSS costs more to search than an equivalent CSS code: each qubit of a check offers two Paulis that flip the check, and a `Y` can flip more checks, which weakens the bounds ([Section 3.7](#37-qubit-codes-that-are-not-css)).
 So `get_distance_pauli` searches checks as a CSS code whenever X-type and Z-type operators generate their group, even if the checks mix X and Z, but searches a code that is CSS only up to local Cliffords, such as a CSS code with Hadamards on some qubits, as a code that is not CSS.
@@ -52,11 +53,12 @@ $$
 Coordinates are **variables**, and the rows of `H` are **checks**.
 The **support** of a vector is the set of its nonzero variables, and its **syndrome** is the set of its **unsatisfied** checks, those with an odd number of variables in the support.
 
-A CSS code with X-type checks `H_X` and Z-type checks `H_Z` has two **sectors**, each an instance of this problem: its X-type logical operators, of distance `d(H_Z, H_X)`, and its Z-type ones, of distance `d(H_X, H_Z)`.
-Its distance is the smaller of the two.
-For a CSS subsystem code with gauge generators `G_X` and `G_Z` and stabilizers `S_X` and `S_Z`, the sectors are `(S_Z, G_X)` and `(S_X, G_Z)`, and a witness is a dressed logical operator.
-If `_search_css` finds a qubit permutation that maps each sector onto the other, the search takes the X sector alone.
-It finds only the identity and, with pybliss, permutations that map the nonzero rows of `G_X`, as listed, one to one onto those of `G_Z` and back, where `G_X = H_X` and `G_Z = H_Z` for a stabilizer code (section "Searching one sector of a CSS code" of [problems.md](problems.md#searching-one-sector-of-a-css-code)).
+A CSS code with X-type checks `H_X` and Z-type checks `H_Z` has two **sectors**, each the words of an instance of this problem.
+The X sector is `ker(H_Z)`, the words of `(H_Z, H_X)`, and the Z sector is `ker(H_X)`, the words of `(H_X, H_Z)`.
+The witnesses of the two sectors are the X-type and the Z-type logical operators of the code.
+The distance of the code is the smaller of `d(H_Z, H_X)` and `d(H_X, H_Z)`.
+For a CSS subsystem code with gauge generators `G_X` and `G_Z` and stabilizers `S_X` and `S_Z`, the sectors are the words of the instances `(S_Z, G_X)` and `(S_X, G_Z)`, and a witness is a dressed logical operator.
+If `get_sector_map` of `_sector_maps.py` finds a qubit permutation that maps each sector onto the other, `_search_css` searches the X sector alone (section "Searching one sector of a CSS code" of [problems.md](problems.md#searching-one-sector-of-a-css-code)).
 For a classical code, `H` is its parity-check matrix and `G` is empty, and the search has one sector.
 [Section 3.7](#37-qubit-codes-that-are-not-css) treats qubit codes that are not CSS, whose search also has one sector.
 
@@ -134,29 +136,37 @@ The search also forbids variables by a rule that holds only for one witness, cho
 Order the witnesses of minimum weight by their supports, each listed in increasing rank, compared lexicographically, and call the least one the **canonical** witness `x*`.
 Let `g` be a **known word**: a row of `G`, which is in `rowspan(G)`, so that `x + g` is a witness whenever `x` is.
 Then `wt(x + g) = wt(x) + |g| - 2|x ∩ g|`, so a witness `x` with `|x ∩ g| > |g|/2` is not of minimum weight.
-If `|x* ∩ g| = |g|/2`, then `x* + g` is another witness of minimum weight, which differs from `x*` only on the support of `g`; if `x*` lacked the lowest-ranked variable `u` of `g`, then `x* + g` would hold it and agree with `x*` on every variable of lower rank, so `x* + g` would come first.
-So `x*` holds `u`, and in either case `2|x* ∩ (g \ {u})| ≤ |g| - 1`.
+If `|x* ∩ g| = |g|/2`, then `x* + g` is another witness of minimum weight, which differs from `x*` only on the support of `g`.
+If `x*` lacked the lowest-ranked variable `u` of `g`, then `x* + g` would hold it and agree with `x*` on every variable of lower rank, so `x* + g` would come first.
+So in a tie, `x*` holds `u`.
+Whether `|x* ∩ g|` is below `|g|/2` or equal to it, `2|x* ∩ (g \ {u})| ≤ |g| - 1`.
 If `|g|` is odd, a stronger rule needs no tie to break: `2|x ∩ g| ≤ |g|` gives `2|x ∩ g| ≤ |g| - 1` for every witness `x` of minimum weight, `u` included, as in Qubitserf ([references](#references)).
 The **load** of a support `S` on a known word `g` is `2|S ∩ g|` if `|g|` is odd, and `2|S ∩ (g \ {u})|` otherwise, and `S` **passes** the cut of `g` if its load is at most the **capacity** `|g| - 1`.
 So `x*` passes every cut.
 The search forbids each variable that would raise the load of the support on `g` above the capacity, until the load drops.
-The load of a state is at most that of any witness that extends it, so no variable of `x*` is forbidden at a state `S ⊊ supp(x*)`, and the completeness argument of [Section 3.3](#33-the-depth-first-search), applied to `x*`, still holds; since `x*` has the lowest-ranked least variable of all witnesses of minimum weight, the argument of [Section 3.5](#35-symmetries) applies to it too.
-Since `x*` is never cut along its path, its completion from each such state uses only available variables, so the bounds and the forbidding of variables that are not viable, above, still keep its states.
+The load of a state is at most that of any witness that extends it, so no variable of `x*` is forbidden at a state `S ⊊ supp(x*)`.
+The completeness argument of [Section 3.3](#33-the-depth-first-search), applied to `x*`, therefore still holds.
+Since the lowest-ranked variable of `x*` ranks no higher than that of any other witness of minimum weight, the argument of [Section 3.5](#35-symmetries) applies to it too.
+Since `x*` is never cut along its path, its completion from each state `S ⊊ supp(x*)` on the path uses only available variables.
+So the bounds and the forbidding of variables that are not viable, above, still keep the states on the path of `x*`.
 The same argument applies to any lightest witness that passes every cut, and the search visits only supports that pass every cut.
 So at any limit `W` at least the distance, the search finds a witness, though not necessarily a lightest one if `W` exceeds the distance.
 At `W` equal to the distance, a root finds a witness exactly if it is the lowest-ranked variable of a lightest witness that passes every cut.
 Below the distance, there is nothing to find.
 A support within the limit has a load of at most `2W` on any word, so the search skips words with a capacity of at least `2W`.
 Setting `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py` to `False` turns these cuts off, and the search stays exact.
+The argument above holds for the cuts of any subset of the known words, so the search also stays exact with only some of them.
+The search leaves out the cuts of known words of weight at most one.
 
 For a CSS code, the known words of the search of X-type logical operators are its X-type stabilizer generators, and those of a subsystem code its gauge generators.
 The distance search of a classical code has no known words, since its `G` is empty, so the cuts change nothing there.
 The search for the distance of a vector from a classical code (see "The distance of a vector from a classical code" in [Section 3.8](#38-vectors-with-a-given-syndrome)) excludes the rows of the generator matrix of the code, which are rows of `G`, so it cuts by them, and the argument above applies.
-The half-overlap rule is a property of minimum-weight vectors of a coset; the search programs Qubitserf (`cpp/distfind/cc.cpp`, which also leaves out the first variable of each even word), QEDist (`cssdist/native_css/exact.cpp`), public-regular-logical-frames (`src/lp_exclusion.cpp`) of J. Y. Lee, and tropidist (`cdist/gmitm.c`) prune by it ([references](#references)).
-The cuts made the searches of surface, toric, and color codes, whose stabilizers are much lighter than their distances, visit about 4 to over 1000 times fewer states, and those of bivariate bicycle codes up to 3 times fewer.
-For pair-partition and quantum Tanner codes, the cuts changed the number of states visited by at most about 5 percent, and for lifted-product codes by up to about a quarter either way.
+The half-overlap rule is a property of minimum-weight vectors of a coset.
+The search programs Qubitserf, QEDist, public-regular-logical-frames of J. Y. Lee, and tropidist prune by it ([references](#references)).
+The stabilizers of surface, toric, and color codes are much lighter than their distances, and the cuts made the searches of these codes visit about 4 to over 1000 times fewer states.
+The cuts made the searches of bivariate bicycle codes visit up to 3 times fewer states.
+They changed the searches of pair-partition, quantum Tanner, and lifted-product codes much less, and could make them slightly slower.
 At its last limit, the search stops at its first witness, and the cuts can forbid that witness, so that the search goes on to a later one.
-The searches of these three families took up to several percent longer.
 
 **Sums of pairs of checks.**
 A distance search also adds sums of two of its checks to its checks, and sums of two of its known words to its known words, as Qubitserf and DistQLDPC do ([references](#references)).
@@ -173,18 +183,13 @@ A sum is no heavier than the heavier of its two checks only if the two share at 
 The search weighs the sum of each pair of checks that share a variable by counting the variables that they share and those on which they agree, without forming the sum.
 It takes these sums lightest first, until their total weight would exceed that of the checks, so that each state examines at most about twice as many entries of checks.
 It chooses sums of known words in the same way, but sums only the known words no heavier than the heaviest check.
-In a CSS code, the known words of each sector are the checks or gauge generators of the other sector.
-But the rows of the generator matrix that the distance of a vector from a classical code excludes can be dense.
-Finding their sums can cost far more than the search, and the cut of a word cuts only within limits above about half its weight.
-Qubitserf adds sums only if every check weighs at most 16 and there are at most 512 checks on at most 2048 variables, and stops at four times as many rows as checks, or at 2048 rows.
-The connected-cluster engine of DistQLDPC adds them by default, up to four times as many sums as checks.
-The sums made the searches of quantum Tanner codes visit 5 to 8 times fewer states and take 2 to 4 times less time, the most for one with Hadamards on half of its qubits, which is not CSS.
-They made the searches of some random codes with dense checks, CSS and not, take about a sixth to two fifths less time.
-They made the search of the `[[47, 1, 11]]` quantum quadratic-residue code visit about a third fewer states, but take about a third longer.
-They made the searches of color codes visit up to about 40 percent fewer states, and changed their time by under about a millisecond either way: about as long for the code of distance 9, and about a tenth less for the code of distance 13.
+Known words can be dense, such as the rows of the generator matrix in the search for the distance of a vector from a classical code, above.
+Finding the sums of dense words can cost far more than the search, and the cut of a word can forbid variables only at limits above about half its weight.
+The sums made the searches of quantum Tanner codes visit 5 to 8 times fewer states and take 2 to 4 times less time.
+The gains were largest for a quantum Tanner code with Hadamards on half of its qubits, a code that is not CSS.
+On random codes with dense checks, and on color, surface, and quantum quadratic-residue codes, they changed the time much less, and could make a search slower although it visited fewer states.
 Without the bound on their total weight, the searches of quantum Tanner codes were faster still, but those of codes with dense checks took up to about 7 times longer.
 Two checks of a bivariate bicycle or pair-partition code, or of a toric code, share too few variables for a light sum, so their searches do not change.
-Surface codes have a few light sums at their boundaries, which changed their searches by about one percent in states and under a millisecond in time.
 Setting `pair_sum_checks` of `SearchTuning` in `_tuning.py` to `False` turns the sums off, and the search stays exact.
 
 Every pruning rule must also keep the requirements on threads of [Section 5](#5-correctness-requirements), since threads search a costly weight limit by rebuilding each state from its path, and answer several syndrome queries of one search at once ([Section 3.11](#311-threads)).
@@ -208,7 +213,6 @@ qLDPC takes the orbits of any group of automorphisms that it verifies.
 The generators of `Γ` are automorphisms that the caller of a distance function supplies on request, such as the `_known_permutation_automorphisms` of binary classical and quantum codes.
 For a large code, finding the automorphisms, verifying them, and ordering their orbits can cost as much as visiting many states.
 So the search of each sector asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
-That field of `SearchTuning` in `_tuning.py` defaults to a round number of states assumed to cost about as much to visit as asking.
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
 These numbers are those of one thread on any number of threads, and a prediction must read nothing that depends on the threads ([Sections 3.11](#311-threads) and [5](#5-correctness-requirements)).
 The search predicts rather than counts because it can ask only between limits, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
@@ -248,6 +252,8 @@ A search that needs more limits than the sum of these over its sectors has a bug
 A keyboard interrupt cannot stop a compiled call, and takes effect after it, as a `KeyboardInterrupt` or a `SystemError` that it caused.
 A distance search runs each weight limit in chunks: compiled calls that each count at most `2**search_chunk_exponent` states, for the field `search_chunk_exponent` of `SearchTuning` in `_tuning.py`, and that stop and go on as [Section 3.11](#311-threads) says.
 So an interrupt takes effect once the chunk of each thread ends, which takes a fraction of a second at the default.
+Before a limit splits across threads, the calling thread chooses the work items of its threads in passes ("Choosing the frontier" in [Section 3.11](#311-threads)).
+Each pass is one compiled call with no limit on its states, so an interrupt waits for the current pass.
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs in one compiled call, so an interrupt waits for the query to end.
 
 ### 3.7 Qubit codes that are not CSS
@@ -314,7 +320,10 @@ The cuts can change which solution a query returns, but not whether the query fi
 **Sums of pairs of checks.**
 The sums of checks of [Section 3.4](#34-pruning) carry over to queries: every vector of `ker(H)` satisfies a sum of two checks, so the completeness argument above holds with it among the checks, and its syndrome bit is the sum of those of its two checks, which a query adds to its syndrome.
 So a `SupportSearch` with `pair_sum_checks` adds them to its queries too, but not the sums of known words, which only its distance searches use.
-The coset searches of `CosetLeaderSearch` add no sums: they made batches of queries on states of the gross code, whose sparser stabilizers have light sums, visit 2 to 3.5 times more states and take 3 to 4.5 times as long, and saved no time on the other codes that we timed.
+The coset searches of `CosetLeaderSearch` add no sums.
+On stabilizer states of the gross code, the [[144,12,12]] bivariate bicycle code, the sparser checks of a coset search (below) have light sums.
+Adding these sums made batches of queries visit 2 to 3.5 times more states and take 3 to 4.5 times as long.
+The sums saved no time on the other codes tried.
 
 The roots, the forbidding of variables of lower rank than the root, the symmetries, the weight divisor, and the logical test of a distance search do not carry over: the nonzero syndrome gives the empty state a check to branch on, a syndrome is not invariant under the symmetries of the code, the weights of the solutions need not share a divisor, and every solution counts.
 
@@ -365,8 +374,10 @@ Otherwise the search is limited to weight `wt(v)`, and a search that finds no wi
 
 The distance search of a subsystem code needs checks whose row space is its stabilizer group ([Section 3.1](#31-the-problem)).
 `get_distance_css` and `get_distance_pauli` derive a basis of that group, the **derived basis**, from the gauge generators by row reduction; it can be much heavier than the lightest generators of the group.
-For example, in the rotated toric code on 256 qubits with one logical qubit made a gauge qubit, the plaquettes, of weight 4, generate the stabilizer group, but the derived basis has a mean weight of about 15 and rows of weight up to 46, so its search branches on many more variables at each state ([Section 2](#2-what-the-cost-of-the-search-depends-on)).
-So with `method="connected_cluster"`, these functions give the search two sets of checks:
+For example, take the rotated toric code on 256 qubits with one logical qubit made a gauge qubit.
+Its plaquettes, of weight 4, generate the stabilizer group, but the derived basis has rows of weight up to about ten times the weight of a plaquette.
+A search with the derived basis therefore branches on many more variables at each state ([Section 2](#2-what-the-cost-of-the-search-depends-on)).
+So whenever these functions run a connected-cluster search, with `method="connected_cluster"` or within `method="auto"`, they give it two sets of checks:
 
 - the gauge generators that commute with every gauge generator, which are stabilizers, as given, with any redundant rows, but without those heavier than every row of the second set;
 - the derived basis, made sparser by `get_sparser_rows` ([Section 3.8](#38-vectors-with-a-given-syndrome)) in up to `max_distance_sparsifying_rounds` rounds, which `sparsifying_rounds_without_improvement` can end sooner.
@@ -401,11 +412,10 @@ QEDist adds weight greedily to up to 16 unsatisfied checks.
 Each time, it moves the excess of each overloaded variable onto the first satisfied check with room.
 It also searches a bounded number of steps for more disjoint checks.
 A trial in qLDPC started from the weights `y_c = 1/m_c` and moved the excess weight in the same way.
-It visited about 3 times fewer states on the [[144,12,12]] and [[288,12,18]] bivariate bicycle codes, about 1.3 to 1.9 times fewer on quantum Tanner and pair-partition codes, and about 1.1 to 1.3 times fewer on surface, toric, and color codes.
+It visited up to about 3 times fewer states.
 The search for disjoint checks alone would have removed under a tenth of the states.
 But a run of the bound visits the satisfied checks of every overloaded variable, which costs several states on codes with heavy checks.
-So the searches took about 1.2 to 1.4 times less time on the two bivariate bicycle codes.
-But they took about 1.8 times longer on a quantum Tanner code, 1.5 times longer on a pair-partition code, 1.2 times longer on a larger one, and about 1.1 times longer on a color code.
+So the searches of the [[144,12,12]] and [[288,12,18]] bivariate bicycle codes took less time, and those of quantum Tanner, pair-partition, and color codes took up to about 1.8 times longer.
 Other variants of the trial pruned more on some codes, but none was faster than qLDPC's search on the quantum Tanner or color code.
 
 **Erasure bound.**
@@ -419,8 +429,7 @@ A hash of the checks lets them try every other variable, and every pair of them,
 Unlike the bounds of Section 3.4, the erasure bound also uses the checks that the support satisfies.
 A trial in qLDPC visited up to about 15 times fewer states with it.
 But each run of the bound cost about as much as 10 states.
-So the searches took about a quarter longer on a quantum Tanner code and on the [[288,12,18]] bivariate bicycle code, and up to about 2.5 times longer on pair-partition codes and on syndrome queries.
-They took about a third less time only on the [[144,12,12]] bivariate bicycle (gross) code and a color code, which took a few hundredths of a second.
+So most searches took longer, up to about 2.5 times as long, and only the short searches of the [[144,12,12]] bivariate bicycle (gross) code and a color code took less time.
 
 **Forbidding the only available symbol of a satisfied check.**
 A completion holds an even number of the symbols that flip a check that the support satisfies.
@@ -429,10 +438,9 @@ So a completion cannot hold a symbol that is the only available one of such a ch
 Forbidding it can leave another satisfied check with one available symbol, or an unsatisfied check with none, which prunes the state.
 Nearly all such checks arise at states that allow only viable symbols, where a pass over the checks of the allowed symbols finds them.
 A trial in qLDPC ran this pass, and its closure, at those states.
-It visited about 1.2 to 1.9 times fewer states on bivariate bicycle, quantum Tanner, pair-partition, and color codes, and on searches of pair-partition codes that are not CSS.
+It visited up to about 1.9 times fewer states on bivariate bicycle, quantum Tanner, pair-partition, and color codes, and on searches of pair-partition codes that are not CSS.
 But the states that it removed were mostly ones that the search would have left at once, since adding the forbidden symbol leaves the check unsatisfied with no available symbol.
-So the searches took about the same time on the bivariate bicycle and color codes and on a small pair-partition code.
-They took about 1.05 to 1.15 times longer on a quantum Tanner code, on a larger pair-partition code, and on searches of pair-partition codes that are not CSS.
+So the searches took about the same time, or up to about 1.15 times as long.
 
 **Pairs that one variable could replace.**
 tropidist forbids a variable that, with a variable of the support, a single variable could replace ([references](#references)).
@@ -444,7 +452,7 @@ A syndrome query could use any word of `ker(H)` of weight 3.
 A search with the values of [Section 3.7](#37-qubit-codes-that-are-not-css) could also use a word of weight 2, whose qubits replace a symbol on each by one symbol on one of them.
 In binary problems, the rule is the overlap cut of [Section 3.4](#34-pruning) by a known word of weight 3 that is not a row of `G`.
 The distance search of a classical code has no such words, since its `G` is empty.
-A count found none of weight 3 in the surface, toric, color, bivariate bicycle, generalized bicycle, pair-partition, quantum Tanner, and quantum Golay codes that we timed, in their sectors, their searches with Hadamards on some qubits, and their queries on the encoded state `|0…0⟩`.
+A count found none of weight 3 in the surface, toric, color, bivariate bicycle, generalized bicycle, pair-partition, quantum Tanner, and quantum Golay codes tried, in their sectors, their searches with Hadamards on some qubits, and their queries on the encoded state `|0…0⟩`.
 A CSS code whose stabilizers all have even weights, as these do, has none in `rowspan(G)` in any case.
 Only the surface codes have words of weight 2, their boundary stabilizers, which are rows of `G` and so already cut in binary problems.
 So the rule would change none of these searches except the searches and queries of surface codes with the values of Section 3.7, and qLDPC does not use it.
@@ -452,7 +460,7 @@ So the rule would change none of these searches except the searches and queries 
 **Lookups of the last variables.**
 dist-m4ri and Qubitserf look up the last one or two variables of a support in a table of syndromes ([references](#references)).
 With the bounds and the overlap cuts of [Section 3.4](#34-pruning), states with room for at most two more variables were observed to be few of the states that a search visits.
-Lookups of one or two variables were tried on the codes of `experiments/distance_tuning/workloads.py` and on the surface, toric, color, bivariate bicycle, pair-partition, and quantum Tanner codes that we timed.
+Lookups of one or two variables were tried on the codes of `experiments/distance_tuning/workloads.py` and on the surface, toric, color, bivariate bicycle, pair-partition, and quantum Tanner codes.
 They saved no measurable time.
 
 **Best-first search.**
@@ -460,14 +468,15 @@ qLDPC raises the weight limit one divisor at a time, and searches each limit dep
 This is iterative deepening, and with the bound `⌈Y⌉`, it is the iterative-deepening form of A*.
 The decoder Tesseract and the search of Banfi et al. instead expand states in the order of the cost of `S` plus such a bound ([references](#references)).
 The cost of `S` is `|S|` for unit costs.
+qLDPC does not use such a search, since the predictions of [Section 3.5](#35-symmetries), `method="auto"`, interrupts ([Section 3.6](#36-from-a-search-to-the-distance)), and the split of a limit across threads ([Section 3.11](#311-threads)) rely on the depth-first search of each limit.
+Nor would it reliably visit fewer states on slow searches.
 Any such search must still expand every state that the last limit without a witness visits.
 So it can save at most the states of the other limits: the lower ones, and the one that finds a witness.
-On the slower searches that we measured, these were about half of the states of a quantum Tanner code, a quarter of those of the [[288,12,18]] bivariate bicycle code and of a search of a pair-partition code that is not CSS, and a tenth of those of the search of a larger pair-partition code that is CSS.
+On the slower searches tried, these were from about a tenth to about half of the states.
 Estimates for qLDPC's search found that best-first variants would visit about 0.6 to 2.5 times as many states as it does on these slower searches.
 The reason is that they lose part of the forbidding of variables that are not viable, which depends on the limit.
 They would also keep millions of states in memory.
-On surface, toric, and color codes, whose searches take hundredths of a second, they would visit about 0.1 to 0.5 times as many states.
-Best-first variants would also replace the depth-first search of each limit, on which the predictions of [Section 3.5](#35-symmetries), `method="auto"`, interrupts ([Section 3.6](#36-from-a-search-to-the-distance)), and the split of a limit across threads ([Section 3.11](#311-threads)) rely, so qLDPC does not use them.
+They would visit many fewer states only on searches that are already short, such as those of surface, toric, and color codes.
 
 ### 3.11 Threads
 
@@ -476,15 +485,16 @@ The overlap cuts ([Section 3.4](#34-pruning)) are among these tables: a distance
 The threads give the same witness and count of states as a search on one thread, so that the decisions that depend on them, such as when to ask for symmetries ([Section 3.5](#35-symmetries)), the growth of the states, and the switch of `method="auto"` (section "Choosing a method" of [problems.md](problems.md#choosing-a-method)), do not depend on the number of threads.
 
 **Work items.**
-The **frontier** at depth `F` is the set of the states with `F` symbols that the search enters, and the frontier at depth 0 is the set of roots.
+The **frontier** at depth `D` is the set of the states with `D` symbols that the search enters, and the frontier at depth 0 is the set of roots.
 A **work item** is a state of the frontier with its subtree, and is named by its root and by the branch, counting from zero, that each state on its path takes.
-In DFS order, the items partition the states of at least `F` symbols, and the other states are **above** the frontier.
+In DFS order, the items partition the states of at least `D` symbols, and the other states are **above** the frontier.
 
 **Replay.**
 A thread searches an item by replaying its path from the root: at each state of the path, it marks the earlier siblings of the next state as tried, and takes the next state.
 What the search has forbidden, blocked, and loaded at a state depends only on the state's path, its earlier siblings, and the forbidden symbols of the root, since the search undoes what a state forbade, blocked, and loaded on the overlap cuts ([Sections 3.4](#34-pruning) and [3.7](#37-qubit-codes-that-are-not-css)) when it leaves the state.
 Once the search leaves the subtree of an earlier sibling, the sibling's net effect is only that its symbol stays tried, even if the bound `b1` skipped its state.
-So the replay rebuilds the forbidden and blocked symbols, the restrictions, and the loads exactly as one thread has them, and the thread then searches the subtree of the item as one thread does, until it goes back above the frontier.
+So the replay rebuilds the forbidden and blocked symbols, including those that are not viable, and the loads, exactly as one thread has them.
+The thread then searches the subtree of the item as one thread does, until it goes back above the frontier.
 
 **Chunks.**
 A compiled call of the search stops once it has counted a chunk of states, outside the replay of a path, just before a state takes its next branch, so that it returns to Python often, on one thread and on threads ([Section 3.6](#36-from-a-search-to-the-distance)).
@@ -516,7 +526,8 @@ The search returns the witness of the first item that has one, or else the witne
 It counts the states above the frontier before that witness in DFS order, the states of the earlier items, and the states of the item of the witness up to the witness, which is the count of one thread; without a witness, it counts every state.
 
 **When to split.**
-A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `(num_threads << search_chunk_exponent) >> connected_cluster_split_shift` states, by default a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)), since a state costs far more than a support.
+A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `(num_threads << search_chunk_exponent) >> connected_cluster_split_shift` states.
+By default, that is a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)), since a state costs far more than a support.
 A split costs up to about a millisecond for each thread, in its frontier passes, the calls that search its items, and the start of the threads.
 At the default exponent and shift, the gate is 8192 states for each thread, about one to a dozen milliseconds of work, so a limit that splits is predicted to cost at least about as much as its split; a limit that finds its witness early can cost less.
 Raising `connected_cluster_split_shift` lets smaller limits split; lowering `search_chunk_exponent` does too, but also shortens chunks.
@@ -525,7 +536,8 @@ A first limit that a `cutoff` sets above the divisor is predicted to visit `MAX_
 
 **Syndrome queries.**
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs on one thread.
-The batch queries of `CosetLeaderSearch` instead move the rest of a batch to threads, by syndromes, once their queries on the calling thread have visited `num_threads * 2**search_chunk_exponent` states, and give the answers of one thread (section "The coset-leader search" of [problems.md](problems.md#the-coset-leader-search)).
+The batch queries of `CosetLeaderSearch` instead move the rest of a costly batch to threads, by syndromes, and give the answers of one thread (section "The coset-leader search" of [problems.md](problems.md#the-coset-leader-search)).
+The comment of `search_chunk_exponent` in `_tuning.py` says when a batch moves, and in which units its queries count their work.
 A coset search tabulates the overlap cuts of its queries when it is built or given words, so the threads of a batch only read the search.
 
 ## 4. Guide to the source code
@@ -535,27 +547,27 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_cluster` |
-| Sectors of a CSS code | `_search_css` of `distances.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_code_matrices.py` |
+| Sectors of a CSS code | `_search_css` of `distances.py`, which `get_distance_css` and `get_distance_pauli` call, `get_css_stabilizers` of `_code_matrices.py`, and `get_sector_map` of `_sector_maps.py`, which can leave one sector to search |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `distances.py` |
 | Problems of Section 3.7, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
-| Distance over several sectors | `get_distance_connected_cluster`, which advances `ConnectedClusterSearch` one weight limit at a time |
+| Distance over several sectors | `get_distance_connected_cluster`, which advances `ConnectedClusterSearch` one weight limit at a time, as `search_by_cost` of `_auto.py` does for `method="auto"` |
 | Distance of a vector `v` from a classical code with generator matrix `G_C` | `_get_coset_weight` of `distances.py`, which `ClassicalCode.get_distance_exact(vector=v)` calls, and which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one ([Section 3.8](#38-vectors-with-a-given-syndrome)) |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch.find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
-| Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
+| Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, `CosetLeaderSearch` in `coset_leaders.py`, and `MinWeightBound` in `min_weight_bounds.py`, the bound of one query |
 | Sparser checks with the same span | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `distances.py` |
 | Rounds of sparsifying | `max_coset_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `_get_min_weight_bound_and_states`), and `_get_batch_cluster_bound` and `_get_min_cluster_weight` in `_connected_cluster/coset.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `_get_min_weight_bound_and_states`), and `_get_batch_cluster_bound` and `_get_min_cluster_weight` in `_connected_cluster/coset.py`; and `tabulate_singles` of `_cosets.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weight limits on threads: the frontier, work items, replay, claims of one item, ordered commit, and when to split | `_search_on_threads`; `_MAX_ITEMS`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `search_chunk_exponent` and `connected_cluster_split_shift`; `ITEMS_PER_THREAD`, `run_work_items`, and `run_items_until_first` of `_threads.py`; and `num_threads`, `search_chunk_exponent`, and `connected_cluster_split_shift` of `SearchTuning` in `_tuning.py` |
 | Chunks of a weight limit, on one thread and on threads | `_search_in_chunks`, `resume`, `ends`, and `max_states` of `_search_supports`, `chunk_states` of `SupportSearch`, and `search_chunk_exponent` of `SearchTuning` in `_tuning.py` |
 | Batches of syndrome queries on threads | `find_first_cluster_bound` and `get_min_cluster_weights` in `_connected_cluster/coset.py`, which `CosetLeaderSearch` calls; `ConnectedClusterCosetSearch._get_min_weight_bound_and_states`, which counts the work of a query; and `run_blocks` of `_threads.py` |
-| Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
+| Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off; the test of `b1` that skips a child is in `_search_supports` |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
-| Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `summed_pairs` of `SupportSearch` and its `find_vector_with_packed_syndrome`, which maps syndromes to them, its `_known_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
+| Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `_summed_pairs` of `SupportSearch` and its `find_vector_with_packed_syndrome`, which maps syndromes to them, its `_known_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
@@ -564,7 +576,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 Nonbinary codes, `logical_counts.py`, and `get_distance_from_generators` reject `method="connected_cluster"`: counting needs every word of a weight rather than one witness, and generators are not checks.
 Hypergraph product codes get their closed-form distances by searching the classical seed codes with the given method.
 `_search_supports` and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
-`_get_branches` is long and has two call sites, but is inlined too, since that makes each state up to about a tenth cheaper.
+`_get_branches` is long and has two call sites, but is inlined too, for the gain that the comment beside it gives.
 Numba compiles one version of `_search_supports` for each number of 64-bit words of a syndrome up to `_MAX_FIXED_WORDS`, and one for wider syndromes.
 In each fixed version, the loops over the words have a fixed length.
 The argument `fixed_words`, which `_get_fixed_words` makes, selects the version.
@@ -621,13 +633,11 @@ Changes to the search can use other bounds and orders, but must keep these requi
     `run_items_until_first` of `_threads.py` keeps the first item that ends the work under a lock.
     Review checks this.
   - **Call no numba-parallel code on threads, and read the tuning there only from the search.**
-    Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`), and it reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.
-    `test_nothing_asks_numba_for_parallel_code` of `src/qldpc/_compiled_code_rules_test.py` checks that qLDPC compiles none of its own functions numba-parallel.
-    `test_always_compiled_functions_use_nothing_from_outside_qldpc` of `src/qldpc/_compiled_code_rules_test.py` keeps galois's functions out of compiled code.
-    The fixture `check_code_on_threads` of [conftest.py](conftest.py) fails each test of this package whose threads call numba-parallel code from Python, or read the tuning through `get_tuning`.
-    Review checks such calls on paths that tests do not run on threads.
-  - **Build the tables of the overlap cuts on the calling thread before a limit splits or a batch of coset queries runs**, so that threads and queries only read them, and tabulate them again when symmetries change the ranks ([Section 3.11](#311-threads)).
-    `test_limits_cut_with_the_latest_tables_tabulated_before_their_threads` in `_connected_cluster/search_test.py` checks that each limit searches with the latest tables, and `test_connected_cluster_queries_only_read_their_search` in `_connected_cluster/coset_test.py` checks that queries tabulate no cuts.
+    The section "Working here" of [README.md](README.md#working-here) states these rules for the whole package, why they hold, and which tests and reviews check them.
+  - **Build the tables of the overlap cuts on the calling thread before a limit splits or a batch of coset queries runs**, so that threads and queries only read them.
+    Tabulate them again when symmetries change the ranks ([Section 3.11](#311-threads)).
+    `test_limits_cut_with_the_latest_tables_tabulated_before_their_threads` in `_connected_cluster/search_test.py` checks that each limit searches with the latest tables.
+    `test_connected_cluster_queries_only_read_their_search` in `_connected_cluster/coset_test.py` checks that queries tabulate no cuts.
 - **Return the exact minimum unless a cutoff permits an early exit**: the limits rise one divisor at a time, so that the first witness is a lightest one, and an early exit returns the weight of a known witness, an upper bound.
 
 ## References

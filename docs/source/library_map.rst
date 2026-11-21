@@ -136,20 +136,27 @@ Distances across packages
 ``get_distance()`` computes an exact distance and ``get_distance_bound`` a randomized upper bound, and CSS codes also have separate X and Z distances.
 The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
 For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare distance: the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
+
 Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ or, for sparse parity checks, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_, and nonbinary codes use exhaustive enumeration.
-By default, ``method="auto"`` chooses a method for each search: exhaustive enumeration if it is cheap, the Brouwer-Zimmermann search for a classical code, and, for the checks of a quantum code or a circuit, a connected-cluster search that may switch to the Brouwer-Zimmermann search (see :data:`~qldpc.codes.distance.DistanceMethod`).
+By default, ``method="auto"`` chooses a method for each search (see :data:`~qldpc.codes.distance.DistanceMethod`).
+It enumerates every word if that is cheap.
+Otherwise, it takes the Brouwer-Zimmermann search for a classical code and in :func:`~qldpc.codes.distance.get_distance_from_generators`.
+Other searches, such as those of a quantum code or a circuit, start with a connected-cluster search that may switch to the Brouwer-Zimmermann search.
 All exact methods can take exponential time.
 :meth:`QuditCode.get_known_permutation_automorphism_group <qldpc.codes.common.QuditCode.get_known_permutation_automorphism_group>` returns the qudit permutations that a code knows to preserve it: those of its construction, such as the translations of a ``QTCode``, and, with the optional ``pybliss`` package, those that bliss finds.
 :meth:`ClassicalCode.get_known_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_known_permutation_automorphism_group>` does the same for bits, such as the cyclic shifts of a ``CyclicCode``.
 For binary classical and quantum codes, the Brouwer-Zimmermann and connected-cluster searches can use these permutations to search less, and their heuristics decide whether a search asks for them.
-Exact distance searches by the Brouwer-Zimmermann and connected-cluster methods run on several threads.
+
+Costly exact distance searches by the Brouwer-Zimmermann and connected-cluster methods run on several threads.
 So do the costly batch queries of coset-leader searches (:class:`~qldpc.codes.distance.CosetLeaderSearch`), which :func:`qldpc.circuits.certify_bounded_fault_propagation <qldpc.circuits.certification.fault_propagation.certify_bounded_fault_propagation>` and :func:`qldpc.experimental.circuits.estimate_residual_weight_histogram <qldpc.experimental.circuits.benchmarking.residual_weights.estimate_residual_weight_histogram>` run.
 So do the costly fault listings of ``certify_bounded_fault_propagation``.
 :doc:`exact_search_tuning` says how many threads they use by default, and how callers that run searches in process pools or in their own threads should keep each search on one thread.
+
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
 Exact searches choose their routes, such as which optional steps to take, by simple heuristics, and :doc:`exact_search_tuning` leads from symptoms of slow or memory-hungry searches to the settings of these heuristics.
+
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a ``QuditCode`` that is not a ``CSSCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.
@@ -159,6 +166,7 @@ Codes remember the best distance bound that they have computed or been given, an
 With ``num_trials=None``, ``get_distance_bound`` returns the exact distance or best known bound if there is one, and otherwise computes one bound.
 An explicit ``num_trials`` runs that many trials, and never returns a worse bound than the best known one.
 ``forget_distance()`` discards remembered distances and bounds.
+
 :class:`~qldpc.codes.distance.CSSLogicalCounter` and :func:`~qldpc.codes.distance.count_logical_ops_css` count the logical operators of a given weight in a binary CSS code, given its X-type and Z-type checks as binary matrices.
 For a subsystem code, they count dressed logical operators, and the MacWilliams method does not support subsystem codes.
 ``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.

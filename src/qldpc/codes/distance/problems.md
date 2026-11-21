@@ -7,15 +7,16 @@ This guide, for contributors, explains how the package turns problems of [the gr
 
 The distance of a CSS code is the smaller of the distances of its two sectors, so a search of the distance normally searches both.
 Let `G_X` and `G_Z` be the X-type and Z-type gauge generators of the code, which are its checks if it is a stabilizer code, and let `S_X` and `S_Z` be the spaces of its X-type and Z-type stabilizers.
-The X sector holds the words of `S_Z^⊥` outside `rowspan(G_X)`, and the Z sector those of `S_X^⊥` outside `rowspan(G_Z)` (Section 3.1 of `connected_cluster.md`).
+The X sector is `S_Z^⊥`, and its trivial words are those in `rowspan(G_X)`.
+The Z sector is `S_X^⊥`, and its trivial words are those in `rowspan(G_Z)` (Section 3.1 of `connected_cluster.md`).
 `_search_css` in `distances.py` searches only the X sector if it finds a qubit permutation `π` that maps `rowspan(G_X)` onto `rowspan(G_Z)` and `rowspan(G_Z)` onto `rowspan(G_X)`.
-The two sectors then have the same distance, so the result is the same, and so are the meanings of `cutoff` and `upper_bound`, since one sector has a word of a given weight exactly when the other does.
+The two sectors then have the same distance, so the result is the same, and so are the meanings of `cutoff` and `upper_bound`, since one sector has a nontrivial word of a given weight exactly when the other does.
 
 The proof: `π` preserves weights and dot products, so it maps the orthogonal complement of a space onto that of its image.
 The stabilizers are the gauge operators that commute with every gauge operator of the other type, `S_Z = rowspan(G_Z) ∩ rowspan(G_X)^⊥` and `S_X = rowspan(G_X) ∩ rowspan(G_Z)^⊥`.
-So `π(S_Z) = rowspan(G_X) ∩ rowspan(G_Z)^⊥ = S_X`, and `π` maps a word of the X sector, in `S_Z^⊥` but not in `rowspan(G_X)`, to a word in `S_X^⊥` but not in `rowspan(G_Z)`, a word of the Z sector of the same weight.
-The inverse of `π` swaps the row spaces too, and so maps the Z sector into the X sector, which makes the map onto.
-For a stabilizer code, `S_X = rowspan(G_X)` and `S_Z = rowspan(G_Z)`, and the proof is the same.
+So `π(S_Z) = rowspan(G_X) ∩ rowspan(G_Z)^⊥ = S_X`.
+A nontrivial word of the X sector lies in `S_Z^⊥` but not in `rowspan(G_X)`, so `π` maps it to a word of the same weight in `S_X^⊥` but not in `rowspan(G_Z)`: a nontrivial word of the Z sector.
+The inverse of `π` swaps the row spaces too, and so maps the nontrivial words of the Z sector into those of the X sector, which makes the map onto.
 
 Only `_search_css` looks for such a permutation, in the `has_sector_map` that it passes to `_search`.
 It calls `get_sector_map` in `_sector_maps.py`, which finds only two kinds.
@@ -23,21 +24,20 @@ The first is the identity, which swaps the row spaces if they are equal.
 For the second, color the X-type and Z-type gauge generators of the Tanner graph differently.
 With the optional pybliss package, bliss compares the canonical forms of this graph and of the graph with the colors swapped, and an isomorphism between them gives the second kind.
 Such an isomorphism maps the nonzero X-type gauge generators, as listed and counting repeats, one to one onto the nonzero Z-type ones, and the Z-type ones onto the X-type ones, so its permutation of the qubits swaps the row spaces.
-So bliss misses a permutation that swaps the row spaces but does not map the two lists onto each other, as when only one type has a redundant generator, or when the generators of one type are not images of those of the other.
+So bliss misses a permutation that swaps the row spaces but does not map the two multisets onto each other, as when only one type has a redundant generator, or when the generators of one type are not images of those of the other.
 Without pybliss, the lookup finds only the identity.
 A search that misses a permutation searches both sectors, and its result stays the same.
 `maps_sectors` checks every candidate from bliss by rank tests over GF(2) before a search uses it.
-The fixed candidates below skip these tests, since the lookup accepts one only if it maps the two lists onto each other, which already makes it swap the row spaces.
 Brute force never looks, so that it searches each sector as given: it is meant for small codes and for independent checks of the other methods, and `auto` takes it only when enumerating the sectors is cheap.
 
 Cheap necessary tests come before the costly steps.
 Unequal ranks rule out every permutation.
 A few random words of `rowspan(G_Z)` test whether `rowspan(G_X)` may hold `rowspan(G_Z)` before the rank test of the identity, and the weights of the gauge generators and the X-degrees and Z-degrees of the qubits must match under swapped colors before bliss runs.
-If pybliss is installed, the lookup first tries the reversal of the qubits, a cyclic shift by half of them, and a quarter turn of a square grid of qubits, as fixed candidates, and takes the first that maps the two lists of nonzero gauge generators onto each other, as the permutation of an isomorphism that bliss would find does.
+If pybliss is installed, the lookup first tries the reversal of the qubits, a cyclic shift by half of them, and a quarter turn of a square grid of qubits, as fixed candidates, and takes the first that maps the two multisets of nonzero gauge generators onto each other.
 It tries them only with pybliss, since each stands in for a map that bliss would find.
-The reversal maps the lists of bivariate bicycle and generalized bicycle codes onto each other, so for them the lookup does not run bliss.
-The lookup takes milliseconds on codes of hundreds of qubits.
-On codes of thousands of qubits, it takes tens of milliseconds when the cheap tests reject, about a tenth of a second when it ends in the identity, and up to a few tenths of a second when bliss runs.
+These fixed candidates skip the rank tests of `maps_sectors`, since the lookup accepts one only if it maps the two multisets onto each other, which already makes it swap the row spaces.
+For bivariate bicycle and generalized bicycle codes, the reversal maps the two multisets onto each other, so for them the lookup does not run bliss.
+The lookup costs little next to a search, except a cheap search of a large code.
 The switch `sector_maps` of `SearchTuning` turns the lookup off (see the docstring of `_tuning.py`).
 Code classes that promise equal distances with `promise_equal_distance_xz`, such as `BBCode`, search one sector already through `CSSCode.get_distance_exact`; this lookup covers other codes, and the functions that take matrices.
 
@@ -48,7 +48,8 @@ Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qu
 
 ## Choosing a method
 
-Each problem's method type has its own `"auto"`, which chooses among that problem's methods: the coset searches of `CosetLeaderSearch` take the BZ method for it (`_get_coset_search_method` of `coset_leaders.py`), and so do counts (`_get_logical_count_method` of `logical_counts.py`).
+Each problem's method type has its own `"auto"`, which chooses among that problem's methods.
+For the coset searches of `CosetLeaderSearch` and for counts, `"auto"` takes the Brouwer-Zimmermann (BZ) method (`_get_coset_search_method` of `coset_leaders.py` and `_get_logical_count_method` of `logical_counts.py`).
 For distances, `method="auto"` is the default of the distance functions, of `get_distance` and `get_distance_exact` of the code classes, and of `get_fault_distance`.
 It chooses a method for each search, in `_search` of `distances.py`, which every distance function calls.
 A code class that searches other codes, as `HGPCode` searches its seed codes, passes the method down, so each of those searches chooses too.
@@ -61,18 +62,19 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
 2. Otherwise, a search of binary words that excludes no nonzero word, as for a classical code, takes the BZ method, and so does every search of a function that takes generators, since it has no checks.
    A connected-cluster search can be much slower than BZ on classical codes whose checks are only moderately sparse.
 3. Every other search, as of a quantum code or of the faults of a circuit, runs `search_by_cost` in `_auto.py`.
-   It advances a connected-cluster search one weight limit at a time, through `ConnectedClusterSearch`, and counts work in BZ candidate/set evaluations, a state being `connected_cluster_state_evaluations` of them.
+   It advances a connected-cluster search for a witness, a nontrivial word, through `ConnectedClusterSearch`, one weight limit at a time, as [Section 3.6 of connected_cluster.md](connected_cluster.md#36-from-a-search-to-the-distance) describes.
+   It counts work in BZ candidate/set evaluations ([Section 2.5 of brouwer_zimmermann.md](brouwer_zimmermann.md#25-the-stopping-certificate)), a state being `connected_cluster_state_evaluations` of them.
    The expected work of a limit is the work that the search has spent plus the predicted work of that limit.
-   - In its free phase, the search runs on until the expected work of its next limit exceeds `auto_free_work`.
+   - In its free phase, the search runs on until the expected work of its next limit exceeds `auto_free_work`, and its result is the answer if it finishes first.
      Below that, fixed costs that the estimates leave out, such as setup, dominate the costs that a switch would compare.
      `SupportSearch._predict_states` predicts `MAX_VALUE - 1` states for a first limit that `cutoff` raises, so such a limit ends the free phase at once.
    - `_probe` then runs a BZ search by whole layers within `auto_probe_work`.
-     It skips the costlier stages of setup: overlapping and partitioned families.
+     It skips the costliest stages of setup, which build overlapping and partitioned families.
      If the probe finishes, its result is the answer.
      Otherwise, its shared upper bound `U`, the weight of a nontrivial word that it has found or the caller's upper bound if that is less, caps the connected-cluster search, which then stops once its lower bounds reach `U`.
      The search of a sector can hold a lighter witness from its setup, which joins `U` only after the probe advances that search.
    - Before each limit whose expected work exceeds `auto_free_work`, starting with the limit that ended the free phase, `_should_switch` may switch to a BZ search with the full tuning and the upper bound `U`.
-     The level of a limit is the weight that it certifies, one weight divisor above it.
+     The level of a limit is the weight that it certifies, one weight divisor above the limit ("Weight divisor" in [Section 3.6 of connected_cluster.md](connected_cluster.md#36-from-a-search-to-the-distance)).
      The search switches if its spent and projected work to certify the level of its next limit exceeds the estimated work of BZ.
      Otherwise, it switches if its spent and projected work to reach `U` exceeds that of BZ, but only while the search of its next limit grows faster per unit of weight than BZ's would at the level of that limit.
      The projection to `U` extrapolates that growth over every limit below `U`, so it calls for a switch only while the growth test agrees.
@@ -87,14 +89,18 @@ Since `U` is the weight of a nontrivial word or the caller's upper bound, a sear
 When the connected-cluster search switches, a BZ search of the same sectors, in the same order, replaces it, and takes nothing from it but `U`.
 For Pauli strings, that BZ search searches their images under `symplectic_to_hamming` (Section 2.7 of `brouwer_zimmermann.md`) and halves the weight that it finds.
 The tuning of the probe changes only its family of information sets and their certificate, which no result depends on.
-Which method runs can still change which word an early exit at `cutoff` finds, and so can the timing of the threads of a BZ search on several threads.
+Which method runs can still change which word an early exit at `cutoff` finds, as can the timing of the threads of a BZ search ("Returns" of `get_distance_from_generators`).
 
 The estimates are crude.
 The connected-cluster search predicts the states of a limit by `SupportSearch._predict_states` until two successive limits without a witness have visited states from the same number of roots.
 It then extrapolates the states of its last limit without a witness by the growth of its states per unit of weight (`ConnectedClusterSearch.get_growth`).
-`_BrouwerZimmermannCosts` estimates the work of BZ from the rank `r` and width `n` of each basis alone: a family that covers the columns evenly certifies about `(t + 1) n / r` after layer `t`, which scans `C(r, t)` supports of each set.
-It counts one set per layer, as with an automorphism family, which underestimates a family of several sets.
-It also leaves out completion tables, which can skip most supports of a costly layer, so it can overestimate the work of a hard BZ search.
+`_BrouwerZimmermannCosts` estimates the work of BZ from the rank `r` and width `n` of each basis alone.
+It assumes a family that covers the columns evenly, which certifies about `(t + 1) n / r` after layer `t`.
+For `t < r`, no family of information sets certifies more than `ceil((t + 1) n / r)` after layer `t`, before rounding up to a multiple of the weight divisor (Section 3.7 of `brouwer_zimmermann.md`).
+So a search can need more layers than the estimate counts.
+In each layer `t`, the estimate counts the `binom(r, t)` supports of one search basis, as for an automorphism family, whose search scans only one search basis.
+A family of several search bases scans that many supports in each of its bases, so the estimate can also count too few supports in a layer.
+The estimate leaves out completion tables, which can skip most supports of a costly layer, so it can overestimate the work of a hard BZ search.
 To reach `U`, the projection counts half of the states predicted for the limit at weight `U` of the search of the next limit, as for a search that must find a witness of weight `U` itself.
 A search with `U` as its upper bound stops before that limit, so this overestimates the connected-cluster work.
 These two overestimates push the choice in opposite directions, so a refinement that removes one should remove the other.
@@ -127,11 +133,12 @@ A refinement should never make a choice that is much slower, in absolute time, t
 
 ## The coset-leader search
 
-`CosetLeaderSearch` answers each query with one or two coset searches, each over the cosets of a binary code.
-For a single query, each looks up words of weight at most one in a table, then answers with `MinWeightBound`.
+`CosetLeaderSearch` weighs an error by its physical weight, the number of qubits that it acts on, or by its CSS weight `max(|x|, |z|)`, where `x` and `z` are its X and Z parts.
+It answers each query with one or two coset searches, each over the cosets of a binary code.
+For a single query, each coset search first looks up a word of weight at most one with the query's syndrome in a table.
 
 - In general, one search of the Pauli errors, modulo the stabilizers, answers a query.
-- On a CSS state, where pure-X and pure-Z stabilizers generate its stabilizer group, two classical searches answer a query by CSS weight, the larger of the weights of the X and Z parts of an error, on `n` columns each rather than `2n`.
+- On a CSS state, where pure-X and pure-Z stabilizers generate its stabilizer group, two classical searches answer a query by CSS weight, on `n` columns each rather than `2n`.
   The pure-X and pure-Z stabilizers of a state meet only in the identity, so they generate its stabilizer group, of dimension `n`, exactly if their dimensions add up to `n`.
   The X parts of the pure-X stabilizers span a code `C_X`, and the Z parts of the pure-Z stabilizers a code `C_Z`.
   Multiplying an error by a stabilizer adds a word of `C_X` to its X part `x` and, independently, a word of `C_Z` to its Z part `z`, so the smallest CSS weight with a given syndrome is the larger of the smallest weights in `x + C_X` and `z + C_Z`.
@@ -139,22 +146,24 @@ For a single query, each looks up words of weight at most one in a table, then a
   Each pure-Z stabilizer is a product of given stabilizers, so the syndrome bit of `x` for it, which is that of the error, is the sum of the bits of the given syndrome for those factors, and likewise for `z`.
   `get_min_weights` searches the Z part of an error only if its X part is within `max_weight`, with the weight of the X part as the floor of that search.
 
-By default, each coset search is a Brouwer-Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann_code.md`).
+By default, each coset search is a BZ search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the search bases of its code (Section 4.1 of `brouwer_zimmermann_code.md`).
+For a single query, a BZ search by CSS weight on a stabilizer state that is not CSS also looks for the errors `X_i Z_j`, which have CSS weight one.
+It finds them in a table if the table would hold at most `max_css_single_pairs` pairs of syndromes, and otherwise by matching the syndromes of single-qubit X and Z errors (`_weight_one_word` of `_brouwer_zimmermann/coset.py`).
 The BZ search of Pauli errors is cached by stabilizer matrix (`PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`), since its syndromes are for the given stabilizers.
 Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`), so `CosetLeaderSearch` objects for different generators of one state share them.
 `find_first_not_within_max_weight` returns the bound that a single BZ search found for the first syndrome without an error within `max_weight`, or, with two BZ searches, the bound that `get_min_weight_bound` gives for that syndrome.
 `get_min_weights` answers a batch in one compiled loop per coset search (`BrouwerZimmermannCosetSearch.get_min_weights`; Section 3.10 of `brouwer_zimmermann.md`).
 Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](README.md#threads)).
 The calling thread starts the batch alone, and a batch of cheap queries stays there.
-The split work of a search is `num_threads * 2**search_chunk_exponent` units of work, one for each query and one for each word that it weighs after the word of its syndrome.
-Once the queries of a batch on the calling thread reach the split work, `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks, each searched with the same compiled loop (Section 4.5 of `brouwer_zimmermann_code.md`).
+Once the queries of a batch on the calling thread have done `num_threads` chunks of work, `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks (Section 4.5 of `brouwer_zimmermann_code.md`).
+The comment of `search_chunk_exponent` in `_tuning.py` defines the unit of this work for each method.
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
 With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query (Section 3.8 of `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
 This method weighs errors by CSS weight only on CSS states (Section 3.8 of `connected_cluster.md`).
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
 `find_first_not_within_max_weight` and `get_min_weights` try increasing weight limits (`find_first_cluster_bound` and `get_min_cluster_weights` of `_connected_cluster/coset.py`), which can find light errors sooner than one search at `max_weight`.
-They move a costly batch to threads with `run_blocks` too, with the same split work, in which the work of a query is the number of states that its searches visit; a query that looks up its error does none.
+They move a costly batch to threads with `run_blocks` too, by the same rule; a query that looks up its error visits no states, and so does no work.
 Their answers are those of one thread (Section 3.11 of `connected_cluster.md`).
 For the CSS weight, the bound that `find_first_not_within_max_weight` returns holds an error for each part, and for a part within `max_weight`, that error can differ from the one that `get_min_weight_bound` gives.
 
