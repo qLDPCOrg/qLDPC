@@ -339,14 +339,16 @@ Check the histogram's `num_samples` when an error looks too small.
 
 `ConsumerCalibration.get_standard_error_parts` splits the reported standard error into a histogram part, from the sampling errors of the histograms, and a calibration part, from the errors of the cells and the baseline.
 To first order, more histogram samples reduce only the histogram part, and more calibration samples only the calibration part.
+Neither part includes the bias of cells with a sample count of zero, which more calibration samples remove (see approximation 4).
 
-To compare circuits `a` and `b` scored with one calibration, use `get_excess_failure_probability_difference`, which returns `Φ(a) - Φ(b)` and its standard error.
+To compare circuits `a` and `b` scored with one calibration, use `get_excess_failure_probability_difference` on the histograms of each circuit, one per calibrated Pauli type from `estimate_residual_weight_histogram`, as for `get_excess_failure_probability`.
+It returns `Φ(a) - Φ(b)` and its standard error.
 An error of a cell or a baseline moves both scores, so it largely cancels from their difference when the two circuits have similar residual-weight distributions.
 The two standard errors, added in quadrature, can therefore greatly overstate the standard error of the difference.
 The method keeps this cancellation, and adds the histogram parts of the two circuits in quadrature.
 It treats every histogram of either circuit as independent of the others, so give each histogram its own seed, or `seed=None`.
 The certain failures of approximation 4 are a bias that no standard error includes.
-This bias overstates each score, but it can move a difference either way.
+Apart from the statistical error of the baseline, this bias can only raise each score, but it can move a difference either way.
 
 ## Supplying a consumer's response
 

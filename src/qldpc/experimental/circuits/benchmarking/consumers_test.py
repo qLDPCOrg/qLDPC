@@ -1022,6 +1022,9 @@ def test_standard_error_parts_and_differences() -> None:
         baseline_standard_errors=[0.01, 0.04],
         excess_num_samples={"X": [[10, 0]], "Z": [[10, 10]]},
     )
+    without_errors = dataclasses.replace(
+        calibration, excess_standard_errors=None, baseline_standard_errors=None
+    )
     histograms, terms, parts, scores = {}, {}, {}, {}
     for index, (name, x_rate, z_rate) in enumerate([("a", 0.2, 0.3), ("b", 0.25, 0.2)]):
         circuit = stim.Circuit(f"H 2\nX_ERROR({x_rate}) 0 1\nZ_ERROR({z_rate}) 2")
@@ -1042,15 +1045,12 @@ def test_standard_error_parts_and_differences() -> None:
         terms[name] = _get_numerical_error_terms(calibration, histograms[name])
         parts[name] = calibration.get_standard_error_parts(*histograms[name])
         scores[name] = calibration.get_excess_failure_probability(*histograms[name])
-        without_errors = dataclasses.replace(
-            calibration, excess_standard_errors=None, baseline_standard_errors=None
-        )
         histogram_error = without_errors.get_excess_failure_probability(*histograms[name])[1]
         assert parts[name] == pytest.approx((histogram_error, np.linalg.norm(terms[name])))
         assert histogram_error > 0 and math.hypot(*parts[name]) == pytest.approx(scores[name][1])
 
     difference, error = calibration.get_excess_failure_probability_difference(
-        histograms["a"], histograms["b"]
+        histograms["a"], histograms["b"][::-1]
     )
     assert difference == pytest.approx(scores["a"][0] - scores["b"][0])
     calibration_error = np.linalg.norm(terms["a"] - terms["b"])

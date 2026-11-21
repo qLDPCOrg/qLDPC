@@ -591,7 +591,9 @@ class ConsumerCalibration:
         The histogram part propagates the sampling errors of the histograms, and the calibration
         part the standard errors of the cells and the baseline, as
         ``get_excess_failure_probability`` does.  To first order, more samples in the histograms
-        reduce only the first part, and more samples in the calibration only the second.
+        reduce only the first part, and more samples in the calibration only the second.  Neither
+        part includes the bias of cells with a sample count of zero, which more calibration
+        samples remove (see ``consumer_calibration.md``).
 
         Args:
             histograms: The histograms of a preparation circuit, as for
