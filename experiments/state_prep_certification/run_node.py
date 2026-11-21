@@ -266,24 +266,28 @@ def _unfrozen_bundle() -> bool:
 
 
 def run_pass(label_dir: pathlib.Path, name: str, jobs: int, local: bool) -> None:
-    """Run one pass, and again the tasks that ended without a final row."""
+    """Run one pass, and stop if a task of the pass has no final row after it.
+
+    ``run_task.py`` exits with status 0 only once a task has a final row, and GNU parallel's
+    ``--resume-failed`` never reruns a task that exited with status 0.  So a task without a row
+    after the pass has lost it, such as to a damaged ``runs.jsonl``, and needs a rerun by hand.
+    """
     keys = tasks.pass_keys(label_dir, name)
     _run_keys(label_dir, name, keys, jobs, local)
-
-    # a task that ended with status 0 but has no readable final row runs again, up to 3 times
-    for retry in range(1, 4):
-        final, _ = store.final_rows(label_dir)
-        missing = [key for key in keys if key not in final]
-        if not missing:
-            return
-        retry_name = f"{name}-retry{retry}-{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}"
-        tasks.write_once(tasks.pass_file(label_dir, retry_name), "".join(k + "\n" for k in missing))
-        print(f"rerunning {len(missing)} tasks without a final row", flush=True)
-        _run_keys(label_dir, retry_name, missing, jobs, local)
     final, _ = store.final_rows(label_dir)
     missing = [key for key in keys if key not in final]
     if missing:
-        sys.exit(f"{len(missing)} tasks of pass {name} have no final row, such as {missing[0]}")
+        command = [sys.executable, str(RUN_TASK), "--label-dir", str(label_dir)]
+        if local:
+            command.append("--local")
+        else:
+            command += ["--cpu", (label_dir / tasks.CORES_FILE).read_text().split()[0]]
+        sys.exit(
+            f"{len(missing)} tasks of pass {name} ended without a readable final row, such as "
+            f"{', '.join(missing[:3])}; see the notes of --status.  Rerun each with\n  "
+            + shlex.join(command + [missing[0]])
+            + "\nthen run this command again."
+        )
 
 
 def run_parallel(command: list[str]) -> int:

@@ -58,7 +58,7 @@ class ApprovalError(Exception):
 
 
 def pass_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
-    """The key list of a pass, such as ``1``, ``2``, or a retry of a pass."""
+    """The key list of a pass, ``1`` or ``2``."""
     return label_dir / f"tasks-pass{name}.txt"
 
 
