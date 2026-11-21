@@ -2,8 +2,7 @@
 
 This experiment shows what qLDPC's extensions of the exact Brouwer-Zimmermann (BZ) distance search give beyond the techniques that public exact tools already use.
 It runs qLDPC's BZ search with everything on, at its defaults, against the same search configured with only the techniques that some public exact tool shares with it (the "prior" arm), on the same codes and with the same time limit.
-It reports wall times and deterministic work counts side by side.
-The work counts need qLDPC's opt-in work counters: without them, the experiment runs only locally, and its node acceptance tests fail.
+It reports the wall time of each search.
 The prior arm is a configuration of qLDPC, not an external tool: public techniques that qLDPC lacks cannot be switched on, so its times are not those of any public tool.
 
 ## Arms
@@ -39,7 +38,7 @@ Sizes whose target lengths land on the same parameters merge (see the docstring 
 ```bash
 python experiments/state_prep_certification/distances/codes.py --out /tmp/codes --check
 python experiments/state_prep_certification/distances/acceptance.py --local
-python experiments/state_prep_certification/run_node.py distances --local --subset smoke --approved-cpu-hours 38
+python experiments/state_prep_certification/run_node.py distances --local --subset smoke --approved-cpu-hours 25
 python experiments/state_prep_certification/distances/analyze.py --label-dir experiments/state_prep_certification/results/distances/<label>
 ```
 

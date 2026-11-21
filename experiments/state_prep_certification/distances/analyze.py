@@ -15,15 +15,13 @@ the median, as a missing repeat is.  A first run with it leaves the arm without 
 in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The cases, in
 order:
 
-1. **disagreement:** the arms, their repeats, or their counting runs report different distances,
-   or a distance that differs from the code's reference distance; no ratio;
-2. **failure:** either arm's first timed run or one of its repeats ended in an error or memout,
-   or its first timed run has no final row although ``tasks.json`` lists it (or, for R_W, either
-   counting run failed or is missing); no ratio.  A repeat without a final row only leaves the
-   median with fewer runs, which ``repeats`` in ``summary.csv`` records;
-3. **incomplete timing:** for R_T, the row of either arm's first timed run has
-   ``compiled_in_timing`` set; for R_W, either arm's counting run timed out with
-   ``compiled_in_timing`` set, so that it may have timed out only because it compiled; no ratio;
+1. **disagreement:** the arms or their repeats report different distances, or a distance that
+   differs from the code's reference distance; no ratio;
+2. **failure:** either arm's first run or one of its repeats ended in an error or memout, or its
+   first run has no final row although ``tasks.json`` lists it; no ratio.  A repeat without a
+   final row only leaves the median with fewer runs, which ``repeats`` in ``summary.csv`` records;
+3. **incomplete timing:** the row of either arm's first run has ``compiled_in_timing`` set; no
+   ratio;
 4. **both finished:** R_T = T_prior / T_on;
 5. **only on finished:** R_T >= L / T_on, a lower bound;
 6. **only prior finished:** R_T <= T_prior / L, an upper bound;
@@ -31,25 +29,18 @@ order:
 
 A value above 1.2 is *faster* (the arm with everything on is faster), below 1/1.2 *slower*, and
 otherwise *similar*; a lower bound is faster if it exceeds 1.2 and *inconclusive* otherwise, and an
-upper bound is slower if it is below 1/1.2 and inconclusive otherwise.  The work ratio
-R_W = W_prior / W_on of the counting runs follows the same cases, with the last partial count of a
-counting run that timed out in place of L, if it reported one, and is not classified; a pair without
-a value for an unfinished run is ``no work``.  A counting run that timed out with
-``compiled_in_timing`` set gives no W bound: ``summary.csv`` marks it in ``count_timeout_compiled``,
-and its W cell in ``anchors.csv`` is "compiled".  The plug-in forwards no partial counts until
-qLDPC's work counters can report them, so a counting run that timed out currently gives no W.
+upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
 For each family, the table gives the counts of each class of R_T and the median of R_T over the
 codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
-"<=" if upper bounds are, and omitted if there are both.  It gives the median of R_W by the same
-rule, with the number of codes in each median and the number of codes whose R_W is a failure or
-disagreement.  The anchors' row gives counts only; anchors are reported per code and never pooled
+"<=" if upper bounds are, and omitted if there are both, with the number of codes in the median.
+The anchors' row gives counts only; anchors are reported per code and never pooled
 with the families.
 
 Outputs in ``--out`` (by default ``analysis/`` in the label directory, which is a temporary
 directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``families.csv``,
-``anchors.csv``, ``distances.pdf`` (two log-log panels, prior against on, by time and work), and
-``figure_notes.json`` (the number of codes that each panel omits, for lack of a value, or for a
+``anchors.csv``, ``distances.pdf`` (a log-log panel of T, prior against on), and
+``figure_notes.json`` (the number of codes that the panel omits, for lack of a value, or for a
 disagreement, a failure, or an incomplete timing).
 """
 
@@ -120,7 +111,7 @@ def _unpack(archive: pathlib.Path) -> pathlib.Path:
 def summarize(
     rows: list[dict[str, Any]], sample: dict[str, Any], expected: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """One record per code and arm: status, median T, work, and distance.
+    """One record per code and arm: status, median T, and distance.
 
     Args:
         rows: The final rows of the runs.
@@ -149,7 +140,6 @@ def summarize(
     for (code_hash, arm), modes in sorted(grouped.items()):
         entry, kind = names[code_hash]
         timed = sorted(modes.get("timed", []), key=lambda row: row["repeat"])
-        counted = modes.get("count")
         records.append(
             {
                 "name": entry["name"],
@@ -158,50 +148,34 @@ def summarize(
                 "code_hash": code_hash,
                 "arm": arm,
                 **_timed_summary(timed),
-                **_count_summary(counted),
                 "reference_d": entry.get("reference_d"),
             }
         )
     return records
 
 
-def ratio(on: dict[str, Any], prior: dict[str, Any], metric: str) -> dict[str, Any]:
-    """The ratio of the two arms on one code, by the cases of the module docstring.
+def ratio(on: dict[str, Any], prior: dict[str, Any]) -> dict[str, Any]:
+    """The time ratio R_T of the two arms on one code, by the cases of the module docstring.
 
-    The distances compared include those of the counting runs, of every repeat, and the code's
-    reference distance, if it has one.
+    The distances compared include those of every repeat, and the code's reference distance, if it
+    has one.
     """
     found = _as_list(on.get("reference_d"))
     for record in (on, prior):
-        for key in ("distance", "count_distance"):
-            found += _as_list(record.get(key))
+        found += _as_list(record.get("distance"))
     if len(set(found)) > 1:
         return {"case": "disagreement", "value": None, "bound": None}
     if {on["status"], prior["status"]} & {"error", "memout", "missing"}:
         return {"case": "failure", "value": None, "bound": None}
-    count_statuses = {on.get("count_status"), prior.get("count_status")}
-    if metric == "W" and count_statuses & {"error", "memout", "missing"}:
-        return {"case": "failure", "value": None, "bound": None}
-    if metric == "T" and not (on["timing_complete"] and prior["timing_complete"]):
+    if not (on["timing_complete"] and prior["timing_complete"]):
         return {"case": "incomplete timing", "value": None, "bound": None}
-    if metric == "W" and (on.get("count_timeout_compiled") or prior.get("count_timeout_compiled")):
-        return {"case": "incomplete timing", "value": None, "bound": None}
-    if metric == "T":
-        on_value, prior_value = on["T"], prior["T"]
-        on_done, prior_done = on["status"] == "ok", prior["status"] == "ok"
-        on_bound = prior_bound = on["limit_s"]
-    else:
-        on_value, prior_value = on["W"], prior["W"]
-        on_done, prior_done = bool(on["W_complete"]), bool(prior["W_complete"])
-        on_bound, prior_bound = on["W"], prior["W"]
-        if (not on_done and on_bound is None) or (not prior_done and prior_bound is None):
-            return {"case": "no work", "value": None, "bound": None}
+    on_done, prior_done = on["status"] == "ok", prior["status"] == "ok"
     if on_done and prior_done:
-        return {"case": "both", "value": prior_value / on_value, "bound": None}
+        return {"case": "both", "value": prior["T"] / on["T"], "bound": None}
     if on_done:
-        return {"case": "only on", "value": prior_bound / on_value, "bound": ">="}
+        return {"case": "only on", "value": on["limit_s"] / on["T"], "bound": ">="}
     if prior_done:
-        return {"case": "only prior", "value": prior_value / on_bound, "bound": "<="}
+        return {"case": "only prior", "value": prior["T"] / on["limit_s"], "bound": "<="}
     return {"case": "both > L", "value": None, "bound": None}
 
 
@@ -263,54 +237,6 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _count_summary(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
-    """The work W of an arm's counting run, whether it is complete, and the run's status.
-
-    A counting run that timed out gives the last partial count that it reported, if any, as a bound;
-    a counting run that failed gives none.  A counting run that timed out with
-    ``compiled_in_timing`` set may have timed out only because it compiled, so it gives none either,
-    and sets ``count_timeout_compiled``, which ``ratio`` reads for case 3 of the module docstring.
-    ``rows`` is None if there is no counting task, and empty if the task has no final row.
-    """
-    if not rows:
-        status = None if rows is None else "missing"
-        return {
-            "W": None,
-            "W_complete": None,
-            "count_status": status,
-            "count_timeout_compiled": False,
-            "count_distance": None,
-        }
-    row = rows[0]
-    timeout_compiled = row["status"] == "timeout" and bool(row.get("compiled_in_timing"))
-    work = row["result"].get("work") if row["status"] == "ok" else None
-    partial = [entry["work"] for entry in row.get("partial", []) if "work" in entry]
-    if work is not None:
-        total = _total_work(work)
-        if total is None:
-            raise ValueError(f"Unreadable work count of {row['task_key']}: {work!r}")
-    elif row["status"] == "timeout" and partial and not timeout_compiled:
-        total = _total_work(partial[-1])
-    else:
-        total = None
-    return {
-        "W": total,
-        "W_complete": row["status"] == "ok" and work is not None,
-        "count_status": row["status"],
-        "count_timeout_compiled": timeout_compiled,
-        "count_distance": row["result"].get("distance") if row["status"] == "ok" else None,
-    }
-
-
-def _total_work(work: Any) -> int | None:
-    """The total of words examined of a count record."""
-    if isinstance(work, dict):
-        for key in ("total", "words_examined"):
-            if key in work:
-                return int(work[key])
-    return None
-
-
 ####################################################################################################
 # families, tables, and the figure
 
@@ -328,12 +254,7 @@ def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pa
         "repeats",
         "repeats_unfinished",
         "runs_compiled",
-        "W",
-        "W_complete",
-        "count_status",
-        "count_timeout_compiled",
         "distance",
-        "count_distance",
         "reference_d",
         "limit_s",
     ]
@@ -349,7 +270,7 @@ def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pa
     for name, arms in by_code.items():
         if ON in arms and PRIOR in arms:
             on, prior = arms[ON], arms[PRIOR]
-            time_ratio = ratio(on, prior, "T")
+            time_ratio = ratio(on, prior)
             pairs.append(
                 {
                     "name": name,
@@ -357,7 +278,6 @@ def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pa
                     "family": on["family"],
                     "time": time_ratio,
                     "class": classify(time_ratio),
-                    "work": ratio(on, prior, "W"),
                     "on": on,
                     "prior": prior,
                 }
@@ -400,8 +320,6 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
         times = [
             m["time"] for m in members if m["time"]["case"] in ("both", "only on", "only prior")
         ]
-        works = [m["work"] for m in members if m["work"]["value"] is not None]
-        work_failures = sum(m["work"]["case"] in ("failure", "disagreement") for m in members)
         rows.append(
             {
                 "family": family,
@@ -411,9 +329,6 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
                 "ratios_in_median": len(times),
                 "lower_bounds": sum(r["bound"] == ">=" for r in times),
                 "upper_bounds": sum(r["bound"] == "<=" for r in times),
-                "median_R_W": _median(works) if family != "anchors" else "-",
-                "work_ratios_in_median": len(works),
-                "work_failures": work_failures,
             }
         )
     with open(out / "families.csv", "w", newline="") as file:
@@ -425,38 +340,27 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
 def _write_anchors(
     by_code: dict[str, dict[str, dict[str, Any]]], sample: dict[str, Any], out: pathlib.Path
 ) -> None:
-    """One row per anchor: n, k, the reference d, the d found, and T and W of each arm."""
+    """One row per anchor: n, k, the reference d, the d found, and the T of each arm."""
     arms = [ON, PRIOR]
     with open(out / "anchors.csv", "w", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow(
-            ["name", "n", "k", "reference_d", "d_found"]
-            + [f"{arm}_{metric}" for arm in arms for metric in ("T", "W")]
-        )
+        writer.writerow(["name", "n", "k", "reference_d", "d_found"] + [f"{arm}_T" for arm in arms])
         for entry in sample["anchors"]:
             records = by_code.get(entry["name"], {})
             found = sorted(
-                {
-                    value
-                    for record in records.values()
-                    for key in ("distance", "count_distance")
-                    for value in _as_list(record.get(key))
-                }
+                {value for record in records.values() for value in _as_list(record.get("distance"))}
             )
             cells = []
             for arm in arms:
                 record = records.get(arm)
                 if record is None:
-                    cells += ["n/a", "n/a"]
+                    cells.append("n/a")
+                elif record["status"] in ("ok", "timeout") and not record["timing_complete"]:
+                    cells.append("compiled")
+                elif record["status"] != "ok":
+                    cells.append("> L" if record["status"] == "timeout" else record["status"])
                 else:
-                    if record["status"] in ("ok", "timeout") and not record["timing_complete"]:
-                        time_cell = "compiled"
-                    elif record["status"] != "ok":
-                        time_cell = "> L" if record["status"] == "timeout" else record["status"]
-                    else:
-                        time_cell = f"{record['T']:.3g}"
-                    work = "compiled" if record.get("count_timeout_compiled") else record["W"]
-                    cells += [time_cell, work]
+                    cells.append(f"{record['T']:.3g}")
             writer.writerow(
                 [
                     entry["name"],
@@ -477,53 +381,46 @@ def _as_list(value: Any) -> list[Any]:
 
 
 def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
-    """Two log-log panels, by time and by work; prior on x, on on y."""
+    """A log-log panel of T, with the prior arm on x and the arm with everything on on y."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    figure, axes = plt.subplots(1, 2, figsize=(8, 4))
+    figure, axis = plt.subplots(figsize=(4, 4))
     families = sorted({p["family"] for p in pairs})
     colors = {family: plt.cm.tab10(i % 10) for i, family in enumerate(families)}
-    omitted = {}
-    for axis, metric in zip(axes, ("T", "W")):
-        omitted[metric] = 0
-        for pair in pairs:
-            on, prior = pair["on"][metric], pair["prior"][metric]
-            case = pair["time" if metric == "T" else "work"]["case"]
-            if (
-                on is None
-                or prior is None
-                or case in ("disagreement", "failure", "incomplete timing")
-            ):
-                omitted[metric] += 1
-                continue
-            if metric == "T":
-                unfinished = pair["on"]["status"] != "ok" or pair["prior"]["status"] != "ok"
-            else:
-                unfinished = not (pair["on"]["W_complete"] and pair["prior"]["W_complete"])
-            axis.scatter(
-                prior,
-                on,
-                marker="^" if unfinished else "o",
-                facecolors="none" if pair["kind"] == "anchors" else colors[pair["family"]],
-                edgecolors=colors[pair["family"]],
-                s=18,
-            )
-        axis.set_xscale("log")
-        axis.set_yscale("log")
-        limits = axis.get_xlim()
-        axis.plot(limits, limits, "k-", lw=0.6)
-        if metric == "T":
-            axis.plot(limits, [x / FASTER for x in limits], "k:", lw=0.6)
-            axis.plot(limits, [x * FASTER for x in limits], "k:", lw=0.6)
-        axis.set_title(f"by {'time (s)' if metric == 'T' else 'work'}")
-        axis.set_xlabel("prior")
-        axis.set_ylabel("on")
+    omitted = 0
+    for pair in pairs:
+        on, prior = pair["on"]["T"], pair["prior"]["T"]
+        if (
+            on is None
+            or prior is None
+            or pair["time"]["case"] in ("disagreement", "failure", "incomplete timing")
+        ):
+            omitted += 1
+            continue
+        unfinished = pair["on"]["status"] != "ok" or pair["prior"]["status"] != "ok"
+        axis.scatter(
+            prior,
+            on,
+            marker="^" if unfinished else "o",
+            facecolors="none" if pair["kind"] == "anchors" else colors[pair["family"]],
+            edgecolors=colors[pair["family"]],
+            s=18,
+        )
+    axis.set_xscale("log")
+    axis.set_yscale("log")
+    limits = axis.get_xlim()
+    axis.plot(limits, limits, "k-", lw=0.6)
+    axis.plot(limits, [x / FASTER for x in limits], "k:", lw=0.6)
+    axis.plot(limits, [x * FASTER for x in limits], "k:", lw=0.6)
+    axis.set_title("by time (s)")
+    axis.set_xlabel("prior")
+    axis.set_ylabel("on")
     figure.tight_layout()
     figure.savefig(out / "distances.pdf")
-    (out / "figure_notes.json").write_text(json.dumps(omitted, indent=1) + "\n")
+    (out / "figure_notes.json").write_text(json.dumps({"T": omitted}, indent=1) + "\n")
 
 
 if __name__ == "__main__":

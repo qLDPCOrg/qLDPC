@@ -15,17 +15,15 @@ oracle of the certifier.  Both arms make the same code-method call, so they sear
 sectors: only the X sector when a plain ``CSSCode`` has equal check matrices.
 
 Every arm builds a plain code object from the stored matrices inside the timer: ``CSSCode(H_X,
-H_Z, is_subsystem_code=False)``, or ``QuditCode(H)``, never a family class.  Counting runs wrap the
-same call in qLDPC's opt-in work counters, if the installed qLDPC has them (``counters_available``).
+H_Z, is_subsystem_code=False)``, or ``QuditCode(H)``, never a family class.
 """
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import json
 import pathlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any
 
 import numpy.typing as npt
@@ -71,25 +69,3 @@ def distance_call(arrays: dict[str, npt.NDArray[Any]]) -> Callable[[], int]:
 def active_tuning() -> dict[str, Any]:
     """The fields of the active tuning, as evidence of the settings of a run."""
     return dataclasses.asdict(_tuning.get_tuning())
-
-
-####################################################################################################
-# work counters (opt-in, from qLDPC, if it has them)
-
-
-def counters_available() -> bool:
-    """Whether the installed qLDPC has the opt-in work counters of the distance searches."""
-    from qldpc.codes import distance
-
-    return hasattr(distance, CONFIG["work_counter"])
-
-
-@contextlib.contextmanager
-def counting() -> Iterator[Any]:
-    """Count the work of the searches in the block, with qLDPC's opt-in counters."""
-    from qldpc.codes import distance
-
-    if not counters_available():
-        raise RuntimeError(f"This qLDPC has no work counters ({CONFIG['work_counter']})")
-    with getattr(distance, CONFIG["work_counter"])() as counts:
-        yield counts

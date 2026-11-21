@@ -2,8 +2,7 @@
  "qldpc_commit": null,
  "qldpc_commit_note": "The qLDPC commit whose src/ and pyproject.toml the bundle carries, unchanged, and whose wheel it installs. null means not pinned: bundle.py then builds only a trial bundle (--unfrozen), which run_node.py refuses on the node without --allow-unfrozen.",
  "interfaces": {
-  "bz_disjoint_route": "SearchTuning.partition_max_coverage = 1",
-  "work_counters": null
+  "bz_disjoint_route": "SearchTuning.partition_max_coverage = 1"
  },
  "python": {
   "version": "3.12.16",
@@ -29,5 +28,5 @@
  "qldpc_extras": [
   "bliss"
  ],
- "interfaces_note": "The qLDPC interfaces beyond the public API that the experiments rely on, by role, for the record of a run; null for one that the pinned commit lacks, such as opt-in work counters."
+ "interfaces_note": "The qLDPC interfaces beyond the public API that the experiments rely on, by role, for the record of a run; null for one that the pinned commit lacks."
 }

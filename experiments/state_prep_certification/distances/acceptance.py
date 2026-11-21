@@ -15,28 +15,23 @@
 * **AT5:** regenerated codes match ``sample.json``; ``compare_with_sample`` reports a sample whose
   reference distance differs from ``sample.json``; each row's tuning is the shipped default, with
   ``BZ_PRIOR`` for ``q_bz_prior``.
-* **AT6:** both arms, timed and (with work counters) counting, agree on the AT1 codes and on the
-  smallest drawn code of each family, and none fails; arms that time out are reported rather than
-  compared.  Locally, runs are limited to ``LOCAL_LIMIT_S``.
-* **AT7:** completed counting runs give identical counts.  It needs qLDPC's opt-in work counters;
-  without them it is skipped locally and fails on the node, so that the node never runs the
-  experiment without work counts.
+* **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
+  fails; arms that time out are reported rather than compared.  Locally, runs are limited to
+  ``LOCAL_LIMIT_S``.
 * **AT9:** ``run_node.py --dry-run`` writes no task file without an approval that covers the
   ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives with
   the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
-  timed runs that finished in under 300 s.
+  runs that finished in under 300 s.
 * **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that
   disagree or time out, arms that agree on a distance other than the reference, an arm without
-  rows, a first run and a counting run that end in an error, a repeat that ends in a memout, only
-  one arm finished, both timed out, complete, partial, and missing work counts), writes every
-  output, classifies them and marks the family medians as its docstring says, and refuses a work
-  count that it cannot read.  Its rows with ``compiled_in_timing`` set are first timed runs, a
-  timed-out repeat, a finished counting run, and counting timeouts, some of them on codes that
-  disagree or fail.
+  rows, a first run that ends in an error, a repeat that ends in a memout, only one arm finished,
+  and both timed out), writes every output, and classifies them and marks the family medians as
+  its docstring says.  Its rows with ``compiled_in_timing`` set are first runs and a timed-out
+  repeat, some of them on codes that disagree or fail.
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
-install (AT8) is rehearsed with ``bundle.py``.  Each test prints PASS, FAIL, or SKIP.
+install (AT8) is rehearsed with ``bundle.py``.  Each test prints PASS or FAIL.
 """
 
 from __future__ import annotations
@@ -80,10 +75,6 @@ EXPECTED_BZ_PRIOR = {
 }
 
 
-class Skipped(Exception):
-    """A test that cannot run in this setting, with the reason."""
-
-
 def main() -> None:
     """Run the selected tests."""
     args = parse_args()
@@ -104,10 +95,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_all(node: bool, results_dir: pathlib.Path, only: list[str] | None = None) -> bool:
-    """Run the tests, print PASS, FAIL, or SKIP for each, and return whether none failed.
-
-    On the node, a skipped test counts as a failure, since every test must pass there.
-    """
+    """Run the tests, print PASS or FAIL for each, and return whether none failed."""
     results_dir.mkdir(parents=True, exist_ok=True)
     failed = []
     for name, test in TESTS.items():
@@ -117,10 +105,6 @@ def run_all(node: bool, results_dir: pathlib.Path, only: list[str] | None = None
         try:
             test(results_dir / name, node)
             print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except Skipped as reason:
-            print(f"SKIP {name}: {reason}", flush=True)
-            if node:
-                failed.append(name)
         except (
             ArithmeticError,
             AssertionError,
@@ -170,17 +154,15 @@ def _run_arms(
     directory: pathlib.Path,
     entries: list[dict[str, Any]],
     limit_s: float | None = None,
-    modes: tuple[str, ...] = ("timed",),
 ) -> dict[str, dict[str, Any]]:
-    """Run both arms on the entries in the given modes, and return the rows by task key."""
+    """Run both arms on the entries, and return the rows by task key."""
     task_list = []
     for entry in entries:
         for arm in arms.ARMS:
-            for mode in modes:
-                task = experiment._task(arm, mode, entry, repeat=0)
-                if limit_s is not None:
-                    task["limit_s"] = limit_s
-                task_list.append(task)
+            task = experiment._task(arm, entry, repeat=0)
+            if limit_s is not None:
+                task["limit_s"] = limit_s
+            task_list.append(task)
     return local_runs.run_locally(directory, task_list)
 
 
@@ -229,8 +211,8 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
     label_dir = _prepared(directory)
     (slow,) = _entries(("pp170",))
     (fast,) = _entries(("golay",))
-    slow_task = dict(experiment._task("q_bz_prior", "timed", slow, 0), limit_s=5.0)
-    fast_task = experiment._task("q_bz_on", "timed", fast, 0)
+    slow_task = dict(experiment._task("q_bz_prior", slow, 0), limit_s=5.0)
+    fast_task = experiment._task("q_bz_on", fast, 0)
     tasks.write_pass1(label_dir, [slow_task, fast_task])
     processes = [
         subprocess.Popen(
@@ -274,10 +256,7 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at6_agreement(directory: pathlib.Path, node: bool) -> None:
-    """Both arms agree, timed and counting, on AT1's codes and a small code of each family.
-
-    Counting runs are made only if the installed qLDPC has work counters, as the task list does.
-    """
+    """Both arms agree on AT1's codes and a small code of each family."""
     label_dir = _prepared(directory)
     sample = _sample()
     smallest: dict[str, dict[str, Any]] = {}
@@ -285,11 +264,10 @@ def at6_agreement(directory: pathlib.Path, node: bool) -> None:
         if entry["family"] not in smallest or entry["n"] < smallest[entry["family"]]["n"]:
             smallest[entry["family"]] = entry
     entries = _entries(AT1_CODES) + list(smallest.values())
-    modes = ("timed", "count") if arms.counters_available() else ("timed",)
-    rows = _run_arms(label_dir, entries, limit_s=None if node else LOCAL_LIMIT_S, modes=modes)
+    rows = _run_arms(label_dir, entries, limit_s=None if node else LOCAL_LIMIT_S)
     by_code: dict[str, dict[str, Any]] = {}
     for key, row in rows.items():
-        by_code.setdefault(key.split(".")[2], {})[f"{row['arm']}.{row['mode']}"] = row
+        by_code.setdefault(key.split(".")[2], {})[row["arm"]] = row
     timeouts = [key for key, row in rows.items() if row["status"] == "timeout"]
     failures = [
         (key, row["status"]) for key, row in rows.items() if row["status"] not in ("ok", "timeout")
@@ -303,25 +281,6 @@ def at6_agreement(directory: pathlib.Path, node: bool) -> None:
         }
         assert len(set(distances.values())) <= 1, (code_hash, distances)
     print(f"  {len(rows)} runs; timed out within the limit: {timeouts or 'none'}")
-
-
-@test
-def at7_counters(directory: pathlib.Path, node: bool) -> None:
-    """Completed counting runs give identical counts (needs qLDPC's counters)."""
-    if not arms.counters_available():
-        raise Skipped("the installed qLDPC has no opt-in work counters")
-    label_dir = _prepared(directory)
-    entries = _entries(("bb72", "pp110"))
-    task_list = []
-    for entry in entries:
-        for arm in arms.ARMS:
-            for repeat in (0, 1):
-                task_list.append(experiment._task(arm, "count", entry, repeat))
-    rows = local_runs.run_locally(label_dir, task_list)
-    for arm in arms.ARMS:
-        for entry in entries:
-            pair = [rows[f"{arm}.count.{entry['code_hash'][:12]}.r{r}"] for r in (0, 1)]
-            assert pair[0]["result"]["work"] == pair[1]["result"]["work"], (arm, entry["name"])
 
 
 @test
@@ -358,25 +317,18 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     # the ceiling, by independent arithmetic: start-up cap, limit (or the repeat threshold for a
     # repeated run's first run), result window, and grace, for each run; then, for the runner's
     # retries, twice that and one more run at the first run's limit
-    timed_cost = (120 + 300 + 30 + 30) + 2 * (120 + 1800 + 30 + 30)
-    count_cost = 120 + 1800 + 30 + 30
-    run_cost = 120 + 1800 + 30 + 30  # S: one run at the first run's limit, in either mode
+    task_cost = (120 + 300 + 30 + 30) + 2 * (120 + 1800 + 30 + 30)
+    run_cost = 120 + 1800 + 30 + 30  # S: one run at the first run's limit
     (golay,) = _entries(("golay",))
-    for mode, cost in (("timed", timed_cost), ("count", count_cost)):
-        for arm in arms.ARMS:
-            assert experiment.worst_case_s(experiment._task(arm, mode, golay, 0)) == cost
+    for arm in arms.ARMS:
+        assert experiment.worst_case_s(experiment._task(arm, golay, 0)) == task_cost
     smoke = experiment.tasks(directory, "smoke")
-    hours = (
-        sum(
-            run_cost + 2 * (timed_cost if task["mode"] == "timed" else count_cost) for task in smoke
-        )
-        / 3600
-    )
+    hours = len(smoke) * (run_cost + 2 * task_cost) / 3600
     match = re.search(r"ceiling ([\d,.]+) CPU-hours", approved.stdout)
     assert match and float(match.group(1).replace(",", "")) == round(hours, 1), approved.stdout
 
-    # the repeat policy: two repeats of a timed run that finished in under 300 s, and no others
-    task = experiment._task("q_bz_on", "timed", golay, 0)
+    # the repeat policy: two repeats of a run that finished in under 300 s, and no others
+    task = experiment._task("q_bz_on", golay, 0)
     for status, seconds, expected in (
         ("ok", 299.9, 2),
         ("ok", 300.0, 0),
@@ -388,8 +340,6 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
         for number, repeat in enumerate(repeats, 1):
             assert repeat["key"] == task["key"][:-1] + str(number), repeat["key"]
             assert repeat["limit_s"] == task["limit_s"] and repeat["repeat"] == number
-    counting = experiment._task("q_bz_on", "count", golay, 0)
-    assert experiment.repeat_tasks(counting, {"status": "ok", "T": 1.0}) == []
 
 
 @test
@@ -411,23 +361,18 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         status: str,
         T: float,
         d: Any,
-        mode: str = "timed",
-        work: Any = None,
-        partial: tuple[Any, ...] = (),
         compiled: bool = False,
     ) -> None:
-        result = {"distance": d, "work": work} if status == "ok" else {}
         rows.append(
             {
-                "task_key": f"{arm}.{mode}.{entry['code_hash'][:12]}.r{repeat}",
+                "task_key": f"{arm}.timed.{entry['code_hash'][:12]}.r{repeat}",
                 "arm": arm,
-                "mode": mode,
+                "mode": "timed",
                 "repeat": repeat,
                 "status": status,
                 "T": T,
                 "limit_s": 1800.0,
-                "partial": [{"work": count} for count in partial],
-                "result": result,
+                "result": {"distance": d} if status == "ok" else {},
                 "compiled_in_timing": compiled,
             }
         )
@@ -442,10 +387,9 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(bb72, "q_bz_prior", 2, "timeout", 1800.0, None)
     for repeat in (1, 2):
         add(bb72, "q_bz_on", repeat, "ok", 10.0, 6)
-    # rows with compiled_in_timing set (rows of retries that compiled too): pp110's first timed run
-    # and finished counting run of the on arm, and surface9's timed-out repeat and timed-out
-    # counting run of the on arm, which reports a partial count that gives no W bound; qr79's,
-    # third's, and fifth's flagged rows are below
+    # rows with compiled_in_timing set (rows of retries that compiled too): pp110's first run of the
+    # on arm, and surface9's timed-out repeat of the on arm; qr79's and third's flagged rows are
+    # below
     for repeat in (0, 1, 2):
         add(pp110, "q_bz_on", repeat, "ok", 10.0, 12, compiled=repeat == 0)
         add(pp110, "q_bz_prior", repeat, "ok", 20.0, 12)
@@ -453,10 +397,6 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(surface9, "q_bz_on", 0, "ok", 1.0, 9)
     add(surface9, "q_bz_on", 1, "ok", 2.0, 9)
     add(surface9, "q_bz_on", 2, "timeout", 1800.0, None, compiled=True)
-    for entry, d in ((pp110, 12), (surface9, 9)):
-        add(entry, "q_bz_prior", 0, "ok", 20.0, d, mode="count", work={"total": 100})
-    add(pp110, "q_bz_on", 0, "ok", 10.0, 12, "count", {"total": 50}, compiled=True)
-    add(surface9, "q_bz_on", 0, "timeout", 1800.0, None, "count", None, ({"total": 10},), True)
     # qr47: the prior arm has no row; qr71: only the prior arm finishes; qr79: both arms agree on a
     # distance other than the reference, and the on arm has a flagged first run and a memout repeat
     add(qr47, "q_bz_on", 0, "ok", 5.0, 11)
@@ -465,45 +405,26 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(qr79, "q_bz_on", 0, "ok", 900.0, 13, compiled=True)
     add(qr79, "q_bz_on", 1, "memout", 900.0, None)
     add(qr79, "q_bz_prior", 0, "ok", 900.0, 13)
-    # three hgp codes that fail: a first run ends in an error; a repeat ends in a memout; and a
-    # counting run ends in an error.  Third's prior arm has a flagged first timed run, and fifth's a
-    # flagged counting timeout; both codes stay failures.
+    # two hgp codes that fail: a first run ends in an error, and a repeat ends in a memout.  Third's
+    # prior arm has a flagged first run; the code stays a failure.
     add(third, "q_bz_on", 0, "error", 3.0, None)
     add(third, "q_bz_prior", 0, "ok", 30.0, 4, compiled=True)
     add(fourth, "q_bz_on", 0, "ok", 20.0, 4)
     add(fourth, "q_bz_on", 1, "memout", 40.0, None)
     add(fourth, "q_bz_on", 2, "ok", 20.0, 4)
     add(fourth, "q_bz_prior", 0, "ok", 400.0, 4)
-    add(fifth, "q_bz_on", 0, "ok", 400.0, 4)
-    add(fifth, "q_bz_prior", 0, "ok", 400.0, 4)
-    add(fifth, "q_bz_on", 0, "error", 5.0, None, mode="count")
-    add(fifth, "q_bz_prior", 0, "timeout", 1800.0, None, "count", None, ({"total": 10},), True)
-    # two hgp codes: only the on arm finishes, with complete counts and a partial count; and both
-    # time out, with a counting run killed without partial counts
+    # three hgp codes: only the on arm finishes; both time out; and both finish equally fast
     add(first, "q_bz_on", 0, "ok", 600.0, 4)
     add(first, "q_bz_prior", 0, "timeout", 1800.0, None)
-    add(first, "q_bz_on", 0, "ok", 600.0, 4, mode="count", work={"total": 100})
-    add(first, "q_bz_prior", 0, "timeout", 1800.0, None, mode="count", partial=({"total": 4000},))
     add(second, "q_bz_on", 0, "timeout", 1800.0, None)
     add(second, "q_bz_prior", 0, "timeout", 1800.0, None)
-    add(second, "q_bz_on", 0, "ok", 700.0, 4, mode="count", work={"total": 300})
-    add(second, "q_bz_prior", 0, "timeout", 1800.0, None, mode="count")
+    add(fifth, "q_bz_on", 0, "ok", 400.0, 4)
+    add(fifth, "q_bz_prior", 0, "ok", 400.0, 4)
     expected = [
-        experiment._task(arm, "timed", entry, repeat=0)
+        experiment._task(arm, entry, repeat=0)
         for entry in (golay, bb72, qr47, qr71, qr79, pp110, surface9)
         + (first, second, third, fourth, fifth)
         for arm in ("q_bz_on", "q_bz_prior")
-    ] + [
-        experiment._task(arm, "count", entry, repeat=0)
-        for entry, arms_counted in (
-            (bb72, ("q_bz_on",)),
-            (first, arms.ARMS),
-            (second, arms.ARMS),
-            (fifth, arms.ARMS),
-            (pp110, arms.ARMS),
-            (surface9, arms.ARMS),
-        )
-        for arm in arms_counted
     ]
     records = analyze.summarize(rows, sample, expected)
     out = directory / "analysis"
@@ -511,77 +432,53 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     out.mkdir(parents=True)
     analyze.write_outputs(records, sample, out)
     by_name = {(r["name"], r["arm"]): r for r in records}
-    on, prior = by_name[("golay", "q_bz_on")], by_name[("golay", "q_bz_prior")]
-    assert analyze.ratio(on, prior, "T")["case"] == "disagreement"
-    on, prior = by_name[("bb72", "q_bz_on")], by_name[("bb72", "q_bz_prior")]
+
+    def ratio(entry_name: str) -> dict[str, Any]:
+        return analyze.ratio(by_name[(entry_name, "q_bz_on")], by_name[(entry_name, "q_bz_prior")])
+
+    assert ratio("golay")["case"] == "disagreement"
+    prior = by_name[("bb72", "q_bz_prior")]
     assert prior["T"] == 1800.0 and prior["repeats_unfinished"] == 2, prior
-    assert analyze.classify(analyze.ratio(on, prior, "T")) == "faster"
-    assert on["count_status"] == "missing" and analyze.ratio(on, prior, "W")["case"] == "failure"
-    on, prior = by_name[("qr47", "q_bz_on")], by_name[("qr47", "q_bz_prior")]
-    assert prior["status"] == "missing" and analyze.ratio(on, prior, "T")["case"] == "failure"
-    on, prior = by_name[("qr71", "q_bz_on")], by_name[("qr71", "q_bz_prior")]
-    only_prior = analyze.ratio(on, prior, "T")
+    assert analyze.classify(ratio("bb72")) == "faster"
+    assert by_name[("qr47", "q_bz_prior")]["status"] == "missing"
+    assert ratio("qr47")["case"] == "failure"
+    only_prior = ratio("qr71")
     assert (only_prior["case"], only_prior["bound"], only_prior["value"]) == (
         "only prior",
         "<=",
         0.5,
     )
     assert analyze.classify(only_prior) == "slower"
-    on, prior = by_name[("qr79", "q_bz_on")], by_name[("qr79", "q_bz_prior")]
-    assert analyze.ratio(on, prior, "T")["case"] == "disagreement"
-    on, prior = by_name[(first["name"], "q_bz_on")], by_name[(first["name"], "q_bz_prior")]
-    only_on = analyze.ratio(on, prior, "T")
+    assert ratio("qr79")["case"] == "disagreement"
+    only_on = ratio(first["name"])
     assert (only_on["case"], only_on["bound"], only_on["value"]) == ("only on", ">=", 3.0)
-    work = analyze.ratio(on, prior, "W")
-    assert (work["case"], work["bound"], work["value"]) == ("only on", ">=", 40.0), work
-    on, prior = by_name[(second["name"], "q_bz_on")], by_name[(second["name"], "q_bz_prior")]
-    assert analyze.ratio(on, prior, "T")["case"] == "both > L"
-    assert analyze.ratio(on, prior, "W")["case"] == "no work"
-    for entry, metric in ((third, "T"), (fourth, "T"), (fifth, "W")):
-        on, prior = by_name[(entry["name"], "q_bz_on")], by_name[(entry["name"], "q_bz_prior")]
-        assert analyze.ratio(on, prior, metric)["case"] == "failure", (entry["name"], metric)
+    assert ratio(second["name"])["case"] == "both > L"
+    for entry in (third, fourth):
+        assert ratio(entry["name"])["case"] == "failure", entry["name"]
+    assert analyze.classify(ratio(fifth["name"])) == "similar"
     outputs = ("summary.csv", "families.csv", "anchors.csv", "distances.pdf", "figure_notes.json")
     for name in outputs:
         assert (out / name).exists(), name
     with open(out / "families.csv") as file:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
     assert (anchors["codes"], anchors["disagreement"], anchors["failure"]) == ("7", "2", "1")
-    assert anchors["work_failures"] == "4", anchors
+    assert anchors["incomplete timing"] == "1", anchors
     with open(out / "families.csv") as file:
         (hgp,) = [row for row in csv.DictReader(file) if row["family"] == "hgp"]
     assert (hgp["median_R_T"], hgp["both > L"], hgp["failure"]) == (">=2", "1", "2"), hgp
-    assert (hgp["median_R_W"], hgp["work_ratios_in_median"], hgp["work_failures"]) == (
-        ">=40",
-        "1",
-        "3",
-    )
 
-    # a work count without a known total is refused rather than read as missing
-    unreadable = [dict(rows[-1], status="ok", result={"distance": 4, "work": {"other": 1}})]
-    try:
-        analyze.summarize(unreadable, sample, [])
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("an unreadable work count was accepted")
-
-    # pp110's flagged first timed run leaves R_T incomplete and its T cell "compiled", and its
-    # flagged counting run, which finished, still gives R_W; surface9's flagged timed-out repeat is
-    # left out of the median and of repeats_unfinished, and its flagged counting timeout leaves R_W
-    # incomplete and its W cell "compiled"
-    on, prior = by_name[("pp110", "q_bz_on")], by_name[("pp110", "q_bz_prior")]
+    # pp110's flagged first run leaves R_T incomplete and its T cell "compiled"; surface9's flagged
+    # timed-out repeat is left out of the median and of repeats_unfinished
+    on = by_name[("pp110", "q_bz_on")]
     assert on["T"] is None and on["runs_compiled"] == 1, on
-    assert analyze.ratio(on, prior, "T")["case"] == "incomplete timing"
-    assert analyze.ratio(on, prior, "W")["value"] == 2.0
-    on, prior = by_name[("surface9", "q_bz_on")], by_name[("surface9", "q_bz_prior")]
+    assert ratio("pp110")["case"] == "incomplete timing"
+    on = by_name[("surface9", "q_bz_on")]
     assert (on["T"], on["repeats"], on["repeats_unfinished"], on["runs_compiled"]) == (1.5, 2, 0, 1)
-    assert on["W"] is None and analyze.ratio(on, prior, "W")["case"] == "incomplete timing", on
     with open(out / "anchors.csv") as file:
         cells = {row["name"]: row for row in csv.DictReader(file)}
-    assert (cells["pp110"]["q_bz_on_T"], cells["surface9"]["q_bz_on_W"]) == ("compiled",) * 2
+    assert cells["pp110"]["q_bz_on_T"] == "compiled", cells["pp110"]
     # the T cell of a failed arm with a flagged first run shows the failure: qr79's memout repeat
     assert cells["qr79"]["q_bz_on_T"] == "memout", cells["qr79"]
-    assert anchors["incomplete timing"] == "1", anchors
 
 
 if __name__ == "__main__":
