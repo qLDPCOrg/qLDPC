@@ -521,6 +521,16 @@ class ConsumerCalibration:
             object.__setattr__(self, "state_stabilizers", stabilizers)
 
     @property
+    def fault_weight_probabilities(self) -> npt.NDArray[np.float64]:
+        """The probabilities ``Pr[g]`` that exactly ``g`` error mechanisms of the consumer occur.
+
+        There is one entry for each calibrated fault weight ``g = 0, ..., G``.  These are fault
+        weights of the consumer, unlike the attribute of the same name of a
+        ``ResidualWeightHistogram``, which counts the faults of a preparation circuit.
+        """
+        return self._get_distribution()[0]
+
+    @property
     def truncated_probability(self) -> float:
         """The probability ``Pr[g > G]`` of the fault weights that count as certain failure."""
         return self._get_distribution()[1]
@@ -549,6 +559,34 @@ class ConsumerCalibration:
             self, mechanism_probabilities=scale * probabilities, description=description.strip()
         )
 
+    def get_failure_probabilities(self, pauli: PauliXZLike) -> npt.NDArray[np.float64]:
+        """The failure probabilities ``c_s(m)`` of the consumer for the residual weights of a type.
+
+        Here ``c(0) = c_s(0) = Σ_{g ≤ G} Pr[g] f(0, g) + Pr[g > G]`` is the failure probability
+        without a block error, and ``c_s(m) = c(0) + Σ_{g ≤ G} Pr[g] Δ_s(m, g)`` for the rows ``m``
+        of the table of type ``s``.  As for a ``ConsumerProfile``, every heavier residual weight
+        counts as certain failure.  ``Φ`` adds, over the Pauli types, the average of
+        ``c_s(m) - c(0)`` over the histogram of that type.  The values are not clipped, so sampling
+        noise in estimated cells, or rounding, can put them slightly outside [0, 1].
+
+        Args:
+            pauli: The Pauli type ``s``, as ``Pauli.X``, ``Pauli.Z``, ``"X"``, or ``"Z"``.
+
+        Returns:
+            The array ``c(0), c_s(1), ..., c_s(R)``, for ``R`` the number of rows of the table.
+
+        Raises:
+            ValueError: If ``pauli`` is not a calibrated Pauli type.
+        """
+        pauli = Pauli.coerce_xz(pauli)
+        if pauli not in self._tables:
+            raise ValueError(
+                f"The calibration has no table of Pauli type {pauli}, only of"
+                f" {[str(calibrated) for calibrated in self._tables]}"
+            )
+        _, no_block_error, excesses = self._get_excesses()
+        return no_block_error + np.concatenate([[0.0], excesses[pauli]])
+
     def get_excess_failure_probability(
         self, *histograms: ResidualWeightHistogram
     ) -> tuple[float, float]:
@@ -564,7 +602,8 @@ class ConsumerCalibration:
         Args:
             histograms: One residual-weight histogram of the preparation circuit for each calibrated
                 Pauli type, from ``estimate_residual_weight_histogram`` with its ``pauli`` option,
-                resolving the residual weights of the table of that type.
+                resolving the residual weights of the table of that type.  Their sampling errors
+                are treated as independent, so give each histogram its own seed, or None.
 
         Returns:
             ``Φ`` and its standard error, propagated to first order.  The standard error combines
@@ -574,57 +613,82 @@ class ConsumerCalibration:
             the error of each ``f(0, g)`` from all residual weights and Pauli types that use it add
             linearly before the quadrature sum.  The histograms of distinct Pauli types, the cells,
             and the baseline estimates for distinct ``g`` are treated as independent.  The
-            calculation uses marginal standard errors only.
+            calculation uses marginal standard errors only.  ``get_standard_error_parts`` splits
+            this standard error into its histogram and calibration parts.
 
         Raises:
             ValueError: If there is not exactly one histogram for each calibrated Pauli type, or if
                 a histogram does not resolve the residual weights of its table.
         """
-        tables = self._tables
-        types = [histogram.pauli for histogram in histograms]
-        if len(types) != len(tables) or set(types) != set(tables):
+        value, histogram_error, terms = self._get_error_terms(histograms)
+        return value, math.hypot(histogram_error, float(np.linalg.norm(terms)))
+
+    def get_standard_error_parts(self, *histograms: ResidualWeightHistogram) -> tuple[float, float]:
+        """The histogram and calibration parts of the standard error of ``Φ``.
+
+        The histogram part propagates the sampling errors of the histograms, and the calibration
+        part the standard errors of the cells and the baseline, as
+        ``get_excess_failure_probability`` does.  To first order, more samples in the histograms
+        reduce only the first part, and more samples in the calibration only the second.  Neither
+        part includes the bias of cells with a sample count of zero, which more calibration
+        samples remove (see ``consumer_calibration.md``).
+
+        Args:
+            histograms: The histograms of a preparation circuit, as for
+                ``get_excess_failure_probability``.
+
+        Returns:
+            The histogram part and the calibration part.  The standard error that
+            ``get_excess_failure_probability`` returns is their quadrature sum.
+
+        Raises:
+            ValueError: As for ``get_excess_failure_probability``.
+        """
+        _, histogram_error, terms = self._get_error_terms(histograms)
+        return histogram_error, float(np.linalg.norm(terms))
+
+    def get_excess_failure_probability_difference(
+        self, first: Sequence[ResidualWeightHistogram], second: Sequence[ResidualWeightHistogram]
+    ) -> tuple[float, float]:
+        """The difference ``Φ(a) - Φ(b)`` of the figures of merit of preparation circuits a and b.
+
+        Both circuits are scored with this calibration, so an error of a cell or a baseline moves
+        both scores, and largely cancels from their difference when the two circuits have similar
+        residual-weight distributions.  The standard errors of the two scores, added in
+        quadrature, can therefore greatly overstate the standard error of their difference.
+        Certain failures, beyond a table or in a cell with a sample count of zero, are a bias that
+        no standard error includes (see ``consumer_calibration.md``).  Apart from the statistical
+        error of the baseline, this bias can only raise each score, but it can move their
+        difference either way.  The truncation of consumer fault weights above ``G`` is another
+        such bias, which can move each score either way, by at most ``truncated_probability``
+        for each Pauli type.
+
+        Args:
+            first: The histograms of circuit a, as for ``get_excess_failure_probability``.
+            second: The histograms of circuit b, as for ``get_excess_failure_probability``.  Every
+                histogram of either circuit needs its own seed, or None.
+
+        Returns:
+            ``Φ(a) - Φ(b)`` and its standard error, propagated to first order.  The standard error
+            combines in quadrature the histogram parts of both circuits, which are treated as
+            independent, and the calibration part of the difference.  That part propagates the
+            standard error of each cell and baseline through the difference of the two circuits'
+            derivatives with respect to it.
+
+        Raises:
+            ValueError: As for ``get_excess_failure_probability``, or if one histogram object
+                describes both circuits.
+        """
+        if any(histogram is other for histogram in first for other in second):
             raise ValueError(
-                "Expected one residual-weight histogram for each calibrated Pauli type"
-                f" {[str(pauli) for pauli in tables]}, not for {[str(t) for t in types]}"
+                "The two circuits need independently sampled histograms, not a shared histogram"
             )
-        distribution, truncated_probability = self._get_distribution()
-        no_block_error = (
-            float(np.asarray(self.baseline_failure_probabilities) @ distribution)
-            + truncated_probability
+        value, histogram_error, terms = self._get_error_terms(first)
+        other_value, other_histogram_error, other_terms = self._get_error_terms(second)
+        calibration_error = float(np.linalg.norm(terms - other_terms))
+        return value - other_value, math.hypot(
+            histogram_error, other_histogram_error, calibration_error
         )
-        value = variance = 0.0
-        # the derivative of the score with respect to each f(0, g) is -Pr[g] times this weight
-        baseline_weights = np.zeros(len(distribution))
-        for histogram in histograms:
-            pauli = cast(PauliXZ, histogram.pauli)
-            table = tables[pauli]
-            num_rows = len(table)
-            if num_rows > histogram.max_residual_weight:
-                raise ValueError(
-                    f"The calibration resolves residual weights of Pauli type {pauli} up to"
-                    f" {num_rows}, but the histogram only up to {histogram.max_residual_weight}"
-                )
-            # outcomes: discarded, residual weights 0, ..., max_residual_weight, and overflow
-            num_heavier = histogram.max_residual_weight + 1 - num_rows
-            outcome_values = np.concatenate(
-                [[0.0, 0.0], table @ distribution, np.full(num_heavier, 1 - no_block_error)]
-            )
-            mean, error = histogram._get_conditional_mean(outcome_values)
-            value += mean
-            variance += error**2
-            probabilities = histogram.get_residual_weight_distribution()
-            row_probabilities = probabilities[1 : num_rows + 1]
-            baseline_weights += probabilities[num_rows + 1 :].sum()
-            if self.excess_num_samples is not None:
-                unsampled = np.asarray(self.excess_num_samples[pauli]) == 0
-                baseline_weights += row_probabilities @ unsampled
-            if self.excess_standard_errors is not None:
-                errors = np.asarray(self.excess_standard_errors[pauli]) * distribution
-                variance += float(np.sum((row_probabilities[:, None] * errors) ** 2))
-        if self.baseline_standard_errors is not None:
-            errors = np.asarray(self.baseline_standard_errors) * distribution
-            variance += float(np.sum((baseline_weights * errors) ** 2))
-        return value, math.sqrt(variance)
 
     def estimate_excess_failure_probability(
         self,
@@ -734,6 +798,87 @@ class ConsumerCalibration:
         num_columns = len(np.asarray(self.baseline_failure_probabilities))
         probabilities = np.asarray(self.mechanism_probabilities, dtype=float)
         return _get_fault_weight_probabilities(probabilities, num_columns - 1)
+
+    def _get_excesses(
+        self,
+    ) -> tuple[npt.NDArray[np.float64], float, dict[PauliXZ, npt.NDArray[np.float64]]]:
+        """``Pr[g]`` for ``g <= G``, ``c(0)``, and the excesses ``c_s(m) - c(0)`` of each table."""
+        distribution, truncated_probability = self._get_distribution()
+        no_block_error = (
+            float(np.asarray(self.baseline_failure_probabilities) @ distribution)
+            + truncated_probability
+        )
+        excesses = {pauli: table @ distribution for pauli, table in self._tables.items()}
+        return distribution, no_block_error, excesses
+
+    def _get_error_terms(
+        self, histograms: Sequence[ResidualWeightHistogram]
+    ) -> tuple[float, float, npt.NDArray[np.float64]]:
+        """Score a preparation circuit, and linearize the errors of its score.
+
+        Args:
+            histograms: The histograms of the circuit, as for ``get_excess_failure_probability``.
+
+        Returns:
+            ``Φ``, the histogram part of its standard error, and the error terms of the calibration.
+            The error term of a cell ``Δ_s(m, g)`` or a baseline ``f(0, g)`` is the derivative of
+            ``Φ`` with respect to it, times its standard error.  A cell with a sample count of zero
+            has no error of its own, and moves with its baseline in the derivative.  The terms of
+            the cells of each table, in the order of the tables and row by row, precede those of
+            the baselines.
+
+        Raises:
+            ValueError: As for ``get_excess_failure_probability``.
+        """
+        # check that the histograms match the tables
+        tables = self._tables
+        types = [histogram.pauli for histogram in histograms]
+        if len(types) != len(tables) or set(types) != set(tables):
+            raise ValueError(
+                "Expected one residual-weight histogram for each calibrated Pauli type"
+                f" {[str(pauli) for pauli in tables]}, not for {[str(t) for t in types]}"
+            )
+
+        # score each Pauli type, and collect the derivatives of the score
+        distribution, no_block_error, excesses = self._get_excesses()
+        value = histogram_variance = 0.0
+        cell_terms = {pauli: np.zeros(table.shape) for pauli, table in tables.items()}
+        # the derivative of the score with respect to each f(0, g) is -Pr[g] times this weight
+        baseline_weights = np.zeros(len(distribution))
+        for histogram in histograms:
+            pauli = cast(PauliXZ, histogram.pauli)
+            table = tables[pauli]
+            num_rows = len(table)
+            if num_rows > histogram.max_residual_weight:
+                raise ValueError(
+                    f"The calibration resolves residual weights of Pauli type {pauli} up to"
+                    f" {num_rows}, but the histogram only up to {histogram.max_residual_weight}"
+                )
+            # outcomes: discarded, residual weights 0, ..., max_residual_weight, and overflow
+            num_heavier = histogram.max_residual_weight + 1 - num_rows
+            outcome_values = np.concatenate(
+                [[0.0, 0.0], excesses[pauli], np.full(num_heavier, 1 - no_block_error)]
+            )
+            mean, error = histogram._get_conditional_mean(outcome_values)
+            value += mean
+            histogram_variance += error**2
+            probabilities = histogram.get_residual_weight_distribution()
+            row_probabilities = probabilities[1 : num_rows + 1]
+            baseline_weights += probabilities[num_rows + 1 :].sum()
+            if self.excess_num_samples is not None:
+                unsampled = np.asarray(self.excess_num_samples[pauli]) == 0
+                baseline_weights += row_probabilities @ unsampled
+            if self.excess_standard_errors is not None:
+                errors = np.asarray(self.excess_standard_errors[pauli])
+                cell_terms[pauli] = row_probabilities[:, None] * distribution * errors
+
+        # the error terms of the cells, then those of the baselines
+        terms = [cell_terms[pauli].ravel() for pauli in tables]
+        baseline_errors = np.zeros(len(distribution))
+        if self.baseline_standard_errors is not None:
+            baseline_errors = np.asarray(self.baseline_standard_errors)
+        terms.append(-baseline_weights * distribution * baseline_errors)
+        return value, math.sqrt(histogram_variance), np.concatenate(terms)
 
 
 def _get_tables(

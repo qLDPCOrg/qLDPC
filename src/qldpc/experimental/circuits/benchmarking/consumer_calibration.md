@@ -204,6 +204,9 @@ A sample count of zero in `excess_num_samples` marks such a cell.
 Stratifying by `g` computes `Pr[g]` exactly, so only the conditional quantities `Δ_s(m, g)` and `f(0, g)` need estimates.
 Rare fault weights therefore need no naive sampling.
 The conditional quantities can still need many samples when failure within a stratum is rare.
+The properties `fault_weight_probabilities` and `truncated_probability` of a `ConsumerCalibration` give `Pr[g]` for `g ≤ G` and `Pr[g > G]`.
+Its method `get_failure_probabilities(s)` gives `c(0)` followed by `c_s(m)` for each row `m` of the table of type `s`, so that entry `m` is `c_s(m)`.
+The values are not clipped, so sampling noise in estimated cells, or rounding, can put them slightly outside [0, 1].
 
 A cell `(m, g)` is **exact** if its excess and the baseline `f(0, g)` both have zero standard error, and **estimated** otherwise.
 The failure probability `f(0, g) + Δ_s(m, g)` of an exact cell must lie in [0, 1].
@@ -309,8 +312,9 @@ For the built-in consumer, [What a calibration measures](#what-a-calibration-mea
    Each excess `c_s(m) - c(0)` averages over the [calibration's errors](#how-it-is-sampled) of residual weight `m`, not over those of the preparation circuit.
 4. **Truncation.**
    Consumer fault weights above `G` count as certain failure, which cancels from the excesses.
-   Preparation faults above the histogram's largest fault weight count as overflow, and residual weights above the largest residual weight tabulated for their Pauli type and unsampled cells count as certain failure.
-   For exact cells, which are valid probabilities, this can only overstate `Φ`; for estimated cells, this holds only up to their statistical error.
+   This drops the excesses of those fault weights, so it can move the term of each Pauli type in `Φ` either way, by at most `truncated_probability`.
+   Preparation faults above the histogram's largest fault weight count as overflow, which counts as certain failure, like residual weights above the largest residual weight tabulated for their Pauli type and unsampled cells.
+   Apart from the statistical error of the baseline, these certain failures can only overstate `Φ`.
 5. **Rescaling.**
    `ConsumerCalibration.rescaled(scale)` multiplies every error probability of the consumer by `scale`, recomputes `Pr[g]`, and reuses the excesses and the baseline.
    For fixed `g`, the distribution of the sets of mechanisms that occur depends only on ratios of their odds.
@@ -323,7 +327,7 @@ The standard errors cover the sampling of the calibration and of the histograms,
 They exclude the approximations above.
 The reported standard error of `Φ` combines three contributions in quadrature:
 
-- the sampling errors of the histograms, which are independent between Pauli types;
+- the sampling errors of the histograms, treated as independent between Pauli types, as they are when each histogram has its own seed;
 - the standard errors of the cells of the excess tables, treated as independent;
 - the error of the baseline.
 
@@ -336,6 +340,20 @@ The calculation therefore omits covariances between excess cells and the pooled 
 Its reported uncertainty is approximate when those terms matter.
 Importance-sampled histogram errors can be optimistic when few samples reach the outcomes that matter.
 Check the histogram's `num_samples` when an error looks too small.
+
+`ConsumerCalibration.get_standard_error_parts` splits the reported standard error into a histogram part, from the sampling errors of the histograms, and a calibration part, from the errors of the cells and the baseline.
+To first order, more histogram samples reduce only the histogram part, and more calibration samples only the calibration part.
+Neither part includes the bias of cells with a sample count of zero, which more calibration samples remove (see approximation 4).
+
+To compare circuits `a` and `b` scored with one calibration, pass the histograms of each circuit to `get_excess_failure_probability_difference`.
+Each circuit needs one histogram from `estimate_residual_weight_histogram` per calibrated Pauli type, as for `get_excess_failure_probability`.
+It returns `Φ(a) - Φ(b)` and its standard error.
+An error of a cell or a baseline moves both scores, so it largely cancels from their difference when the two circuits have similar residual-weight distributions.
+The two standard errors, added in quadrature, can therefore greatly overstate the standard error of the difference.
+The method keeps this cancellation, and adds the histogram parts of the two circuits in quadrature.
+It treats every histogram of either circuit as independent of the others, so give each histogram its own seed, or `seed=None`.
+The truncations of approximation 4 are a bias that no standard error includes.
+Certain failures beyond a table or in an unsampled cell can only raise each score, apart from the statistical error of the baseline, but they can move a difference either way.
 
 ## Supplying a consumer's response
 
