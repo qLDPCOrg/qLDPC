@@ -3,7 +3,6 @@
  "t": 1,
  "rates": [0.0001, 0.001, 0.005],
  "max_residual_weight": 2,
- "decoder": {"osd_method": "OSD_CS", "osd_order": 7},
  "histogram_samples": 100000,
  "calibration_samples": 10000,
  "direct": {

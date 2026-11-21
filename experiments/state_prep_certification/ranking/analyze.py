@@ -24,22 +24,29 @@ timeout may be due only to a compilation; see certification's ``analyze.py``), o
 group is in scope if it has at least two admitted circuits.  Every circuit not admitted, and every
 group dropped, is reported.
 
-**Scores** (``experiment.scores``), per admitted circuit and rate: Phi_unc, Phi_unc of the X-type
-histogram, Phi_cal with its histogram and calibration contributions sigma_hist and sigma_cal, the
-acceptance alpha, and Pr[R > 0 | A], the probability that an accepted shot has a nonzero residual
-weight.  Lower values predict a smaller Phi_true, except for alpha, whose higher values do.  A
-calibration cell (m, g) is unreachable if no X error of weight m has X residual weight m on the
-group's state, and unsampled if it is reachable and no draw reached it.  An unreachable cell has
-zero weight in every histogram, so it adds nothing to Phi_cal.
+**Scores** (``experiment.scores``), per admitted circuit and rate: Phi_unc, Phi_cal with the
+histogram and calibration parts sigma_hist and sigma_cal of its standard error
+(``ConsumerCalibration.get_standard_error_parts``), the acceptance alpha, and Pr[R > 0 | A], the
+probability that an accepted shot has a nonzero residual weight.  Lower values predict a smaller
+Phi_true, except for alpha, whose higher values do.  Phi_cal uses a histogram of each Pauli type of
+the calibration, X and Z.  A calibration cell (s, m, g) holds the excess of a block error of Pauli
+type s and residual weight m, with g faults of the consumer.  It is unsampled if no draw reached it,
+and qLDPC then counts it as certain failure.  A circuit's ``unsampled_cells`` in ``candidates.csv``
+are the unsampled cells that its score uses: its histogram of type s gives residual weight m a
+nonzero probability, and Pr[g] > 0.
 
-**Pairs**, within a group at one rate, are resolved if |Delta| > 2 sigma_Delta + tau_i + tau_j,
-with Delta the difference of the two references, sigma_Delta their errors in quadrature, and tau_i
-and tau_j their truncation allowances (``direct.py``), and neither reference has an inadequate
-stratum.  A score's call on a resolved pair is the sign of its difference, and equal values are a
-tie, counted as wrong.  A call is uncertain if the difference is within twice its standard error.
-For Phi_cal, that error propagates the shared calibration error through the difference of the two
-circuits' cell weights, and a call is also uncertain if a reachable unsampled cell has weight in
-either histogram.  A call without a score, as after a failed task, counts as wrong and is counted.
+**Pairs**, within a group at one rate, are resolved if |Delta| > 2 sigma_Delta + tau_i + tau_j, with
+Delta the difference of the two references, sigma_Delta their errors in quadrature, and tau_i and
+tau_j their truncation allowances (``direct.py``), and neither reference has an inadequate stratum.
+A score's call on a resolved pair is the sign of its difference, and equal values are a tie, counted
+as wrong.  A call is uncertain if the difference is within twice its standard error.  For Phi_cal,
+that standard error is qLDPC's error of the difference
+(``ConsumerCalibration.get_excess_failure_probability_difference``).  It adds both circuits'
+histogram parts in quadrature to a calibration part, which propagates each cell's and baseline's
+error through the difference of the two circuits' derivatives of Phi_cal with respect to it, so that
+part cancels to the extent that their residual-weight distributions agree.  A Phi_cal call is also
+uncertain if either circuit has unsampled cells.  A call without a score, as after a failed task,
+counts as wrong and is counted.
 
 **Agreement and the gate.**  A rate is eligible with at least ``ELIGIBLE_PAIRS`` resolved pairs,
 and a score agrees at an eligible rate if it calls at least ``AGREE_ACCURACY`` of them correctly.
@@ -50,43 +57,43 @@ each call by its sign, uncertain or not, as ``correct`` does, and ``correct_cert
 gate uses, gives the correct calls that are not uncertain.
 The gate is inconclusive with fewer than two eligible rates.
 
-**Costs** are CPU seconds, projected to matched first-order standard errors, with the achieved
-costs and errors beside them.  For a group at a rate, the target is sigma* = max(0.1 max_i
-|Phi_true,i|, 0.01 p^2).  The reference of each circuit targets sigma*, Phi_unc targets sigma*,
-and Phi_cal splits it: sigma_hist <= sigma* / sqrt(2) for each circuit and sigma_cal <=
-sigma* / sqrt(2) for the worst.  Setup and exactly listed strata are fixed costs.  The sampled
-cost of a component is multiplied by max(s_min, (sigma / target)^2), with s_min = ``MIN_DRAWS``
-over the fewest draws of its sampled strata, rows, or cells.
+**Costs** are CPU seconds, projected to matched first-order standard errors, with the achieved costs
+and errors beside them.  For a group at a rate, the target is sigma* = max(0.1 max_i |Phi_true,i|,
+0.01 p^2).  The reference of each circuit targets sigma*, Phi_unc targets sigma*, and Phi_cal splits
+it: sigma_hist <= sigma* / sqrt(2) for each circuit and sigma_cal <= sigma* / sqrt(2) for the worst.
+Setup and exactly listed strata are fixed costs.  The sampled cost of a component is multiplied by
+max(s_min, (sigma / target)^2), with s_min = ``MIN_DRAWS`` over the fewest draws of its sampled
+strata, rows, or cells.
 
-This projection assumes that sigma falls as the inverse square root of the draws.  Call a
-sampled stratum, histogram row, or calibration cell or baseline a part of its component.  A part
-with fewer than ``MIN_NONZERO`` draws of nonzero value fails, since its sigma may not fall that
-way.  Histograms do not store their draws, so for a row, the Kish effective number of its draws of
-nonzero value, which is at most their number, stands in for that number.  A component's projection
-is made only if its failing parts can change the factor max(s_min, (sigma / target)^2) by at most
-a share ``EXEMPT_SHARE`` (``exempted``): the sum of their bounds on sigma^2 is at most that share
-of max(sigma^2_pass, s_min target^2), with sigma^2_pass the estimated variance of its passing
-parts.  Otherwise its projected cost is left empty.  Each bound (``direct_terms``,
-``histogram_terms``, ``calibration_terms``) holds whatever the part's own draws are, given the
-ranges of its values and its number of draws.  The calibration must pass this test for the X-type
-histogram of every circuit of the group.  The estimated sigma reported beside a projection
-includes the exempted parts' own estimates, which few draws may understate, so the sum of their
-bounds on sigma^2 is reported beside it (``exempted_bound_*``; in ``groups.csv``, the largest
-over the group's circuits).  The calibration's baseline f(0, 0), the consumer's failure
+This projection assumes that sigma falls as the inverse square root of the draws.  Call a sampled
+stratum, histogram row, or calibration cell or baseline a part of its component.  A part with fewer
+than ``MIN_NONZERO`` draws of nonzero value fails, since its sigma may not fall that way.
+Histograms do not store their draws, so for a row, the Kish effective number of its draws of nonzero
+value, which is at most their number, stands in for that number.  A component's projection is made
+only if its failing parts can change the factor max(s_min, (sigma / target)^2) by at most a share
+``EXEMPT_SHARE`` (``exempted``): the sum of their bounds on sigma^2 is at most that share of
+max(sigma^2_pass, s_min target^2), with sigma^2_pass the estimated variance of its passing parts.
+Otherwise its projected cost is left empty.  Each bound (``direct_terms``, ``histogram_terms``,
+``calibration_terms``) holds whatever the part's own draws are, given the ranges of its values and
+its number of draws.  The calibration must pass this test for the histograms of every circuit of the
+group, and Phi_cal's histograms of both Pauli types are one component.  The estimated sigma reported
+beside a projection includes the exempted parts' own estimates, which few draws may understate, so
+the sum of their bounds on sigma^2 is reported beside it (``exempted_bound_*``; in ``groups.csv``,
+the largest over the group's circuits).  The calibration's baseline f(0, 0), the consumer's failure
 probability with no block error and no fault of its own, is exact if it was estimated as 0
 (``exact_no_fault_baseline``), and then has no error and no draws to count.
 
 The two methods cost A + k b for k circuits: A_score is the consumer's setup and the projected
-calibration, b_score the mean over the circuits of the preparation's setup, the projected X-type
-histogram, and the time to rebuild it and evaluate Phi_cal; A_direct is the consumer's setup for
-the reference, and b_direct the mean of the preparation's setup and the projected reference.  With
-delta_a = A_score - A_direct and delta_b = b_direct - b_score, the scores cost no more for k
-circuits exactly when delta_a <= k delta_b; ``break_even`` gives the outcome, k*, in each case of
-the sign of delta_b.  k* is computed only where every component of the group's costs is projected.
-b_unc, the per-circuit cost of Phi_unc, is reported beside them.  A row of the ranking label with
-``compiled_in_timing`` set (see ``common/runner.py``) gives no CPU seconds.  A group gets no costs
-at a rate where its calibration, or the histogram or direct reference of one of its admitted
-circuits, has such a row.
+calibration, b_score the mean over the circuits of the projected cost of the histograms of both
+Pauli types (setup, exactly listed strata, and scaled sampling), the time to rebuild them, and the
+time to evaluate Phi_cal; A_direct is the consumer's setup for the reference, and b_direct the mean
+of the preparation's setup and the projected reference.  With delta_a = A_score - A_direct and
+delta_b = b_direct - b_score, the scores cost no more for k circuits exactly when delta_a <= k
+delta_b; ``break_even`` gives the outcome, k*, in each case of the sign of delta_b.  k* is computed
+only where every component of the group's costs is projected.  b_unc, the per-circuit cost of
+Phi_unc, is reported beside them.  A row of the ranking label with ``compiled_in_timing`` set (see
+``common/runner.py``) gives no CPU seconds.  A group gets no costs at a rate where its calibration,
+or the histogram or direct reference of one of its admitted circuits, has such a row.
 
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory): ``admission.csv``,
 ``candidates.csv`` (with each circuit's projected and achieved costs), ``pairs.csv``,
@@ -128,11 +135,10 @@ from qldpc.experimental.circuits.benchmarking import (
     ResidualWeightHistogram,
     residual_weights,
 )
-from qldpc.objects import Pauli
 
 CONFIG = experiment.CONFIG
 M = experiment.MAX_RESIDUAL_WEIGHT
-SCORES = ("phi_cal", "phi_unc", "phi_unc_x", "alpha", "residual")
+SCORES = ("phi_cal", "phi_unc", "alpha", "residual")
 GATE_RIVALS = ("phi_unc", "alpha", "residual")
 ELIGIBLE_PAIRS = 8
 AGREE_ACCURACY = 0.8
@@ -336,7 +342,6 @@ def evaluate(
     admitted = {row["id"] for row in admission if row["admitted"] and row["group_in_scope"]}
     candidates, groups = [], []
     for group, members in grouped.items():
-        cells = reachable_cells(members[0])
         for rate in CONFIG["rates"]:
             # a calib task that did not finish keeps the fields of its partial result
             calib_row = rows.get(f"calib.{group}.p{rate:g}")
@@ -353,21 +358,12 @@ def evaluate(
                 "rate": rate,
                 "status_calib": _status(calib_row),
                 "compiled_in_timing_calib": _compiled(calib_row),
-                "unreachable_cells": [m for m in range(1, M + 1) if not cells[m]],
                 **{key: value for key, value in fields.items() if key not in ("group", "rate")},
             }
             if "calibration" in fields:
-                calibration = exact_no_fault_baseline(
+                group_row["calibration"] = exact_no_fault_baseline(
                     ConsumerCalibration.from_dict(fields["calibration"])
                 )
-                counts = _x_table(calibration.excess_num_samples)
-                group_row["unsampled_cells"] = [
-                    [m, g]
-                    for m in range(1, M + 1)
-                    for g in range(counts.shape[1])
-                    if cells[m] and counts[m - 1, g] == 0
-                ]
-                group_row["calibration"] = calibration
             groups.append(group_row)
             for entry in members:
                 candidates.append(
@@ -381,9 +377,8 @@ def exact_no_fault_baseline(calibration: ConsumerCalibration) -> ConsumerCalibra
 
     With no consumer fault and no block error, every shot gives the same detectors and
     observables, and the decoder is deterministic, so f(0, 0) is exactly 0 or 1, and an estimate
-    of 0 from any number of shots
-    means f(0, 0) = 0 exactly.  ``Consumer.calibrate`` still gives it the Jeffreys error of its
-    zero failures.  The value of every score is unchanged.
+    of 0 from any number of shots means f(0, 0) = 0 exactly.  ``Consumer.calibrate`` still gives it
+    the Jeffreys error of its zero failures.  The value of every score is unchanged.
     """
     baseline = np.asarray(calibration.baseline_failure_probabilities)
     errors = np.array(calibration.baseline_standard_errors, dtype=float)
@@ -393,49 +388,23 @@ def exact_no_fault_baseline(calibration: ConsumerCalibration) -> ConsumerCalibra
     return dataclasses.replace(calibration, baseline_standard_errors=errors)
 
 
-def reachable_cells(entry: dict[str, Any]) -> dict[int, bool]:
-    """Whether some X error of weight m has X residual weight m on a circuit's state, for m <= M."""
-    matrix = certification.stabilizer_matrix(entry["stabilizers"])
-    setup = residual_weights._ResidualWeightSetup(matrix, True, Pauli.X, M)
-    num_qubits = matrix.shape[1] // 2
-    reachable = {}
-    for m in range(1, M + 1):
-        supports = residual_weights._get_combinations(num_qubits, m)
-        errors = np.zeros((len(supports), 2 * num_qubits), dtype=np.uint8)
-        np.put_along_axis(errors, supports, 1, axis=1)
-        reachable[m] = bool(np.any(setup.get_error_weights(errors) == m))
-    return reachable
+def unsampled_cells(
+    calibration: ConsumerCalibration, histograms: list[ResidualWeightHistogram]
+) -> list[list[Any]]:
+    """The unsampled cells (s, m, g) of a calibration that a circuit's score uses.
 
-
-def calibration_difference_error(
-    calibration: ConsumerCalibration,
-    first: ResidualWeightHistogram,
-    second: ResidualWeightHistogram | None = None,
-) -> float:
-    """The calibration's contribution to the error of Phi_cal(first) - Phi_cal(second).
-
-    This is the calibration part of the error of
-    ``ConsumerCalibration.get_excess_failure_probability``, with each cell's and each baseline's
-    weight replaced by the difference of the two histograms' weights.  Without ``second``, it is
-    the calibration contribution sigma_cal of ``first``.
+    ``histograms`` are the circuit's histograms of the Pauli types that the calibration covers.  The
+    score uses a cell if the histogram of type s gives residual weight m a nonzero probability, and
+    Pr[g] > 0.
     """
-    distribution, _ = calibration._get_distribution()
-    errors = _x_table(calibration.excess_standard_errors)
-    counts = _x_table(calibration.excess_num_samples)
-    baseline_errors = np.asarray(calibration.baseline_standard_errors)
-
-    def weights(histogram: ResidualWeightHistogram | None) -> tuple[np.ndarray, np.ndarray]:
-        """The weight of each cell's row and of each baseline in a histogram's score."""
-        if histogram is None:
-            return np.zeros(len(errors)), np.zeros(len(distribution))
-        probabilities = histogram.get_residual_weight_distribution()
-        rows = probabilities[1 : len(errors) + 1]
-        return rows, probabilities[len(errors) + 1 :].sum() + rows @ (counts == 0)
-
-    (rows_1, baseline_1), (rows_2, baseline_2) = weights(first), weights(second)
-    cell_terms = ((rows_1 - rows_2)[:, None] * errors * distribution) ** 2
-    baseline_terms = ((baseline_1 - baseline_2) * baseline_errors * distribution) ** 2
-    return math.sqrt(float(cell_terms.sum() + baseline_terms.sum()))
+    distribution = calibration.fault_weight_probabilities
+    cells = []
+    for histogram in histograms:
+        counts = _table(calibration.excess_num_samples, histogram.pauli)
+        rows = histogram.get_residual_weight_distribution()[1 : len(counts) + 1]
+        weighted = (rows[:, None] * distribution > 0) & (counts == 0)
+        cells += [[str(histogram.pauli), int(m) + 1, int(g)] for m, g in zip(*np.nonzero(weighted))]
+    return cells
 
 
 def _candidate(
@@ -462,38 +431,40 @@ def _candidate(
             if _compiled(row)
         )
         or None,
-        "unsampled_cells": group_row.get("unsampled_cells", []),
     }
-    # the baselines need only the total-weight histogram, and the scores also the calibration
+    # the baselines need only the total-weight histogram, Phi_unc also the calibration, and Phi_cal
+    # also the histograms of the Pauli types
     fields = _fields(histogram_row)
-    total, x_type = fields.get("total"), fields.get("x")
     calibration = group_row.get("calibration")
-    if total is not None:
-        values = experiment.baselines(experiment.histogram_from_fields(total))
+    if "total" in fields:
+        total = experiment.histogram_from_fields(fields["total"])
+        values = experiment.baselines(total)
+        if calibration is not None:
+            profile = experiment.unc_profile(calibration)
+            values["phi_unc"] = total.get_excess_failure_probability(profile)
         candidate |= {score: value for score, (value, _) in values.items()}
         candidate |= {f"sigma_{score}": error for score, (_, error) in values.items()}
-    if total is not None and x_type is not None and calibration is not None:
-        histograms = (
-            experiment.histogram_from_fields(total),
-            experiment.histogram_from_fields(x_type),
-        )
-        values = experiment.scores(*histograms, calibration)
-        sigma = values["phi_cal"][1]
-        sigma_cal = calibration_difference_error(calibration, histograms[1])
+    names = ("total", *experiment.PAULI_TYPES)
+    if all(name in fields for name in names) and calibration is not None:
+        histograms = {name: experiment.histogram_from_fields(fields[name]) for name in names}
+        typed = {name: histograms[name] for name in experiment.PAULI_TYPES}
+        calibrated = experiment.calibrated_histograms(typed, calibration)
+        values = experiment.scores(histograms["total"], typed, calibration)
+        sigma_hist, sigma_cal = calibration.get_standard_error_parts(*calibrated)
         candidate |= {
             "histograms": histograms,
+            "calibrated": calibrated,
             "calibration": calibration,
             **{score: value for score, (value, _) in values.items()},
             **{f"sigma_{score}": error for score, (_, error) in values.items()},
-            "sigma_hist": math.sqrt(max(sigma**2 - sigma_cal**2, 0.0)),
+            "sigma_hist": sigma_hist,
             "sigma_cal": sigma_cal,
-            "truncation_histogram": histograms[0].truncation_error_bound,
+            "unsampled_cells": unsampled_cells(calibration, calibrated),
+            "truncation_histogram": histograms["total"].truncation_error_bound,
             "truncation_calibration": calibration.truncated_probability,
         }
         if not _compiled(histogram_row):
-            candidate["cpu_histogram"] = {
-                name: _cpu(fields) for name, fields in (("total", total), ("x", x_type))
-            }
+            candidate["cpu_histogram"] = {name: _cpu(fields[name]) for name in names}
     if direct_row is not None and direct_row["status"] == "ok":
         result = direct_row["result"]
         candidate |= {
@@ -644,31 +615,17 @@ def _pair(group: str, rate: float, first: dict[str, Any], second: dict[str, Any]
         if score == "alpha":
             sign = -sign
         if score == "phi_cal":
-            error = math.sqrt(
-                first["sigma_hist"] ** 2
-                + second["sigma_hist"] ** 2
-                + calibration_difference_error(
-                    first["calibration"], first["histograms"][1], second["histograms"][1]
-                )
-                ** 2
+            _, error = first["calibration"].get_excess_failure_probability_difference(
+                first["calibrated"], second["calibrated"]
             )
         else:
             error = math.hypot(first[f"sigma_{score}"], second[f"sigma_{score}"])
         uncertain = abs(difference) <= 2 * error
-        if score == "phi_cal" and _weights_unsampled(first, second):
+        if score == "phi_cal" and (first["unsampled_cells"] or second["unsampled_cells"]):
             uncertain = True
         pair[f"call_{score}"] = "tie" if sign == 0 else ("correct" if sign == truth else "wrong")
         pair[f"uncertain_{score}"] = uncertain
     return pair
-
-
-def _weights_unsampled(first: dict[str, Any], second: dict[str, Any]) -> bool:
-    """Whether a reachable unsampled cell has weight in either circuit's X-type histogram."""
-    for candidate in (first, second):
-        probabilities = candidate["histograms"][1].get_residual_weight_distribution()
-        if any(probabilities[m] > 0 for m, _ in candidate["unsampled_cells"]):
-            return True
-    return False
 
 
 def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> dict[str, float | None]:
@@ -966,63 +923,72 @@ def histogram_terms(
 
 
 def calibration_terms(
-    calibration: ConsumerCalibration, histogram: ResidualWeightHistogram, num_samples: int
+    calibration: ConsumerCalibration, histograms: list[ResidualWeightHistogram], num_samples: int
 ) -> tuple[list[float], list[float]]:
-    """The passing estimates and failing bounds of a calibration, for one X-type histogram.
+    """The passing estimates and failing bounds of a calibration, for one circuit's histograms.
 
-    The parts are the reached cells and the baselines that have weight in the histogram's score
-    of Phi_cal.  Their estimates are their terms in ``calibration_difference_error``, so that they
-    sum to sigma_cal^2.  A cell passes with ``MIN_NONZERO`` increases and decreases
-    (``nonzero_changes``), and a baseline with as many failures; an exact baseline has no error and
-    is not a part.  ``num_samples`` is the calibration's draws for each fault weight and physical
-    error weight, so a baseline's shots are ``num_samples`` times the min(M + 1, n) physical error
-    weights that ``Consumer.calibrate`` draws for the X type, the only type calibrated here, for
-    M the calibration's largest residual weight and n the block's qubits.  Weights are at most 1,
-    a cell's Jeffreys variance is at most 1 / count, and a
-    baseline's at most 1 / shots, so a part at fault weight g contributes at most Pr[g]^2 / count,
-    or Pr[g]^2 / shots.
+    ``histograms`` are the circuit's histograms of the S Pauli types that the calibration covers.
+    The parts are the cells and baselines with a nonzero term in qLDPC's calibration part of the
+    error of Phi_cal (``ConsumerCalibration._get_error_terms``).  A part's term there is the
+    derivative of Phi_cal with respect to the part, times the part's standard error.  A part's
+    estimate is its term squared, so that the estimates sum to sigma_cal^2.  A cell passes with
+    ``MIN_NONZERO`` increases and decreases (``nonzero_changes``), and a baseline with as many
+    failures; an exact baseline has no error and is not a part.  ``num_samples`` is the
+    calibration's draws for each Pauli type, fault weight, and physical error weight.
+    ``Consumer.calibrate`` pools a baseline's shots over the Pauli types, so they are
+    ``num_samples`` S min(M + 1, n), for M the calibration's largest residual weight and n the
+    block's qubits.  The derivative's size is Pr[g] times, for a cell, the probability of its
+    residual weight m in its type's histogram, which is at most 1, or, for a baseline, the
+    probability summed over the types of the residual weights that count as certain failure, which
+    is at most S.  A cell's Jeffreys variance is at most 1 / count, and a baseline's at most
+    1 / shots, so a failing cell at fault weight g contributes at most Pr[g]^2 / count, and a
+    failing baseline at most (S Pr[g])^2 / shots.
     """
-    distribution, _ = calibration._get_distribution()
-    table = _x_table(calibration.excess_failure_probabilities)
-    errors = _x_table(calibration.excess_standard_errors)
-    counts = _x_table(calibration.excess_num_samples)
+    _, _, terms = calibration._get_error_terms(histograms)
+    distribution = calibration.fault_weight_probabilities
+    tables = calibration.excess_failure_probabilities
     baseline = np.asarray(calibration.baseline_failure_probabilities)
-    baseline_errors = np.asarray(calibration.baseline_standard_errors)
     num_qubits = len(calibration.state_stabilizers or ())
-    shots = num_samples * min(M + 1, num_qubits)
-    probabilities = histogram.get_residual_weight_distribution()
-    rows = probabilities[1 : len(table) + 1]
+    shots = num_samples * len(tables) * min(M + 1, num_qubits)
     passing, failing = [], []
 
-    # the reached cells with weight in the histogram's score
-    for m, g in zip(*np.nonzero((rows[:, None] * distribution > 0) & (counts > 0))):
-        estimate = float(rows[m] * distribution[g] * errors[m, g]) ** 2
-        if nonzero_changes(table[m, g], errors[m, g], counts[m, g]) >= MIN_NONZERO:
-            passing.append(estimate)
-        else:
-            failing.append(float(distribution[g]) ** 2 / counts[m, g])
-
-    # the baselines with weight, through residual weights above the cells or unsampled cells
-    baseline_weights = probabilities[len(table) + 1 :].sum() + rows @ (counts == 0)
-    for g in np.flatnonzero((baseline_weights * distribution > 0) & (baseline_errors > 0)):
-        estimate = float(baseline_weights[g] * distribution[g] * baseline_errors[g]) ** 2
+    # the cells of each table, row by row, and then the baselines, as qLDPC orders the terms
+    offset = 0
+    for pauli in tables:
+        table = _table(tables, pauli)
+        errors = _table(calibration.excess_standard_errors, pauli)
+        counts = _table(calibration.excess_num_samples, pauli)
+        for (m, g), term in zip(np.ndindex(table.shape), terms[offset : offset + table.size]):
+            if not term:
+                continue
+            count = int(counts[m, g])
+            if nonzero_changes(float(table[m, g]), float(errors[m, g]), count) >= MIN_NONZERO:
+                passing.append(float(term) ** 2)
+            else:
+                failing.append(float(distribution[g]) ** 2 / count)
+        offset += table.size
+    for g, term in enumerate(terms[offset:]):
+        if not term:
+            continue
         if round(baseline[g] * shots) >= MIN_NONZERO:
-            passing.append(estimate)
+            passing.append(float(term) ** 2)
         else:
-            failing.append(float(distribution[g]) ** 2 / shots)
+            failing.append(float(len(tables) * distribution[g]) ** 2 / shots)
     return passing, failing
 
 
 def phi_cal_values(
     calibration: ConsumerCalibration, histogram: ResidualWeightHistogram
 ) -> npt.NDArray[np.float64]:
-    """The values of Phi_cal's outcomes for an X-type histogram, as qLDPC scores them."""
-    table = _x_table(calibration.excess_failure_probabilities)
-    distribution, truncated = calibration._get_distribution()
-    baseline = np.asarray(calibration.baseline_failure_probabilities)
-    no_block_error = float(baseline @ distribution) + truncated
-    heavier = histogram.max_residual_weight + 1 - len(table)
-    return np.concatenate([[0.0, 0.0], table @ distribution, np.full(heavier, 1 - no_block_error)])
+    """The values of Phi_cal's outcomes for a histogram of a Pauli type, as qLDPC scores them.
+
+    Phi_cal is the sum, over the Pauli types that the calibration covers, of the mean of these
+    values in the histogram of each type.
+    """
+    assert histogram.pauli is not None
+    failures = calibration.get_failure_probabilities(histogram.pauli)
+    heavier = histogram.max_residual_weight + 2 - len(failures)
+    return np.concatenate([[0.0], failures - failures[0], np.full(heavier, 1 - failures[0])])
 
 
 def phi_unc_values(
@@ -1062,11 +1028,11 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
 
     # Phi_cal: the calibration once per group, against the error of its worst circuit
     worst_cal = max(c["sigma_cal"] for c in members)
-    counts = _x_table(calibration.excess_num_samples)
+    counts = np.concatenate([np.ravel(table) for table in calibration.excess_num_samples.values()])
     cal_draws = int(counts[counts > 0].min()) if np.any(counts > 0) else 0
     checks = [
         check_projection(
-            calibration_terms(calibration, c["histograms"][1], group["num_samples"]),
+            calibration_terms(calibration, c["calibrated"], group["num_samples"]),
             cal_draws,
             target / math.sqrt(2),
         )
@@ -1084,34 +1050,37 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         cal_valid,
     )
 
-    # each circuit's histograms, with the time to rebuild one and evaluate its score
+    # each circuit's histograms of a score, with the time to rebuild them and evaluate the score;
+    # Phi_cal's histograms, one of each Pauli type, are projected together
     for c in members:
-        for name, score, sigma, sigma_target, score_values in (
-            ("x", "phi_cal", c["sigma_hist"], target / math.sqrt(2), phi_cal_values),
-            ("total", "phi_unc", c["sigma_phi_unc"], target, phi_unc_values),
+        for score, names, sigma, sigma_target, score_values in (
+            (
+                "phi_cal",
+                experiment.PAULI_TYPES,
+                c["sigma_hist"],
+                target / math.sqrt(2),
+                phi_cal_values,
+            ),
+            ("phi_unc", ("total",), c["sigma_phi_unc"], target, phi_unc_values),
         ):
-            cpu = c["cpu_histogram"][name]
-            histogram = c["histograms"][0 if name == "total" else 1]
-            values = score_values(calibration, histogram)
-            rows = histogram.num_samples[~histogram.exact & (histogram.num_samples > 0)]
-            draws = int(rows.min()) if rows.size else 0
+            passing, failing, row_draws = [], [], []
+            fixed, sampled = timing[score], 0.0
+            for name in names:
+                cpu, histogram = c["cpu_histogram"][name], c["histograms"][name]
+                terms = histogram_terms(histogram, score_values(calibration, histogram))
+                passing += terms[0]
+                failing += terms[1]
+                rows = histogram.num_samples[~histogram.exact & (histogram.num_samples > 0)]
+                row_draws += rows.tolist()
+                fixed += cpu["cpu_setup_s"] + cpu["cpu_exact_s"] + timing["rebuild_histogram"]
+                sampled += cpu["cpu_sampled_s"]
+            draws = int(min(row_draws, default=0))
             valid, c[f"exempted_bound_{score}"] = check_projection(
-                histogram_terms(histogram, values), draws, sigma_target
+                (passing, failing), draws, sigma_target
             )
-            fixed = (
-                cpu["cpu_setup_s"]
-                + cpu["cpu_exact_s"]
-                + timing["rebuild_histogram"]
-                + timing[score]
-            )
-            c[f"cost_{score}_achieved"] = fixed + cpu["cpu_sampled_s"]
+            c[f"cost_{score}_achieved"] = fixed + sampled
             c[f"cost_{score}_projected"] = project(
-                fixed,
-                cpu["cpu_sampled_s"],
-                sigma,
-                sigma_target,
-                draws,
-                valid,
+                fixed, sampled, sigma, sigma_target, draws, valid
             )
 
     # the cost lines, and k* where every component is projected
@@ -1216,7 +1185,10 @@ def rt7(rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
 def leading_order_rows(
     rows: dict[str, dict[str, Any]], candidates: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """The leading-order coefficients of each circuit of the exact group, beside Phi_true."""
+    """The leading-order coefficient of Phi_true of each circuit of ``exact.group``.
+
+    Beside it are the circuit's reference and the leading term at ``exact.frozen_rate``.
+    """
     frozen = CONFIG["exact"]["frozen_rate"]
     results = []
     for key, row in sorted(rows.items()):
@@ -1227,16 +1199,15 @@ def leading_order_rows(
         reference = next(
             (c for c in candidates if c["id"] == circuit_id and c["rate"] == frozen), {}
         )
-        line: dict[str, Any] = {"id": circuit_id, "status": row["status"]}
-        for name in ("true", "cal"):
-            entry = result.get(name, {})
-            line |= {
-                f"order_{name}": entry.get("order"),
-                f"coefficient_{name}": entry.get("coefficient"),
-                f"note_{name}": entry.get("note"),
-            }
-            if entry.get("order"):
-                line[f"leading_term_{name}"] = entry["value"] * frozen ** entry["order"]
+        line: dict[str, Any] = {
+            "id": circuit_id,
+            "status": row["status"],
+            "order": result.get("order"),
+            "coefficient": result.get("coefficient"),
+            "note": result.get("note"),
+        }
+        if result.get("order"):
+            line["leading_term"] = result["value"] * frozen ** result["order"]
         line["phi_true_direct"] = reference.get("phi_true")
         line["sigma_true_direct"] = reference.get("sigma_true")
         results.append(line)
@@ -1280,10 +1251,10 @@ def _fields(row: dict[str, Any] | None) -> dict[str, Any]:
     return fields
 
 
-def _x_table(tables: Any) -> np.ndarray:
-    """The X-type table of a calibration's tables, which ``Consumer.calibrate`` always fills."""
+def _table(tables: Any, pauli: Any) -> np.ndarray:
+    """The table of a Pauli type in a calibration's tables, which ``Consumer.calibrate`` fills."""
     assert tables is not None
-    return np.asarray(tables[Pauli.X])
+    return np.asarray(tables[pauli])
 
 
 def _compiled(row: dict[str, Any] | None) -> bool:
@@ -1318,11 +1289,11 @@ def _flatten(candidate: dict[str, Any]) -> dict[str, Any]:
         if k
         not in (
             "histograms",
+            "calibrated",
             "calibration",
             "strata",
             "cpu_histogram",
             "cpu_direct",
-            "unsampled_cells",
             "pi",
             "eta",
         )

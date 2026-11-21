@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The consumer of each group: one noisy round of syndrome measurement, then a Z-basis readout.
+"""The consumer of each group: qLDPC's Steane-swap consumer of the group's code.
 
-The consumer is qLDPC's Z-basis memory experiment with one round, built from the group's code file
-(``Hx``, ``Hz``, ``Lx``, and ``Lz`` in output-qubit order), with the resets of the data qubits
-removed.  A noiseless block preparation, Stim's circuit for the group's signed state, puts data
-qubit i in the state of output qubit i, and the observables are the code's logical Z operators
-``Lz``.  The decoder is BP-OSD, built by ``Consumer`` from the detector error model at each rate.
+The consumer is qLDPC's ``get_steane_swap_consumer`` of the group's code, built from its code file
+(``Hx``, ``Hz``, ``Lx``, and ``Lz`` in output-qubit order), with the correctable weight t of the
+group's circuits.  The block under test is a fresh logical ``|0>`` block (``basis=Pauli.Z``), and
+the noise model at each rate p is ``DepolarizingNoiseModel(p)``.  The consumer's decoder is qLDPC's
+default, which decodes the syndrome of each step on its own with a table of lightest errors.  Both X
+and Z errors on the block reach its detectors.  ``build_consumer`` checks that the ideal state of
+the block is the group's signed state, with the block qubits in output-qubit order.
 """
 
 from __future__ import annotations
@@ -21,8 +23,8 @@ import numpy as np
 import stim
 
 from experiments.state_prep_certification.common import store
-from qldpc import circuits, codes, decoders
-from qldpc.experimental.circuits.benchmarking import Consumer
+from qldpc import circuits, codes
+from qldpc.experimental.circuits.benchmarking import Consumer, get_steane_swap_consumer
 from qldpc.objects import Pauli
 
 CERTIFICATION = pathlib.Path(__file__).resolve().parents[1] / "certification"
@@ -37,52 +39,42 @@ def code_matrices(entry: dict[str, Any]) -> dict[str, Any]:
     return code
 
 
-def consumer_circuits(
-    entry: dict[str, Any], p: float
-) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit]:
-    """The block preparation, the noiseless consumer, and the consumer with noise at rate p.
+def group_code(entry: dict[str, Any]) -> codes.CSSCode:
+    """The code of a circuit's group, with the logical operators of its code file.
 
     The logical X operators are changed by a basis change within their span so that
-    ``Lx Lz^T = I``, which qLDPC requires; the observables are the rows of ``Lz`` as given.
+    ``Lx Lz^T = I``, which qLDPC requires; the logical Z operators are the rows of ``Lz`` as given.
     """
     matrices = code_matrices(entry)
-    hx, hz = np.array(matrices["Hx"]), np.array(matrices["Hz"])
     lx, lz = galois.GF2(np.array(matrices["Lx"])), galois.GF2(np.array(matrices["Lz"]))
-    code = codes.CSSCode(hx, hz)
+    code = codes.CSSCode(np.array(matrices["Hx"]), np.array(matrices["Hz"]))
     code.set_logical_ops_xz(np.linalg.inv(lx @ lz.T) @ lx, lz)
-    num_qubits = len(code)
-
-    # data qubit i is the qubit with coordinates (0, i), which qLDPC numbers i
-    memory = circuits.get_memory_experiment(code, basis=Pauli.Z, num_rounds=1)
-    coordinates = memory.get_final_qubit_coordinates()
-    if any(coordinates[qubit] != [0, qubit] for qubit in range(num_qubits)):
-        raise ValueError("The data qubits of the memory experiment are not qubits 0, ..., n - 1")
-    noiseless = stim.Circuit()
-    for instruction in memory:
-        if instruction.name == "R":
-            targets = [t.value for t in instruction.targets_copy() if t.value >= num_qubits]
-            if targets:
-                noiseless.append("R", targets)
-        else:
-            noiseless.append(instruction)
-
-    tableau = stim.Tableau.from_stabilizers([stim.PauliString(s) for s in entry["stabilizers"]])
-    block_preparation = tableau.to_circuit()
-    noisy = circuits.DepolarizingNoiseModel(p).noisy_circuit(noiseless)
-    return block_preparation, noiseless, noisy
+    return code
 
 
-def build_consumer(entry: dict[str, Any], p: float, decoder: dict[str, Any]) -> Consumer:
-    """The consumer of a circuit's group at rate p, with BP-OSD of the given options."""
-    block_preparation, _, noisy = consumer_circuits(entry, p)
-    return Consumer(
-        block_preparation,
-        noisy,
-        decoders.bp_osd(**decoder),
-        block_qubits=range(len(entry["output_qubits"])),
+def build_consumer(entry: dict[str, Any], p: float) -> Consumer:
+    """The consumer of a circuit's group at rate p.
+
+    Raises:
+        ValueError: If the ideal state of the consumer's block is not the group's signed state.
+    """
+    consumer = get_steane_swap_consumer(
+        group_code(entry),
+        circuits.DepolarizingNoiseModel(p),
+        basis=Pauli.Z,
         correctable_weight=int(entry["t"]),
-        description=f"Z-basis memory, one round, without data resets; code {entry['code_file']}",
     )
+    simulator = stim.TableauSimulator()
+    simulator.do_circuit(consumer.block_preparation)
+    block_qubits = list(consumer.block_qubits or ())
+    for stabilizer in entry["stabilizers"]:
+        operator = stim.PauliString(simulator.num_qubits)
+        for qubit, pauli in zip(block_qubits, stim.PauliString(stabilizer)):
+            operator[qubit] = pauli
+        operator.sign = stim.PauliString(stabilizer).sign
+        if simulator.peek_observable_expectation(operator) != 1:
+            raise ValueError(f"{entry['id']}: the consumer's block is not in the group's state")
+    return consumer
 
 
 def sha256_text(text: str) -> str:
