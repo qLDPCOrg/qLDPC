@@ -685,6 +685,15 @@ def test_tasks_ceiling_and_cores(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_stand_in_worst_case(directory: pathlib.Path, node: bool) -> None:
+    """The stand-in's worst case is three runs of tasks.run_cost_s, post-processing included."""
+    from experiments.state_prep_certification.common import selftest_plugin
+
+    task = _task("long_post", [], post_s=600.0)
+    assert selftest_plugin.worst_case_s(task) == 3 * tasks.run_cost_s(task) == 3 * 735.0
+
+
+@test
 def test_tasks_finite_limits(directory: pathlib.Path, node: bool) -> None:
     """A task with a limit that is not finite and positive, or a non-finite approval, is refused."""
     nan, inf = float("nan"), float("inf")

@@ -42,6 +42,7 @@ from typing import Any
 import numpy as np
 
 from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common.tasks import run_cost_s
 
 NAME = "selftest"
 EXTRA_WHEELS: list[str] = []
@@ -73,9 +74,8 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
 
 
 def worst_case_s(task: dict[str, Any]) -> float:
-    """Start-up cap, limit, and grace, times three for the first run and two repeats."""
-    once = runner.STARTUP_CAP_S + task["limit_s"] + runner.GRACE_S
-    return 3 * once
+    """Three times the most seconds of one run: a first run and two repeats."""
+    return 3 * run_cost_s(task)
 
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
