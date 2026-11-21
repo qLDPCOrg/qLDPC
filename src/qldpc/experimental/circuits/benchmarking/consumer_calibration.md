@@ -120,20 +120,24 @@ So for `basis="Z"`, steps 0 and +2 both decode the block's Z errors, and step +1
 For `basis="X"`, X and Z are exchanged.
 No error on the block under test reaches the steps before entry or the final readout.
 
-The default decoder decodes each step on its own.
+The consumer decodes each step on its own by default.
 Without faults of the consumer, its two decodings of the twice-decoded errors see the same syndrome, so they make the same prediction, and the two predictions cancel in the observables.
 The errors also flip the logical outcomes that the two steps measure, and these flips cancel too.
-With the default decoder, Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
+With per-step decoding, Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
 
 The errors that noise in a step leaves are decoded in that step, in one of the next two steps, or in the final readout.
 The errors of the block under test are decoded in steps 0 to +2, so noise in steps −2 to +2 can leave errors that one of steps 0 to +2 also decodes, and noise in other steps cannot.
 The window runs these five steps, each with the noise of the noise model.
-A further noisy step before or after the window adds error mechanisms whose errors no step decodes together with the block's errors.
-For a code of distance at least 3, the default decoder corrects every fault of weight one, so it corrects each such mechanism when it is the consumer's only fault, without changing the cost of the block's errors.
+A further noisy step before or after the window adds noise whose errors no step decodes together with the block's errors.
+A per-step decoder that corrects every single-qubit error corrects every fault of weight one, so it corrects each such fault when it is the consumer's only fault, without changing the cost of the block's errors.
+The default decoder corrects every single-qubit error of a code of distance at least 3, and so does a per-step decoder built from a decoder specification that passes the check of [the decoders section](#decoders).
 
-So with the default decoder and a code of distance at least 3, further steps change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
-For a code of distance less than 3, the default decoder can fail to correct a fault of weight one, and further steps can change the excesses at first order.
-A decoder built from a decoder specification decodes the syndromes of the whole window together, so neither the cancellation of twice-decoded errors nor the second-order bound on the effect of further steps is guaranteed for it.
+So with such per-step decoding and a code of distance at least 3, further steps change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
+For a code of distance less than 3, no decoder corrects every single-qubit error, and further steps can change the excesses at first order.
+The bound concerns the excesses summed over all fault weights.
+A calibration with `max_fault_weight=0` keeps only the term of fault weight 0, which is proportional to the probability that the consumer has no fault, so further steps change this truncated excess at first order.
+A decoder built from the detector error model of the whole window, with `decoding="window"`, decodes the syndromes of all steps together.
+Neither the cancellation of twice-decoded errors nor the second-order bound on the effect of further steps is guaranteed for it, and its results can depend on the window's length.
 
 ### What a calibration measures
 
@@ -156,13 +160,19 @@ For comparison, the [Steane-QEC notebook](../../../../../examples/logical_error_
 
 ### Decoders
 
-The default decoder decodes the syndrome of each step, and the final syndrome, separately, with a minimum-weight lookup table for each type of check.
+By default, the consumer decodes the syndrome of each step, and the final syndrome, separately, with a minimum-weight lookup table for each type of check.
 A table has an entry for every syndrome of the checks of one type, so the default decoder suits small codes.
 The docstring of `get_steane_swap_consumer` gives its size limits and the layout of the window's detectors.
-Other decoders are passed as decoder specifications, which the consumer builds from the detector error model of its window.
+For larger codes, pass a decoder specification.
+The consumer builds it once for each type of check, from a detector error model of one block with an error on each qubit, and decodes each step on its own with it.
+If the correctable weight is at least 1, the consumer checks that these decoders correct every single-qubit error, and raises an error if they do not.
+For example, `decoders.bp_osd(max_iter=50, bp_method="minimum_sum")` passes this check on the Steane code, and `decoders.bp_osd()` does not.
+With the default decoder, or a specification that passes the check, and a code of distance at least 3, the window has the guarantees that [the window section](#the-window) describes.
+
+With `decoding="window"`, the consumer instead builds the decoder from the detector error model of its whole window.
 The detectors of the window come from the code's own checks, so these decoders see the weight and locality of those checks.
 For example, `decoders.mwpm(decompose_errors=True)` suits a code whose checks give a matching graph, such as a surface code.
-Such a decoder decodes the whole window together, so neither the cancellation of twice-decoded errors nor the second-order bound on the effect of further steps, which [the window section](#the-window) describes, is guaranteed for it.
+Whole-window decoding is a research option: the window's guarantees do not cover it, and its results can depend on the window's length.
 
 ## The stratified calibration
 
@@ -394,7 +404,7 @@ Certain failures beyond a table or in an unsampled cell can only raise each scor
   The `pauli` option of `Consumer.estimate_excess_failure_probability` keeps one part of each error.
   Compare the whole-error estimate with the sum of the X-only and Z-only estimates.
   Their difference estimates the X–Z interaction neglected by approximation 2.
-  With the same `seed`, the three runs share their shots, so the difference has a much smaller error than the quadrature sum of their reported standard errors.
+  With the same `seed`, the three runs share their shots, so much of their sampling error cancels from the difference, and the quadrature sum of their reported standard errors can overstate its error.
 - **Fault tolerance of the consumer.**
   For a consumer that tolerates `t` faults in total, the calibrated excesses `Δ_s(m, g)` with `m + g ≤ t` should vanish.
 - **Truncation and coverage.**

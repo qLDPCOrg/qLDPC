@@ -398,7 +398,7 @@ def test_steane_swap_consumer(basis: PauliXZ) -> None:
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
 def test_steane_swap_decoder_specifications(basis: PauliXZ) -> None:
-    """Decoder specifications see the code's own checks, so matching decodes every single fault.
+    """Whole-window decoders see the code's own checks, so matching decodes every single fault.
 
     The detectors of the window measure checks of the code, with their weight and locality.  A
     matching decoder built from the detector error model of the distance-3 surface-code window
@@ -408,14 +408,93 @@ def test_steane_swap_decoder_specifications(basis: PauliXZ) -> None:
     """
     model = circuits.DepolarizingNoiseModel(1e-3)
     spec = decoders.mwpm(decompose_errors=True)
-    consumer = get_steane_swap_consumer(codes.SurfaceCode(3), model, basis=basis, decoder=spec)
+    consumer = get_steane_swap_consumer(
+        codes.SurfaceCode(3), model, basis=basis, decoder=spec, decoding="window"
+    )
     model_of_window = consumers._get_decoding_model(consumer.block_preparation + consumer.circuit)
     _assert_decodes_single_faults(consumer, spec.build_observable_decoder(model_of_window))
 
-    consumer = get_steane_swap_consumer(codes.SurfaceCode(5), model, basis=basis, decoder=spec)
+    consumer = get_steane_swap_consumer(
+        codes.SurfaceCode(5), model, basis=basis, decoder=spec, decoding="window"
+    )
     spec.build_observable_decoder(
         consumers._get_decoding_model(consumer.block_preparation + consumer.circuit)
     )
+
+
+def test_steane_swap_per_step_specifications(rng: np.random.Generator) -> None:
+    """Per-step decoders built from a specification agree with the default decoder.
+
+    A lookup decoder that covers every syndrome of a code's checks of one type predicts the logical
+    flips of a lightest error with each syndrome, as the default decoder does.  On the Steane code
+    and the distance-3 surface code, the lightest errors with each syndrome have the same logical
+    flips, so the two decoders predict the same flips for every syndrome of the window.  The
+    decoder of the Steane code decodes one syndrome at a time, without batch decoding.
+    """
+    model = circuits.DepolarizingNoiseModel(1e-3)
+
+    def build_unbatched(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        decoder = decoders.lookup(max_weight=1).build_observable_decoder(dem)
+        return _UnbatchedDecoder(decoder.decode_observables)
+
+    unbatched = observable_decoder_spec("unbatched_lookup", build_unbatched)()
+    for code, spec in [(_CODE, unbatched), (codes.SurfaceCode(3), decoders.lookup(max_weight=2))]:
+        default = get_steane_swap_consumer(code, model)
+        per_step = get_steane_swap_consumer(code, model, decoder=spec).decoder
+        assert isinstance(default.decoder, decoders.BatchObservableDecoder)
+        assert isinstance(per_step, decoders.BatchObservableDecoder)
+        syndromes = rng.integers(2, size=(500, default.circuit.num_detectors))
+        assert np.array_equal(
+            per_step.decode_observables_batch(syndromes),
+            default.decoder.decode_observables_batch(syndromes),
+        )
+
+
+def test_steane_swap_single_error_check() -> None:
+    """Per-step decoding requires a decoder that corrects every single-qubit error.
+
+    On the Steane code, BP-OSD with its default options mispredicts a single-qubit error of each
+    type, while BP-OSD with more iterations of minimum-sum BP corrects all of them.  The check
+    applies only when the correctable weight is at least 1, and also to the default decoder, which
+    cannot correct every single-qubit error of the distance-2 surface code.  Whole-window decoding
+    is not checked.
+    """
+    model = circuits.DepolarizingNoiseModel(1e-3)
+    with pytest.raises(ValueError, match="single-qubit"):
+        get_steane_swap_consumer(_CODE, model, decoder=decoders.bp_osd())
+    get_steane_swap_consumer(_CODE, model, decoder=decoders.bp_osd(), correctable_weight=0)
+    get_steane_swap_consumer(_CODE, model, decoder=decoders.bp_osd(), decoding="window")
+    tuned = decoders.bp_osd(max_iter=50, bp_method="minimum_sum")
+    _assert_decodes_single_faults(get_steane_swap_consumer(_CODE, model, decoder=tuned))
+
+    get_steane_swap_consumer(codes.SurfaceCode(2), model)
+    with pytest.raises(ValueError, match="single-qubit"):
+        get_steane_swap_consumer(codes.SurfaceCode(2), model, correctable_weight=1)
+
+
+def test_steane_swap_per_step_twice_decoded_errors() -> None:
+    """Per-step decoding with a specification keeps the cancellation of twice-decoded errors.
+
+    The window decodes the Z errors of a fresh |0> block twice.  BP-OSD corrects every single-qubit
+    error of the distance-4 toric code.  Built per step, it makes the same prediction in both
+    decodings, so no Z error of weight two on the block causes a failure without faults of the
+    consumer.  Built from the detector error model of the whole window, it decodes the two
+    syndromes together, and some of these errors cause a failure.
+    """
+    code, spec = codes.ToricCode(4), decoders.bp_osd()
+    model = circuits.DepolarizingNoiseModel(1e-3)
+    per_step = get_steane_swap_consumer(code, model, decoder=spec)
+    window = get_steane_swap_consumer(code, model, decoder=spec, decoding="window")
+    full_circuit = window.block_preparation + window.circuit
+    for consumer, decoder, fails in [
+        (per_step, per_step.decoder, False),
+        (window, spec.build_observable_decoder(consumers._get_decoding_model(full_circuit)), True),
+    ]:
+        # without faults of the consumer, it fails only if the decoder mispredicts a block error
+        detectors, observables = _get_block_error_flips(consumer, Pauli.Z, 2)
+        assert isinstance(decoder, decoders.BatchObservableDecoder)
+        predictions = np.asarray(decoder.decode_observables_batch(detectors)) % 2
+        assert np.any(predictions != observables) == fails
 
 
 @pytest.mark.parametrize("basis", [Pauli.Z, Pauli.X])
@@ -503,9 +582,10 @@ def test_steane_swap_window_length(basis: PauliXZ) -> None:
     Error mechanisms in the two steps before the entry step leave errors that the entry step or the
     step after it decodes, together with the errors of the block under test.  Error mechanisms in
     the two steps after the entry step can make the two decodings of the Z errors of a fresh |0>
-    block, and likewise of the X errors of a fresh |+> block, differ.  The exact excess is
-    therefore the same to first order with a further noisy step before or after the window, and
-    differs at first order with only one step before or after the entry step.
+    block, and likewise of the X errors of a fresh |+> block, differ.  The exact excess of each
+    block error is therefore the same to first order with a further noisy step before or after the
+    window, and so is that of each residual weight, which averages over block errors.  It differs at
+    first order with only one step before or after the entry step.
     """
     reference = get_steane_swap_consumer(_CODE, _WINDOW_NOISE, basis=basis)
     reference_terms = _get_low_order_terms(reference)
@@ -612,18 +692,21 @@ def test_steane_swap_correctable_weight() -> None:
 
 
 def test_steane_swap_decoders() -> None:
-    """A Steane-swap consumer keeps a decoder specification, and rejects other decoders.
+    """A Steane-swap consumer keeps a whole-window specification, and rejects other decoders.
 
     The consumer builds the circuit that its decoder decodes, so a decoder built for another circuit
-    is rejected, such as the default decoder of the other slot.  The descriptions of consumers
-    differ by code, decoder, type of noise model, and slot.
+    is rejected, such as the default decoder of the other slot.  The default decoder decodes each
+    step on its own, so whole-window decoding needs a specification.  The descriptions of consumers
+    differ by code, decoder, decoding mode, type of noise model, and slot.
     """
     model = circuits.DepolarizingNoiseModel(0)
     spec = decoders.lookup(max_weight=1)
-    with_spec = get_steane_swap_consumer(_CODE, model, decoder=spec)
+    with_spec = get_steane_swap_consumer(_CODE, model, decoder=spec, decoding="window")
     assert with_spec.decoder is spec
     default = get_steane_swap_consumer(_CODE, model)
     assert with_spec.description != default.description
+    per_step = get_steane_swap_consumer(_CODE, model, decoder=spec)
+    assert len({per_step.description, with_spec.description, default.description}) == 3
     # this copy of the Steane code has the same [[n,k]] but another name
     renamed = get_steane_swap_consumer(codes.CSSCode(_CODE.matrix_x, _CODE.matrix_z), model)
     assert renamed.description != default.description
@@ -636,6 +719,11 @@ def test_steane_swap_decoders() -> None:
     not_a_decoder: Any = "mwpm"
     with pytest.raises(TypeError, match="decoder specification"):
         get_steane_swap_consumer(_CODE, model, decoder=not_a_decoder)
+    with pytest.raises(ValueError, match="needs a decoder specification"):
+        get_steane_swap_consumer(_CODE, model, decoding="window")
+    not_a_mode: Any = "per_block"
+    with pytest.raises(ValueError, match="decoding must be"):
+        get_steane_swap_consumer(_CODE, model, decoding=not_a_mode)
 
 
 @pytest.mark.parametrize(
@@ -1309,27 +1397,39 @@ def _get_window_variant(
 
 
 def _get_low_order_terms(consumer: Consumer) -> np.ndarray:
-    """Zeroth-order and first-order terms of the excesses of a consumer, for X and Z block errors.
+    """Zeroth-order and first-order terms of the excess of each block error of weight 1 to 3.
 
-    Entry ``[i, w - 1, j]`` is for block errors of physical weight ``w`` and type X (``i = 0``) or Z
-    (``i = 1``), with the term of order ``j`` in the probabilities of the consumer's error
-    mechanisms, as ``_get_excess_terms`` defines them.
+    Entry ``[i, e, j]`` is for block error ``e`` of type X (``i = 0``) or Z (``i = 1``), with the
+    term of order ``j`` in the probabilities of the consumer's error mechanisms, as
+    ``_get_error_terms`` defines them.  The errors are those of weight 1, then 2, and then 3.
     """
-    return np.array([_get_excess_terms(consumer, pauli) for pauli in (Pauli.X, Pauli.Z)])
+    return np.array(
+        [
+            np.concatenate([_get_error_terms(consumer, pauli, weight) for weight in (1, 2, 3)])
+            for pauli in (Pauli.X, Pauli.Z)
+        ]
+    )
 
 
 def _get_excess_terms(consumer: Consumer, pauli: PauliXZ) -> np.ndarray:
     """Exact terms of the excesses of a consumer for type-``pauli`` block errors of weight 1 and 2.
 
-    Row ``w - 1`` is for the block errors of physical weight ``w``.  Its first entry is the mean
-    change in failure that such an error causes without faults of the consumer.  Its second entry is
-    the first-order term of the excess in the probabilities of the error mechanisms of the consumer.
-    This is the sum, over the mechanisms, of the probability of a mechanism times the amount by
-    which that mechanism alone changes the first entry.  The means are uniform over the block
-    errors of each weight.  The error mechanisms come from the detector error model of the
-    consumer, and the effects of block errors from noiseless simulation.
+    Row ``w - 1`` is for the block errors of physical weight ``w``.  It holds the means of the terms
+    of ``_get_error_terms`` over these errors.
     """
-    assert consumer.block_qubits is not None
+    return np.array([_get_error_terms(consumer, pauli, weight).mean(axis=0) for weight in (1, 2)])
+
+
+def _get_error_terms(consumer: Consumer, pauli: PauliXZ, weight: int) -> np.ndarray:
+    """Exact terms of the excesses of a consumer for each type-``pauli`` block error of a weight.
+
+    Row ``e`` is for block error ``e`` of ``_get_block_error_flips``.  Its first entry is the change
+    in failure that the error causes without faults of the consumer.  Its second entry is the
+    first-order term of the excess in the probabilities of the error mechanisms of the consumer.
+    This is the sum, over the mechanisms, of the probability of a mechanism times the amount by
+    which that mechanism alone changes the first entry.  The error mechanisms come from the detector
+    error model of the consumer.
+    """
     decoder = consumer.decoder
     assert isinstance(decoder, decoders.BatchObservableDecoder)
     dem = decoders.DetectorErrorModelArrays(
@@ -1342,6 +1442,31 @@ def _get_excess_terms(consumer: Consumer, pauli: PauliXZ) -> np.ndarray:
     mechanism_observables = np.vstack(
         [np.zeros(dem.num_observables, dtype=int), dem.observable_flip_matrix.T.toarray()]
     )
+
+    def get_failures(detectors: np.ndarray, observables: np.ndarray) -> np.ndarray:
+        predictions = np.asarray(decoder.decode_observables_batch(detectors)) % 2
+        return np.any(predictions != observables, axis=-1).astype(int)
+
+    error_detectors, error_observables = _get_block_error_flips(consumer, pauli, weight)
+    detectors = mechanism_detectors[:, None, :] ^ error_detectors[None, :, :]
+    observables = mechanism_observables[:, None, :] ^ error_observables[None, :, :]
+    failures = get_failures(
+        detectors.reshape(-1, dem.num_detectors), observables.reshape(-1, dem.num_observables)
+    ).reshape(len(mechanism_detectors), len(error_detectors))
+    # entry [j, e] is the change in failure that error e causes together with mechanism j - 1
+    changes = failures - get_failures(mechanism_detectors, mechanism_observables)[:, None]
+    return np.stack([changes[0], dem.error_probs @ (changes[1:] - changes[0])], axis=1)
+
+
+def _get_block_error_flips(
+    consumer: Consumer, pauli: PauliXZ, weight: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """The detector and observable flips of each type-``pauli`` block error of a weight.
+
+    Row ``e`` is for the ``e``-th support of the given weight on the block, in lexicographic order.
+    The flips come from noiseless simulation of the consumer.
+    """
+    assert consumer.block_qubits is not None
     noiseless = consumer.circuit.without_noise()
     responses = [
         _sample_once(
@@ -1351,24 +1476,8 @@ def _get_excess_terms(consumer: Consumer, pauli: PauliXZ) -> np.ndarray:
     ]
     qubit_detectors = np.array([detectors for detectors, _ in responses], dtype=int)
     qubit_observables = np.array([observables for _, observables in responses], dtype=int)
-
-    def get_failures(detectors: np.ndarray, observables: np.ndarray) -> np.ndarray:
-        predictions = np.asarray(decoder.decode_observables_batch(detectors)) % 2
-        return np.any(predictions != observables, axis=-1)
-
-    excesses = np.zeros((2, 2))
-    for weight in (1, 2):
-        supports = np.array(list(itertools.combinations(range(len(consumer.block_qubits)), weight)))
-        error_detectors = qubit_detectors[supports].sum(axis=1) % 2
-        error_observables = qubit_observables[supports].sum(axis=1) % 2
-        detectors = mechanism_detectors[:, None, :] ^ error_detectors[None, :, :]
-        observables = mechanism_observables[:, None, :] ^ error_observables[None, :, :]
-        failures = get_failures(
-            detectors.reshape(-1, dem.num_detectors), observables.reshape(-1, dem.num_observables)
-        ).reshape(len(mechanism_detectors), len(supports))
-        changes = failures.mean(axis=1) - get_failures(mechanism_detectors, mechanism_observables)
-        excesses[weight - 1] = changes[0], dem.error_probs @ (changes[1:] - changes[0])
-    return excesses
+    supports = np.array(list(itertools.combinations(range(len(consumer.block_qubits)), weight)))
+    return qubit_detectors[supports].sum(axis=1) % 2, qubit_observables[supports].sum(axis=1) % 2
 
 
 def _get_histogram(distribution: Sequence[float], pauli: Any) -> ResidualWeightHistogram:

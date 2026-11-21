@@ -22,7 +22,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -67,6 +67,10 @@ _NUM_STEPS_AFTER_ENTRY = 2
 # The default decoder of a Steane-swap consumer refuses a lookup table, or a list of the errors of
 # one weight, with more than this many entries.
 _MAX_TABLE_ENTRIES = 2**24
+# A Steane-swap consumer that decodes each step on its own with a decoder specification builds the
+# decoder of each Pauli type from a detector error model of one codeword, with one error on each
+# qubit, and gives every error this probability.
+_PER_STEP_ERROR_PROBABILITY = 0.01
 
 ####################################################################################################
 # consumers
@@ -926,6 +930,7 @@ def get_steane_swap_consumer(
     *,
     basis: PauliXZLike = Pauli.Z,
     decoder: decoders.DecoderSpec[Any] | None = None,
+    decoding: Literal["per_step", "window"] = "per_step",
     correctable_weight: int | None = None,
 ) -> Consumer:
     """A consumer that runs steps of Steane error correction around the entry of a fresh code block.
@@ -959,11 +964,11 @@ def get_steane_swap_consumer(
     the X-type and then the Z-type checks of the last block.  The observables compare the logical X
     operators, and then the logical Z operators, of the data block with those of the last block.
 
-    The default decoder decodes the syndrome of each step, and the final syndrome, separately.  It
-    looks up the logical flips of a lightest error with each syndrome in a table.  It refuses to
-    build a table whose number of syndromes times the number of logical qubits exceeds ``2**24``.
-    It also refuses to enumerate the errors of one weight if their number times their weight
-    exceeds ``2**24``.  At these limits, building a table needs up to about 700 MiB.
+    By default, the consumer decodes the syndrome of each step, and the final syndrome, separately.
+    The default decoder looks up the logical flips of a lightest error with each syndrome in a
+    table.  It refuses to build a table whose number of syndromes times the number of logical qubits
+    exceeds ``2**24``.  It also refuses to enumerate the errors of one weight if their number times
+    their weight exceeds ``2**24``.  At these limits, building a table needs up to about 700 MiB.
 
     Args:
         code: A CSS stabilizer code on qubits, with at least one logical qubit.
@@ -972,16 +977,28 @@ def get_steane_swap_consumer(
     Keyword args:
         basis: The block under test: ``Pauli.Z`` (or ``"Z"``, the default) for a fresh ``|0>``
             block, or ``Pauli.X`` (or ``"X"``) for a fresh ``|+>`` block.
-        decoder: A decoder specification, such as ``decoders.mwpm(decompose_errors=True)`` for a
-            code whose checks give a matching graph, like a surface code.  The consumer builds the
-            decoder from the detector error model of the window, as for ``Consumer``, so the decoder
-            decodes the whole window together.  Default: None, for the default decoder described
-            above.  With the default decoder and a code of distance at least 3, further noisy steps
-            before or after the window change the excess ``c_s(m) - c_s(0)`` of each residual
-            weight ``m``, and so the score of a preparation circuit, only at second order in the
-            window's error probabilities; see ``consumer_calibration.md``.  For a smaller distance,
-            further steps can change these excesses at first order.  This second-order bound is not
-            guaranteed for a decoder built from a specification.
+        decoder: A decoder specification, or None (the default) for the default decoder described
+            above.  For ``decoding="per_step"``, the specification builds one decoder for each
+            Pauli type, which decodes every syndrome of the checks of that type.  It builds the
+            decoder from a detector error model of one codeword: an error on each qubit, each with
+            probability 0.01, with the independent checks of that type as detectors and the
+            logical operators of that type as observables.  For example,
+            ``decoders.bp_osd(max_iter=50, bp_method="minimum_sum")`` suits a code beyond the
+            limits of the default decoder.  For ``decoding="window"``, the consumer builds the
+            decoder from the detector error model of the window, as for ``Consumer``.  For example,
+            ``decoders.mwpm(decompose_errors=True)`` suits a code whose checks give a matching
+            graph, like a surface code.
+        decoding: ``"per_step"`` (the default) to decode each step, and the final syndrome, on its
+            own, or ``"window"`` to decode the whole window together with a decoder built from
+            ``decoder``.  With per-step decoding, twice-decoded errors cancel without faults of the
+            consumer.  If the per-step decoder also corrects every single-qubit error, which the
+            consumer checks when the correctable weight is at least 1, further noisy steps before or
+            after the window change the excess ``c_s(m) - c_s(0)`` of each residual weight ``m``,
+            and so the score of a preparation circuit, only at second order in the window's error
+            probabilities.  No decoder corrects every single-qubit error of a code of distance less
+            than 3, so for such a code further steps can change these excesses at first order.
+            Whole-window decoding has neither guarantee, and its results can depend on the window's
+            length.  See ``consumer_calibration.md``.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
             ``(d - 1) // 2`` for the distance ``d`` of the code.  If the code does not know its
@@ -989,16 +1006,20 @@ def get_steane_swap_consumer(
 
     Returns:
         A ``Consumer`` whose block is the block under test, with the correctable weight and a short
-        description that names the state of the block under test, the code, the decoder, and the
-        type of the noise model.
+        description that names the state of the block under test, the code, the decoder, the
+        decoding mode, and the type of the noise model.
 
     Raises:
         TypeError: If ``decoder`` is neither None, a decoder specification, nor a prebuilt
             decoder, or ``correctable_weight`` is neither an integer nor None.
         ValueError: If the code is not a CSS stabilizer code on qubits with at least one logical
-            qubit, ``basis`` is not a Pauli type, ``decoder`` is a prebuilt decoder,
-            ``correctable_weight`` is negative, or ``decoder`` is None and the default decoder
-            would exceed the limits described above.
+            qubit, ``basis`` is not a Pauli type, ``decoder`` is a prebuilt decoder, ``decoding`` is
+            neither ``"per_step"`` nor ``"window"``, or ``correctable_weight`` is negative.  Also if
+            ``decoding`` is ``"window"`` and ``decoder`` is None, or ``decoder`` is None and the
+            default decoder would exceed the limits described above.  Also if ``decoding`` is
+            ``"per_step"``, the correctable weight is at least 1, and the per-step decoder of a
+            Pauli type mispredicts the logical flips of a single-qubit error, which the guarantees
+            of the window need.
     """
     # check the arguments
     basis = Pauli.coerce_xz(basis)
@@ -1018,6 +1039,13 @@ def get_steane_swap_consumer(
             "get_steane_swap_consumer needs a decoder specification, such as"
             f" decoders.mwpm(decompose_errors=True), or None, not {decoder!r}"
         )
+    if decoding not in ("per_step", "window"):
+        raise ValueError(f"decoding must be 'per_step' or 'window', not {decoding!r}")
+    if decoding == "window" and decoder is None:
+        raise ValueError(
+            "decoding='window' needs a decoder specification, since the default decoder decodes"
+            " each step on its own"
+        )
 
     # build the window
     block_preparation, circuit, block_qubits, measured_bases = _get_steane_swap_window(
@@ -1026,15 +1054,40 @@ def get_steane_swap_consumer(
 
     # choose the decoder, and then the correctable weight; a table that is too large then fails
     # before the distance, which can take exponential time, is computed
+    decoder_name = (
+        "the default lookup-table decoder"
+        if decoder is None
+        else f"decoders.{decoder._helper_name}"
+    )
     consumer_decoder: decoders.ObservableDecoder | decoders.DecoderSpec[Any]
-    if decoder is None:
-        consumer_decoder = _SteaneSwapDecoder(code, measured_bases)
-        decoder_name = "the default lookup-table decoder"
-    else:
+    if decoding == "window" and decoder is not None:
         consumer_decoder = decoder
-        decoder_name = f"decoders.{decoder._helper_name}"
+        decoding_name = "over the whole window"
+    else:
+        consumer_decoder = _SteaneSwapDecoder(code, measured_bases, decoder)
+        decoding_name = "per step"
     if correctable_weight is None:
         correctable_weight = (int(code.get_distance()) - 1) // 2
+    correctable_weight = _check_integer(correctable_weight, "correctable_weight", 0)
+
+    # the guarantees of the window need a per-step decoder that corrects every single-qubit error
+    # (see consumer_calibration.md)
+    if isinstance(consumer_decoder, _SteaneSwapDecoder) and correctable_weight >= 1:
+        for pauli in (Pauli.X, Pauli.Z):
+            if not consumer_decoder.corrects_single_errors(pauli):
+                subject = (
+                    "The default lookup-table decoder"
+                    if decoder is None
+                    else f"The per-step decoder that {decoder!r} builds"
+                )
+                raise ValueError(
+                    f"{subject} mispredicts the logical flips of a single-qubit {pauli} error.  For a"
+                    " correctable weight of at least 1, the window's guarantee that further steps"
+                    " change its excesses only at second order needs a per-step decoder that"
+                    " corrects every single-qubit error.  Pass a decoder specification that does,"
+                    ' such as decoders.bp_osd(max_iter=50, bp_method="minimum_sum"), or'
+                    " correctable_weight=0"
+                )
 
     # build the consumer, with a short description
     state = "|0>" if basis is Pauli.Z else "|+>"
@@ -1047,8 +1100,8 @@ def get_steane_swap_consumer(
         correctable_weight=correctable_weight,
         description=(
             f"{num_steps} swap-type Steane QEC steps around the entry of a fresh {state} block, for"
-            f" the [[{len(code)},{code.dimension}]] code {code.name}, with {decoder_name} and"
-            f" {type(noise_model).__name__}"
+            f" the [[{len(code)},{code.dimension}]] code {code.name}, with {decoder_name}"
+            f" {decoding_name} and {type(noise_model).__name__}"
         ),
     )
 
@@ -1057,25 +1110,44 @@ class _SteaneSwapDecoder:
     """Observable decoder of the Steane-swap consumer, which decodes each syndrome on its own.
 
     The detectors and observables are in the order that ``get_steane_swap_consumer`` documents.
-    The decoder looks up each syndrome of Z-type checks in a table of lightest X-type errors, and
-    predicts the flips of the logical Z operators from the lightest error with that syndrome.  It
-    decodes syndromes of X-type checks likewise, with Z-type errors and logical X operators.
+    A syndrome of Z-type checks flags X-type errors, which flip the logical Z operators, and a
+    syndrome of X-type checks flags Z-type errors, which flip the logical X operators.  Without a
+    decoder specification, the decoder looks up the logical flips of a lightest error with each
+    syndrome in a table.  With one, it decodes the syndromes of each type of check with a decoder
+    that the specification builds from a detector error model of one codeword.  That model has an
+    error of probability ``_PER_STEP_ERROR_PROBABILITY`` on each qubit, the checks of the type as
+    detectors, and the logical operators of the type as observables.
     """
 
-    def __init__(self, code: codes.CSSCode, measured_bases: Sequence[PauliXZ]) -> None:
-        """Build the minimum-weight lookup tables of a CSS code, for steps with given bases."""
+    def __init__(
+        self,
+        code: codes.CSSCode,
+        measured_bases: Sequence[PauliXZ],
+        decoder: decoders.DecoderSpec[Any] | None = None,
+    ) -> None:
+        """Build the decoders of each type of check of a CSS code, for steps with given bases."""
         self._dimension = code.dimension
         # the detectors split into one syndrome for each step, and two for the final readout
         self._syndrome_types = [*measured_bases, Pauli.X, Pauli.Z]
-        checks = {pauli: _get_independent_checks(code, pauli) for pauli in (Pauli.X, Pauli.Z)}
-        self._syndrome_sizes = [len(checks[pauli]) for pauli in self._syndrome_types]
+        self._checks = {pauli: _get_independent_checks(code, pauli) for pauli in (Pauli.X, Pauli.Z)}
+        self._syndrome_sizes = [len(self._checks[pauli]) for pauli in self._syndrome_types]
         # a syndrome of type-s checks flags errors that flip the logical operators of type s
-        self._tables = {
-            pauli: _get_min_weight_flips(
-                checks[pauli], code.get_logical_ops(pauli).view(np.ndarray).astype(int)
-            )
+        self._logicals = {
+            pauli: code.get_logical_ops(pauli).view(np.ndarray).astype(int)
             for pauli in (Pauli.X, Pauli.Z)
         }
+        self._tables: dict[PauliXZ, npt.NDArray[np.uint8]] = {}
+        self._decoders: dict[PauliXZ, decoders.ObservableDecoder] = {}
+        for pauli in (Pauli.X, Pauli.Z):
+            if decoder is None:
+                self._tables[pauli] = _get_min_weight_flips(
+                    self._checks[pauli], self._logicals[pauli]
+                )
+            else:
+                model = decoders.DetectorErrorModelArrays.from_arrays(
+                    self._checks[pauli], self._logicals[pauli], _PER_STEP_ERROR_PROBABILITY
+                )
+                self._decoders[pauli] = decoder.build_observable_decoder(model.to_dem())
 
     def decode_observables(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode the detectors of one shot, and return the predicted observable flips."""
@@ -1092,8 +1164,35 @@ class _SteaneSwapDecoder:
         # add the predicted flips of each to the observables of its type
         parts = np.split(syndromes, np.cumsum(self._syndrome_sizes)[:-1], axis=1)
         for pauli, part in zip(self._syndrome_types, parts):
-            flips[pauli] ^= self._tables[pauli][_get_syndrome_indices(part)]
+            flips[pauli] ^= self._decode_syndromes(pauli, part)
         return np.concatenate([flips[Pauli.X], flips[Pauli.Z]], axis=1).astype(int)
+
+    def corrects_single_errors(self, pauli: PauliXZ) -> bool:
+        """Whether the decoder predicts the logical flips of every single-qubit error of a type.
+
+        The decoder decodes every step, and the final readout, with the same decoder of each type of
+        check, so this holds for every step if it holds for one codeword.
+        """
+        check_type = pauli.swap_xz()
+        predictions = self._decode_syndromes(check_type, self._checks[check_type].T)
+        return np.array_equal(predictions, self._logicals[check_type].T % 2)
+
+    def _decode_syndromes(
+        self, pauli: PauliXZ, syndromes: npt.NDArray[np.int_]
+    ) -> npt.NDArray[np.uint8]:
+        """The logical flips that the decoder predicts for syndromes of the checks of one type.
+
+        Each row of ``syndromes`` is a syndrome of the type-``pauli`` checks, and each row of the
+        result holds the predicted flips of the type-``pauli`` logical operators.
+        """
+        if pauli in self._tables:
+            return self._tables[pauli][_get_syndrome_indices(syndromes)]
+        decoder = self._decoders[pauli]
+        if isinstance(decoder, decoders.BatchObservableDecoder):
+            predictions = np.asarray(decoder.decode_observables_batch(syndromes))
+        else:
+            predictions = np.array([decoder.decode_observables(row) for row in syndromes])
+        return (predictions.reshape(len(syndromes), self._dimension) % 2).astype(np.uint8)
 
 
 def _get_steane_swap_window(
