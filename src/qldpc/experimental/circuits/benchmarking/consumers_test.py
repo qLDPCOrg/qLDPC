@@ -428,7 +428,9 @@ def test_steane_swap_per_step_specifications(rng: np.random.Generator) -> None:
     A lookup decoder that covers every syndrome of a code's checks of one type predicts the logical
     flips of a lightest error with each syndrome, as the default decoder does.  On the Steane code
     and the distance-3 surface code, the lightest errors with each syndrome have the same logical
-    flips, so the two decoders predict the same flips for every syndrome of the window.  For the
+    flips, so the two decoders predict the same flips for every syndrome of the window.  Matching
+    with equal weights also predicts the flips of a lightest error, and builds per step on the
+    surface code, whose qubits are each in at most two checks of each type.  For the
     Steane code, the specification builds decoders without batch decoding, which covers the
     consumer's decoding of one syndrome at a time.
     """
@@ -439,7 +441,7 @@ def test_steane_swap_per_step_specifications(rng: np.random.Generator) -> None:
         return _UnbatchedDecoder(decoder.decode_observables)
 
     unbatched = observable_decoder_spec("unbatched_lookup", build_unbatched)()
-    for code, spec in [(_CODE, unbatched), (codes.SurfaceCode(3), decoders.lookup(max_weight=2))]:
+    for code, spec in [(_CODE, unbatched), (codes.SurfaceCode(3), decoders.mwpm())]:
         default = get_steane_swap_consumer(code, model)
         per_step = get_steane_swap_consumer(code, model, decoder=spec).decoder
         assert isinstance(default.decoder, decoders.BatchObservableDecoder)
@@ -452,10 +454,11 @@ def test_steane_swap_per_step_specifications(rng: np.random.Generator) -> None:
 
 
 def test_steane_swap_single_error_check() -> None:
-    """Per-step decoding requires a decoder that corrects every single-qubit error.
+    """Per-step decoding requires a decoder that corrects every error of weight at most one.
 
     On the Steane code, BP-OSD with its default options mispredicts a single-qubit error of each
     type, while BP-OSD with more iterations of minimum-sum BP corrects all of them.  A lookup
+    decoder that predicts a logical flip for the empty syndrome mispredicts no error.  A lookup
     decoder that signals erasure predicts one flip too many.  The check applies only when the
     correctable weight is at least 1, and also to the default decoder.  A rectangular surface code
     of distances 2 and 3 has a logical operator of weight 2 of one Pauli type, so no decoder
@@ -469,15 +472,24 @@ def test_steane_swap_single_error_check() -> None:
     get_steane_swap_consumer(_CODE, model, decoder=decoders.bp_osd(), decoding="window")
     tuned = decoders.bp_osd(max_iter=50, bp_method="minimum_sum")
     _assert_decodes_single_faults(get_steane_swap_consumer(_CODE, model, decoder=tuned))
+
+    def build_flipping(dem: stim.DetectorErrorModel) -> decoders.ObservableDecoder:
+        decoder = decoders.lookup(max_weight=1).build_observable_decoder(dem)
+        # flip every logical operator when the syndrome is empty
+        return _UnbatchedDecoder(
+            lambda syndrome: decoder.decode_observables(syndrome) ^ (not np.any(syndrome))
+        )
+
+    flipping = observable_decoder_spec("flipping_lookup", build_flipping)()
+    with pytest.raises(ValueError, match="mispredicts"):
+        get_steane_swap_consumer(_CODE, model, decoder=flipping)
     erasing = decoders.lookup(max_weight=1, add_erasure_bit=True)
-    with pytest.raises(ValueError, match=r"of shape \(7, 1\)"):
+    with pytest.raises(ValueError, match=r"of shape \(8, 1\)"):
         get_steane_swap_consumer(_CODE, model, decoder=erasing)
 
-    for code in (codes.SurfaceCode(3, 2), codes.SurfaceCode(2, 3)):
-        get_steane_swap_consumer(code, model)
-        for decoder in (None, tuned):
-            with pytest.raises(ValueError, match="No decoder corrects"):
-                get_steane_swap_consumer(code, model, decoder=decoder, correctable_weight=1)
+    for code, decoder in [(codes.SurfaceCode(3, 2), None), (codes.SurfaceCode(2, 3), tuned)]:
+        with pytest.raises(ValueError, match="No decoder corrects"):
+            get_steane_swap_consumer(code, model, decoder=decoder, correctable_weight=1)
 
 
 def test_steane_swap_per_step_twice_decoded_errors() -> None:
@@ -700,15 +712,18 @@ def test_steane_swap_one_sided_code() -> None:
 
     The three-qubit repetition code, as a CSS code with only Z-type checks, has one logical qubit
     and distance one.  The window measures no X-type checks, and the table of the default decoder
-    for Z-type errors has only the empty syndrome.
+    for Z-type errors has only the empty syndrome.  Every single-qubit Z error flips the logical X
+    operator without a syndrome, so no decoder corrects it, and a correctable weight of 1 is
+    refused.
     """
     code = codes.CSSCode(np.zeros((0, 3), dtype=int), [[1, 1, 0], [0, 1, 1]])
+    model = circuits.DepolarizingNoiseModel(1e-3)
     for basis in (Pauli.Z, Pauli.X):
-        consumer = get_steane_swap_consumer(
-            code, circuits.DepolarizingNoiseModel(1e-3), basis=basis
-        )
+        consumer = get_steane_swap_consumer(code, model, basis=basis)
         assert consumer.correctable_weight == 0
         consumer.calibrate(num_samples=10, seed=0)
+    with pytest.raises(ValueError, match="No decoder corrects every Z error"):
+        get_steane_swap_consumer(code, model, correctable_weight=1)
 
 
 def test_steane_swap_correctable_weight() -> None:

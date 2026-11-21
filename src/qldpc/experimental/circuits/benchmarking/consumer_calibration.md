@@ -122,20 +122,21 @@ No error on the block under test reaches the steps before entry or the final rea
 
 The consumer decodes each step on its own by default.
 Suppose that the prediction of each per-step decoder depends on its syndrome alone.
-Then, without faults of the consumer, its two decodings of the twice-decoded errors see the same syndrome, so they make the same prediction, and the two predictions cancel in the observables.
+The window then has two guarantees.
+First, without faults of the consumer, its two decodings of the twice-decoded errors see the same syndrome, so they make the same prediction, and the two predictions cancel in the observables.
 The errors also flip the logical outcomes that the two steps measure, and these flips cancel too.
-With such per-step decoding, Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, therefore cause a failure only together with faults of the consumer that make the two decodings differ.
-A randomized or stateful decoder, such as `decoders.relay_bp()` or `decoders.bp_lsd(schedule="serial", random_serial_schedule=True)`, can predict different flips for the same syndrome, and then this cancellation can fail.
+So Z errors on a fresh `|0>` block, and X errors on a fresh `|+>` block, cause a failure only together with faults of the consumer that make the two decodings differ.
+A randomized or stateful decoder, such as `decoders.relay_bp()` or `decoders.bp_lsd(schedule="serial", random_serial_schedule=True)`, can predict different flips for the same syndrome, and then neither guarantee need hold.
 
 The errors that noise in a step leaves are decoded in that step, in one of the next two steps, or in the final readout.
 The errors of the block under test are decoded in steps 0 to +2, so noise in steps −2 to +2 can leave errors that one of steps 0 to +2 also decodes, and noise in other steps cannot.
 The window runs these five steps, each with the noise of the noise model.
 A further noisy step before or after the window adds noise whose errors no step decodes together with the block's errors.
-The steps are transversal, so a fault of weight one leaves at most a single-qubit error in each syndrome.
+The steps are transversal, so a fault of weight one leaves an error on at most one qubit of each block that a step measures.
 A per-step decoder that corrects every single-qubit error therefore corrects a fault of weight one in a further step, when it is the consumer's only fault, without changing the cost of the block's errors.
 The default decoder corrects every single-qubit error of a code of distance at least 3, and the consumer checks that every per-step decoder does when the correctable weight is at least 1 (see [the decoders section](#decoders)).
 
-So with such per-step decoding and a code of distance at least 3, further steps change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
+Second, if each per-step decoder also corrects every single-qubit error, which needs a code of distance at least 3, further steps change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
 For a code of distance less than 3, no decoder corrects every single-qubit error, and further steps can change the excesses at first order.
 This second-order bound concerns the excesses summed over all fault weights.
 A calibration with `max_fault_weight=0`, which sets `G = 0` in [the stratified calibration](#what-is-estimated), keeps only the term `Pr[g = 0] Δ_s(m, 0)`.
@@ -164,7 +165,7 @@ For comparison, the [Steane-QEC notebook](../../../../../examples/logical_error_
 
 ### Decoders
 
-Per-step decoding, the default, is the reference for comparing preparation circuits, and whole-window decoding is a research option.
+Per-step decoding, the default, is the reference for comparing preparation circuits, since only it has [the window's guarantees](#the-window), and whole-window decoding is a research option.
 By default, the consumer decodes the syndrome of each step, and the final syndrome, separately, with a minimum-weight lookup table for each type of check.
 A table has an entry for every syndrome of the checks of one type, so the default decoder suits small codes.
 The docstring of `get_steane_swap_consumer` gives its size limits and the layout of the window's detectors.
@@ -180,7 +181,7 @@ For example, `decoders.bp_osd(max_iter=50, bp_method="minimum_sum")` passes this
 With a per-step decoder that passes the check and whose predictions depend on the syndrome alone, and a code of distance at least 3, the window has the guarantees that [the window section](#the-window) describes.
 
 With `decoding="window"` and a decoder specification, the consumer instead builds one decoder from the detector error model of its whole window.
-For example, `decoders.mwpm(decompose_errors=True)` suits a surface code there.
+For example, `decoders.mwpm(decompose_errors=True)` suits whole-window decoding of a surface code.
 The window's guarantees do not cover whole-window decoding, and its results can depend on the window's length.
 
 ## The stratified calibration
