@@ -7,7 +7,8 @@ set to 1, and, if it is given a CPU, has the child pin itself to that CPU.  On t
 runner itself inherits the CPUs of the reserved cores from ``run_node.py``, so that its polling
 of processes every second runs off the measured cores; rows record both affinities.  The runner
 records the child's process group (or, in local mode, its process id), the start times of the
-child and the runner, and the host in ``active/<task_key>``, and watches the child:
+child and the runner, and the host in ``active/<task_key>``, which it keeps from the task's first
+run until after its row is appended, and watches the child:
 
 * **Start-up cap:** the child must report that timing started within ``startup_cap_s`` of its
   launch (process start, imports, and any untimed preparation); otherwise it is killed and the
@@ -190,6 +191,8 @@ def run_task(
     previous_handlers = {
         sig: signal.signal(sig, on_signal) for sig in (signal.SIGTERM, signal.SIGINT)
     }
+    # each run writes the task's active file, which stays between the runs and until the row is in
+    active_file = label_dir / "active" / task["key"]
     try:
         row: dict[str, Any] | None = None
         for _ in range(RUNS_PER_TASK):
@@ -211,6 +214,7 @@ def run_task(
         store.append_row(label_dir, row)
         return 0
     finally:
+        active_file.unlink(missing_ok=True)
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
 
@@ -315,13 +319,11 @@ class _Watcher:
         except BaseException:
             self._kill()
             self._wait_until_gone(child)
-            active_file.unlink(missing_ok=True)
             raise
         finally:
             os.close(read_fd)
         _keep_tail(log_file)
         if self.stop.signum is not None:
-            active_file.unlink(missing_ok=True)
             return None
 
         # the run's row
@@ -333,7 +335,6 @@ class _Watcher:
         if stray:
             left = f"processes left after the grace: {stray}"
             row["error"] = f"{row['error']}; {left}" if row["error"] else left
-        active_file.unlink(missing_ok=True)
         return row
 
     def _watch(

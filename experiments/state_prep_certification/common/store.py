@@ -31,9 +31,10 @@ from typing import Any
 
 RUNS_FILE = "runs.jsonl"
 RECOVERED_FILE = "recovered.txt"
+LOCK_FILE = "lock"  # the lock of the start that owns the label (see run_node.py)
 
-# Directories of a label that never enter its archive.
-_UNARCHIVED = ("archive",)
+# Files and directories of a label that never enter its archive.
+_UNARCHIVED = ("archive", LOCK_FILE)
 
 
 def append_row(label_dir: pathlib.Path, row: dict[str, Any]) -> None:

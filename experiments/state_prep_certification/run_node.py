@@ -28,17 +28,18 @@ experiment (``common/manifest.py``), it
    slot's CPU, then the repeats of pass 2, and checks that every task has a final row;
 7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz``: the one file to copy back.
 
-Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that
-ended with status 0, and the task runner skips tasks that already have a final row.  The script
-refuses to start while a run of an earlier start is still alive.  It also refuses to start, and
-``--cleanup`` refuses to act, while the label's ``active/`` directory lists a run of another host,
-which this host can neither see nor stop.  A start refuses a machine whose CPU model differs from
-the one in the label's manifest, so that one label never mixes the times of two CPU models; another
-host with the same CPU model may resume, since the allocations of one cluster can get new
-hostnames, and ``starts.jsonl`` records each start's host and number of job slots.  After a hard
-kill of this script or of GNU parallel, run it once with ``--cleanup``, which kills every run still
-listed in the label's ``active/`` directory, if its processes are still the ones recorded.
-``--status`` prints the progress of the label.
+Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
+with status 0, and the task runner skips tasks that already have a final row.  One start, or
+``--cleanup``, owns a label at a time: it holds an exclusive lock on the label's ``lock`` file until
+it exits, and another refuses to begin.  The script refuses to start while a run of an earlier start
+is still alive.  It also refuses to start, and ``--cleanup`` refuses to act, while the label's
+``active/`` directory lists a run of another host, which this host can neither see nor stop.  A
+start refuses a machine whose CPU model differs from the one in the label's manifest, so that one
+label never mixes the times of two CPU models; another host with the same CPU model may resume,
+since the allocations of one cluster can get new hostnames, and ``starts.jsonl`` records each
+start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run it
+once with ``--cleanup``, which kills every run still listed in the label's ``active/`` directory, if
+its processes are still the ones recorded.  ``--status`` prints the progress of the label.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session,
 and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development
@@ -53,6 +54,7 @@ tests.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import pathlib
@@ -94,6 +96,8 @@ def main() -> None:
     results_dir = (args.results_dir or DEFAULT_RESULTS).resolve()
     label_dir = get_label_dir(module, results_dir, args.subset, args.local)
     if args.cleanup:
+        if label_dir.exists():
+            lock_label(label_dir)
         refuse_other_hosts(label_dir)
         cleanup(label_dir)
         return
@@ -107,6 +111,7 @@ def main() -> None:
     if not args.local:
         check_environment(os.environ, args.allow_env)
     label_dir.mkdir(parents=True, exist_ok=True)
+    lock_label(label_dir)
     refuse_other_hosts(label_dir)
     refuse_other_cpu(label_dir)
     live = live_runs(label_dir)
@@ -401,6 +406,22 @@ def pin_runners(reserved: list[int]) -> None:
             sys.exit(f"Could not pin to the reserved CPUs {reserved}: {error}")
         if os.sched_getaffinity(0) != set(reserved):
             sys.exit(f"Could not pin to the reserved CPUs {reserved}")
+
+
+def lock_label(label_dir: pathlib.Path) -> None:
+    """Lock the label for this process until it exits, or exit if another process holds it.
+
+    The lock's file descriptor is not inherited, so GNU parallel and the runners do not hold it.
+    """
+    fd = os.open(label_dir / store.LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        sys.exit(
+            f"Another start, or --cleanup, of this label is running: it holds {label_dir}/"
+            f"{store.LOCK_FILE}.  Wait for it to end, or stop it, first."
+        )
 
 
 def refuse_other_hosts(label_dir: pathlib.Path) -> None:

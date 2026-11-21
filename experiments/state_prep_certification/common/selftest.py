@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import functools
 import io
 import json
@@ -923,6 +924,49 @@ def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
         _expect_exit(functools.partial(run_node.check_environment, refused, []))
     recorded = manifest.recorded_environment(environ)
     assert recorded == {name: environ[name] for name in environ if name != "HOME"}, recorded
+
+
+@test
+def test_run_node_lock(directory: pathlib.Path, node: bool) -> None:
+    """A start, or --cleanup, refuses a label whose lock another process holds."""
+    label_dir, command = _local_label(directory)
+    label_dir.mkdir(parents=True)
+    fd = os.open(label_dir / "lock", os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        for extra in ([], ["--cleanup"]):
+            refused = subprocess.run(command + extra, capture_output=True, text=True, check=False)
+            assert refused.returncode != 0 and "Another start" in refused.stderr, refused.stderr
+        assert not (label_dir / tasks.TASKS_FILE).exists()
+    finally:
+        os.close(fd)
+    subprocess.run(command, check=True, capture_output=True)
+    assert (label_dir / tasks.TASKS_FILE).exists()
+
+
+@test
+def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None:
+    """A task's active file stays from its first run, through its retry, until its row is in."""
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("twice", [["compile", False], ["value", 1]])
+    tasks.write_pass1(directory, [task])
+    active = directory / "active" / task["key"]
+    after_runs: list[bool] = []
+    run = runner._Watcher.run
+
+    def watched_run(watcher: Any, command: list[str]) -> dict[str, Any] | None:
+        row = run(watcher, command)
+        after_runs.append(active.exists())
+        return row
+
+    with (
+        _environment("NUMBA_CACHE_DIR", str(directory / "numba")),
+        _patched(runner._Watcher, "run", watched_run),
+    ):
+        assert runner.run_task(directory, task, local=not node) == 0
+    assert after_runs == [True, True] and not active.exists(), after_runs
+    assert len(store.read_rows(directory)[0]) == 1
 
 
 @test
