@@ -243,7 +243,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
-    """Codes match the sample, the run keeps a copy that the analysis reads, and arms are tuned."""
+    """Codes match the sample, the analysis reads the run's copy, and each tuning is shipped."""
 
     label_dir = directory
     label_dir.mkdir(parents=True, exist_ok=True)
@@ -365,7 +365,7 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at10_analysis(directory: pathlib.Path, node: bool) -> None:
-    """The analysis reads synthetic rows of every case and classifies them, and needs a sample."""
+    """The analysis classifies synthetic rows of every case, and needs the run's sample.json."""
     from experiments.state_prep_certification.distances import analyze
 
     sample = _sample()
@@ -505,16 +505,17 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     with open(out / "anchors.csv") as file:
         cells = {row["name"]: row for row in csv.DictReader(file)}
     assert cells["pp110"]["q_bz_on_T"] == "compiled", cells["pp110"]
+    # the T cell of a failed arm with a flagged first run shows the failure: qr79's memout repeat
+    assert cells["qr79"]["q_bz_on_T"] == "memout", cells["qr79"]
 
-    # a label directory without a copy of the sample, such as one from an earlier run, is refused
+    # a label directory without a copy of the sample, such as one from a run made before runs kept
+    # a copy, is refused
     try:
         analyze.load_sample(directory)
     except ValueError:
         pass
     else:
         raise AssertionError("load_sample accepted a label directory without sample.json")
-    # the T cell of a failed arm with a flagged first run shows the failure: qr79's memout repeat
-    assert cells["qr79"]["q_bz_on_T"] == "memout", cells["qr79"]
 
 
 if __name__ == "__main__":

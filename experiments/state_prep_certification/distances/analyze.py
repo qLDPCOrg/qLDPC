@@ -5,10 +5,10 @@
     python analyze.py (--archive PATH | --label-dir DIR) [--out DIR]
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
-compares the prior arm with the arm with everything on.  T is the median of an arm's runs on the
-code, its first run and its repeats, with a repeat that timed out counted as the limit L.  If the
+compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
+first run and repeats on the code, with a repeat that timed out counted as the limit L.  If the
 first run did not finish, or a repeat ended in an error or memout, T is the first run's time.  An
-arm counts as finished if its first run finished, even if its repeats did not; ``summary.csv``
+arm counts as finished if its first run finished, even if a repeat timed out; ``summary.csv``
 records the number of unfinished repeats in ``repeats_unfinished``, and a median that is L is in
 effect a bound.  A row with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A
 repeat with it is left out of the median, as a missing repeat is.  A first run with it leaves the
@@ -34,7 +34,7 @@ upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
 For each family, the table gives the counts of each class of R_T and the median of R_T over the
 codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
-"<=" if upper bounds are, and omitted if there are both.  The table also gives the number of codes
+"<=" if upper bounds are, and omitted if there are both.  The table also gives the number of ratios
 in the median, and how many of them are lower bounds and how many upper bounds.  The anchors' row
 gives the counts of each class only; anchors are reported per code and never pooled with the
 families.
@@ -123,7 +123,8 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
     path = label_dir / "sample.json"
     if not path.exists():
         raise ValueError(
-            f"{label_dir} has no sample.json, as for a run made before runs kept a copy of the sample"
+            f"{label_dir} has no sample.json, as for a run made before runs kept a copy of the"
+            " sample"
         )
     sample: dict[str, Any] = json.loads(path.read_text())
     return sample
