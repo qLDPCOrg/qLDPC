@@ -1,0 +1,89 @@
+# Temporary: profiles the coverage shards and the compiled runs of continuous-integration.yaml on CI's
+# runners, twice each.  It runs only on pushes to the branch ci/timing-probe, which is never merged.
+# Each test step prints PROBE lines: each process's phases, CPU and numba compile time (split into
+# galois and qLDPC), the slowest test files and tests, and the functions that take longest to
+# compile (see experiments/ci_timing/).
+
+name: CI timing probe
+
+on:
+  push:
+    branches: [ ci/timing-probe ]
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: "coverage ${{ matrix.shard }}/3 #${{ matrix.rep }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 1, 2, 3 ]
+        rep: [ 1, 2 ]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          enable-cache: true
+      - name: Install package and dependencies
+        run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
+      - name: Describe the runner
+        run: |
+          echo "PROBE runner nproc=$(nproc)"
+          lscpu | grep -E '^(Model name|Thread\(s\) per core|Core\(s\) per socket):' | sed 's/^/PROBE runner /'
+      - name: Run coverage
+        env:
+          PROFILE_OUT: ${{ runner.temp }}/profile
+          PYTHONPATH: ${{ github.workspace }}/experiments/ci_timing
+        run: |
+          T0=$(date +%s.%N)
+          TIMEFORMAT='PROBE step real=%R user=%U sys=%S'
+          status=0
+          time uv run --extra bliss --extra decoders --extra gap --group ci-test python checks/coverage_.py \
+            --jobs "$(nproc)" --shard "${{ matrix.shard }}/3" -pprobe_plugin || status=$?
+          python3 experiments/ci_timing/summarize.py "$PROFILE_OUT" "$T0"
+          exit $status
+
+  compiled:
+    name: "${{ matrix.name }} #${{ matrix.rep }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NUMBA_NUM_THREADS: 1
+      QLDPC_NUM_THREADS: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [ 1, 2 ]
+        name: [ "compiled modules", "compiled distance" ]
+        include:
+          - name: "compiled modules"
+            args: src/qldpc --compiled-module-tests
+          - name: "compiled distance"
+            args: src/qldpc/codes/distance --compile-search-setup
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          enable-cache: true
+      - name: Install package and dependencies
+        run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
+      - name: Run the tests
+        env:
+          PROFILE_OUT: ${{ runner.temp }}/profile
+          PYTHONPATH: ${{ github.workspace }}/experiments/ci_timing
+        run: |
+          T0=$(date +%s.%N)
+          TIMEFORMAT='PROBE step real=%R user=%U sys=%S'
+          status=0
+          time uv run --extra bliss --extra decoders --extra gap --group ci-test python -m pytest \
+            ${{ matrix.args }} -n "$(nproc)" --dist=loadfile -p probe_plugin || status=$?
+          python3 experiments/ci_timing/summarize.py "$PROFILE_OUT" "$T0"
+          exit $status
