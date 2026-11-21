@@ -94,15 +94,9 @@ class CosetLeaderSearch:
     :meth:`find_first_not_within_max_weight` and :meth:`get_min_weights` move the rest of a costly
     batch to several threads.  The calling thread starts a batch alone, and a batch of cheap queries
     stays there.  The search fixes the number of threads when it is built, from the ``num_threads``
-    field of the tuning.  By default that is the environment variable ``QLDPC_NUM_THREADS`` when
-    qLDPC was imported, if it was set, and otherwise ``numba.config.NUMBA_NUM_THREADS``, one for
-    each CPU that numba counts unless the environment variable ``NUMBA_NUM_THREADS`` says otherwise.
-    The results of the queries do not depend on the number of threads.  To keep the queries on one
-    core, set ``QLDPC_NUM_THREADS=1`` before Python starts, or build the search within
-    ``use_tuning(num_threads=1)``.  Programs that run queries in several processes or threads at
-    once should cap the threads in this way.  A search that the workers of a pool share must be
-    built within ``use_tuning(num_threads=1)``, since ``use_tuning`` entered in a worker covers only
-    the searches built there.
+    field of the tuning, and the results of the queries do not depend on it.
+    :doc:`/exact_search_tuning` says how many threads a search uses by default, and how to cap them,
+    as programs that run queries in several processes or threads at once should.
 
     The Brouwer-Zimmermann method caches its searches for recently used stabilizers, so that
     another ``CosetLeaderSearch`` for the same stabilizers, measure of weight, and tuning reuses

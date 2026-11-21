@@ -58,9 +58,7 @@ def get_num_threads(num_threads: int | None) -> int:
 
     The default is the value of the environment variable ``QLDPC_NUM_THREADS`` when qLDPC was
     imported, if it was set (see ``qldpc/_num_threads.py``), and otherwise
-    ``numba.config.NUMBA_NUM_THREADS``.  Numba reads that, normally when it is imported, from the
-    environment variable ``NUMBA_NUM_THREADS``, or else from the CPUs available to the process.
-    ``numba.set_num_threads`` does not change either.
+    ``numba.config.NUMBA_NUM_THREADS`` (see "Threads" in the README of this package).
     """
     if num_threads is not None:
         return num_threads

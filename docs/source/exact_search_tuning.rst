@@ -53,8 +53,9 @@ Start from a symptom
      - By default, a search or certification uses ``QLDPC_NUM_THREADS`` threads if that environment variable was set when qLDPC was imported, or else ``numba.config.NUMBA_NUM_THREADS``.
        That is one for each CPU that numba counts, unless the environment variable ``NUMBA_NUM_THREADS`` sets another number.
        To change it, set ``QLDPC_NUM_THREADS`` before Python starts, or set :attr:`~SearchTuning.num_threads`.
-       A :class:`~qldpc.codes.distance.CosetLeaderSearch` reads ``num_threads`` when it is built.
-       Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example with ``QLDPC_NUM_THREADS=1``.
+       A distance search or a certification reads ``num_threads`` when it starts, and a :class:`~qldpc.codes.distance.CosetLeaderSearch` when it is built.
+       Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example with ``QLDPC_NUM_THREADS=1`` set before Python starts, which reaches every thread and worker process, or by starting the searches and building any ``CosetLeaderSearch`` within ``use_tuning(num_threads=1)``.
+       ``use_tuning`` caps a worker only if entered in the function that the worker runs, since new threads and spawned processes normally start with the default tuning, and it covers only the searches that start or are built within it: a ``CosetLeaderSearch`` that the workers share must be built within ``use_tuning(num_threads=1)``.
        Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota rounded down, or to 1 if the quota is below 1.
        The section `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count.
    * - A keyboard interrupt takes long to take effect

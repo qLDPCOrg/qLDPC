@@ -3,25 +3,19 @@
 """The number of threads of qLDPC's searches, which the environment variable QLDPC_NUM_THREADS sets.
 
 qLDPC reads ``QLDPC_NUM_THREADS`` when it is imported, before any of its modules imports numba.
-If the variable is set, it must be a positive integer, and searches whose tuning leaves
-``num_threads`` at ``None`` use that many threads (see :mod:`qldpc.codes.distance._tuning`).
-
-Numba never reads ``QLDPC_NUM_THREADS``.  Its parallel code, such as some of galois's, uses its own
-thread count, which numba reads from ``NUMBA_NUM_THREADS`` when it is imported.  So the variable
-sets numba's count too only if qLDPC is imported before numba, and so before galois:
+If the variable is set, it must be a positive integer, and qLDPC gives numba the same thread count
+if it can:
 
 - If numba has not been imported, qLDPC sets the environment variable ``NUMBA_NUM_THREADS`` to the
   same value.  If ``NUMBA_NUM_THREADS`` held another number, qLDPC warns that
   ``QLDPC_NUM_THREADS`` replaces it.
 - If numba has already been imported with another count, qLDPC warns that numba's parallel code
-  keeps that count.  To give it the same count, import qLDPC before numba and galois, or also set
-  ``NUMBA_NUM_THREADS`` to the same value before Python starts.  ``numba.set_num_threads`` would
-  change the count of numba's parallel code only for the calling thread, so qLDPC does not call
-  it.  ``numba.set_num_threads`` changes neither ``QLDPC_NUM_THREADS`` nor
-  ``numba.config.NUMBA_NUM_THREADS``, nor the threads of qLDPC's searches.
+  keeps that count.  ``numba.set_num_threads`` would change the count of numba's parallel code only
+  for the calling thread, so qLDPC does not call it.
 
-If the variable is not set, qLDPC changes nothing, and searches use numba's thread count,
-``numba.config.NUMBA_NUM_THREADS``.
+If the variable is not set, qLDPC changes nothing.  The section "Threads" of
+``qldpc/codes/distance/README.md`` says how searches choose their number of threads, and when the
+variable also sets numba's count.
 """
 
 from __future__ import annotations

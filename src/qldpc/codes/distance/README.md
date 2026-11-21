@@ -367,7 +367,7 @@ A `CosetLeaderSearch` fixes its number of threads when it is built.
 By default, `num_threads` is `None`, which takes the value of the environment variable `QLDPC_NUM_THREADS` when qLDPC was imported, if it was set, and otherwise `numba.config.NUMBA_NUM_THREADS`.
 `QLDPC_NUM_THREADS` is the recommended control, and must be a positive integer.
 Numba never reads it.
-Numba's parallel code, such as some of galois's, uses numba's own count, which numba reads from the environment variable `NUMBA_NUM_THREADS` when it is imported, or else from the CPUs available to the process.
+Numba's parallel code, such as some of galois's, uses numba's own count, which numba normally reads from the environment variable `NUMBA_NUM_THREADS` when it is imported, or else from the CPUs available to the process.
 So `QLDPC_NUM_THREADS` sets numba's count too only if qLDPC is imported before numba, and so before galois: qLDPC then sets `NUMBA_NUM_THREADS` to the same value.
 If numba was imported first with another count, qLDPC warns that numba keeps it; to avoid that, also set `NUMBA_NUM_THREADS` to the same value before Python starts.
 The docstring of `src/qldpc/_num_threads.py` gives the other warnings.

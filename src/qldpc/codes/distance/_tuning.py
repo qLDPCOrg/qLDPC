@@ -484,20 +484,17 @@ class SearchTuning:
     #: calling thread alone.  ``None`` takes the value of the environment variable
     #: ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
     #: ``numba.config.NUMBA_NUM_THREADS``; the section "Threads" of the README of
-    #: ``qldpc/codes/distance`` says how to set either, and when ``QLDPC_NUM_THREADS`` also sets
-    #: numba's own count.  A distance search resolves ``None`` once, when it starts, and a
+    #: ``qldpc/codes/distance`` says how to set either, when ``QLDPC_NUM_THREADS`` also sets numba's
+    #: own count, and how programs that run searches in several processes or threads at once should
+    #: cap it.  A distance search resolves ``None`` once, when it starts, and a
     #: ``CosetLeaderSearch`` when it is built.  A layer of a set runs on the calling thread alone
     #: unless it has at least three rows and more than ``num_threads * 2**search_chunk_exponent``
     #: supports, and a batch until its queries have done that many units of work, in the units that
     #: ``search_chunk_exponent`` defines for each method (Section 4.5 of
     #: ``brouwer_zimmermann_code.md`` and Section 3.11 of ``connected_cluster.md``).  A
     #: connected-cluster weight limit runs on the calling thread alone unless it passes the gate
-    #: that ``connected_cluster_split_shift`` describes.  Programs that run searches in several
-    #: processes or threads at once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before Python
-    #: starts.  ``use_tuning(num_threads=1)`` caps a worker only if entered in the function that it
-    #: runs, since new threads and spawned processes normally start with the default tuning (see the
-    #: module docstring).  Defaults to ``None``, chosen by hand: a search uses the cores that numba
-    #: counts unless its caller caps them.
+    #: that ``connected_cluster_split_shift`` describes.  Defaults to ``None``, chosen by hand: a
+    #: search uses the cores that numba counts unless its caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
     #: A chunk of the scan of a count, by the BZ or brute-force method, visits at most this many
