@@ -34,6 +34,7 @@ import tarfile
 import tempfile
 import time
 import traceback
+import types
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -986,6 +987,36 @@ def test_bundle_requirements(directory: pathlib.Path, node: bool) -> None:
         ("typing-extensions", "4.16.0"),
     ], entries
     assert entries[0][2].count("--hash") == 2 and "via" not in entries[0][2]
+
+
+@test
+def test_bundle_frozen_files(directory: pathlib.Path, node: bool) -> None:
+    """A bundle refuses an experiment whose frozen files are missing, naming the one to add."""
+    from experiments.state_prep_certification import bundle
+
+    certification = types.SimpleNamespace(
+        NAME="certification", FROZEN_FILES=["config.json", "data/circuits.json"]
+    )
+    ranking = types.SimpleNamespace(
+        NAME="ranking", FROZEN_FILES=["config.json", "../certification/data/circuits.json"]
+    )
+    experiments_dir = directory / "experiments" / "state_prep_certification"
+    for path in ("ranking/config.json", "certification/config.json"):
+        (experiments_dir / path).parent.mkdir(parents=True, exist_ok=True)
+        (experiments_dir / path).write_text("{}")
+    for modules, message in (
+        ([ranking], "ranking needs certification's circuits.json: bundle certification too"),
+        ([certification], "certification: its frozen file data/circuits.json is not in the bundle"),
+    ):
+        try:
+            bundle.check_frozen_files(directory, modules)
+        except SystemExit as error:
+            assert str(error.code).startswith(message), error.code
+        else:
+            raise AssertionError(f"no error for {[module.NAME for module in modules]}")
+    (experiments_dir / "certification" / "data").mkdir()
+    (experiments_dir / "certification" / "data" / "circuits.json").write_text("{}")
+    bundle.check_frozen_files(directory, [certification, ranking])
 
 
 @workstation_only

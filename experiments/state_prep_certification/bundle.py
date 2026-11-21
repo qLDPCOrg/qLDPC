@@ -30,7 +30,10 @@ against the resolution's hash, if it is pure Python (``py3-none-any``); the lock
 is then replaced by the hash of that wheel, since an install with ``--require-hashes`` would
 otherwise reject it.  Any other requirement without a wheel stops the script.
 
-The script refuses a worktree with uncommitted changes to tracked files.  It refuses an unpinned
+The script refuses a named experiment whose frozen files (``FROZEN_FILES``) are not all in the
+staged tree, before any download; ranking's frozen files include certification's ``circuits.json``,
+so a ranking bundle names certification too.  It refuses a worktree with uncommitted changes to
+tracked files.  It refuses an unpinned
 qLDPC commit (``qldpc_commit`` of ``pins.json`` is null) unless ``--unfrozen`` asks for a trial,
 which ``bundle.json`` then records.  With a pinned commit, it checks that HEAD descends from that
 commit and that ``src/`` and ``pyproject.toml`` are unchanged since, so that the bundle's source,
@@ -47,6 +50,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -101,6 +105,7 @@ def main() -> None:
             shutil.copytree(
                 source, tree / "experiments" / "state_prep_certification" / module.NAME / data
             )
+    check_frozen_files(tree, modules)
 
     # wheels and the hashed requirements
     qldpc_wheel = build_qldpc_wheel(tree, staging / "wheels")
@@ -198,6 +203,24 @@ def parse_args() -> argparse.Namespace:
 
 ####################################################################################################
 # checks
+
+
+def check_frozen_files(tree: pathlib.Path, modules: list[Any]) -> None:
+    """Stop unless the staged tree holds every frozen file of the named experiments.
+
+    A frozen file in another experiment's directory, such as ranking's copy of certification's
+    ``circuits.json``, travels only in a bundle that names that experiment too.
+    """
+    experiments_dir = tree / "experiments" / "state_prep_certification"
+    for module in modules:
+        for name in module.FROZEN_FILES:
+            path = pathlib.Path(os.path.normpath(experiments_dir / module.NAME / name))
+            if path.is_file():
+                continue
+            owner = path.relative_to(experiments_dir).parts[0]
+            if owner != module.NAME:
+                sys.exit(f"{module.NAME} needs {owner}'s {path.name}: bundle {owner} too")
+            sys.exit(f"{module.NAME}: its frozen file {name} is not in the bundle; build it")
 
 
 def check_tree(pins: dict[str, Any], modules: list[Any], unfrozen: bool) -> str:

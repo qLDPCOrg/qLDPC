@@ -65,6 +65,8 @@ Then build the bundle, which carries the data, and note its checksum:
 python experiments/state_prep_certification/bundle.py EXPERIMENT --out /path/to/bundles
 ```
 
+A ranking bundle names certification too, as in `bundle.py certification ranking`, since ranking reads certification's inputs; `bundle.py` refuses a bundle without an experiment's frozen files.
+
 The bundle needs a pinned qLDPC commit in `pins.json`; `--unfrozen` builds a trial bundle without one, which `run_node.py` refuses on the node unless `--allow-unfrozen` is given.
 
 On the node, check the bundle, unpack it, and run the experiment from its `qLDPC/` directory, with the CPU-hours H approved for it:
