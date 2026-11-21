@@ -48,7 +48,7 @@ def plain_search_setup() -> None:
 
 
 class CostlyStages(NamedTuple):
-    """The families that matroid partitioning builds and that distance searches scan.
+    """The families that matroid partitioning builds and that distance searches pack to scan.
 
     The costly_stages fixture records them.
     """
@@ -59,10 +59,10 @@ class CostlyStages(NamedTuple):
 
 @pytest.fixture
 def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
-    """Record the families of matroid partitioning and the families that distance searches scan.
+    """Record the families of matroid partitioning and the families that distance searches pack.
 
-    A partitioned family with sets shows that a search built one, and a scanned family whose
-    maximum coverage exceeds one shows that a distance search scanned overlapping sets.
+    A partitioned family with sets shows that a search built one, and a packed family whose maximum
+    coverage exceeds one shows that the setup of a distance search ended with overlapping sets.
     """
     stages = CostlyStages([], [])
     get_partitioned_family = basis_families.get_partitioned_family
