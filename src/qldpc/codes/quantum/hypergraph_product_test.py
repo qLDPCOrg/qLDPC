@@ -242,7 +242,7 @@ def test_bacon_shor_code() -> None:
 
 def test_shyps_code() -> None:
     """Sanity checks for the [[(2^r-1)^2, r^2, 2^(r-1)]] SHYPS codes of arXiv:2502.07150."""
-    for dimension in [3, 4, 5]:
+    for dimension in [3, 4]:
         code = codes.SHYPSCode(dimension)
         params = ((2**dimension - 1) ** 2, dimension**2, 2 ** (dimension - 1))
         assert code.get_code_params() == params

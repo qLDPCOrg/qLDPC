@@ -275,14 +275,18 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
 
     # the code is also independent of the hash seed, which sets the iteration order of the sets of
     # group members that the construction is built from.  Child interpreters with fixed hash seeds
-    # must reproduce the code built here, under this interpreter's (randomized) hash seed.
+    # must reproduce the code built here, under this interpreter's (randomized) hash seed.  The hash
+    # seed does not interact with compilation, so the children skip compiling qLDPC's functions.
     script = (
         "import numpy as np;"
         "from qldpc import abstract, codes;"
         "code = codes.QTCode.random(abstract.CyclicGroup(8), codes.RepetitionCode(2), seed=7);"
         "print(np.asarray(code.matrix).tobytes().hex())"
     )
-    matrices = {run_python(script, env={"PYTHONHASHSEED": hash_seed}) for hash_seed in ["0", "1"]}
+    matrices = {
+        run_python(script, env={"PYTHONHASHSEED": hash_seed, "QLDPC_DISABLE_COMPILATION": "1"})
+        for hash_seed in ["0", "1"]
+    }
     assert matrices == {matrix_for(seed=7).hex() + "\n"}
 
 
