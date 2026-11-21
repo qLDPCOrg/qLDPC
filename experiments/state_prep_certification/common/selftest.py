@@ -13,13 +13,15 @@ child pinned to a CPU and its runner on other CPUs; ``run_node.py`` runs them be
 acceptance tests.  The test of ``bundle.check_tree``, which needs git, runs only without
 ``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``.
 
-The script prints one line per test and exits with status 1 if any test failed.
+The script prints one line per test and exits with status 1 if any test failed.  Any exception
+that a test raises fails that test only, and ``--only`` refuses an unknown test name.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import io
 import json
 import multiprocessing
 import os
@@ -37,7 +39,7 @@ from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from experiments.state_prep_certification.common import store, tasks
+from experiments.state_prep_certification.common import acceptance, store, tasks
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_task.py"
@@ -63,17 +65,7 @@ def main() -> None:
         try:
             test(directory, args.node)
             print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except (
-            AssertionError,
-            OSError,
-            RuntimeError,
-            ValueError,
-            KeyError,
-            TypeError,
-            AttributeError,
-            IndexError,
-            subprocess.SubprocessError,
-        ):
+        except acceptance.FAILURES:
             failed.append(name)
             print(f"FAIL {name}\n{traceback.format_exc()}", flush=True)
         finally:
@@ -89,7 +81,7 @@ def parse_args() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--node", action="store_true", help="test node mode (Linux)")
-    parser.add_argument("--only", nargs="*", help="run only these tests")
+    parser.add_argument("--only", nargs="*", choices=sorted(TESTS), help="run only these tests")
     parser.add_argument("--keep", action="store_true", help="keep the temporary directories")
     return parser.parse_args()
 
@@ -825,6 +817,38 @@ def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
     assert first.parent == second.parent == directory / "results" / "acceptance" / "label"
     record = json.loads((label_dir / "acceptance.json").read_text())
     assert record["directory"] == str(second), record
+
+
+@test
+def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
+    """A test that raises any exception fails alone, and an unknown test ID is refused."""
+
+    class Unexpected(Exception):
+        pass
+
+    suite = acceptance.Suite("spc-suite-")
+    ran = []
+
+    @suite.test
+    def at1_raises(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+        raise Unexpected
+
+    @suite.test
+    def at2_passes(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert not suite.run_all(node=node, results_dir=directory)
+    assert ran == ["AT1", "AT2"], ran
+    assert suite.parse_args("", ["--only", "AT2"]).only == ["AT2"]
+    with contextlib.redirect_stderr(io.StringIO()):
+        _expect_exit(lambda: suite.parse_args("", ["--only", "AT3"]))
+
+    # the self-tests refuse an unknown test name too
+    command = [sys.executable, __file__, "--only", "no_such_test"]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert result.returncode != 0 and "invalid choice" in result.stderr, result
 
 
 @test

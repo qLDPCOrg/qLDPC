@@ -19,7 +19,7 @@ Times measured on a workstation are never used as results.
 - [`node.sh`](node.sh) is the node's entry point: a preflight check of the node, an offline install from the bundle, and then `run_node.py`.
 - [`bundle.py`](bundle.py) builds the offline bundle on the workstation.
 - [`pins.json`](pins.json) pins the qLDPC commit, CPython, the Linux platform of the wheels, and GNU parallel.
-- [`common/`](common/) holds the task runner (`runner.py` and `run_task.py`), the result store (`store.py`), the task lists (`tasks.py`), the label and manifest (`manifest.py`), the plug-in interface (`plugin.py`), and `local_runs.py`, which runs tasks locally for the acceptance tests.
+- [`common/`](common/) holds the task runner (`runner.py` and `run_task.py`), the result store (`store.py`), the task lists (`tasks.py`), the label and manifest (`manifest.py`), the plug-in interface (`plugin.py`), `local_runs.py`, which runs tasks locally for the acceptance tests, and `acceptance.py`, which runs each experiment's acceptance tests.
   `common/selftest.py` tests them on a stand-in experiment (`selftest_plugin.py`), locally and in node mode.
 
 ### Labels and results

@@ -65,21 +65,17 @@ Each test prints PASS or FAIL; the script exits with status 1 if any failed.
 
 from __future__ import annotations
 
-import argparse
 import dataclasses
 import fractions
+import functools
 import io
 import itertools
 import json
 import math
 import pathlib
-import signal
 import subprocess
 import sys
 import tarfile
-import tempfile
-import time
-import traceback
 from collections.abc import Callable
 from typing import Any
 
@@ -89,7 +85,7 @@ import numpy.typing as npt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from experiments.state_prep_certification.certification import circuits as certification_circuits
-from experiments.state_prep_certification.common import local_runs, manifest, store
+from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
 from experiments.state_prep_certification.ranking import analyze, direct, experiment
 from experiments.state_prep_certification.ranking import consumer as ranking_consumer
 from qldpc import circuits
@@ -102,77 +98,24 @@ from qldpc.experimental.circuits.benchmarking import (
 )
 from qldpc.objects import Pauli, PauliXZ
 
-FAILURES = (
-    ArithmeticError,
-    AssertionError,
-    AttributeError,
-    LookupError,
-    OSError,
-    RuntimeError,
-    SystemExit,
-    TypeError,
-    ValueError,
-    ImportError,
-    subprocess.SubprocessError,
-)
-NODE_TESTS = ("RT1", "RT2", "RT8")
 M = experiment.MAX_RESIDUAL_WEIGHT
-TESTS: dict[str, Callable[[pathlib.Path], None]] = {}
-
-
-def main() -> None:
-    """Run the selected tests."""
-    args = parse_args()
-    results_dir = args.results_dir or pathlib.Path(tempfile.mkdtemp(prefix="spc-ranking-"))
-    passed = run_all(node=not args.local, results_dir=results_dir, only=args.only)
-    sys.exit(0 if passed else 1)
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--local", action="store_true", help="run every test, off the node")
-    parser.add_argument("--only", nargs="*", choices=sorted(TESTS), help="run only these tests")
-    parser.add_argument("--results-dir", type=pathlib.Path, help="where the tests' outputs go")
-    return parser.parse_args()
-
-
-def run_all(node: bool, results_dir: pathlib.Path, only: list[str] | None = None) -> bool:
-    """Run the tests, print PASS or FAIL for each, and return whether all passed."""
-    results_dir.mkdir(parents=True, exist_ok=True)
-    limit = float(experiment.CONFIG["acceptance_limit_s"])
-    failed = []
-    for name, test in TESTS.items():
-        if (only and name not in only) or (node and name not in NODE_TESTS):
-            continue
-        start = time.monotonic()
-        directory = results_dir / name
-        directory.mkdir(parents=True, exist_ok=True)
-        signal.signal(signal.SIGALRM, _stop)
-        signal.setitimer(signal.ITIMER_REAL, limit)
-        try:
-            test(directory)
-            print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except FAILURES:
-            failed.append(name)
-            print(f"FAIL {name}\n{traceback.format_exc()}", flush=True)
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-    print(f"{len(failed)} failed: {failed}" if failed else "all passed", flush=True)
-    return not failed
+SUITE = acceptance.Suite(
+    "spc-ranking-",
+    node_tests=("RT1", "RT2", "RT8"),
+    limit_s=float(experiment.CONFIG["acceptance_limit_s"]),
+)
+run_all = SUITE.run_all
 
 
 def test(function: Callable[[pathlib.Path], None]) -> Callable[[pathlib.Path], None]:
-    """Register a test by the ID at the start of its name, as in ``rt1_...`` for RT1."""
-    TESTS[function.__name__.split("_")[0].upper()] = function
+    """Register a test, which takes only its directory, by the ID at the start of its name."""
+
+    @functools.wraps(function)
+    def run(directory: pathlib.Path, node: bool) -> None:
+        function(directory)
+
+    SUITE.test(run)
     return function
-
-
-def _stop(signum: int, frame: Any) -> None:
-    """Stop a test that exceeds its limit."""
-    raise TimeoutError("the test exceeded its limit")
 
 
 ####################################################################################################
@@ -1363,4 +1306,4 @@ def _plain_leading_order(
 
 
 if __name__ == "__main__":
-    main()
+    SUITE.main(__doc__)

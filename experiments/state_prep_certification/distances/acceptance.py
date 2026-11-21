@@ -41,7 +41,6 @@ FAIL.
 
 from __future__ import annotations
 
-import argparse
 import copy
 import csv
 import dataclasses
@@ -51,22 +50,17 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
-import time
-import traceback
-from collections.abc import Callable
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
-from experiments.state_prep_certification.common import local_runs, store, tasks
+from experiments.state_prep_certification.common import acceptance, local_runs, store, tasks
 from experiments.state_prep_certification.distances import arms, codes, experiment
 from qldpc import codes as qldpc_codes
 from qldpc.codes.distance import _tuning
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-TESTS: dict[str, Callable[[pathlib.Path, bool], None]] = {}
 AT1_CODES = ("bb72", "pp110", "golay", "qr47", "five_five", "surface9")
 EQUAL_SECTORS = ("golay", "qr47")
 LOCAL_LIMIT_S = 60.0
@@ -80,59 +74,9 @@ EXPECTED_BZ_PRIOR = {
 }
 
 
-def main() -> None:
-    """Run the selected tests."""
-    args = parse_args()
-    results_dir = args.results_dir or pathlib.Path(tempfile.mkdtemp(prefix="spc-dist-"))
-    passed = run_all(node=not args.local, results_dir=results_dir, only=args.only)
-    sys.exit(0 if passed else 1)
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--local", action="store_true", help="the workstation's tests")
-    parser.add_argument("--only", nargs="*", help="run only these tests, such as AT1")
-    parser.add_argument("--results-dir", type=pathlib.Path, help="where the tests' runs go")
-    return parser.parse_args()
-
-
-def run_all(node: bool, results_dir: pathlib.Path, only: list[str] | None = None) -> bool:
-    """Run the tests, print PASS or FAIL for each, and return whether none failed."""
-    results_dir.mkdir(parents=True, exist_ok=True)
-    failed = []
-    for name, test in TESTS.items():
-        if only and name not in only:
-            continue
-        start = time.monotonic()
-        try:
-            test(results_dir / name, node)
-            print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except (
-            ArithmeticError,
-            AssertionError,
-            AttributeError,
-            ImportError,
-            LookupError,
-            OSError,
-            RuntimeError,
-            subprocess.SubprocessError,
-            SystemExit,
-            TypeError,
-            ValueError,
-        ):
-            failed.append(name)
-            print(f"FAIL {name}\n{traceback.format_exc()}", flush=True)
-    print(f"{len(failed)} failed: {failed}" if failed else "none failed", flush=True)
-    return not failed
-
-
-def test(function: Callable[[pathlib.Path, bool], None]) -> Callable[[pathlib.Path, bool], None]:
-    """Register a test by the ID at the start of its name, as in ``at1_...`` for AT1."""
-    TESTS[function.__name__.split("_")[0].upper()] = function
-    return function
+SUITE = acceptance.Suite("spc-dist-")
+test = SUITE.test
+run_all = SUITE.run_all
 
 
 def _sample() -> dict[str, Any]:
@@ -546,4 +490,4 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    SUITE.main(__doc__)

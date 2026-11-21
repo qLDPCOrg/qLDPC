@@ -94,20 +94,14 @@ run on the node.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import hashlib
 import json
 import math
 import pathlib
 import sys
-import tempfile
-import time
-import traceback
-from collections.abc import Callable
 from typing import Any
 
-import numba
 import numpy as np
 import numpy.typing as npt
 
@@ -127,74 +121,11 @@ from experiments.state_prep_certification.certification import (
     experiment,
     instrument,
 )
-from experiments.state_prep_certification.common import local_runs
+from experiments.state_prep_certification.common import acceptance, local_runs
 
-# The failures that a test reports as FAIL, after which the other tests still run.
-FAILURES = (
-    ArithmeticError,
-    AssertionError,
-    AttributeError,
-    ImportError,
-    LookupError,
-    OSError,
-    RuntimeError,
-    SystemExit,
-    TypeError,
-    ValueError,
-    instrument.ShadowDisagreement,
-    numba.core.errors.NumbaError,
-)
-
-TESTS: dict[str, Callable[[pathlib.Path, bool], None]] = {}
-
-
-def main() -> None:
-    """Run the selected tests."""
-    args = parse_args()
-    results_dir = args.results_dir or pathlib.Path(tempfile.mkdtemp(prefix="spc-cert-"))
-    passed = run_all(node=not args.local, results_dir=results_dir, only=args.only)
-    sys.exit(0 if passed else 1)
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "--local",
-        action="store_true",
-        help="mark the run as off the node, which runs the same tests",
-    )
-    parser.add_argument(
-        "--only", nargs="*", choices=sorted(TESTS), help="run only these tests, such as AT1"
-    )
-    parser.add_argument("--results-dir", type=pathlib.Path, help="where the tests' runs go")
-    return parser.parse_args()
-
-
-def run_all(node: bool, results_dir: pathlib.Path, only: list[str] | None = None) -> bool:
-    """Run the tests, print PASS or FAIL for each, and return whether all passed."""
-    results_dir.mkdir(parents=True, exist_ok=True)
-    failed = []
-    for name, test in TESTS.items():
-        if only and name not in only:
-            continue
-        start = time.monotonic()
-        try:
-            test(results_dir / name, node)
-            print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except FAILURES:
-            failed.append(name)
-            print(f"FAIL {name}\n{traceback.format_exc()}", flush=True)
-    print(f"{len(failed)} failed: {failed}" if failed else "all passed", flush=True)
-    return not failed
-
-
-def test(function: Callable[[pathlib.Path, bool], None]) -> Callable[[pathlib.Path, bool], None]:
-    """Register a test by the ID at the start of its name, as in ``at1_...`` for AT1."""
-    TESTS[function.__name__.split("_")[0].upper()] = function
-    return function
+SUITE = acceptance.Suite("spc-cert-")
+test = SUITE.test
+run_all = SUITE.run_all
 
 
 def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None) -> Any:
@@ -1553,4 +1484,4 @@ def _input(circuit_id: str) -> Any:
 
 
 if __name__ == "__main__":
-    main()
+    SUITE.main(__doc__)
