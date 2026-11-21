@@ -1,9 +1,16 @@
 # Exact code distances
 
-This experiment shows what qLDPC's extensions of the exact Brouwer-Zimmermann (BZ) distance search give beyond the techniques that public exact tools already use.
-It runs qLDPC's BZ search with everything on, at its defaults, against the same search configured with only the techniques that some public exact tool shares with it (the "prior" arm), on the same codes and with the same time limit.
-It reports the wall time of each search.
-The prior arm is a configuration of qLDPC, not an external tool: public techniques that qLDPC lacks cannot be switched on, so its times are not those of any public tool.
+This experiment measures what four of qLDPC's extensions of the exact Brouwer-Zimmermann (BZ) distance search give.
+It runs qLDPC's BZ search with everything on, at its defaults, against the same search with these four extensions turned off by qLDPC's tuning fields (the "prior" arm), on the same codes and with the same time limit:
+
+- overlapping families of search bases and their coverage certificate, off by `overlapping_minimum_work` (Section 3.1 of qLDPC's guide [`brouwer_zimmermann.md`](../../../src/qldpc/codes/distance/brouwer_zimmermann.md));
+- matroid partitioning into families of coverage two or more, restricted to disjoint information sets by `partition_max_coverage = 1` (Section 3.1 of the guide, and Section 4.4 of [`brouwer_zimmermann_code.md`](../../../src/qldpc/codes/distance/brouwer_zimmermann_code.md));
+- completion tables, off by `completion_bound_minimum_layer_work` and `completion_bound_max_table_bytes` (Section 3.9);
+- the images of an information set under automorphisms, off by `automorphism_minimum_layer_work` (Section 3.7).
+
+Both arms keep qLDPC's other techniques, among them the search of one sector of a CSS code through a sector map ([`problems.md`](../../../src/qldpc/codes/distance/problems.md#searching-one-sector-of-a-css-code)), rounding the certificate to a proven weight multiple (Section 3.2 of the guide), witnesses shared between CSS sectors (Section 3.3), quotient labels for the stabilizer test (Section 3.4), and packed enumeration with pivot-column deletion (Section 3.5).
+The prior arm is thus an ablation of the four extensions within qLDPC.
+The experiment reports the wall time of each search.
 
 ## Arms
 
