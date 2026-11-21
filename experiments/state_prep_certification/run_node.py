@@ -22,24 +22,29 @@ experiment (``common/manifest.py``), it
 5. writes ``cores.txt`` and the manifest: the number of job slots is the smallest of the number of
    free physical cores, the number of ``JOB_MEM_GIB`` slots that fit in memory, and ``--jobs``, if
    given, with ``tasks.RESERVED_CORES`` physical cores and ``tasks.RESERVED_MEM_GIB`` of memory
-   reserved; it also pins this script, and so GNU parallel and the task runners, to the logical
-   CPUs of the reserved cores;
+   reserved, and the script stops if no slot fits; it also pins this script, and so GNU parallel
+   and the task runners, to the logical CPUs of the reserved cores;
 6. runs pass 1 with GNU parallel, one task per job slot, whose child process pins itself to its
-   slot's CPU, then the repeats of pass 2, and checks that every task has a final row;
+   slot's CPU, then the repeats of pass 2; while GNU parallel runs, ``active/_parallel`` records
+   it, and after each pass, the script stops if a task of the pass has no final row, and prints
+   the command that reruns it;
 7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz``: the one file to copy back.
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
 with status 0, and the task runner skips tasks that already have a final row.  One start, or
 ``--cleanup``, owns a label at a time: it holds an exclusive lock on the label's ``lock`` file until
-it exits, and another refuses to begin.  The script refuses to start while a run of an earlier start
-is still alive.  It also refuses to start, and ``--cleanup`` refuses to act, while the label's
-``active/`` directory lists a run of another host, which this host can neither see nor stop.  A
-start refuses a machine whose CPU model differs from the one in the label's manifest, so that one
-label never mixes the times of two CPU models; another host with the same CPU model may resume,
-since a machine's hostname can change between its allocations, and ``starts.jsonl`` records each
-start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run it
-once with ``--cleanup``, which kills every run still listed in the label's ``active/`` directory, if
-its processes are still the ones recorded.  ``--status`` prints the progress of the label.
+it exits, and another refuses to begin.  The script refuses to start while GNU parallel or a run of
+an earlier start is still alive.  It also refuses to start, and ``--cleanup`` refuses to act, while
+the label's ``active/`` directory lists a run of another host, which this host can neither see nor
+stop.  A start refuses a machine whose CPU model differs from the one in the label's manifest, so
+that one label never mixes the times of two CPU models; another host with the same CPU model may
+resume, since a machine's hostname can change between its allocations, and ``starts.jsonl``
+records each start's host and number of job slots.  After a hard kill of this script or of GNU
+parallel, run it once with ``--cleanup``, which kills GNU parallel and every run still listed in the
+label's ``active/`` directory, if their processes are still the ones recorded; it names, and leaves
+alive, the processes of a run's group whose leader is gone (see ``cleanup``).  ``--status`` prints
+the label directory and its progress.  Both act on the label directory of ``--subset``,
+``--local``, and ``--results-dir``, so they need the values of the run.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session,
 and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development

@@ -12,8 +12,9 @@
 # 1. Preflight: checks the architecture (x86_64), glibc (>= the pinned minimum), uv, the pinned
 #    CPython (or the bundle's standalone build), perl, sha256sum, lscpu, ps, tar, bzip2, and GNU
 #    parallel (the system's if at least the pinned version, else the bundle's).  --check stops
-#    here and records the checks in results/preflight.json; it needs only this script and
-#    pins.json beside it, so it can run before the bundle exists.
+#    here and records the checks in results/preflight.json, or in preflight-<bundle>.json from a
+#    bundle; it needs only this script and pins.json beside it, so it can run before the bundle
+#    exists.
 # 2. Install, once per bundle, in results/: a virtual environment in venv-<bundle> from the
 #    bundle's wheels alone, with hashes required, marked complete only after the install
 #    succeeds; the bundle's CPython in python-<bundle>, if uv finds no pinned one; and GNU

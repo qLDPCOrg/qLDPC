@@ -10,8 +10,9 @@ Each test writes into a fresh temporary directory and uses the stand-in experime
 this session.  With ``--node`` (Linux only), the tests of the runner, of GNU parallel, and of
 ``--cleanup`` run in node mode instead: each run in a new session, killed by process group, with its
 child pinned to a CPU and its runner on other CPUs; ``run_node.py`` runs them before the node's
-acceptance tests.  The test of ``bundle.check_tree``, which needs git, runs only without
-``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``.
+acceptance tests.  The tests that need git, of ``bundle.check_tree`` and of a dirty tree's label,
+run only without ``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``, and the
+test of ``node.sh`` runs a copy of it with ``bash``.
 
 The script prints one line per test and exits with status 1 if any test failed.  Any exception
 that a test raises fails that test only, and ``--only`` refuses an unknown test name.

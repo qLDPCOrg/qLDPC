@@ -29,7 +29,8 @@ The frozen files include the experiment's configuration and the data that fix it
 From a bundle, the label also covers the bundle's resolved requirements.
 Any change to these inputs gives a new label, and so a new directory `results/<experiment>/<label>/`, which Git ignores.
 `common/manifest.py` gives the suffixes that the directory's name can carry.
-That directory holds the manifest, the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, and the archive.
+That directory holds the manifest, with one line per start in `starts.jsonl`, the record of the acceptance tests (`acceptance.json`), the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, the records of GNU parallel and of the live runs in `active/`, the lock of the start that owns the label (`lock`), and the archive.
+Each attempt of the acceptance tests writes its runs to a fresh directory, `results/acceptance/<label directory>/<UTC>-<random>/`, which `acceptance.json` records; failed attempts are kept.
 The manifest records the machine, the installed package versions, and the environment variables that can change a run, such as `PYTHONPATH` and `NUMBA_*`; a node start refuses a few of them, such as `PYTHONPATH`, unless `--allow-env NAME` accepts one, as [`run_node.py`](run_node.py) says.
 
 ### Runs
@@ -79,9 +80,12 @@ bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hour
 ```
 
 `node.sh --check` runs only the preflight, and needs only `node.sh` and `pins.json`, so it can run on the node before any bundle exists.
+`node.sh` keeps the results, each bundle's installs, and each bundle's preflight record in `results/` beside it, or in the directory that `FTSP_RESULTS` names, which bundles may share.
 Before the experiment first runs for its label, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
 Repeating the command resumes the run, on any host with the same CPU model, but not while the label's `active/` directory lists runs of another host.
-After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming; `--status` prints the progress.
+One start, or `--cleanup`, owns a label at a time, and a start refuses while GNU parallel or a run of an earlier start is alive.
+If a pass ends with a task that has no final row, as after damage to `runs.jsonl`, `run_node.py` stops and prints the command that reruns the task.
+After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming, which kills GNU parallel and the runs that the label's `active/` directory lists, if their processes are still the recorded ones; `--status` prints the progress.
 Both act on one label directory, which `--status` names: give them the run's `--subset` if it was not `main`, and the same `FTSP_RESULTS`.
 The archive that the run prints at its end is the one file to copy back.
 
