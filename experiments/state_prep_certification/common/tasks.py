@@ -26,6 +26,7 @@ exceeds the approved CPU-hours.
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import random
 import shlex
@@ -99,6 +100,9 @@ def write_pass2(
     if missing:
         raise ValueError(f"{len(missing)} tasks of pass 1 have no final row, such as {missing[0]}")
     repeats = [repeat for key in order for repeat in repeat_tasks(tasks[key], final[key])]
+    keys = [task["key"] for task in repeats]
+    if len(set(keys)) != len(keys) or not tasks.keys().isdisjoint(keys):
+        raise ValueError("Repeat keys must be unique, and differ from the keys of pass 1")
     for task in repeats:
         runner.check_task(task)
     write_once(label_dir / PASS2_TASKS_FILE, json.dumps(repeats, indent=1, sort_keys=True) + "\n")
@@ -156,7 +160,11 @@ def check_memory_caps(tasks: Sequence[dict[str, Any]], job_mem_gib: float) -> No
 
 
 def check_approval(ceiling: float, approved: float | None) -> None:
-    """Raise ``ApprovalError`` unless the approved CPU-hours cover the ceiling."""
+    """Raise ``ApprovalError`` unless the approved CPU-hours cover the ceiling, both finite."""
+    if not math.isfinite(ceiling):
+        raise ApprovalError(f"The ceiling is {ceiling} CPU-hours; a task's limits are not finite")
+    if approved is not None and not math.isfinite(approved):
+        raise ApprovalError(f"The approved CPU-hours must be finite, not {approved}")
     if approved is None:
         raise ApprovalError(
             f"The ceiling is {ceiling:,.1f} CPU-hours; pass --approved-cpu-hours to run it"

@@ -655,6 +655,56 @@ def test_tasks_ceiling_and_cores(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_tasks_finite_limits(directory: pathlib.Path, node: bool) -> None:
+    """A task with a limit that is not finite and positive, or a non-finite approval, is refused."""
+    nan, inf = float("nan"), float("inf")
+    for bad in (
+        {"limit_s": nan},
+        {"mem_cap_gib": inf},
+        {"startup_cap_s": nan},
+        {"post_s": inf},
+        {"grace_s": 0.0},
+        {"startup_cap_s": -1.0},
+    ):
+        try:
+            tasks.write_pass1(directory, [_task("bad", [], **bad)])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"a task with {bad} was written")
+    assert not (directory / tasks.TASKS_FILE).exists()
+    for ceiling, approved in ((1.0, nan), (1.0, inf), (nan, 10.0)):
+        try:
+            tasks.check_approval(ceiling, approved)
+        except tasks.ApprovalError:
+            pass
+        else:
+            raise AssertionError(f"a ceiling of {ceiling} passed an approval of {approved}")
+
+
+@test
+def test_tasks_pass2_keys(directory: pathlib.Path, node: bool) -> None:
+    """Pass 2 refuses repeat keys that are not unique, or that are keys of pass 1."""
+    tasks.write_pass1(directory, [_task("a", []), _task("b", [])])
+    final = {key: {"status": "ok", "T": 0.1} for key in ("a", "b")}
+
+    def same_keys(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
+        return [dict(task, key="repeat")]
+
+    def pass1_key(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
+        return [dict(task, key="a")] if task["key"] == "b" else []
+
+    for policy in (same_keys, pass1_key):
+        try:
+            tasks.write_pass2(directory, final, policy)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"the repeats of {policy.__name__} were written")
+    assert not (directory / tasks.PASS2_TASKS_FILE).exists()
+
+
+@test
 def test_parallel_pinning_and_pass2(directory: pathlib.Path, node: bool) -> None:
     """Under GNU parallel, each run is pinned to its slot's CPU, and pass 2 has the repeats."""
     _require_parallel()

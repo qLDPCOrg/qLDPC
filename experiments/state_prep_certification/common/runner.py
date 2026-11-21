@@ -85,6 +85,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import pathlib
 import platform
@@ -134,13 +135,23 @@ _ReturnType = TypeVar("_ReturnType")
 
 
 def check_task(task: dict[str, Any]) -> None:
-    """Raise ValueError if a task's limits cannot be enforced, such as a grace that is too long."""
-    grace = float(task.get("grace_s", GRACE_S))
-    if grace > TERM_WAIT_S - _CLEANUP_S:
+    """Raise ValueError if a task's limits cannot be enforced, such as a grace that is too long.
+
+    Each limit must be finite and positive, since a comparison with NaN, or with infinity, never
+    triggers a kill.
+    """
+    limits = {
+        "limit_s": task["limit_s"],
+        "mem_cap_gib": task["mem_cap_gib"],
+        "startup_cap_s": task.get("startup_cap_s", STARTUP_CAP_S),
+        "grace_s": task.get("grace_s", GRACE_S),
+        "post_s": task.get("post_s", FINISH_S),
+    }
+    for field, value in limits.items():
+        if not (math.isfinite(float(value)) and float(value) > 0):
+            raise ValueError(f"{task['key']}: {field} must be finite and positive, not {value}")
+    if float(limits["grace_s"]) > TERM_WAIT_S - _CLEANUP_S:
         raise ValueError(f"{task['key']}: grace_s must be at most {TERM_WAIT_S - _CLEANUP_S:g} s")
-    for field in ("limit_s", "mem_cap_gib"):
-        if float(task[field]) <= 0:
-            raise ValueError(f"{task['key']}: {field} must be positive")
 
 
 class Process(NamedTuple):
