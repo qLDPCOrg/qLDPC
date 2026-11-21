@@ -9,7 +9,7 @@ The thresholds, limits, and coefficients of the heuristics are fields of `Search
 
 ### 4.1 Module map and layering
 
-[README.md](README.md) says what each module of this directory holds, in "[Where to look](README.md#where-to-look)", and the levels in which they import each other; this section says how the searches use them.
+[README.md](README.md) says what each module of this directory holds, in "[Where to look](README.md#where-to-look)", and in which levels the modules import each other, in "[How the modules depend on each other](README.md#how-the-modules-depend-on-each-other)"; this section says how the searches use the modules.
 
 The distance functions of [distances.py](distances.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py).
 For BZ, they build an adapted basis ([Section 3.4](brouwer_zimmermann.md#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the sectors to `get_distance_brouwer_zimmermann`, both sectors of a CSS code at once in `get_distance_css`, or only the X sector if `_search_css` finds a qubit permutation that maps each sector onto the other.
@@ -35,7 +35,7 @@ The distance search and `CosetLeaderSearch` scan with the compiled entry points 
 Each search packs its problem once, before it scans, in an `AffineInstance` of [_brouwer_zimmermann/affine_instance.py](_brouwer_zimmermann/affine_instance.py): the packed rows, labels, pivots, and ranks of its sets, and the certificate of their steps, whose weight divisor rounds its bounds.
 `get_distance_instance` packs a basis family without its pivot columns ([Section 3.5](brouwer_zimmermann.md#35-packed-enumeration-with-pivot-column-deletion)), and a distance search builds another instance when it switches to an automorphism family, or a copy with the certificate of [Section 3.7](brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms), "Images of the blocks of a family", once it has automorphisms.
 
-`CosetLeaderSearch` of [coset_leaders.py](coset_leaders.py), which the fault-propagation certifier of `qldpc.circuits.certification` uses, applies BZ to cosets `u + V`, unless it is built with `method="connected_cluster"`.
+`CosetLeaderSearch` of [coset_leaders.py](coset_leaders.py) applies BZ to cosets `u + V`, unless it is built with `method="connected_cluster"`.
 A query of `CosetLeaderSearch`, whether the coset of a syndrome has a word within a maximum weight, runs one or two **coset searches**.
 They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches by Hamming weight of the X and Z parts of the errors, each in a coset of a classical code ([README.md](README.md#the-coset-leader-search)).
 
