@@ -8,8 +8,7 @@ counters of deformed codes.  The section "The MacWilliams method" of ``problems.
 MacWilliams method.
 
 ``compile_search_setup`` is here because it serves programs that make very many counts, and it
-compiles by running counts of a small code.  Distance and coset searches by the Brouwer-Zimmermann
-method also run the code that it compiles.
+compiles by running counts of a small code.
 """
 
 from __future__ import annotations

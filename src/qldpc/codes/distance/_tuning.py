@@ -157,9 +157,9 @@ class SearchTuning:
       operators, a qubit with one of the values X, Y, and Z (Section 3.7 of
       ``connected_cluster.md``).
     - State: in a connected-cluster search, a set of symbols that the search has chosen, with the
-      symbols that it forbids adding (Section 3.3).
+      symbols that it forbids adding (Section 3.3 of ``connected_cluster.md``).
     - Weight limit: the largest weight of the words that a connected-cluster search of a sector
-      looks for; the search raises it step by step (Section 3.6).
+      looks for; the search raises it step by step (Section 3.6 of ``connected_cluster.md``).
     - Searches by Hamming weight: the BZ searches of a ``CosetLeaderSearch`` that weigh each binary
       word that they scan by its Hamming weight divided by a fixed number.  The number is two for
       the searches by physical weight, which scan the images of Pauli errors under the map of
@@ -208,7 +208,7 @@ class SearchTuning:
     #: a large basis, a few million evaluations (Section 4.4 of ``brouwer_zimmermann_code.md``).
     overlapping_minimum_work: int = 2_000_000
 
-    #: A threshold on predicted examinations: the number of words that a query of a
+    #: A threshold on predicted examinations, the number of words that a query of a
     #: ``CosetLeaderSearch`` by the BZ method is predicted to examine or skip.  Each BZ search of a
     #: ``CosetLeaderSearch`` decides how to search once for each maximum weight, before it first
     #: searches a coset at that maximum weight:
@@ -223,9 +223,7 @@ class SearchTuning:
     #:    that it takes.  If they also reach this value, it computes the weight of each word from
     #:    the word's support and tail (Section 3.5 of ``brouwer_zimmermann.md``), and uses
     #:    completion tables to skip groups of words that are all too heavy (see
-    #:    ``coset_completion_max_table_bytes``).  Weighing words this way adds a fixed cost to each
-    #:    query, and the tables take memory and time to build.  Only queries that examine many words
-    #:    repay these costs.
+    #:    ``coset_completion_max_table_bytes``).
     #:
     #: Zero always goes on to step 2 and always passes the test of step 3; ``MAX_VALUE`` always
     #: skips steps 2 and 3.  Defaults to ``2 * 10**4``, chosen by hand (the ``CosetRoutes`` item of
@@ -298,9 +296,8 @@ class SearchTuning:
     #: predicted work of its next weight limit stays within this value, counting each state as
     #: ``connected_cluster_state_evaluations``.  Beyond it, the search probes with a
     #: Brouwer-Zimmermann search, and then considers switching to one.  Zero probes as soon as that
-    #: sum is positive.  Defaults to ``10**8``, chosen by hand: a fraction of a second.  Below it,
-    #: fixed costs that the estimates leave out, such as setup, dominate the costs that a switch
-    #: would compare (section "Choosing a method" of ``problems.md``).
+    #: sum is positive.  Defaults to ``10**8``, chosen by hand: a fraction of a second (section
+    #: "Choosing a method" of ``problems.md`` says why).
     auto_free_work: int = 100_000_000
 
     #: The most work, in candidate/set evaluations, that the Brouwer-Zimmermann probe of
@@ -468,7 +465,7 @@ class SearchTuning:
     #: 0.04, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``).
     completion_bound_lookup_block_cost_per_mib: float = 0.04
 
-    #: A multiplier in the number of lookups of completion tables that the cost model predicts: a
+    #: A multiplier in the number of lookups of completion tables that the cost model predicts.  A
     #: larger value predicts more lookups, so distance searches and counts may use tables in fewer
     #: layers.  Defaults to 0.35, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``
     #: gives the model).
@@ -493,20 +490,20 @@ class SearchTuning:
     #: most that many supports and lookups of completion tables, counted together, in one call.  On
     #: several threads, each thread scans ``num_threads`` times as many (Section 4.5 of
     #: ``brouwer_zimmermann_code.md``).  A connected-cluster distance search visits at most a chunk
-    #: of states in one call on each thread.  On threads, it splits a weight limit into work items
-    #: of about a chunk of states each, within bounds on their number (Sections 3.6 and 3.11 of
-    #: ``connected_cluster.md``).  The gates that decide when work moves to threads also count in
-    #: chunks; their thresholds, chosen by hand, should pass only work that costs many times as much
-    #: as starting threads.  On several threads, a layer of a set in a BZ search moves to threads if
-    #: it has at least three rows and more than ``num_threads`` chunks of supports.  A
-    #: connected-cluster weight limit moves under the gate of ``connected_cluster_split_shift``.  A
-    #: batch query of ``CosetLeaderSearch`` runs on the calling thread alone until its queries have
-    #: done ``num_threads`` chunks of work, and then moves the rest of the batch to threads; on one
-    #: thread, the batch never moves.  With the BZ method, a query does one unit of work, and one
-    #: more for each word of its coset that it weighs after the first.  With the connected-cluster
-    #: method, it does one unit for each state that its searches visit.  At most 62.  Defaults to
-    #: 15, a budget of interrupt latency on one thread, which grows with the number of threads for
-    #: BZ scans.
+    #: of states in one call on each thread, except in the passes that choose its work items.  On
+    #: threads, it splits a weight limit into work items of about a chunk of states each, within
+    #: bounds on their number (Sections 3.6 and 3.11 of ``connected_cluster.md``).  The gates that
+    #: decide when work moves to threads also count in chunks; their thresholds, chosen by hand,
+    #: should pass only work that costs many times as much as starting threads.  On several threads,
+    #: a layer of a set in a BZ search moves to threads if it has at least three rows and more than
+    #: ``num_threads`` chunks of supports.  A connected-cluster weight limit moves under the gate of
+    #: ``connected_cluster_split_shift``.  A batch query of ``CosetLeaderSearch`` runs on the
+    #: calling thread alone until its queries have done ``num_threads`` chunks of work, and then
+    #: moves the rest of the batch to threads; on one thread, the batch never moves.  With the BZ
+    #: method, a query does one unit of work, and one more for each word of its coset that it weighs
+    #: after the first.  With the connected-cluster method, it does one unit for each state that its
+    #: searches visit.  At most 62.  Defaults to 15, a budget of interrupt latency on one thread,
+    #: which grows with the number of threads for BZ scans.
     search_chunk_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: A connected-cluster distance search splits a weight limit across threads only if it predicts
@@ -564,8 +561,8 @@ class SearchTuning:
     macwilliams_shared_walk_rank: int = 14
 
     #: Applies to a ``CosetLeaderSearch`` of Pauli errors by CSS weight, with the Brouwer-Zimmermann
-    #: method, on a stabilizer state that is not CSS.  Such a search answers queries of weight one
-    #: from a table, by syndrome, of the products of a single-qubit X error and a single-qubit Z
+    #: method, on a stabilizer state that is not CSS.  Such a search finds errors of CSS weight one
+    #: in a table, by syndrome, of the products of a single-qubit X error and a single-qubit Z
     #: error, each possibly the identity.  It builds the table if the distinct syndromes of the two
     #: kinds of error make at most this many pairs, and otherwise matches syndromes at each query
     #: (section "The coset-leader search" of ``problems.md``).  Zero disables the table.  Defaults
@@ -677,7 +674,7 @@ BINOMIAL_CACHE_SIZE = 1024
 #: The most pairs of classical searches, of the X and Z parts of errors, that ``get_css_searches``
 #: in ``_brouwer_zimmermann/coset.py`` caches, one for each CSS state and tuning of their setup.
 #: Each search can hold up to ``coset_completion_max_table_bytes`` of completion tables for each
-#: set.
+#: set of each family.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The most results that each of two caches of the MacWilliams method keeps, one for single
@@ -691,5 +688,5 @@ LOCAL_CLIFFORD_CACHE_SIZE = 1024
 #: The most searches of Pauli errors that ``get_pauli_search`` in ``_brouwer_zimmermann/coset.py``
 #: caches, one for each stabilizer matrix, measure of weight, and tuning of the setup.  A search by
 #: Hamming weight can hold up to ``coset_completion_max_table_bytes`` of completion tables for each
-#: set.
+#: set of each family.
 PAULI_SEARCH_CACHE_SIZE = 8

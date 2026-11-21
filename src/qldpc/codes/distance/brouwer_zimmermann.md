@@ -4,7 +4,7 @@
 
 The Brouwer-Zimmermann (BZ) algorithm computes the distance of a classical code ([arXiv:1603.06757](https://arxiv.org/abs/1603.06757)), and has been adapted to quantum codes ([arXiv:2408.10743](https://arxiv.org/abs/2408.10743)).
 This guide, in this file and [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), is for contributors who need to understand, debug, or modify the BZ code in this directory.
-It explains how qLDPC computes exact distances of binary codes with BZ, and how it counts logical operators ([Section 3.11](#311-counting-logical-operators)).
+It explains how qLDPC computes exact distances of binary codes with BZ, how it counts logical operators ([Section 3.11](#311-counting-logical-operators)), and how the coset searches of `CosetLeaderSearch` use it ("Families for coset searches" in [Section 3.1](#31-overlapping-search-bases)).
 [connected_cluster.md](connected_cluster.md) describes another exact search, for codes with sparse checks.
 
 - [Section 2](#2-the-brouwer-zimmermann-algorithm) explains BZ as published, including its adaptation to quantum codes.
@@ -239,7 +239,7 @@ So a coset search of an even code rounds each bound up to that parity, which it 
 ### 3.3 Sharing witnesses between CSS sectors
 
 The distance of a CSS code is `min(d_x, d_z)`, the lesser of the distances of its X and Z sectors.
-qLDPC runs one BZ search for each sector, advances them in round-robin order, one layer at a time, and lets a witness of either sector, a nontrivial logical operator, lower the `U` of both.
+qLDPC runs one BZ search for each sector (only of the X sector if a qubit permutation maps each sector onto the other; [Section 4.1](brouwer_zimmermann_code.md#41-how-the-searches-use-the-modules)), advances them in round-robin order, one layer at a time, and lets a witness of either sector, a nontrivial logical operator, lower the `U` of both.
 Each search keeps its own certificate, search bases, coverage, and weight divisor, since its certificate bounds only the unexamined words of its sector.
 For example, if the X sector finds a witness of weight seven and the Z sector has only even words, the Z search stops once its own certificate reaches `U = 7`, having shown only `d_z ≥ 8`.
 A joint search therefore determines `min(d_x, d_z)`, but not always both sector distances.

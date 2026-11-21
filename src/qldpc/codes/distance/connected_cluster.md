@@ -356,8 +356,6 @@ A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` direct
 Without reuse, a state computes the overlap and repair ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
 The checks of a syndrome query can stay dense after the rounds, so a symbol can flip many unsatisfied checks, and the query computes both at most once per symbol and state.
 A distance search, whose checks are usually sparse, recomputes both, since the bookkeeping would cost more than it saves.
-It also computes the overlap of every symbol of an unsatisfied check, available or not.
-It then takes the `m_c` of the check ([Section 3.4](#34-pruning)) and its number of available symbols without branching on availability, since the processor often mispredicts that branch, which costs more than the extra overlaps.
 
 **The distance of a vector from a classical code.**
 The vectors with a given syndrome form a coset, whose least weight can also come from a distance search rather than a syndrome query.
@@ -466,8 +464,7 @@ They saved no measurable time.
 **Best-first search.**
 qLDPC raises the weight limit one divisor at a time, and searches each limit depth first ([Section 3.6](#36-from-a-search-to-the-distance)).
 This is iterative deepening, and with the bound `⌈Y⌉`, it is the iterative-deepening form of A*.
-The decoder Tesseract and the search of Banfi et al. instead expand states in the order of the cost of `S` plus such a bound ([references](#references)).
-The cost of `S` is `|S|` for unit costs.
+The decoder Tesseract and the search of Banfi et al. instead expand states in the order of the cost of `S`, which is `|S|` when every variable costs one, plus such a bound ([references](#references)).
 qLDPC does not use such a search, since the predictions of [Section 3.5](#35-symmetries), `method="auto"`, interrupts ([Section 3.6](#36-from-a-search-to-the-distance)), and the split of a limit across threads ([Section 3.11](#311-threads)) rely on the depth-first search of each limit.
 Nor would it reliably visit fewer states on slow searches.
 Any such search must still expand every state that the last limit without a witness visits.
@@ -530,7 +527,6 @@ A limit runs on threads only if `num_threads` exceeds one and the search predict
 By default, that is a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)), since a state costs far more than a support.
 A split costs up to about a millisecond for each thread, in its frontier passes, the calls that search its items, and the start of the threads.
 At the default exponent and shift, the gate is 8192 states for each thread, about one to a dozen milliseconds of work, so a limit that splits is predicted to cost at least about as much as its split; a limit that finds its witness early can cost less.
-Raising `connected_cluster_split_shift` lets smaller limits split; lowering `search_chunk_exponent` does too, but also shortens chunks.
 A first limit at the weight divisor is predicted to visit no states, so it runs on one thread.
 A first limit that a `cutoff` sets above the divisor is predicted to visit `MAX_VALUE - 1` states (`_predict_states`), so it runs on threads unless the gate reaches that, which, at the default shift, happens only with four or more threads and an exponent near its maximum.
 
@@ -574,7 +570,6 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 `get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `distances.py` build the sectors of the search and pass it the active tuning, the last two after they derive the stabilizers of subsystem codes and make them sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
 `SupportSearch` validates every sector, and the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes, `logical_counts.py`, and `get_distance_from_generators` reject `method="connected_cluster"`: counting needs every word of a weight rather than one witness, and generators are not checks.
-Hypergraph product codes get their closed-form distances by searching the classical seed codes with the given method.
 `_search_supports` and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
 `_get_branches` is long and has two call sites, but is inlined too, for the gain that the comment beside it gives.
 Numba compiles one version of `_search_supports` for each number of 64-bit words of a syndrome up to `_MAX_FIXED_WORDS`, and one for wider syndromes.
@@ -589,10 +584,10 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - **Prune only by bounds that hold for every witness that extends the state** ([Section 3.4](#34-pruning)).
   A bound must be a lower bound on the number of variables that such a witness adds, all of which are available ([Section 3.3](#33-the-depth-first-search)).
   A bound that is too strong can still give the right distance, so the tests need cases where the bound is tight at the distance, such as the tests of known distances.
-- **Forbid a variable for a subtree only if no completion of the state within the weight limit holds it**, and make it available again when the search leaves the state.
+- **Forbid a variable for a subtree as not viable only if no completion of the state within the weight limit holds it**, and make it available again when the search leaves the state.
 - **Forbid a symbol by an overlap cut at a state only if the canonical witness, or canonical solution, does not extend the state or lacks the symbol** ([Section 3.4](#34-pruning)), with the lowest-ranked variable of each word under the current ranks of the search, which a syndrome query uses too, and loads that are undone when a symbol leaves the support.
   The canonical witness has a support that comes first in the order of these ranks, with ties in values broken arbitrarily.
-  A distance search may use only rows of `G` as known words, while a syndrome query may use any word of `ker(H)` ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+  A distance search may use only words of `rowspan(G)` as known words, while a syndrome query may use any word of `ker(H)` ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   A cut that ignored the ranks that symmetries set could forbid the only witness that the roots reach, so the tests check that each root finds exactly the lightest witnesses that pass every cut, with and without symmetries.
 - **Add only checks in the span of the checks, and only known words in `rowspan(G)` for a distance search or in `ker(H)` for a syndrome query** (Sections [3.4](#34-pruning) and [3.8](#38-vectors-with-a-given-syndrome)), map the syndrome of a query to the added checks, and count the added checks in `Δ`.
   A sum of a check and a vector outside the span would cut witnesses, and too small a `Δ` would make `b1` prune states that a witness extends.

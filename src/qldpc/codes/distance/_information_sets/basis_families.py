@@ -303,12 +303,12 @@ def get_partitioned_family(
     The stage tries coverages ``b`` from two up to at most ``tuning.partition_max_coverage``.  For
     each ``b``, matroid partitioning finds as many information sets as it can, up to
     ``tuning.max_information_sets``, without using a column more than ``b`` times.  If
-    ``tuning.partition_max_coverage`` is one, the stage instead builds, with labels, the maximum
-    disjoint family of ``get_maximum_disjoint_family``, and prunes it as stage two does.  The stage
-    skips the maximum disjoint family if ``basis_family`` is disjoint and has the pruned disjoint
-    rank bound (see ``_has_pruned_disjoint_rank_bound``), since the maximum disjoint family could
-    then not replace ``basis_family`` (Section 4.4).  ``basis``, ``labels``, and ``basis_family``
-    are as in ``get_overlapping_family``.
+    ``tuning.partition_max_coverage`` is one, the stage instead builds the maximum disjoint family
+    of ``get_maximum_disjoint_family``, but with ``labels``, and prunes it as stage two does.  The
+    stage skips the maximum disjoint family if ``basis_family`` is disjoint and has the pruned
+    disjoint rank bound (see ``_has_pruned_disjoint_rank_bound``), since the maximum disjoint family
+    could then not replace ``basis_family`` (Section 4.4).  ``basis``, ``labels``, and
+    ``basis_family`` are as in ``get_overlapping_family``.
 
     ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
     to which the caller would switch instead, discarding this stage's family.  The stage calls it
@@ -622,9 +622,8 @@ class _PartitionPlan(NamedTuple):
         """A lower bound on the estimated work of a family that partitioning finds at a coverage.
 
         ``coverage`` is two or more.  The bound is over families of at most
-        ``min(max_sets, coverage * num_columns // dimension)`` sets.  The second term comes from
-        counting pivots: each set has ``dimension`` of them, and each of the ``num_columns`` nonzero
-        columns is a pivot of at most ``coverage`` sets (Section 4.4).
+        ``min(max_sets, coverage * num_columns // dimension)`` sets, a cap that counts pivots as
+        ``_get_partition_plan`` does (Section 4.4).
         """
         most_sets = min(self.max_sets, coverage * self.num_columns // self.dimension)
         return _estimate_optimistic_work(

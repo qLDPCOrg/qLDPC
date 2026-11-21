@@ -183,8 +183,8 @@ class BrouwerZimmermannSearch:
 
         This plans the layer as ``advance`` does, but leaves out what ``advance`` may first do with
         an automorphism family.  Weighing the family's rows can lower the best weight, and so
-        shorten the layer.  Switching to the family makes ``advance`` scan layer two of the family's
-        one set rather than the layer planned here.
+        shorten the layer.  Unless switching to the family finishes the search, it makes ``advance``
+        scan layer two of the family's one set rather than the layer planned here.
         """
         if self.finished:
             return 0

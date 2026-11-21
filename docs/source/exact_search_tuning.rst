@@ -21,7 +21,7 @@ Start from a symptom
    * - A distance search of a classical code of low dimension, whose distance is a large fraction of its length, is slow
      - Pass ``method="brute_force"`` to enumerate every word instead.
    * - A distance search of a quantum LDPC code by ``method="brouwer_zimmermann"`` is slow
-     - Pass ``method="connected_cluster"``, which is often much faster on such codes, though not on all of them (`Section 2 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#2-what-the-cost-of-the-search-depends-on>`__ of the connected-cluster guide), or ``method="auto"``, the default, which starts with that search and may switch to the Brouwer-Zimmermann method.
+     - Pass ``method="connected_cluster"``, which is often much faster on such codes, though not on all of them (`Section 2 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#2-what-the-cost-of-the-search-depends-on>`__ of the connected-cluster guide), or ``method="auto"``, the default, which, unless enumerating is cheap, starts with that search and may switch to the Brouwer-Zimmermann method.
    * - A distance search by ``method="auto"``, the default, is slow
      - Time the search with ``method="brouwer_zimmermann"`` and with ``method="connected_cluster"``, and pass the faster method.
        With a large ``cutoff``, ``"auto"`` cannot switch to the Brouwer-Zimmermann method before it has searched past the cutoff, and with one near the distance it may never switch, so pass ``method="brouwer_zimmermann"``.
@@ -50,7 +50,7 @@ Start from a symptom
        For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
        For the Brouwer-Zimmermann method of :class:`~qldpc.codes.distance.CosetLeaderSearch` by CSS weight, on a stabilizer state that is not CSS, lower :attr:`~SearchTuning.max_css_single_pairs`.
        For the completion tables of its other searches, by physical weight or on a CSS state, lower :attr:`~SearchTuning.coset_completion_block_bits` or :attr:`~SearchTuning.coset_completion_max_table_bytes`.
-       The latter applies to each set of a family.
+       The latter applies to each set of each family that has tables: the disjoint family, and the maximum disjoint and overlapping families of `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models>`__ of ``brouwer_zimmermann_code.md``.
        For every search of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method, raise :attr:`~SearchTuning.coset_route_minimum_work`, so that a search builds its extra families later or not at all, and, as a rule, in its searches by physical weight or on a CSS state, fewer queries build completion tables.
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
