@@ -34,6 +34,8 @@ _CODE = codes.SteaneCode()
 _NUM_QUBITS = len(_CODE)
 # the noise of the Steane-swap windows whose excess terms are compared
 _WINDOW_NOISE = circuits.DepolarizingNoiseModel(1e-3)
+# the step of the finite differences of scores
+_STEP = 1e-3
 
 
 def test_calibration_matches_brute_force() -> None:
@@ -1003,6 +1005,59 @@ def test_unsampled_cells() -> None:
     assert value == pytest.approx(0.3 * -0.1 + 0.2 * 0.89)
 
 
+def test_standard_error_parts_and_differences() -> None:
+    """The parts of a standard error, and the error of a difference, match finite differences.
+
+    The cell (m, g) = (1, 1) of the X table is unsampled, and X-type residual weight two lies beyond
+    the table, so both use the baselines.  The histograms are sampled.
+    """
+    calibration = ConsumerCalibration(
+        {"X": [[0.2, 0.7]], "Z": [[0.4, 0.5]]},
+        [0.1, 0.3],
+        [0.25],
+        excess_standard_errors={"X": [[0.02, 0]], "Z": [[0.03, 0.05]]},
+        baseline_standard_errors=[0.01, 0.04],
+        excess_num_samples={"X": [[10, 0]], "Z": [[10, 10]]},
+    )
+    histograms, terms, parts, scores = {}, {}, {}, {}
+    for index, (name, x_rate, z_rate) in enumerate([("a", 0.2, 0.3), ("b", 0.25, 0.2)]):
+        circuit = stim.Circuit(f"H 2\nX_ERROR({x_rate}) 0 1\nZ_ERROR({z_rate}) 2")
+        histograms[name] = [
+            estimate_residual_weight_histogram(
+                circuit, 2, 200, output_qubits=range(3), pauli="X", max_exact_faults=0, seed=index
+            ),
+            estimate_residual_weight_histogram(
+                circuit,
+                1,
+                200,
+                output_qubits=range(3),
+                pauli="Z",
+                max_exact_faults=0,
+                seed=2 + index,
+            ),
+        ]
+        terms[name] = _get_numerical_error_terms(calibration, histograms[name])
+        parts[name] = calibration.get_standard_error_parts(*histograms[name])
+        scores[name] = calibration.get_excess_failure_probability(*histograms[name])
+        without_errors = dataclasses.replace(
+            calibration, excess_standard_errors=None, baseline_standard_errors=None
+        )
+        histogram_error = without_errors.get_excess_failure_probability(*histograms[name])[1]
+        assert parts[name] == pytest.approx((histogram_error, np.linalg.norm(terms[name])))
+        assert histogram_error > 0 and math.hypot(*parts[name]) == pytest.approx(scores[name][1])
+
+    difference, error = calibration.get_excess_failure_probability_difference(
+        histograms["a"], histograms["b"]
+    )
+    assert difference == pytest.approx(scores["a"][0] - scores["b"][0])
+    calibration_error = np.linalg.norm(terms["a"] - terms["b"])
+    assert error == pytest.approx(math.hypot(parts["a"][0], parts["b"][0], calibration_error))
+    with pytest.raises(ValueError, match="independently sampled"):
+        calibration.get_excess_failure_probability_difference(
+            histograms["a"], [histograms["a"][0], histograms["b"][1]]
+        )
+
+
 def test_same_seed() -> None:
     """The same seed gives the same sampled estimate."""
     calibration = ConsumerCalibration({"X": [[0.5]], "Z": [[-0.5]]}, [0.5])
@@ -1301,6 +1356,54 @@ def _get_histogram(distribution: Sequence[float], pauli: Any) -> ResidualWeightH
         np.ones(1, dtype=bool),
         pauli,
     )
+
+
+def _get_numerical_error_terms(
+    calibration: ConsumerCalibration, histograms: Sequence[ResidualWeightHistogram]
+) -> np.ndarray:
+    """The standard error of each sampled cell and each baseline, times the derivative of Φ.
+
+    The derivatives are finite differences, which are exact up to rounding, since Φ is linear in
+    the cells and the baselines.  A cell with a sample count of zero moves with its baseline.
+    """
+    data = calibration.to_dict()
+    excesses = {
+        pauli: np.array(table) for pauli, table in data["excess_failure_probabilities"].items()
+    }
+    counts = {pauli: np.array(table) for pauli, table in data["excess_num_samples"].items()}
+    baseline = np.array(data["baseline_failure_probabilities"])
+
+    def get_score(cell: tuple[str, int, int] | None, fault_weight: int | None) -> float:
+        """Φ after a change of one cell, or of one baseline."""
+        new_baseline = baseline + _STEP * (np.arange(len(baseline)) == fault_weight)
+        tables = {
+            pauli: np.where(counts[pauli], table, 1 - new_baseline)
+            for pauli, table in excesses.items()
+        }
+        if cell is not None:
+            tables[cell[0]][cell[1:]] += _STEP
+        changed = ConsumerCalibration.from_dict(
+            data
+            | {
+                "excess_failure_probabilities": tables,
+                "baseline_failure_probabilities": new_baseline,
+            }
+        )
+        return changed.get_excess_failure_probability(*histograms)[0]
+
+    score = get_score(None, None)
+    terms = [
+        (get_score((pauli, row, column), None) - score)
+        / _STEP
+        * data["excess_standard_errors"][pauli][row][column]
+        for pauli in excesses
+        for row, column in zip(*np.nonzero(counts[pauli]))
+    ]
+    terms += [
+        (get_score(None, fault_weight) - score) / _STEP * error
+        for fault_weight, error in enumerate(data["baseline_standard_errors"])
+    ]
+    return np.array(terms)
 
 
 def _get_noisy_preparation(x_rate: float, z_rate: float) -> stim.Circuit:
