@@ -565,11 +565,20 @@ class _Watcher:
         )
 
     def _members(self, table: dict[int, Process]) -> list[int]:
-        """The live processes of the run: its process group, or locally its process tree."""
+        """The live processes of the run: its process group, or locally its process tree.
+
+        Locally, the tree includes each process seen before that is still the same process, such
+        as a grandchild whose parent has exited, and its descendants.
+        """
         if self.group is not None:
             members = [pid for pid, process in table.items() if process.pgid == self.group]
         else:
-            members = descendants(table, self.root)
+            roots = [self.root] + [
+                pid
+                for pid, start in self.seen.items()
+                if pid in table and table[pid].start == start
+            ]
+            members = sorted({member for root in roots for member in descendants(table, root)})
         for pid in members:
             self.seen.setdefault(pid, table[pid].start)
         return members

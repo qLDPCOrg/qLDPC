@@ -464,6 +464,32 @@ def test_runner_stop_during_retry(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_reparented(directory: pathlib.Path, node: bool) -> None:
+    """Locally, a run's processes include a seen grandchild whose parent exited, and its children.
+
+    A process that has reused the id of a seen process is not one of them.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    watcher = runner._Watcher(
+        directory, _task("tree", []), local=True, job_slot=None, cpu=None, stop=runner._Stop()
+    )
+    watcher.root = 100
+    watcher.seen = {100: "root", 101: "grandchild"}
+    table = {
+        100: runner.Process(1, 100, 1, None, "root"),
+        101: runner.Process(1, 100, 2**30, None, "grandchild"),
+        102: runner.Process(101, 100, 1, None, "its child"),
+    }
+    assert watcher._members(table) == [100, 101, 102], watcher._members(table)
+    table = {
+        100: runner.Process(1, 100, 1, None, "root"),
+        101: runner.Process(1, 1, 1, None, "a later process"),
+    }
+    assert watcher._members(table) == [100], watcher._members(table)
+
+
+@test
 def test_runner_registration_failure(directory: pathlib.Path, node: bool) -> None:
     """A runner that fails to record its run after starting it kills the run before failing."""
     from experiments.state_prep_certification.common import runner
