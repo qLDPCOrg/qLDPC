@@ -48,6 +48,5 @@ On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as 
 
 ## Attributions
 
-The constructions of the families, the 6.6.6 color codes, and the quadratic-residue codes are adapted from an earlier unpublished version of this experiment by its authors.
 Pair-partition arrays and several anchors come from [`experiments/distance_tuning/workloads.py`](../../distance_tuning/workloads.py), whose instances come from Lee et al. and Okada and Kasai.
 `code_data/endpoints.json` cites the sources of the size endpoints, and `codes.py` cites those of the anchors.

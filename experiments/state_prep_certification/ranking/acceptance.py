@@ -252,7 +252,7 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
         exact = direct._list_stratum(pairing, f, g)
         assert exact.plus + exact.minus > 0, (f, g)
         sampled = direct._sample_stratum(
-            # factor 1, config.json's value under decision 1
+            # factor 1, config.json's value
             pairing,
             f,
             g,

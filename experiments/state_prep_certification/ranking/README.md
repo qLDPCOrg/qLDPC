@@ -13,7 +13,7 @@ The candidates are the circuits of the certification experiment's `circuits.json
 Every task runs for every candidate, and the analysis admits a candidate only if the certification archive certifies its bounded fault propagation up to fault weight t: its verdict, checked up to fault weight t + 1, is "certified" or "violation at t + 1", and the certification arms and checks do not disagree.
 A group with fewer than two admitted candidates is dropped.
 Groups are named by their code file, such as `steane` for the Steane code's circuits and Goto's.
-The experiment reads certification's inputs and code files from `../certification/circuit_data/`, which the data repository provides, and changes nothing there.
+The experiment reads certification's inputs and code files from certification's data directory, `../certification/circuit_data/`, and changes nothing there.
 
 ## Consumer and noise
 

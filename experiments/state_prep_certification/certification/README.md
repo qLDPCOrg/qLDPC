@@ -13,8 +13,17 @@ The circuits are fixed by rules and public sources, and no timing selects any of
 `circuits.json` lists every circuit, with its source, derivation, certify options, and the SHA-256 of its input, or the reason that `--build` excluded it.
 `circuits.json` also lists the parameters of each circuit's detector error model (DEM), which `--build` gets by running the certifier with its fault search replaced by a recorder, so that no oracle runs: the error mechanisms N, the post-selection detectors p, the reduced mechanisms N_0 (one per distinct nonzero signature of flags and syndrome), the unflagged ones z, the flag rank r, K' = min(K, r + 1), and U, the sum over 1 <= m <= K of C(N_0, m).
 
-No circuit is committed to qLDPC.
-Every circuit lives in `circuit_data/`, which Git ignores: the circuits fetched from MQT QECC in `mqt/`, the hand-translated circuits in `translated/`, the synthesized circuits in `synthesized/` and, for the restored syntheses of MQT QECC 1.9.0, `synthesized_mqt_1.9.0/`, the code files in `codes/`, and the inputs with `circuits.json` in `inputs/`.
+No circuit is committed.
+Every circuit lives in the experiment's data directory, `circuit_data/`, which Git ignores:
+
+- `mqt/`: the circuits that `circuits.py --fetch` copies from MQT QECC at the commit of `config.json`, with MQT QECC's license;
+- `translated/`: the hand-translated circuits of C-goto and E-chen, with vftqecc's license;
+- `synthesized/`: circuits synthesized with MQT QECC, with `provenance.json` recording each synthesis call: the code, its [[n, k, d]], and the MQT QECC release; the code files of their codes lie beside them;
+- `synthesized_mqt_1.9.0/`: naive verified circuits synthesized with MQT QECC 1.9.0, with their `provenance.json` and code files in the same form;
+- `codes/`: the code files of the A-ft codes;
+- `inputs/`: the inputs and `circuits.json`, which `circuits.py --build` writes.
+
+`circuits.py --build` reads `mqt/`, `translated/`, both folders of synthesized circuits, and `codes/`, and writes `inputs/`.
 The offline bundle carries `inputs/`, `synthesized/`, `synthesized_mqt_1.9.0/`, and `codes/`.
 The experiment runs with whatever `circuits.json` and inputs `--build` wrote: `circuits.json` enters the label of each run, and each label keeps a copy of it, from which the analysis reads the circuits.
 
@@ -23,18 +32,18 @@ The experiment runs with whatever `circuits.json` and inputs `--build` wrote: `c
 | A-ft, A-unv | MQT QECC's verified and unverified \|0...0> preparations of ten codes | MQT QECC, `scripts/ft_stateprep/eval/circuits/`, at the commit of `config.json` |
 | B-cat | MQT QECC's cat-state preparations `ft_ghz_<w>_<t>` | MQT QECC, `scripts/cat_states/circuits/` |
 | C-goto | Goto's flagged Steane preparation | `circuit_data/translated/goto_steane.stim` |
-| D-synth | verified circuits synthesized with MQT QECC, made outside qLDPC | `circuit_data/synthesized/` |
-| D-synth (MQT 1.9.0) | the naive verified circuits of earlier syntheses with MQT QECC 1.9.0, restored outside qLDPC | `circuit_data/synthesized_mqt_1.9.0/` |
+| D-synth | verified circuits synthesized with MQT QECC | `circuit_data/synthesized/` |
+| D-synth (MQT 1.9.0) | naive verified circuits synthesized with MQT QECC 1.9.0 | `circuit_data/synthesized_mqt_1.9.0/` |
 | E-chen | Chen et al.'s 8-qubit cat preparation, translated literally | `circuit_data/translated/chen_cat8.stim` |
 | W | one weakened variant of each circuit of A-ft, C-goto, and both D-synth families | derived by `circuits.py --build` |
 
-The synthesized circuits are made outside qLDPC, by the tooling that keeps them, because the synthesis needs MQT QECC and qiskit, which qLDPC does not depend on.
-The `provenance.json` of each folder of synthesized circuits records each synthesis call, with its code's [[n, k, d]] and the release of MQT QECC that it used; `--build` takes every circuit that it records as synthesized, and `circuits.json` labels each synthesized circuit with its release.
+E-chen's circuit is the 8-qubit cat preparation of K. Chen, Y. Liu, W. Fang, J. Paykin, X.-C. Wu, A. Schmitz, S. Zdancewic, and G. Li, "Verifying Fault-Tolerance of Quantum Error Correction Codes", Computer Aided Verification (CAV 2025), pp. 3-27, doi:10.1007/978-3-031-98685-7_1, arXiv:2501.14380.
+`--build` takes every circuit that a folder's `provenance.json` records as synthesized, and `circuits.json` labels each synthesized circuit with its MQT QECC release.
 
 Each A-ft, C-goto, and synthesized entry of `circuits.json` also names its code file, `code_file`, with its SHA-256, `code_sha256`.
 A code file `<code>_code.json` holds the code's `distance` and its matrices `Hx`, `Hz`, `Lx`, and `Lz`, with one column per output qubit, in output-qubit order: `circuits.py --check` checks each input's state against these matrices, and the file says which Z-type rows are checks and which are logical operators.
 The state stabilizers of a circuit do not determine these matrices, since the Z-type stabilizers of |0...0>_L span both Hz and Lz; which rows are checks and which are logical operators comes from the code's definition in MQT QECC.
-The code files are made outside qLDPC, like the synthesized circuits: those of the A-ft codes, in `codes/`, from MQT QECC at the commit of `config.json`, and those of the synthesized codes by the synthesis, beside their circuits; C-goto uses the Steane code's file.
+The code files of the A-ft codes, in `codes/`, follow MQT QECC's definitions of the codes at the commit of `config.json`, and those of the synthesized codes lie beside their circuits; C-goto uses the Steane code's file.
 MQT's `RotatedSurfaceCode(5)` at that commit has its X checks where the shipped d = 5 circuits have their Z checks, so its file exchanges Hx with Hz and Lx with Lz.
 
 Each certification input prepends resets to qubits that start without one.
@@ -124,4 +133,4 @@ The determined values must agree and exceed every certified fault weight; otherw
 
 MQT QECC (MIT) provides the A and B circuits and synthesized the circuits of both D-synth families; its license travels with the inputs in `circuit_data/inputs/MQT_QECC_LICENSE`.
 The code files are MQT QECC's definitions of its codes.
-Chen et al.'s cat preparation comes from [vftqecc](https://github.com/vftqc/vftqecc), under the MIT license, whose notice lies beside it as `circuit_data/translated/VFTQECC_LICENSE` and travels with the inputs; and Goto's circuit from Goto, Sci. Rep. 6, 19578 (2016).
+Chen et al.'s cat preparation (K. Chen, Y. Liu, W. Fang, J. Paykin, X.-C. Wu, A. Schmitz, S. Zdancewic, and G. Li, "Verifying Fault-Tolerance of Quantum Error Correction Codes", Computer Aided Verification (CAV 2025), pp. 3-27, doi:10.1007/978-3-031-98685-7_1, arXiv:2501.14380) comes from [vftqecc](https://github.com/vftqc/vftqecc), under the MIT license, whose notice lies beside it as `circuit_data/translated/VFTQECC_LICENSE` and travels with the inputs; and Goto's circuit from Goto, Sci. Rep. 6, 19578 (2016).

@@ -11,14 +11,15 @@ SHA-256, and copies the state preparation circuits ``zero_ft_*.stim`` and ``zero
 the cat-state circuits ``ft_ghz_<w>_<t>.stim``, and MQT's license into ``circuit_data/mqt/``.
 
 ``--build`` and ``--check`` make and verify the certification inputs; see ``build_inputs`` and
-``check_inputs``.  Every circuit lives in ``circuit_data/``, which Git ignores: the circuits
-fetched from MQT QECC (``mqt/``), the hand-translated ones (``translated/``), the ones synthesized
-with MQT QECC (``synthesized/``, and the restored syntheses with release 1.9.0 in
-``synthesized_mqt_1.9.0/``, each with ``provenance.json``, which records each synthesis call and
-its code's [[n, k, d]]), and the inputs with ``circuits.json`` (``inputs/``).  The synthesized
-circuits are made outside qLDPC, by the tooling that keeps them, and ``--build`` uses those that
-``provenance.json`` records as synthesized.  Each folder of synthesized circuits gives a family of
-its own (``SYNTHESES``).
+``check_inputs``.  Every circuit lives in the experiment's data directory, ``circuit_data/``,
+which Git ignores: the circuits fetched from MQT QECC (``mqt/``), the hand-translated ones
+(``translated/``), the ones synthesized with MQT QECC (``synthesized/``, and those synthesized with
+release 1.9.0 in ``synthesized_mqt_1.9.0/``, each with ``provenance.json``, which records each
+synthesis call: the code, its [[n, k, d]], and the MQT QECC release), the code files of the A-ft
+codes (``codes/``), and the inputs with ``circuits.json`` (``inputs/``).  ``--build`` reads
+``mqt/``, ``translated/``, ``codes/``, and the circuits that each ``provenance.json`` records as
+synthesized, and writes ``inputs/``.  Each folder of synthesized circuits gives a family of its own
+(``SYNTHESES``).
 """
 
 from __future__ import annotations

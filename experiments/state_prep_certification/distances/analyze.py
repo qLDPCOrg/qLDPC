@@ -125,15 +125,11 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
     """The run's copy of ``sample.json``, which ``experiment.prepare`` puts in the label directory.
 
     Raises:
-        ValueError: If the label directory has no copy, as for a run made before runs kept one.
+        ValueError: If the label directory has no ``sample.json``.
     """
     path = label_dir / "sample.json"
     if not path.exists():
-        raise ValueError(
-            f"{label_dir} has no sample.json, as for a run made before runs kept a copy of the"
-            " sample; copy code_data/sample.json from the run's harness commit (in its manifest)"
-            " into it"
-        )
+        raise ValueError(f"{label_dir} has no sample.json")
     sample: dict[str, Any] = json.loads(path.read_text())
     return sample
 

@@ -39,9 +39,6 @@ untracked changes.  It covers nothing outside ``src/``, such as this experiment'
 compares their ``COMPARED_FIELDS`` with ``sample.json``.  These fields include the anchors'
 reference distances, which the analysis reads from the sample.  Git ignores ``code_data/``, which
 the offline bundle carries.
-
-The constructions of the families and of some anchors are vendored, with changes, from an earlier
-unpublished version of this experiment by its authors.
 """
 
 from __future__ import annotations
@@ -464,6 +461,17 @@ def color_666(distance: int) -> codes.CSSCode:
 
 # Anchors: name -> (constructor, reference distance or None, source).  The quantum distance of
 # CSS(Q, Q) for a quadratic-residue code Q of length p = -1 mod 8 is the minimum odd weight of Q.
+# Full references of the sources below:
+# - Panteleev and Kalachev 2021: P. Panteleev and G. Kalachev, "Degenerate Quantum LDPC Codes With
+#   Good Finite Length Performance", Quantum 5, 585 (2021), arXiv:1904.02703;
+# - He, Reed, and Truong 2001: R. He, I. S. Reed, T.-K. Truong, and X. Chen, "Decoding the
+#   (47,24,11) quadratic residue code", IEEE Trans. Inf. Theory 47(3), 1181-1186 (2001),
+#   doi:10.1109/18.915677;
+# - Rains and Sloane 1998: E. M. Rains and N. J. A. Sloane, "Self-Dual Codes", in Handbook of
+#   Coding Theory, eds. V. S. Pless and W. C. Huffman (1998), pp. 177-294, arXiv:math/0208001;
+# - Knill and Laflamme 1996: E. Knill and R. Laflamme, "Concatenated Quantum Codes" (1996),
+#   arXiv:quant-ph/9608012.
+# The source strings stay short, since the frozen sample.json records them.
 ANCHORS: dict[str, tuple[Callable[[], Any], int | None, str]] = {
     "pp110": (lambda: workloads.get_code("pp110"), 12, "workloads.py; Lee et al. 2026"),
     "pp170": (lambda: workloads.get_code("pp170"), 20, "workloads.py; Lee et al. 2026"),

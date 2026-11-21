@@ -36,8 +36,7 @@
 
 GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
 ``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
-install (AT8) is rehearsed with ``bundle.py``.  AT4 and AT7 are retired.  Each test prints PASS or
-FAIL.
+install (AT8) is rehearsed with ``bundle.py``.  Each test prints PASS or FAIL.
 """
 
 from __future__ import annotations
@@ -497,8 +496,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     # the T cell of a failed arm with a flagged first run shows the failure: qr79's memout repeat
     assert cells["qr79"]["q_bz_on_T"] == "memout", cells["qr79"]
 
-    # a label directory without a copy of the sample, such as one from a run made before runs kept
-    # a copy, is refused
+    # a label directory without a copy of the sample is refused
     try:
         analyze.load_sample(directory)
     except ValueError:
