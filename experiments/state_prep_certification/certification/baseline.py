@@ -66,8 +66,11 @@ _INITIAL_SLOTS = 2**12
 # An odd 64-bit constant, near 2**64 divided by the golden ratio, that mixes the words of a hash.
 _HASH_MULTIPLIER = np.uint64(0x9E3779B97F4A7C15)
 
-# Compiled with numba.njit(cache=True), on the condition that the comment of counting.py states:
-# these functions call only each other, in this file, and NumPy.
+# A function decorated with _cached_njit may call only functions of this file and NumPy, and may
+# read only NumPy and globals that this file's text fixes, such as _HASH_MULTIPLIER.  It must never
+# read CONFIG, BATCH_SIZE, or MAX_DISTINCT, which come from config.json, for the reason that the
+# comment on counting._cached_njit gives.
+_cached_njit = numba.njit(cache=True)
 
 
 ####################################################################################################
@@ -290,7 +293,7 @@ def _new_state(m: int, num_flag_words: int, num_syndrome_words: int) -> tuple[An
     return counters, next_candidate, chosen, flag_sums, syndrome_sums
 
 
-@numba.njit(cache=True)
+@_cached_njit
 def _compare_key(
     sorted_flags: npt.NDArray[np.uint64],
     order: npt.NDArray[np.int64],
@@ -307,7 +310,7 @@ def _compare_key(
     return 0
 
 
-@numba.njit(cache=True)
+@_cached_njit
 def _enumerate_combinations(
     flag_words: npt.NDArray[np.uint64],
     syndrome_words: npt.NDArray[np.uint64],
@@ -398,7 +401,7 @@ def _enumerate_combinations(
     return written, bool(counters[2])
 
 
-@numba.njit(cache=True)
+@_cached_njit
 def _lower_bound(
     sorted_flags: npt.NDArray[np.uint64],
     order: npt.NDArray[np.int64],
@@ -456,7 +459,7 @@ class _DistinctSyndromes:
         _insert_rows(keys, self._keys, self._used, 0, used)
 
 
-@numba.njit(cache=True)
+@_cached_njit
 def _insert_rows(
     rows: npt.NDArray[np.uint64],
     keys: npt.NDArray[np.uint64],

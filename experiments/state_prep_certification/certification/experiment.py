@@ -319,8 +319,8 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
         if arm == "shadow" or task["repeat"]:
             return fields
         runner.send_result(fields)
-        # every description takes well under a second, so that AT4 delays one to exceed a short
-        # post-processing allowance
+        # a description takes well under a second, so AT4 delays it past a short post-processing
+        # allowance
         time.sleep(float(task.get("post_delay_s", 0.0)))
         return _describe(certificate)
 

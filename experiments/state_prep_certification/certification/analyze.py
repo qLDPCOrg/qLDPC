@@ -61,7 +61,9 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   - ``brute_not_run_over_cap``, ``brute_finished``, and ``brute_timed_out``: circuits over the
     brute-force cap, and circuits whose ``brute_bz`` run has status ``ok`` or ``timeout``;
     ``brute_ratio_median`` and ``brute_ratio_circuits``: the median of T(``brute_bz``) /
-    T(``cert_bz``) over the circuits where both finished with complete timing, and their number;
+    T(``cert_bz``) over the circuits where both finished with complete timing, and their number.
+    T(``brute_bz``) includes the time of the baseline's count of distinct syndromes
+    (``distinct_seconds``; see ``baseline.py``), which raises the ratio in the certifier's favor;
   - ``max_rss_gib``: the largest peak memory of a run of ``cert_bz`` or ``cert_cc``;
   - ``agreement_bz_cc`` (verdicts), ``agreement_baseline`` (the verdict and smallest violating
     weight of a finished ``brute_bz`` against those of each finished certification, and, finished

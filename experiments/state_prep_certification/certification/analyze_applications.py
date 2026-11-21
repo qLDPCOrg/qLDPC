@@ -9,7 +9,8 @@ K below the cutoff r + 1, or the completed weights without a violation of a run 
 give only a lower bound m* > k.  The ``margin`` arm determines m* or "all" if it finishes, and gives
 a lower bound by its completed weights otherwise.  All values that determine m* must be equal and
 exceed every lower bound; otherwise the circuit is a disagreement.  The combined margin is the
-determined value, or else "> k" for the largest lower bound k.
+determined value, in the column ``margin``, or else the largest lower bound k, in the column
+``margin_lower_bound``, meaning m* > k.
 
 **Deletions.**  The parent verdict of each ``prune`` and ``prune_sensitivity`` task at K = t must
 agree with ``cert_bz``'s at K = t + 1: the parent is certified at t exactly when ``cert_bz``
