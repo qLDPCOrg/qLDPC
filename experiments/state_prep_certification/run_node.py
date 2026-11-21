@@ -190,7 +190,7 @@ def get_label_dir(
         sys.exit("The qLDPC tree has uncommitted changes; commit them, or pass --local")
     frozen = [plugin.experiment_dir(module.NAME) / name for name in module.FROZEN_FILES]
     label = manifest.compute_label(module.NAME, frozen, commit["commit"])
-    label += "-dirty" if commit["dirty"] else ""
+    label += f"-dirty-{commit['diff_sha256'][:8]}" if commit["dirty"] else ""
     label += "" if subset in ("main", "acceptance") else f"-{subset}"
     return results_dir / module.NAME / label
 

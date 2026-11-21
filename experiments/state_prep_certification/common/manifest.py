@@ -5,9 +5,12 @@
 The label of an experiment is ``<experiment>-`` followed by the first 12 hexadecimal digits of the
 SHA-256 of ``pins.json``, the experiment's frozen files, the harness commit, and, in a bundle, the
 SHA-256 of the bundle's resolved requirements.  Any change to them gives a new label, and so a new
-results directory.  ``run_node.py`` names the directory by the label, followed by ``-dirty`` if the
-qLDPC tree has uncommitted changes to tracked files (allowed only in local runs), and by
-``-<subset>`` for a subset other than ``main`` or ``acceptance``.
+results directory.  ``run_node.py`` names the directory by the label, followed by
+``-dirty-<hash>`` if the qLDPC tree has uncommitted changes to tracked files (allowed only in local
+runs), where ``<hash>`` is the first 8 hexadecimal digits of the SHA-256 of ``git diff HEAD
+--binary``, and by ``-<subset>`` for a subset other than ``main`` or ``acceptance``.  So a local run
+of changed code never resumes in the directory of other changes.  The manifest records the full
+SHA-256 of the diff.
 
 The harness commit is the Git commit of the qLDPC tree that holds the experiments.  On the node,
 whose tree is a ``git archive`` without history, ``bundle.py`` records it in
@@ -38,13 +41,34 @@ BUNDLE_RECORD = FT_STATE_PREP_DIR / "bundle.json"
 
 
 def harness_commit() -> dict[str, Any]:
-    """The commit of the harness, and whether the tree differs from it (``dirty``)."""
+    """The commit of the harness, and whether the tree differs from it.
+
+    ``dirty`` says whether tracked files have uncommitted changes, staged or not, and
+    ``diff_sha256`` is then the SHA-256 of ``git diff HEAD --binary``, which covers them.
+    """
     if BUNDLE_RECORD.exists():
         record = json.loads(BUNDLE_RECORD.read_text())
-        return {"commit": record["harness_commit"], "dirty": False, "source": "bundle.json"}
+        return {
+            "commit": record["harness_commit"],
+            "dirty": False,
+            "diff_sha256": None,
+            "source": "bundle.json",
+        }
     commit = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
-    return {"commit": commit, "dirty": dirty, "source": "git"}
+    diff = None
+    if dirty:
+        diff = subprocess.run(
+            ["git", "-C", str(REPOSITORY_ROOT), "diff", "HEAD", "--binary", "--no-ext-diff"],
+            capture_output=True,
+            check=True,
+        ).stdout
+    return {
+        "commit": commit,
+        "dirty": dirty,
+        "diff_sha256": None if diff is None else hashlib.sha256(diff).hexdigest(),
+        "source": "git",
+    }
 
 
 def compute_label(experiment: str, frozen_files: Sequence[pathlib.Path], commit: str) -> str:

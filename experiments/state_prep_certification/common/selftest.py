@@ -875,6 +875,50 @@ def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
     assert len(labels) == 6, labels
 
 
+@workstation_only
+@test
+def test_manifest_dirty_digest(directory: pathlib.Path, node: bool) -> None:
+    """A dirty tree's label directory names a hash of its staged and unstaged tracked changes."""
+    from experiments.state_prep_certification.common import manifest, plugin
+
+    run_node = _run_node_module()
+    module = plugin.load_experiment("selftest")
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(directory), *args], capture_output=True, check=True)
+
+    def digest() -> str | None:
+        with (
+            _patched(manifest, "REPOSITORY_ROOT", directory),
+            _patched(manifest, "BUNDLE_RECORD", directory / "no-bundle.json"),
+        ):
+            name = run_node.get_label_dir(module, directory, "main", local=True).name
+            commit = manifest.harness_commit()
+        assert commit["dirty"] == (commit["diff_sha256"] is not None), commit
+        if commit["dirty"]:
+            assert f"-dirty-{commit['diff_sha256'][:8]}" in name, (name, commit)
+        else:
+            assert "-dirty" not in name, name
+        return commit["diff_sha256"]
+
+    git("init", "-q")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "test")
+    (directory / "a.txt").write_text("1\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "base")
+    assert digest() is None
+    (directory / "a.txt").write_text("2\n")
+    unstaged = digest()
+    git("add", "a.txt")
+    assert digest() == unstaged, "staging a change changed the digest"
+    (directory / "a.txt").write_text("3\n")
+    changed = digest()
+    assert changed not in (None, unstaged)
+    (directory / "untracked.txt").write_text("x\n")
+    assert digest() == changed, "an untracked file changed the digest"
+
+
 ####################################################################################################
 # bundle
 
