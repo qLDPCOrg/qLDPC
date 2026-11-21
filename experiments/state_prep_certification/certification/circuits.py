@@ -88,8 +88,9 @@ def parse_args() -> argparse.Namespace:
     commands.add_argument(
         "--check",
         action="store_true",
-        help="check the inputs' hashes, DEM parameters, and code files, and, where "
-        "circuit_data/mqt/ is present, rebuild the inputs from the sources",
+        help="check the inputs' hashes, DEM parameters, states, output qubits, and code files, and "
+        "that the states are CSS; where circuit_data/mqt/ is present, also rebuild the inputs from "
+        "its sources",
     )
     return parser.parse_args()
 
@@ -561,45 +562,67 @@ def _validate_and_write(
 # checking the inputs (both machines)
 
 
-def check_inputs() -> None:
-    """Check every input against ``circuits.json``, and the code file of each circuit that has one.
+def _check_input(entry: dict[str, Any]) -> list[str]:
+    """The problems of one record of ``circuits.json``, checked against its input file.
 
-    Every input file must match the SHA-256 that ``circuits.json`` records for it, and the licenses
-    of ``LICENSES`` must lie beside the inputs.  The DEM parameters of each input, recomputed as
-    ``--build`` computes them (``dem_parameters``), must equal those of ``circuits.json``.  Each
-    input of ``VERIFIED_FAMILIES`` must have a code file that passes ``code_files.check_code_file``,
-    which checks, among others, that the state that ``circuits.json`` records for the input is the
-    code's |0...0>.  Where the fetched sources are present, in ``circuit_data/mqt/`` on the
-    workstation, the inputs are also rebuilt from the sources in a scratch directory, and the
-    rebuilt ``circuits.json``, with the SHA-256 of every input, and the licenses must equal the
-    recorded ones.
+    The file must match the SHA-256 that ``circuits.json`` records for it.  Its DEM parameters,
+    recomputed as ``--build`` computes them (``dem_parameters``), must equal those of
+    ``circuits.json``.  So must the input's prepared state and output qubits.  The input must
+    prepare a CSS state: with ``css_weight`` None in its options, qLDPC sets ``css_weight`` true
+    exactly for a CSS state, so the options must leave it None, and qLDPC's choice and the recorded
+    ``css_weight`` must both be true.  An input of
+    ``VERIFIED_FAMILIES`` must have a code file that passes ``code_files.check_code_file``, which
+    checks, among other things, that the input's state is the code's |0...0>.
     """
     import stim
 
     from experiments.state_prep_certification.certification import code_files
 
+    name = entry["id"]
+    path = INPUTS / f"{name}.stim"
+    if not path.exists():
+        return [f"{name}: missing {path}"]
+    problems = []
+    if store.sha256_file(path) != entry["input_sha256"]:
+        problems.append(f"{name}: SHA-256 mismatch")
+    certificate, parameters = dem_parameters(stim.Circuit(path.read_text()), entry["options"])
+    for key, value in parameters.items():
+        if entry.get(key) != value:
+            problems.append(f"{name}: {key} is {value}, not {entry.get(key)}")
+    stabilizers = [str(stabilizer) for stabilizer in certificate.state_stabilizers]
+    if not same_state(entry["stabilizers"], stabilizers):
+        problems.append(f"{name}: the input prepares a state other than the recorded one")
+    output_qubits = list(certificate.output_qubits)
+    if output_qubits != entry["output_qubits"]:
+        problems.append(f"{name}: output_qubits is {output_qubits}, not {entry['output_qubits']}")
+    if entry["options"]["css_weight"] is not None:
+        problems.append(f"{name}: its options set css_weight")
+    elif certificate.css_weight is not True:
+        problems.append(f"{name}: the input does not prepare a CSS state")
+    if entry["css_weight"] is not True:
+        problems.append(f"{name}: css_weight is {entry['css_weight']}, not True")
+    if "code_file" in entry:
+        problems += code_files.check_code_file(entry)
+    elif entry["family"] in VERIFIED_FAMILIES:
+        problems.append(f"{name}: no code_file")
+    return problems
+
+
+def check_inputs() -> None:
+    """Check every input against ``circuits.json``, and the code file of each circuit that has one.
+
+    Every input of ``circuits.json`` must pass ``_check_input``, and the licenses of ``LICENSES``
+    must lie beside the inputs.  Where the fetched sources are present, in ``circuit_data/mqt/`` on
+    the workstation, the inputs are also rebuilt from the sources in a scratch directory, and the
+    rebuilt ``circuits.json``, with the SHA-256 of every input, and the licenses must equal the
+    recorded ones.
+    """
     recorded = json.loads(CIRCUITS_JSON.read_text())
-    entries = recorded["circuits"]
+    entries = [entry for entry in recorded["circuits"] if entry["status"] == "ok"]
     problems = [f"missing {name}" for name in LICENSES if not (INPUTS / name).exists()]
-    checked = 0
     for entry in entries:
-        if entry["status"] != "ok":
-            continue
-        path = INPUTS / f"{entry['id']}.stim"
-        if not path.exists():
-            problems.append(f"{entry['id']}: missing {path}")
-            continue
-        if store.sha256_file(path) != entry["input_sha256"]:
-            problems.append(f"{entry['id']}: SHA-256 mismatch")
-        _, parameters = dem_parameters(stim.Circuit(path.read_text()), entry["options"])
-        for key, value in parameters.items():
-            if entry.get(key) != value:
-                problems.append(f"{entry['id']}: {key} is {value}, not {entry.get(key)}")
-        checked += 1
-        if "code_file" in entry:
-            problems += code_files.check_code_file(entry)
-        elif entry["family"] in VERIFIED_FAMILIES:
-            problems.append(f"{entry['id']}: no code_file")
+        problems += _check_input(entry)
+    checked = sum((INPUTS / f"{entry['id']}.stim").exists() for entry in entries)
     rebuilt = MQT_DIR.exists()
     if rebuilt:
         problems += _check_rebuilt(recorded)

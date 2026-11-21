@@ -80,7 +80,7 @@ def worst_case_s(task: dict[str, Any]) -> float:
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
     """Two repeats of every timed task that finished in under 1 s."""
-    if task.get("mode") != "timed" or row["status"] != "ok" or row["T"] >= 1:
+    if task["mode"] != "timed" or row["status"] != "ok" or row["T"] >= 1:
         return []
     return [dict(task, key=f"{task['key']}.r{i}", repeat=i) for i in (1, 2)]
 

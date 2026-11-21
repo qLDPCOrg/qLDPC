@@ -48,7 +48,8 @@ Such a row is kept so that it is visible, but its timing enters no analysis; eac
 [`common/runner.py`](common/runner.py) gives these rules in full, and [`common/tasks.py`](common/tasks.py) gives the limits that each task can set and their defaults.
 
 Two physical cores and 16 GiB of memory are reserved for the runners, GNU parallel, and the system.
-Each job slot has its own free physical core and the experiment's memory per slot (`JOB_MEM_GIB`), and there are as many slots as both allow.
+Each job slot has its own free physical core and the experiment's memory per slot (`JOB_MEM_GIB`).
+There are as many slots as the free cores and memory allow, and at most N if `node.sh` or `run_node.py` is given `--jobs N`.
 Pass 1 holds every first run in an order shuffled with a fixed seed.
 Pass 2 holds the repeats that each experiment's repeat policy asks for after pass 1, such as two more runs of a fast run.
 
