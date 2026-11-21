@@ -2,7 +2,7 @@
 
 ## 1. Purpose and scope
 
-The Brouwer-Zimmermann (BZ) algorithm computes the distance of a classical code ([arXiv:1603.06757](https://arxiv.org/abs/1603.06757)), and has been adapted to quantum codes ([arXiv:2408.10743](https://arxiv.org/abs/2408.10743)).
+The Brouwer-Zimmermann (BZ) algorithm computes the distance of a classical code ([arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2)), and has been adapted to quantum codes ([arXiv:2408.10743](https://arxiv.org/abs/2408.10743v2)).
 This guide, in this file and [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), is for contributors who need to understand, debug, or modify the BZ code in this directory.
 It explains how qLDPC computes exact distances of binary codes with BZ, how it counts logical operators ([Section 3.11](#311-counting-logical-operators)), and how the coset searches of `CosetLeaderSearch` use it ("Families for coset searches" in [Section 3.1](#31-overlapping-search-bases)).
 [connected_cluster.md](connected_cluster.md) describes another exact search, for codes with sparse checks.
@@ -14,7 +14,7 @@ It explains how qLDPC computes exact distances of binary codes with BZ, how it c
 
 ## 2. The Brouwer-Zimmermann algorithm
 
-This section describes BZ as presented in [arXiv:1603.06757](https://arxiv.org/abs/1603.06757) and [arXiv:2408.10743](https://arxiv.org/abs/2408.10743), together with a stopping rule within a layer from Grassl's chapter and from Lisoněk and Trummer (see [References](#references)).
+This section describes BZ as presented in [arXiv:1603.06757](https://arxiv.org/abs/1603.06757v2) and [arXiv:2408.10743](https://arxiv.org/abs/2408.10743v2), together with a stopping rule within a layer from Grassl's chapter and from Lisoněk and Trummer (see [References](#references)).
 
 ### 2.1 The problem
 
@@ -425,7 +425,7 @@ The counts leave out layer one, whose rows give the initial `U`, and the cost of
 ### 3.9 Skipping completions by completion tables
 
 The layers that a search scans last dominate its cost, and most of their words weigh far more than `U`.
-For example, the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) has dimension `r = 150`.
+For example, the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915v2) has dimension `r = 150`.
 So in each of its search bases, the layer of eight rows has `binom(150, 8)` supports, about `5 × 10^12`.
 qLDPC skips whole groups of supports when a lower bound read from **completion tables** proves that none of their words is lighter than `U`.
 A distance search can build tables for each search basis whose block is an information set, such as the one set of an automorphism family, if they pay (see "When a search uses the tables" below).

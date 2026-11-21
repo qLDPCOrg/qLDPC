@@ -403,7 +403,7 @@ So sparsifying changes the checks only when their total weight drops, which leav
 
 qLDPC tried or considered the techniques below, from public tools and papers, and does not use them.
 This section records why, so that later contributors do not repeat them without new evidence.
-The paragraphs use the terms of [Section 3.4](#34-pruning): the number `s` of variables of a state, the weight limit `W`, completions, the weights `y_c = 1/m_c` of the unsatisfied checks and their sum `Y`, and viable variables.
+The paragraphs use the terms of [Section 3.4](#34-pruning): the support `S` of a state and its number `s` of variables, the weight limit `W`, completions, the weights `y_c = 1/m_c` of the unsatisfied checks and their sum `Y`, and viable variables.
 Some also use symbols ([Section 3.7](#37-qubit-codes-that-are-not-css)), which are the variables in binary problems.
 
 **Dual ascent.**
@@ -474,7 +474,8 @@ They saved no measurable time.
 **Best-first search.**
 qLDPC raises the weight limit one divisor at a time, and searches each limit depth first ([Section 3.6](#36-from-a-search-to-the-distance)).
 This is iterative deepening, and with the bound `⌈Y⌉`, it is the iterative-deepening form of A*.
-The decoder Tesseract and the search of Banfi et al. instead expand states in the order of the cost of `S`, which is `|S|` when every variable costs one, plus such a bound ([references](#references)).
+The decoder Tesseract and the search of Banfi et al. ([references](#references)) instead expand states in the order of the cost of `S` plus a lower bound on the cost of its completions, like the bounds of [Section 3.4](#34-pruning).
+The cost of `S` is `|S|` when every variable costs one.
 qLDPC does not use such a search, since the predictions of [Section 3.5](#35-symmetries), `method="auto"`, interrupts ([Section 3.6](#36-from-a-search-to-the-distance)), and the split of a limit across threads ([Section 3.11](#311-threads)) rely on the depth-first search of each limit.
 Nor would it reliably visit fewer states on slow searches.
 Any such search must still expand every state that the last limit without a witness visits.
