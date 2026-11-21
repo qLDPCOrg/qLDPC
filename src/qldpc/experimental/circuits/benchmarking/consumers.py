@@ -803,9 +803,10 @@ def get_steane_swap_consumer(
     adds errors only to the block under test.  The noise model applies to the CNOTs and measurements
     of each step, including any idle noise that it specifies for the two blocks of the step.  It
     sees each step on its own, with the current block on qubits 0, ..., n - 1 and the fresh block on
-    qubits n, ..., 2 n - 1, for a code on n qubits.  Finally, the checks of the last block are
-    measured without noise.  See ``consumer_calibration.md`` for why the window has this form, and
-    for the approximations of its calibrations.
+    qubits n, ..., 2 n - 1, for a code on n qubits.  Finally, the checks of the last block, which
+    holds the logical qubits after the last step, are measured without noise.  See
+    ``consumer_calibration.md`` for why the window has this form, and for the approximations of its
+    calibrations.
 
     The detectors of each step come from a maximal independent subset of the code's own checks of
     the type that the step measures, in their order in the code.  The final readout uses such
@@ -827,14 +828,15 @@ def get_steane_swap_consumer(
         basis: The block under test: ``Pauli.Z`` (or ``"Z"``, the default) for a fresh ``|0>``
             block, or ``Pauli.X`` (or ``"X"``) for a fresh ``|+>`` block.
         decoder: A decoder specification, such as ``decoders.mwpm(decompose_errors=True)`` for a
-            code whose checks give a matching graph, such as a surface code.  The consumer builds
-            the decoder from the detector error model of the window, as for ``Consumer``.
-            Default: None, for the default decoder described above.  The window suits a decoder
-            that decodes each step on its own and corrects every fault of weight one, such as the
-            default decoder for a code of distance at least 3; see ``consumer_calibration.md``.
-            For a code of distance less than 3, the default decoder does not correct every such
-            fault, and the calibration can depend on the length of the window.  A decoder built
-            from a specification decodes the whole window together instead.
+            code whose checks give a matching graph, like a surface code.  The consumer builds the
+            decoder from the detector error model of the window, as for ``Consumer``, so the decoder
+            decodes the whole window together.  Default: None, for the default decoder described
+            above.  With the default decoder and a code of distance at least 3, further noisy steps
+            before or after the window change the excess ``c_s(m) - c_s(0)`` of each residual
+            weight ``m``, and so the score of a preparation circuit, only at second order in the
+            window's error probabilities; see ``consumer_calibration.md``.  For a smaller distance,
+            further steps can change these excesses at first order.  This second-order bound is not
+            guaranteed for a decoder built from a specification.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
             ``(d - 1) // 2`` for the distance ``d`` of the code.  If the code does not know its
@@ -842,8 +844,8 @@ def get_steane_swap_consumer(
 
     Returns:
         A ``Consumer`` whose block is the block under test, with the correctable weight and a short
-        description that names the number of steps, the state of the block under test, the code,
-        the decoder, and the type of the noise model.
+        description that names the state of the block under test, the code, the decoder, and the
+        type of the noise model.
 
     Raises:
         TypeError: If ``decoder`` is neither None, a decoder specification, nor a prebuilt

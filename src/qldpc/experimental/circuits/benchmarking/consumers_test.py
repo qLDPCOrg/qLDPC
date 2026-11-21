@@ -289,7 +289,8 @@ def test_excess_failure_matches_brute_force() -> None:
 
     The preparation flips each qubit of logical |0> with probability r, and also applies Z errors,
     which do not affect the readout consumer.  A correlated error that fires a post-selected flag
-    detector leaves a logical error, which post-selection removes.
+    detector leaves a logical error, which post-selection removes.  The ``pauli`` option keeps one
+    part of each error, and runs with the same seed share their shots.
     """
     error_rate, preparation_error_rate, num_samples = 0.05, 0.03, 40_000
     consumer = _get_readout_consumer(error_rate)
@@ -313,11 +314,29 @@ def test_excess_failure_matches_brute_force() -> None:
     expected = _get_error_probabilities(preparation_error_rate) @ changes
     assert 0 < error and abs(value - expected) < 5 * error
 
-    for pauli in (Pauli.X, Pauli.Z):
-        value, _ = consumer.estimate_excess_failure_probability(
+    values = {
+        pauli: consumer.estimate_excess_failure_probability(
             circuit, 1000, pauli=pauli, post_select=True, seed=0
-        )
-        assert (value == 0) == (pauli is Pauli.Z)
+        )[0]
+        for pauli in (None, Pauli.X, Pauli.Z)
+    }
+    # runs with the same seed share their shots, and the readout consumer ignores Z errors, so
+    # keeping only the X part of each error leaves the estimate unchanged
+    assert values[Pauli.X] == values[None]
+    assert values[None] != 0
+    assert values[Pauli.Z] == 0
+
+    # a Steane-swap consumer reacts to Z errors, and these preparations leave only Z errors, so
+    # keeping only the Z part of each error leaves the estimate unchanged
+    steane = get_steane_swap_consumer(_CODE, _WINDOW_NOISE)
+    preparation = _get_noisy_preparation(0, 0.01)
+    values = {
+        pauli: steane.estimate_excess_failure_probability(preparation, 1000, pauli=pauli, seed=1)[0]
+        for pauli in (None, Pauli.X, Pauli.Z)
+    }
+    assert values[Pauli.Z] == values[None]
+    assert values[None] != 0
+    assert values[Pauli.X] == 0
 
 
 def test_two_call_workflow() -> None:
@@ -482,16 +501,21 @@ def test_steane_swap_window_length(basis: PauliXZ) -> None:
     Error mechanisms in the two steps before the entry step leave errors that the entry step or the
     step after it decodes, together with the errors of the block under test.  Error mechanisms in
     the two steps after the entry step can make the two decodings of the Z errors of a fresh |0>
-    block, and likewise of the X errors of a fresh |+> block, differ.  The exact first-order excess
-    is therefore the same with a further noisy step before or after the window, and differs with
-    only one step before or after the entry step.
+    block, and likewise of the X errors of a fresh |+> block, differ.  The exact excess is
+    therefore the same to first order with a further noisy step before or after the window, and
+    differs at first order with only one step before or after the entry step.
     """
     reference = get_steane_swap_consumer(_CODE, _WINDOW_NOISE, basis=basis)
-    reference_terms = _get_first_order_terms(reference)
+    reference_terms = _get_low_order_terms(reference)
     for num_before, num_after, same in [(3, 2, True), (2, 3, True), (1, 2, False), (2, 1, False)]:
         variant = _get_window_variant(_CODE, basis, num_before, num_after)
-        variant_terms = _get_first_order_terms(variant)
-        assert np.allclose(reference_terms, variant_terms, rtol=1e-9, atol=0) == same
+        variant_terms = _get_low_order_terms(variant)
+        # the zeroth-order terms never change, and the first-order terms change only if the window
+        # is too short
+        assert np.allclose(reference_terms[..., 0], variant_terms[..., 0], rtol=1e-9, atol=0)
+        assert (
+            np.allclose(reference_terms[..., 1], variant_terms[..., 1], rtol=1e-9, atol=0) == same
+        )
 
 
 def test_steane_swap_distance_two() -> None:
@@ -508,12 +532,13 @@ def test_steane_swap_distance_two() -> None:
     predictions = decoder.decode_observables_batch(dem.detector_flip_matrix.T.toarray())
     assert not np.array_equal(predictions, dem.observable_flip_matrix.T.toarray())
 
-    reference_terms = _get_first_order_terms(reference)
+    reference_terms = _get_low_order_terms(reference)
     for num_before, num_after in [(3, 2), (2, 3)]:
-        variant_terms = _get_first_order_terms(
+        variant_terms = _get_low_order_terms(
             _get_window_variant(code, Pauli.Z, num_before, num_after)
         )
-        assert not np.allclose(reference_terms, variant_terms, rtol=1e-9, atol=0)
+        assert np.allclose(reference_terms[..., 0], variant_terms[..., 0], rtol=1e-9, atol=0)
+        assert not np.allclose(reference_terms[..., 1], variant_terms[..., 1], rtol=1e-9, atol=0)
 
 
 def test_steane_swap_symmetry() -> None:
@@ -1199,13 +1224,14 @@ def _get_window_variant(
     return Consumer(preparation, circuit, decoder, block_qubits=qubits)
 
 
-def _get_first_order_terms(consumer: Consumer) -> np.ndarray:
-    """First-order terms of the excesses of a consumer, for X and then Z block errors.
+def _get_low_order_terms(consumer: Consumer) -> np.ndarray:
+    """Zeroth-order and first-order terms of the excesses of a consumer, for X and Z block errors.
 
-    Row 0 is for X-type block errors and row 1 for Z-type ones, with an entry for each weight that
-    ``_get_excess_terms`` covers.
+    Entry ``[i, w - 1, j]`` is for block errors of physical weight ``w`` and type X (``i = 0``) or Z
+    (``i = 1``), with the term of order ``j`` in the probabilities of the consumer's error
+    mechanisms, as ``_get_excess_terms`` defines them.
     """
-    return np.array([_get_excess_terms(consumer, pauli)[:, 1] for pauli in (Pauli.X, Pauli.Z)])
+    return np.array([_get_excess_terms(consumer, pauli) for pauli in (Pauli.X, Pauli.Z)])
 
 
 def _get_excess_terms(consumer: Consumer, pauli: PauliXZ) -> np.ndarray:
