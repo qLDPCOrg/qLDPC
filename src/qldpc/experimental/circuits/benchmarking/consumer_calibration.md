@@ -323,7 +323,7 @@ The standard errors cover the sampling of the calibration and of the histograms,
 They exclude the approximations above.
 The reported standard error of `Φ` combines three contributions in quadrature:
 
-- the sampling errors of the histograms, which are independent between Pauli types;
+- the sampling errors of the histograms, treated as independent between Pauli types, as they are when each histogram has its own seed;
 - the standard errors of the cells of the excess tables, treated as independent;
 - the error of the baseline.
 
@@ -337,16 +337,16 @@ Its reported uncertainty is approximate when those terms matter.
 Importance-sampled histogram errors can be optimistic when few samples reach the outcomes that matter.
 Check the histogram's `num_samples` when an error looks too small.
 
-`ConsumerCalibration.get_standard_error_parts` splits the reported standard error into a histogram part, from the first contribution above, and a calibration part, from the other two.
+`ConsumerCalibration.get_standard_error_parts` splits the reported standard error into a histogram part, from the sampling errors of the histograms, and a calibration part, from the errors of the cells and the baseline.
 To first order, more histogram samples reduce only the histogram part, and more calibration samples only the calibration part.
 
-To compare two circuits scored with one calibration, use `get_excess_failure_probability_difference`, which returns `Φ(a) - Φ(b)` and its standard error.
+To compare circuits `a` and `b` scored with one calibration, use `get_excess_failure_probability_difference`, which returns `Φ(a) - Φ(b)` and its standard error.
 An error of a cell or a baseline moves both scores, so it largely cancels from their difference when the two circuits have similar residual-weight distributions.
 The two standard errors, added in quadrature, can therefore greatly overstate the standard error of the difference.
-The method instead propagates the error of each cell and baseline through the difference of the two circuits' derivatives with respect to it, and adds the histogram parts of the two circuits in quadrature.
-This treats the histograms of the two circuits as independent, so sample them from independent random numbers, such as with different seeds.
-Unsampled cells count as certain failure, a bias that no standard error includes.
-It overstates each score, as approximation 4 describes, but it can move a difference either way.
+The method keeps this cancellation, and adds the histogram parts of the two circuits in quadrature.
+It treats every histogram of either circuit as independent of the others, so give each histogram its own seed, or `seed=None`.
+The certain failures of approximation 4 are a bias that no standard error includes.
+This bias overstates each score, but it can move a difference either way.
 
 ## Supplying a consumer's response
 

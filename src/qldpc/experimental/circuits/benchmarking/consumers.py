@@ -564,7 +564,8 @@ class ConsumerCalibration:
         Args:
             histograms: One residual-weight histogram of the preparation circuit for each calibrated
                 Pauli type, from ``estimate_residual_weight_histogram`` with its ``pauli`` option,
-                resolving the residual weights of the table of that type.
+                resolving the residual weights of the table of that type.  Their sampling errors
+                are treated as independent, so give each histogram its own seed, or None.
 
         Returns:
             ``Φ`` and its standard error, propagated to first order.  The standard error combines
@@ -609,20 +610,21 @@ class ConsumerCalibration:
     def get_excess_failure_probability_difference(
         self, first: Sequence[ResidualWeightHistogram], second: Sequence[ResidualWeightHistogram]
     ) -> tuple[float, float]:
-        """The difference ``Φ(a) - Φ(b)`` of the figures of merit of two preparation circuits.
+        """The difference ``Φ(a) - Φ(b)`` of the figures of merit of preparation circuits a and b.
 
         Both circuits are scored with this calibration, so an error of a cell or a baseline moves
         both scores, and largely cancels from their difference when the two circuits have similar
         residual-weight distributions.  The standard errors of the two scores, added in
-        quadrature, can therefore greatly overstate the standard error of their difference.  Cells
-        with a sample count of zero count as certain failure, a bias that no standard error
-        includes.  The bias overstates each score, up to the statistical error of the baseline,
-        but it can move their difference either way.
+        quadrature, can therefore greatly overstate the standard error of their difference.
+        Certain failures, beyond a table or in a cell with a sample count of zero, are a bias that
+        no standard error includes (see ``consumer_calibration.md``).  Apart from the statistical
+        error of the baseline, this bias can only raise each score, but it can move their
+        difference either way.
 
         Args:
-            first: The histograms of circuit ``a``, as for ``get_excess_failure_probability``.
-            second: The histograms of circuit ``b``, sampled independently of those of ``a``, such
-                as with a different seed.
+            first: The histograms of circuit a, as for ``get_excess_failure_probability``.
+            second: The histograms of circuit b, as for ``get_excess_failure_probability``.  Every
+                histogram of either circuit needs its own seed, or None.
 
         Returns:
             ``Φ(a) - Φ(b)`` and its standard error, propagated to first order.  The standard error
@@ -766,12 +768,15 @@ class ConsumerCalibration:
         Returns:
             ``Φ``, the histogram part of its standard error, and the error terms of the calibration.
             The error term of a cell ``Δ_s(m, g)`` or a baseline ``f(0, g)`` is the derivative of
-            ``Φ`` with respect to it, times its standard error.  The terms of the cells of each
-            table, in the order of the tables and row by row, precede those of the baselines.
+            ``Φ`` with respect to it, times its standard error.  A cell with a sample count of zero
+            has no error of its own, and moves with its baseline in the derivative.  The terms of
+            the cells of each table, in the order of the tables and row by row, precede those of
+            the baselines.
 
         Raises:
             ValueError: As for ``get_excess_failure_probability``.
         """
+        # check that the histograms match the tables
         tables = self._tables
         types = [histogram.pauli for histogram in histograms]
         if len(types) != len(tables) or set(types) != set(tables):
@@ -779,6 +784,8 @@ class ConsumerCalibration:
                 "Expected one residual-weight histogram for each calibrated Pauli type"
                 f" {[str(pauli) for pauli in tables]}, not for {[str(t) for t in types]}"
             )
+
+        # score each Pauli type, and collect the derivatives of the score
         distribution, truncated_probability = self._get_distribution()
         no_block_error = (
             float(np.asarray(self.baseline_failure_probabilities) @ distribution)
@@ -814,6 +821,8 @@ class ConsumerCalibration:
             if self.excess_standard_errors is not None:
                 errors = np.asarray(self.excess_standard_errors[pauli])
                 cell_terms[pauli] = row_probabilities[:, None] * distribution * errors
+
+        # the error terms of the cells, then those of the baselines
         terms = [cell_terms[pauli].ravel() for pauli in tables]
         baseline_errors = np.zeros(len(distribution))
         if self.baseline_standard_errors is not None:

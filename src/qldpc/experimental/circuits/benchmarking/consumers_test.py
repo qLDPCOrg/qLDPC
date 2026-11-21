@@ -1006,10 +1006,13 @@ def test_unsampled_cells() -> None:
 
 
 def test_standard_error_parts_and_differences() -> None:
-    """The parts of a standard error, and the error of a difference, match finite differences.
+    """The parts of a standard error, and the error of a difference, match independent oracles.
 
-    The cell (m, g) = (1, 1) of the X table is unsampled, and X-type residual weight two lies beyond
-    the table, so both use the baselines.  The histograms are sampled.
+    The histogram part is the standard error of the score without the errors of the calibration.
+    The calibration parts follow from finite differences of the score.  The cell (m, g) = (1, 1)
+    of the X table is unsampled, and X-type residual weight two lies beyond the table, so both use
+    the baselines.  No fault weight of a histogram is listed exactly, so the histogram parts are
+    positive.
     """
     calibration = ConsumerCalibration(
         {"X": [[0.2, 0.7]], "Z": [[0.4, 0.5]]},
@@ -1361,10 +1364,11 @@ def _get_histogram(distribution: Sequence[float], pauli: Any) -> ResidualWeightH
 def _get_numerical_error_terms(
     calibration: ConsumerCalibration, histograms: Sequence[ResidualWeightHistogram]
 ) -> np.ndarray:
-    """The standard error of each sampled cell and each baseline, times the derivative of Φ.
+    """The derivative of Φ by each sampled cell and each baseline, times its standard error.
 
     The derivatives are finite differences, which are exact up to rounding, since Φ is linear in
-    the cells and the baselines.  A cell with a sample count of zero moves with its baseline.
+    the cells and the baselines.  A cell with a sample count of zero moves with its baseline, and
+    has no term of its own.
     """
     data = calibration.to_dict()
     excesses = {
