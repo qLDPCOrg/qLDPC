@@ -6,7 +6,7 @@ The connected-cluster search computes the exact distance of a binary code from t
 The code can be classical, CSS, or a qubit code that is not CSS, and a quantum code can be a subsystem code.
 The search is `method="connected_cluster"` of `get_distance_exact` on the code classes.
 The default, `method="auto"`, runs it for the distances of quantum codes and the fault distances of circuits, unless enumerating every word is cheap.
-`"auto"` switches to Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) when BZ is predicted to cost less (section "Choosing a method" of [README.md](README.md)).
+`"auto"` switches to Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) when BZ is predicted to cost less (section "Choosing a method" of [problems.md](problems.md#choosing-a-method)).
 The connected-cluster search also finds light vectors with a given syndrome for `CosetLeaderSearch`, which `certify_bounded_fault_propagation` uses.
 The search is the connected-cluster algorithm of Dumer, Kovalev, and Pryadko, and later works cite their 2017 paper for it (see the [references](#references)).
 Its earliest known application to quantum codes is the linked-cluster technique of Kovalev, Dumer, and Pryadko (2013), for the distances of quantum LDPC codes.
@@ -56,7 +56,7 @@ A CSS code with X-type checks `H_X` and Z-type checks `H_Z` has two **sectors**,
 Its distance is the smaller of the two.
 For a CSS subsystem code with gauge generators `G_X` and `G_Z` and stabilizers `S_X` and `S_Z`, the sectors are `(S_Z, G_X)` and `(S_X, G_Z)`, and a witness is a dressed logical operator.
 If `_search_css` finds a qubit permutation that maps each sector onto the other, the search takes the X sector alone.
-It finds only the identity and, with pybliss, permutations that map the nonzero rows of `G_X`, as listed, one to one onto those of `G_Z` and back, where `G_X = H_X` and `G_Z = H_Z` for a stabilizer code (section "Searching one sector of a CSS code" of [README.md](README.md)).
+It finds only the identity and, with pybliss, permutations that map the nonzero rows of `G_X`, as listed, one to one onto those of `G_Z` and back, where `G_X = H_X` and `G_Z = H_Z` for a stabilizer code (section "Searching one sector of a CSS code" of [problems.md](problems.md#searching-one-sector-of-a-css-code)).
 For a classical code, `H` is its parity-check matrix and `G` is empty, and the search has one sector.
 [Section 3.7](#37-qubit-codes-that-are-not-css) treats qubit codes that are not CSS, whose search also has one sector.
 
@@ -341,7 +341,7 @@ These two facts give the lower bounds of the answers, which the class docstring 
 
 A query at limit `W` can wander through many heavy supports before it reaches a much lighter solution.
 `certify_bounded_fault_propagation` queries batches of syndromes most of which have a solution within `W`, so for such batches a coset search tries the limits 2, 3, …, `W` in turn, and stops at the first within which it finds a solution, a lightest one, at the cost of repeating the lower limits for syndromes without one.
-For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits; [README.md](README.md#the-coset-leader-search) gives the floor of its searches by CSS weight.
+For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits; [problems.md](problems.md#the-coset-leader-search) gives the floor of its searches by CSS weight.
 A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` directly, since a caller may already raise `W` one step at a time.
 
 Without reuse, a state computes the overlap and repair ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
@@ -473,7 +473,7 @@ Best-first variants would also replace the depth-first search of each limit, on 
 
 A costly weight limit of a distance search runs on `num_threads` threads of `SearchTuning`, which share the read-only tables of the search; the section "Threads" of [README.md](README.md#threads) says how to set their number.
 The overlap cuts ([Section 3.4](#34-pruning)) are among these tables: a distance search tabulates them at the start of its first weight limit, and again at the start of the limit at which symmetries change the ranks ([Section 3.5](#35-symmetries)), each time before the threads of that limit start.
-The threads give the same witness and count of states as a search on one thread, so that the decisions that depend on them, such as when to ask for symmetries ([Section 3.5](#35-symmetries)), the growth of the states, and the switch of `method="auto"` (section "Choosing a method" of [README.md](README.md)), do not depend on the number of threads.
+The threads give the same witness and count of states as a search on one thread, so that the decisions that depend on them, such as when to ask for symmetries ([Section 3.5](#35-symmetries)), the growth of the states, and the switch of `method="auto"` (section "Choosing a method" of [problems.md](problems.md#choosing-a-method)), do not depend on the number of threads.
 
 **Work items.**
 The **frontier** at depth `F` is the set of the states with `F` symbols that the search enters, and the frontier at depth 0 is the set of roots.
@@ -525,7 +525,7 @@ A first limit that a `cutoff` sets above the divisor is predicted to visit `MAX_
 
 **Syndrome queries.**
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs on one thread.
-The batch queries of `CosetLeaderSearch` instead move the rest of a batch to threads, by syndromes, once their queries on the calling thread have visited `num_threads * 2**search_chunk_exponent` states, and give the answers of one thread (section "The coset-leader search" of [README.md](README.md#the-coset-leader-search)).
+The batch queries of `CosetLeaderSearch` instead move the rest of a batch to threads, by syndromes, once their queries on the calling thread have visited `num_threads * 2**search_chunk_exponent` states, and give the answers of one thread (section "The coset-leader search" of [problems.md](problems.md#the-coset-leader-search)).
 A coset search tabulates the overlap cuts of its queries when it is built or given words, so the threads of a batch only read the search.
 
 ## 4. Guide to the source code

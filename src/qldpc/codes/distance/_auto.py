@@ -7,7 +7,7 @@
 method for a search given by generators, or for a search of binary words that excludes no nonzero
 word, as for a classical code.  Other searches, as of a quantum code or of the faults of a circuit,
 run ``search_by_cost``: a connected-cluster search that switches to a BZ search once that is
-predicted to cost less.  The section "Choosing a method" of ``README.md`` in
+predicted to cost less.  The section "Choosing a method" of ``problems.md`` in
 ``src/qldpc/codes/distance/`` explains the rule, why it keeps results exact, and its estimates.
 Both searches can run on several threads, so the rule decides only from results that are the same on
 any number of threads, as Section 5 of the guide of each method, ``brouwer_zimmermann_code.md`` or
@@ -86,7 +86,7 @@ def search_by_cost(
     """The minimum distance across sectors, by a connected-cluster search that may switch to BZ.
 
     The function runs a connected-cluster search, probes with a BZ search, and may switch to one, as
-    the section "Choosing a method" of ``README.md`` describes.  The sectors and other arguments,
+    the section "Choosing a method" of ``problems.md`` describes.  The sectors and other arguments,
     and the result, are those of ``get_distance_connected_cluster``.  ``brouwer_zimmermann_problem``
     holds the same sectors, in the same order, for a BZ search.  The caller builds it as it builds a
     BZ search (``_search`` of ``distances.py``), so it is an argument rather than derived here.

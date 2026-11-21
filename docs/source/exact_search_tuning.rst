@@ -24,7 +24,7 @@ Start from a symptom
      - Time the search with ``method="brouwer_zimmermann"`` and with ``method="connected_cluster"``, and pass the faster method.
        With a large ``cutoff``, ``"auto"`` cannot switch to the Brouwer-Zimmermann method before it has searched past the cutoff, and with one near the distance it may never switch, so pass ``method="brouwer_zimmermann"``.
        To make ``"auto"`` stay longer with a connected-cluster search, lower :attr:`~SearchTuning.connected_cluster_state_evaluations`, and to make it switch to the Brouwer-Zimmermann method sooner, raise that field.
-       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`__ in the guide to the distance package).
+       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`__ in ``problems.md`` of the distance package).
        Raise :attr:`~SearchTuning.auto_probe_work` to let the short Brouwer-Zimmermann search that ``"auto"`` runs before it decides, its probe, finish more searches, or find a lighter word for the connected-cluster search to stop at, at a higher fixed cost.
        Raise :attr:`~SearchTuning.auto_brute_force_max_words` if ``"auto"`` takes the Brouwer-Zimmermann method for a classical code of high relative distance whose words it could enumerate faster.
        Lower it if ``"auto"`` enumerates every word for too long.
@@ -92,11 +92,11 @@ Routes and the names that control them
    * - Searching one sector of a CSS code whose sectors a qubit permutation maps onto each other
      - :attr:`SearchTuning.sector_maps`
      -
-     - `Searching one sector of a CSS code <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#searching-one-sector-of-a-css-code>`__ in the guide to the distance package
+     - `Searching one sector of a CSS code <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#searching-one-sector-of-a-css-code>`__ in ``problems.md`` of the distance package
    * - Choosing a method, which ``method="auto"`` does for each distance search
      - :attr:`SearchTuning.auto_brute_force_max_words`, :attr:`SearchTuning.auto_free_work`, :attr:`SearchTuning.auto_probe_work`, :attr:`SearchTuning.connected_cluster_state_evaluations`
      -
-     - `Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`__ in the guide to the distance package
+     - `Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`__ in ``problems.md`` of the distance package
    * - Estimating the work of searches of information sets, which chooses between their routes
      -
      - :data:`BINOMIAL_CACHE_SIZE`

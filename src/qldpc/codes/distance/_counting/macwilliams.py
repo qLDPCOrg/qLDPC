@@ -3,8 +3,8 @@
 """Exact logical counts of binary CSS stabilizer codes from the weight enumerators of their checks.
 
 A Gray-code walk over each space of checks gives its weight distribution, and the MacWilliams
-identity transforms it into the counts.  Section 3.11 of ``brouwer_zimmermann.md`` derives the
-counts, and says where 64-bit arithmetic is exact.
+identity transforms it into the counts.  The section "The MacWilliams method" of ``problems.md``
+derives the counts, and says where 64-bit arithmetic is exact.
 """
 
 from __future__ import annotations
@@ -136,8 +136,8 @@ def _count_light_dual_words(
     """The numbers of words of weights ``0, 1, ...`` orthogonal to a span, in 64-bit arithmetic.
 
     The counts stop at the first weight ``w`` at which ``2**rank * C(n, w)`` reaches ``2**63``, and
-    64-bit arithmetic is exact at the weights before it (Section 3.11 of ``brouwer_zimmermann.md``).
-    They are returned as Python integers.
+    64-bit arithmetic is exact at the weights before it (section "The MacWilliams method" of
+    ``problems.md``).  They are returned as Python integers.
     """
     krawtchouk = _get_light_krawtchouk_rows(num_bits, rank)
     counts = _transform_weights(krawtchouk, span_weights, rank)

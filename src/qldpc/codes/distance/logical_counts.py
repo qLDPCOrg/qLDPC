@@ -3,8 +3,9 @@
 """Exact counts of the logical operators of a given weight in binary CSS codes.
 
 :class:`CSSLogicalCounter` states the conventions of the counts.  Section 3.11 of
-``brouwer_zimmermann.md`` explains the Brouwer-Zimmermann and MacWilliams methods, full Pauli
-counts, and the counters of deformed codes.
+``brouwer_zimmermann.md`` explains the Brouwer-Zimmermann method, full Pauli counts, and the
+counters of deformed codes, and the section "The MacWilliams method" of ``problems.md`` explains
+the MacWilliams method.
 """
 
 from __future__ import annotations
@@ -575,9 +576,9 @@ class CSSLogicalCounter:
     ) -> CSSLogicalCounts:
         """Count logical operators by the weight distributions of the checks of a stabilizer code.
 
-        Section 3.11 of ``brouwer_zimmermann.md`` derives the counts.  The checks of a self-dual
-        code may share one distribution, even if a deformation gave them different bases, since
-        equal spaces have equal distributions.
+        The section "The MacWilliams method" of ``problems.md`` derives the counts.  The checks of
+        a self-dual code may share one distribution, even if a deformation gave them different
+        bases, since equal spaces have equal distributions.
         """
         # Walk the check spaces once per counter.
         if self._enumerators is None:
