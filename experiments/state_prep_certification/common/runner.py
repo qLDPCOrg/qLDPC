@@ -14,8 +14,9 @@ child and the runner in ``active/<task_key>``, and watches the child:
   run is an ``error``.
 * **Limit:** the measured call gets ``limit_s`` from the moment that the child reports its start.
   The parent kills the child as soon as the limit has passed, and the run is a ``timeout``
-  whenever the measured time T is at least the limit, even if the call returned later.  The T of a
-  killed timeout is the time from the start to the kill, a censoring time.
+  whenever the measured time T is at least the limit, even if the call returned later or a memory
+  kill followed.  The T of a killed timeout is the time from the start to the kill, a censoring
+  time.
 * **After the measured call:** once it has ended, the child has ``post_s`` (by default
   ``FINISH_S``) to send its result and exit.  An experiment with untimed post-processing, such as
   describing a counterexample, sends its measured result first with ``send_result`` and declares a
@@ -23,7 +24,12 @@ child and the runner in ``active/<task_key>``, and watches the child:
   measured result stands.  Without ``send_result``, running out of
   ``post_s`` makes the run an ``error``.
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
-  process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.
+  process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since
+  the polls can miss a short peak, the parent also takes the peak of the child and of the processes
+  that it waited for (``getrusage``) after the run, and an ``ok`` run whose peak exceeds the cap
+  becomes a ``memout``, with an ``error`` that says that the peak was found after the run.  For a
+  run that sends its result before post-processing, the child reports this peak with the result,
+  which decides the status; a later peak above the cap marks only ``post_status``.
 * **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
   partial results and the report of a compilation that the child wrote before the kill, waits up
   to ``grace_s`` for the processes to go, and accepts no other message.  On the node, a kill
@@ -119,6 +125,7 @@ _CLEANUP_S = 2.0
 _CHANNEL_VARIABLE = "FTSP_CHANNEL_FD"
 _CPU_VARIABLE = "FTSP_CPU"
 _LOG_TAIL_BYTES = 1 << 16
+_MAXRSS_UNIT = 1 if sys.platform == "darwin" else 1024  # the unit of ru_maxrss, in bytes
 _ReturnType = TypeVar("_ReturnType")
 
 
@@ -248,6 +255,7 @@ class _Watcher:
         self.child_error: str | None = None
         self.compiled_function: str | None = None
         self.peak_rss = 0
+        self.result_peak_rss = 0
         self.threads_peak: int | None = None
         self.seen: dict[int, str] = {}
         self.stop = stop
@@ -317,8 +325,7 @@ class _Watcher:
 
         # the run's row
         if rusage is not None:
-            scale = 1 if sys.platform == "darwin" else 1024
-            self.peak_rss = max(self.peak_rss, rusage.ru_maxrss * scale)
+            self.peak_rss = max(self.peak_rss, rusage.ru_maxrss * _MAXRSS_UNIT)
         if child.returncode and self.child_error is None:
             self.child_error = log_file.read_text(errors="replace")[-2000:].strip()
         row = self._row(kill_reason, child.returncode, started_at, finished_at)
@@ -417,6 +424,7 @@ class _Watcher:
         elif kind == "result":
             self.result = message["fields"]
             self.post_phase = not message.get("final", False)
+            self.result_peak_rss = int(message.get("max_rss_bytes", 0))
         elif kind == "post":
             self.post = message["fields"]
         elif kind == "error":
@@ -436,7 +444,9 @@ class _Watcher:
             T, T_cpu = float(self.measured["T"]), float(self.measured["T_cpu"])
 
         # the status, from the measured call first
-        if kill_reason == "memout" and self.result is None:
+        if T is not None and T >= self.limit_s:
+            status = "timeout"
+        elif kill_reason == "memout" and self.result is None:
             status = "memout"
         elif kill_reason == "startup":
             status, error = "error", f"start-up cap of {self.startup_cap_s:g} s exceeded"
@@ -444,8 +454,6 @@ class _Watcher:
             status = "timeout"
             assert self.timing_started_at is not None and self.killed_at is not None
             T = max(self.limit_s, self.killed_at - self.timing_started_at)
-        elif T is not None and T >= self.limit_s:
-            status = "timeout"
         elif self.measured is not None and self.result is not None:
             status = "ok"
         elif kill_reason == "post_timeout":
@@ -454,9 +462,17 @@ class _Watcher:
             status = "error"
             error = self.child_error or f"the child exited with status {returncode}"
 
+        # a peak above the memory cap that the polls missed: the peak until the result decides the
+        # status, and a later peak, in post-processing, marks only the post-processing
+        peak_before_result = self.result_peak_rss if self.post_phase else self.peak_rss
+        if status == "ok" and peak_before_result > self.mem_cap_bytes:
+            status, error = "memout", self._over_cap(peak_before_result)
+
         # the post-processing, which never changes an ok status
         if status == "ok" and self.post_phase:
-            if self.post is not None:
+            if self.post is not None and self.peak_rss > self.mem_cap_bytes:
+                post_status, error = "memout", self._over_cap(self.peak_rss)
+            elif self.post is not None:
                 post_status = "ok"
             elif kill_reason in ("post_timeout", "memout"):
                 post_status = "timeout" if kill_reason == "post_timeout" else "memout"
@@ -498,6 +514,13 @@ class _Watcher:
             "partial": self.partials,
             "result": result,
         }
+
+    def _over_cap(self, peak: float) -> str:
+        """The error of a run whose peak memory, found after the run, exceeds its cap."""
+        return (
+            f"peak memory of {peak / 2**30:.3g} GiB above the cap of "
+            f"{self.mem_cap_bytes / 2**30:g} GiB, found after the run"
+        )
 
     def _members(self, table: dict[int, Process]) -> list[int]:
         """The live processes of the run: its process group, or locally its process tree."""
@@ -647,7 +670,7 @@ def send_result(fields: dict[str, Any]) -> None:
     if _CHANNEL.measured is None:
         raise RuntimeError("send_result(...) needs a finished timed(...) call")
     _CHANNEL.result_sent = True
-    _CHANNEL.send({"type": "result", "fields": fields})
+    _CHANNEL.send({"type": "result", "fields": fields, "max_rss_bytes": _max_rss_bytes()})
 
 
 def pin_child() -> None:
@@ -763,6 +786,12 @@ def _affinity() -> list[int] | None:
     if sys.platform.startswith("linux"):
         return sorted(os.sched_getaffinity(0))
     return None
+
+
+def _max_rss_bytes() -> int:
+    """The peak resident memory of this process, or of one of its waited-for children, in bytes."""
+    usage = (resource.getrusage(who) for who in (resource.RUSAGE_SELF, resource.RUSAGE_CHILDREN))
+    return _MAXRSS_UNIT * max(entry.ru_maxrss for entry in usage)
 
 
 def _cpu_seconds() -> float:

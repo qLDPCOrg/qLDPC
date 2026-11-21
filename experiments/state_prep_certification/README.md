@@ -36,8 +36,9 @@ The manifest records the machine and the installed package versions.
 
 Each run of a task is a fresh process pinned to one core, with the thread variables of numerical libraries set to 1; the runner that watches it runs on the reserved cores (see below).
 The runner times one call of the task's code, the measured call, whose wall time is T.
-A run is `ok` if the measured call returns within the task's limit and its result reaches the runner, a `timeout` if T reaches the limit, a `memout` if its memory exceeds the task's memory cap before its result arrives, and an `error` otherwise.
-The runner polls the run's memory every second.
+A run is a `timeout` if T reaches the task's limit, even if a memory kill followed.
+Otherwise it is `ok` if the measured call returns and its result reaches the runner, a `memout` if its memory exceeds the task's memory cap before its result arrives, and an `error` otherwise.
+The runner polls the run's memory every second, and after the run it checks the run's peak memory, which the polls can miss: an `ok` run whose peak exceeded the cap becomes a `memout`.
 For example, a run is an `error` if process start, imports, and untimed preparation exceed the task's start-up cap.
 If the experiment sends its measured result before untimed post-processing, running out of the time that the task allows for it (`post_s`) does not change an `ok` status, but marks the row's `post_status`.
 A run is discarded if numba reports a compilation during its measured call, and the task runs once more in a fresh process that loads the compiled code from numba's disk cache.

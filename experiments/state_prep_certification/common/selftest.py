@@ -298,6 +298,53 @@ def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None
 
 
 @test
+def test_runner_timeout_before_memout(directory: pathlib.Path, node: bool) -> None:
+    """A run whose T reached its limit is a timeout, even if a memory kill followed."""
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("late", [], limit_s=1.0)
+    watcher = runner._Watcher(
+        directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+    )
+    watcher._receive({"type": "measured", "T": 1.5, "T_cpu": 1.5})
+    row = watcher._row("memout", None, "", "")
+    assert row["status"] == "timeout" and row["T"] == 1.5, row
+
+
+@test
+def test_runner_peak_after_run(directory: pathlib.Path, node: bool) -> None:
+    """An ok run whose peak memory, found after the run, exceeds its cap is a memout.
+
+    With post-processing, the peak that the child reports with its result decides the status, and a
+    later peak marks only the post-processing.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    def row(peak_gib: float, post: bool, result_peak_gib: float = 0.0) -> dict[str, Any]:
+        task = _task("peak", [], mem_cap_gib=1.0)
+        watcher = runner._Watcher(
+            directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+        )
+        watcher._receive({"type": "measured", "T": 0.1, "T_cpu": 0.1})
+        result_peak = int(result_peak_gib * 2**30)
+        watcher._receive(
+            {"type": "result", "fields": {}, "final": not post, "max_rss_bytes": result_peak}
+        )
+        if post:
+            watcher._receive({"type": "post", "fields": {}})
+        watcher.peak_rss = int(peak_gib * 2**30)
+        return watcher._row(None, 0, "", "")
+
+    over = row(1.5, post=False)
+    assert over["status"] == "memout" and "found after the run" in over["error"], over
+    assert row(0.5, post=False)["status"] == "ok"
+    late = row(1.5, post=True, result_peak_gib=0.5)
+    assert late["status"] == "ok" and late["post_status"] == "memout", late
+    assert "found after the run" in late["error"], late
+    assert row(1.5, post=True, result_peak_gib=1.5)["status"] == "memout"
+
+
+@test
 def test_runner_compile_retry(directory: pathlib.Path, node: bool) -> None:
     """A run whose measured call compiles is discarded; its retry, which loads the code, is kept."""
     with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
