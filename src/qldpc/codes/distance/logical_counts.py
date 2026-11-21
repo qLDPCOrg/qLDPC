@@ -4,8 +4,8 @@
 
 :class:`CSSLogicalCounter` states the conventions of the counts.  Section 3.11 of
 ``brouwer_zimmermann.md`` explains the Brouwer-Zimmermann method, full Pauli counts, and the
-counters of deformed codes, and the section "The MacWilliams method" of ``problems.md`` explains
-the MacWilliams method.
+counters of deformed codes.  The section "The MacWilliams method" of ``problems.md`` explains the
+MacWilliams method.
 """
 
 from __future__ import annotations

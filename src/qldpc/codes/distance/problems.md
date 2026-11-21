@@ -1,6 +1,6 @@
-# How the package turns each problem into searches
+# How the package turns problems into searches
 
-This guide, for contributors, explains how the package turns each problem of [the grid](README.md#the-grid) into searches, problem by problem: which sectors a distance search of a CSS code searches, how `method="auto"` chooses the method of each distance search, how the coset-leader search answers its queries with coset searches, and how the MacWilliams method counts logical operators from the weight distributions of the checks.
+This guide, for contributors, explains how the package turns problems of [the grid](README.md#the-grid) into searches or other computations: which sectors a distance search of a CSS code searches, how `method="auto"` chooses the method of each distance search, how the coset-leader search answers its queries with coset searches, and how the MacWilliams method counts logical operators from the weight distributions of the checks.
 [brouwer_zimmermann.md](brouwer_zimmermann.md) and [connected_cluster.md](connected_cluster.md) explain the searches themselves.
 
 ## Searching one sector of a CSS code

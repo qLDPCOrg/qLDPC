@@ -552,12 +552,12 @@ For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then
 
 ### 3.11 Counting logical operators
 
-This section describes qLDPC's implementation.
 `CSSLogicalCounter` of [logical_counts.py](logical_counts.py) counts the nontrivial logical operators of a given weight `t` in a binary CSS code, where `t` is by default the distance `d`.
 Its BZ method, which `"auto"` takes, scans each sector in layers of a family of search bases, but stops and skips only as Sections [3.9](#39-skipping-completions-by-completion-tables) and [5](brouwer_zimmermann_code.md#5-correctness-requirements) allow, so that it visits every eligible word of weight `t`.
 A word lies in the layer of its coefficient weight in each search basis, so one step visits it first, and only that step counts it.
 The X and Z sectors of a self-dual code, whose X and Z checks span the same space, are equal.
 So a counter scans only one of them if it knows the code to be self-dual: if it was built from such checks, or deformed from such a counter by a gate that acts alike on X and Z.
+[problems.md](problems.md#the-macwilliams-method) explains the MacWilliams method, which counts from the weight distributions of the checks.
 
 #### Full Pauli counts
 
@@ -580,8 +580,6 @@ For each basis family that a counter keeps, the deformed counter reduces each ma
 If every search basis keeps its rank there, the family keeps its blocks, ranks, and coverage, and so its certificate; otherwise the counter builds the family again.
 A gate can change the parity of words, so the counter infers the weight divisor of [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) again.
 It can also change the distance and the weights of check words, so the counter searches for the distance again, and the MacWilliams method recomputes the weight distributions of the checks.
-
-[problems.md](problems.md#the-macwilliams-method) explains the MacWilliams method, which counts from the weight distributions of the checks.
 
 ## References
 
