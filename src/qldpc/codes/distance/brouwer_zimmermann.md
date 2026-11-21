@@ -208,7 +208,7 @@ This guide at commit 0870f6a derives the program's bound and works an example in
 
 Section 6 of Tillmann's preprint gives an integer program like the linear program above, with binary `x_c` and right-hand sides of one, for the size of the smallest set of linearly dependent columns of a matrix over the real numbers ([References](#references)).
 Tillmann's argument holds over any field.
-Over GF(2), his program computes the distance of the code of a parity-check matrix, with one constraint for each information set.
+Over GF(2), applied to a parity-check matrix, his program computes the distance of its code, with one constraint for each information set.
 
 #### Families for coset searches
 
@@ -219,7 +219,7 @@ So every certificate of this section holds for cosets, and any family of search 
 A coset search can thus use an overlapping family, or a disjoint family that matroid partitioning finds ([Section 4.4](brouwer_zimmermann_code.md#44-heuristics-and-cost-models)).
 The GAP package GUAVA searches a coset of a linear code with offsets in the same way, but only over a disjoint family of information sets ([References](#references)).
 The distance program Qubitserf instead turns the minimum weight of a coset `u + V`, for `u` outside `V`, into a distance search ([References](#references)).
-In the terms of [Section 2.1](#21-the-problem), that search takes `V + span(u)` as its space and `V` as its `S`, so its eligible words are those of the coset.
+In the terms of [Section 2.1](#21-the-problem), that search takes `V + span(u)` in the role of `V`, and `V` in the role of `S`, so its eligible words are those of the coset.
 
 ### 3.2 Rounding the certificate to a proven weight multiple
 
@@ -459,8 +459,8 @@ A lookup reads one entry per block.
 The scan looks up the bound each time it tries a new first row `s` for the pair that completes a prefix, and if `w + B ≥ U`, skips every completion of the prefix from row `s` on.
 A bound for a larger `s` is stronger, so a support is skipped exactly if the bound of its own `s` reaches `U - w`.
 The threads of a split layer ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)), and coset queries that run at once, each read shared tables, so a table must be complete before any scan reads it, and unchanged while scans do ([Section 5](brouwer_zimmermann_code.md#5-correctness-requirements)).
-Heuristic search in artificial intelligence calls tables like these, whose entries for disjoint parts of a problem add up to a lower bound, additive pattern databases.
-Korf and Felner, and Felner, Korf, and Hanan, describe them ([References](#references)).
+Heuristic search in artificial intelligence calls such tables additive pattern databases: their entries for disjoint parts of a problem add up to a lower bound.
+Korf and Felner describe them, as do Felner, Korf, and Hanan ([References](#references)).
 
 #### Certificates and contracts
 
@@ -588,7 +588,7 @@ It can also change the distance and the weights of check words, so the counter s
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
 - A. M. Tillmann, "Computing the spark: mixed-integer programming for the (vector) matroid girth problem," *Computational Optimization and Applications* 74, 387-441, 2019 ([doi:10.1007/s10589-019-00114-9](https://doi.org/10.1007/s10589-019-00114-9)): Section 6 of its 2018 preprint ([Optimization Online 6525](https://optimization-online.org/2018/03/6525/)), with Lemma 13 and program (13), writes the girth of a matroid, the size of its smallest dependent set, as an integer program that asks a set to meet the complement of every basis, and program (14) applies it to the spark of a real matrix.
   For the columns of a binary parity-check matrix, with linear dependence over GF(2), the girth is the distance of the code, and the complements of bases are its information sets ([Section 3.1](#31-overlapping-search-bases)).
-- [gap-packages/guava](https://github.com/gap-packages/guava/blob/e3bce700b7dfd100b17241ebfd95b9cfe0757060/lib/codeops.gi#L568-L686), `lib/codeops.gi`, lines 568-686 at commit `e3bce70`: `MinimumDistance(C, w)` searches the coset `w + C` of a linear code `C` over disjoint information sets, with, for each set, an offset of the coset that is zero on that set ("Families for coset searches" in [Section 3.1](#31-overlapping-search-bases)).
+- [gap-packages/guava](https://github.com/gap-packages/guava/blob/e3bce700b7dfd100b17241ebfd95b9cfe0757060/lib/codeops.gi#L568-L686), `lib/codeops.gi`, lines 568-686 at commit `e3bce70`: `MinimumDistance(C, w)` searches the coset `w + C` of a linear code `C` over disjoint information sets, each with an offset of the coset that is zero on that set ("Families for coset searches" in [Section 3.1](#31-overlapping-search-bases)).
 - [Quantinuum/Qubitserf](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/css.cpp#L150-L174), by S. Cercelescu, `cpp/distfind/css.cpp`, lines 150-174 at commit `04b9349`: `coset_problem` makes the reduction of "Families for coset searches" in [Section 3.1](#31-overlapping-search-bases), and Qubitserf's BZ search runs the result by default; lines 9-36 of `cpp/distfind/op_weight.cpp` use `coset_problem` for the least weights of the X and Z parts of a Pauli operator modulo a CSS group.
 - T. Junttila and P. Kaski, "Engineering an efficient canonical labeling tool for large and sparse graphs," in *Proceedings of the Ninth Workshop on Algorithm Engineering and Experiments (ALENEX)*, SIAM, 2007, pp. 135-149 ([doi:10.1137/1.9781611972870.13](https://doi.org/10.1137/1.9781611972870.13)), and "Conflict propagation and component recursion for canonical labeling," in *Theory and Practice of Algorithms in (Computer) Systems (TAPAS)*, Springer, 2011, pp. 151-162 ([doi:10.1007/978-3-642-19754-3_16](https://doi.org/10.1007/978-3-642-19754-3_16)): the bliss tool, which `pybliss` wraps ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 - G. Lee, "Bicycle race: small two-block codes on the Pareto frontier" ([arXiv:2610.13880v2](https://arxiv.org/abs/2610.13880v2)): Appendix C.4 takes the roots of a connected-cluster search from the automorphisms of the Tanner graph, which pynauty finds ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).

@@ -132,9 +132,10 @@ It stays exact, since the completeness argument of [Section 3.3](#33-the-depth-f
 Before it enters a child, the search applies the cheaper `b1`: it skips the child if the unsatisfied checks of the child outnumber `Δ(W - s - 1)`.
 
 Forbidding the variables that are not viable is reduced-cost fixing, a technique of integer programming since the early 1980s, as in Crowder, Johnson, and Padberg ([references](#references)).
-In the hitting-set problem, the reduced cost of `v` is `1 - R_v`: its cost, one, minus its repair `R_v`.
+In the hitting-set problem, the reduced cost of `v` is `1 - R_v`: its cost, one, minus its repair.
 So `v` is viable exactly if `Y` plus its reduced cost is at most `W - s`.
-Yamagishi, Fampa, and Lee show that this fixing is valid for set covering, a form of the hitting-set problem, with any feasible dual solution, not only an optimal one, such as qLDPC's weights `y_c = 1/m_c` ([references](#references)).
+Yamagishi, Fampa, and Lee show that this fixing is valid for set covering, a form of the hitting-set problem, with any feasible dual solution, not only an optimal one ([references](#references)).
+qLDPC's weights `y_c = 1/m_c` are such a solution.
 The search program QEDist applies the viability test with other weights, and only to the variables of the check on which it branches ([references](#references)).
 It skips the branch of each variable that fails the test.
 
@@ -144,7 +145,7 @@ The search also forbids variables by a rule that holds only for one witness, cho
 Order the witnesses of minimum weight by their supports, each listed in increasing rank, compared lexicographically, and call the least one the **canonical** witness `x*`.
 Let `g` be a **known word**: a row of `G`, which is in `rowspan(G)`, so that `x + g` is a witness whenever `x` is.
 Then `wt(x + g) = wt(x) + |g| - 2|x ∩ g|`, so a witness `x` with `|x ∩ g| > |g|/2` is not of minimum weight.
-This is the **half-overlap rule**.
+This property is the **half-overlap rule**.
 If `|x* ∩ g| = |g|/2`, then `x* + g` is another witness of minimum weight, which differs from `x*` only on the support of `g`.
 If `x*` lacked the lowest-ranked variable `u` of `g`, then `x* + g` would hold it and agree with `x*` on every variable of lower rank, so `x* + g` would come first.
 So in a tie, `x*` holds `u`.
@@ -667,6 +668,6 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - [guluchen/DistQLDPC](https://github.com/guluchen/DistQLDPC/blob/fae495bce77d6fff2cbb308aaca0676b45c8e98e/src/cc/cc_half.h), `src/cc/cc_half.h`, lines 170–205 at commit `fae495b`: the erasure bound, behind a gate that times its tests; and lines 139–160: up to four times as many sums of pairs of checks, and of pairs of stabilizers, no heavier than the heavier of each pair, as redundant checks and known words, which its connected-cluster engine adds by default (its rules `sparse` and `sparseov`, on by default at lines 229 and 237–241, and in its `README.md`, line 160).
 - [yeon-lee/QEDist](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/native_css/exact.cpp), `cssdist/native_css/exact.cpp`, lines 136–138 and 222 at commit `71a0f0c`, and its repairs through satisfied checks at lines 267–308, with lines 57–102 of `cssdist/native_css/even_methods.inc`, and its search for disjoint checks at lines 189–201 and 311–320, and J. Y. Lee, "Designing group-valued codes with full regular low-weight bases", [arXiv:2610.06820v1](https://arxiv.org/abs/2610.06820v1), with [yeon-lee/public-regular-logical-frames](https://github.com/yeon-lee/public-regular-logical-frames/blob/04ad4795ad15cb89ee47b7868ff925c30b2fc731/src/lp_exclusion.cpp), `src/lp_exclusion.cpp`, lines 68–69 at commit `04ad479`: pruning of supports that meet a stabilizer in more than half of it.
   Lines 327–335 and 357–361 of QEDist's `exact.cpp`, with the section "Testing proposed additions" of its [`docs/algorithm.md`](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/docs/algorithm.md#testing-proposed-additions): the viability test of [Section 3.4](#34-pruning), applied to the variables of the check on which QEDist branches.
-- [Fanerst/tropidist](https://github.com/Fanerst/tropidist/blob/b03ec2d4077f287f89f97b5c2c16ce5ce17c2c58/cdist/gmitm.c), `cdist/gmitm.c`, lines 388–416 at commit `b03ec2d`, the program of Cheng, Guo, and Pan, [arXiv:2611.08247v1](https://arxiv.org/abs/2611.08247v1): the half-overlap rule, as "kernel dominance", by sets of variables with zero syndrome and zero logical value (see lines 207–210 for the name); and lines 364–385, with lines 207–231 of `cdist/search.py`, which forbid a variable that, with a variable of the support, one variable could replace.
+- [Fanerst/tropidist](https://github.com/Fanerst/tropidist/blob/b03ec2d4077f287f89f97b5c2c16ce5ce17c2c58/cdist/gmitm.c), `cdist/gmitm.c`, lines 388–416 at commit `b03ec2d`, the program of Cheng, Guo, and Pan, [arXiv:2611.08247v1](https://arxiv.org/abs/2611.08247v1): the half-overlap rule of [Section 3.4](#34-pruning), as "kernel dominance", by sets of variables with zero syndrome and zero logical value (see lines 207–210 for the name); and lines 364–385, with lines 207–231 of `cdist/search.py`, which forbid a variable that, with a variable of the support, one variable could replace.
 - L. Aghababaie Beni, O. Higgott, and N. Shutty, "Tesseract: a search-based decoder for quantum error correction", Section 3, Algorithms 1–3, [arXiv:2503.10988v2](https://arxiv.org/abs/2503.10988v2): best-first search by the cost of the chosen errors plus a bound of the same kind as `⌈Y⌉`.
 - M. Banfi, M. Ferrari, A. Favano, A. Tarable, and L. Barletta, "Certified non-degenerate maximum-likelihood benchmarking of quantum LDPC decoders", Sections V-A to V-C, [arXiv:2610.28008v1](https://arxiv.org/abs/2610.28008v1): best-first search by the cost of the chosen errors plus a packing bound.
