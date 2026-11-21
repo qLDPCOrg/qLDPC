@@ -3,7 +3,7 @@
 """Analyze a run of the certification experiment: tables and the counterexample box.
 
     python analyze.py (--archive PATH | --label-dir DIR)
-        [--check-archive PATH | --check-label-dir DIR] [--out DIR]
+        [--check-archive PATH | --check-label-dir DIR] [--out DIR] [--allow-local]
 
 The analysis is descriptive: tables and medians, with every timeout, memout,
 error, missing run, and disagreement in the tables.  The ground truth runs in the subset
@@ -17,6 +17,10 @@ is recomputed from these files and from the harness commit and bundle that the l
 ``manifest.json`` records.  The ``circuits.json`` of the label of ``check`` must equal that of the
 analyzed label.  Every task of the label's ``tasks.json`` and ``tasks-pass2.json`` that has no row
 is reported as ``missing``, with a printed note.
+
+The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.  It
+then marks every output with their number: a ``local_rows`` column in each CSV file, a
+``local_rows`` key in each JSON file, and a first comment line in each circuit of ``pruned/``.
 
 An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/runner.py``) has the
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
@@ -191,23 +195,30 @@ def main() -> None:
             for key, task in _expected_tasks(check_dir).items()
             if task["arm"] == "ground_truth"
         }
+    local_rows = store.local_rows(rows, args.allow_local)
     circuits = {e["id"]: e for e in json.loads(circuits_text)["circuits"]}
-    write_outputs(collect(rows, circuits, expected), circuits, out)
+    write_outputs(collect(rows, circuits, expected), circuits, out, local_rows)
     print(f"wrote {out}")
 
 
 def write_outputs(
-    per_circuit: dict[str, dict[str, Any]], circuits: dict[str, dict[str, Any]], out: pathlib.Path
+    per_circuit: dict[str, dict[str, Any]],
+    circuits: dict[str, dict[str, Any]],
+    out: pathlib.Path,
+    local_rows: int = 0,
 ) -> None:
     """Write the tables and counterexamples of the circuits that ``collect`` gives.
 
-    Every output takes each circuit's verdict from the rows of summary.csv.
+    Every output takes each circuit's verdict from the rows of summary.csv.  With ``local_rows``,
+    the number of rows of ``--local`` runs, every output says so.
     """
     summary_rows, weight_rows = summarize(per_circuit)
     write_tables(summary_rows, weight_rows, out)
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
     write_counterexamples(per_circuit, verdicts, circuits, out)
     analyze_applications.write_applications(per_circuit, summary_rows, out)
+    if local_rows:
+        store.mark_local(out, local_rows)
 
 
 def parse_args() -> argparse.Namespace:
@@ -222,6 +233,9 @@ def parse_args() -> argparse.Namespace:
     check.add_argument("--check-archive", type=pathlib.Path, help="the archive of subset check")
     check.add_argument("--check-label-dir", type=pathlib.Path, help="the label directory of check")
     parser.add_argument("--out", type=pathlib.Path, help="the output directory")
+    parser.add_argument(
+        "--allow-local", action="store_true", help="analyze rows of --local runs, and say so"
+    )
     return parser.parse_args()
 
 

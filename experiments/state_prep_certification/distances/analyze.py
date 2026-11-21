@@ -2,7 +2,7 @@
 
 """Analyze a run of the distance experiment: ratios, family tables, the figure, and summary.csv.
 
-    python analyze.py (--archive PATH | --label-dir DIR) [--out DIR]
+    python analyze.py (--archive PATH | --label-dir DIR) [--out DIR] [--allow-local]
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
@@ -47,6 +47,10 @@ directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``fami
 ``anchors.csv``, ``distances.pdf`` (a log-log panel of T, prior against on), and
 ``figure_notes.json`` (the number of codes that the panel omits, for lack of a value, or for a
 disagreement, a failure, or an incomplete timing).
+
+The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
+``--allow-local``.  It then marks every output with their number: a ``local_rows`` column in each
+CSV file, a ``local_rows`` key in ``figure_notes.json``, and the panel's title.
 """
 
 from __future__ import annotations
@@ -78,13 +82,14 @@ def main() -> None:
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {problem}")
+    local_rows = store.local_rows(final.values(), args.allow_local)
     sample = load_sample(label_dir)
     expected = list(tasks.load_tasks(label_dir, pass2=False).values())
     missing = [key for key in tasks.load_tasks(label_dir) if key not in final]
     if missing:
         print(f"note: {len(missing)} tasks have no final row, such as {missing[0]}")
     per_code = summarize(list(final.values()), sample, expected)
-    write_outputs(per_code, sample, out)
+    write_outputs(per_code, sample, out, local_rows)
     print(f"wrote {out}")
 
 
@@ -97,6 +102,9 @@ def parse_args() -> argparse.Namespace:
     source.add_argument("--archive", type=pathlib.Path, help="the archive from the node")
     source.add_argument("--label-dir", type=pathlib.Path, help="a label directory")
     parser.add_argument("--out", type=pathlib.Path, help="the output directory")
+    parser.add_argument(
+        "--allow-local", action="store_true", help="analyze rows of --local runs, and say so"
+    )
     return parser.parse_args()
 
 
@@ -263,8 +271,16 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 # families, tables, and the figure
 
 
-def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pathlib.Path) -> None:
-    """Write summary.csv, families.csv, anchors.csv, and the figure."""
+def write_outputs(
+    records: list[dict[str, Any]],
+    sample: dict[str, Any],
+    out: pathlib.Path,
+    local_rows: int = 0,
+) -> None:
+    """Write summary.csv, families.csv, anchors.csv, and the figure.
+
+    With ``local_rows``, the number of rows of ``--local`` runs, every output says so.
+    """
     fields = [
         "name",
         "kind",
@@ -306,7 +322,9 @@ def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pa
             )
     _write_families(pairs, out)
     _write_anchors(by_code, sample, out)
-    _plot(pairs, out)
+    _plot(pairs, out, local_rows)
+    if local_rows:
+        store.mark_local(out, local_rows)
 
 
 def _median(results: list[dict[str, Any]]) -> str:
@@ -412,7 +430,7 @@ def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else [value]
 
 
-def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
+def _plot(pairs: list[dict[str, Any]], out: pathlib.Path, local_rows: int) -> None:
     """A log-log panel of T, with the prior arm's T on the x axis and the on arm's on the y axis."""
     import matplotlib
 
@@ -447,7 +465,7 @@ def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
     axis.plot(limits, limits, "k-", lw=0.6)
     axis.plot(limits, [x / FASTER for x in limits], "k:", lw=0.6)
     axis.plot(limits, [x * FASTER for x in limits], "k:", lw=0.6)
-    axis.set_title("time (s)")
+    axis.set_title(f"time (s); {local_rows} local rows" if local_rows else "time (s)")
     axis.set_xlabel("prior")
     axis.set_ylabel("on")
     figure.tight_layout()

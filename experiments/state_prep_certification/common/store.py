@@ -9,16 +9,22 @@ moves that fragment to ``recovered.txt`` and truncates the file to its last comp
 writes, so that a new row never joins a fragment.  ``read_rows`` ignores an incomplete last line and
 reports it, and ``final_rows`` keeps the first final row of each task and reports every duplicate,
 such as a second row of a task that two runners ran at once.
+
+The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
+analysis refuses them with ``local_rows`` unless it is given ``--allow-local``, and then marks each
+of its outputs with ``mark_local``.
 """
 
 from __future__ import annotations
 
+import csv
 import fcntl
 import hashlib
 import io
 import json
 import os
 import pathlib
+import sys
 import tarfile
 from collections.abc import Iterable
 from typing import Any
@@ -87,6 +93,45 @@ def final_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], list
         else:
             first[key] = row
     return first, problems
+
+
+def local_rows(rows: Iterable[dict[str, Any]], allow_local: bool) -> int:
+    """The number of rows of ``--local`` runs, which an analysis refuses unless ``allow_local``.
+
+    Raises:
+        SystemExit: If there are such rows and ``allow_local`` is false.
+    """
+    count = sum(bool(row.get("local")) for row in rows)
+    if count and not allow_local:
+        sys.exit(
+            f"{count} final rows come from --local runs, which were not timed as on the node; "
+            "pass --allow-local to analyze them anyway, and every output will say so"
+        )
+    return count
+
+
+def mark_local(out: pathlib.Path, count: int) -> None:
+    """Mark the outputs in ``out`` as an analysis that includes ``count`` rows of local runs.
+
+    Each CSV file gets a ``local_rows`` column, each JSON object a ``local_rows`` key, and each Stim
+    circuit a first comment line.  Other files are left to the analysis.
+    """
+    for path in sorted(out.rglob("*")):
+        if path.suffix == ".csv":
+            with open(path, newline="") as file:
+                table = list(csv.reader(file))
+            if table and "local_rows" not in table[0]:
+                table = [table[0] + ["local_rows"]] + [row + [str(count)] for row in table[1:]]
+                with open(path, "w", newline="") as file:
+                    csv.writer(file).writerows(table)
+        elif path.suffix == ".json":
+            data = json.loads(path.read_text())
+            data["local_rows"] = count
+            path.write_text(json.dumps(data, indent=1) + "\n")
+        elif path.suffix == ".stim":
+            text = path.read_text()
+            if not text.startswith("# local_rows"):
+                path.write_text(f"# local_rows: {count} rows of --local runs analyzed\n" + text)
 
 
 def make_archive(label_dir: pathlib.Path, name: str) -> pathlib.Path:

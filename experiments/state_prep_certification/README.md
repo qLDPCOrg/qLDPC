@@ -81,7 +81,8 @@ Repeating the command resumes the run.
 After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming; `--status` prints the progress.
 The archive that the run prints at its end is the one file to copy back.
 
-For development on a workstation, `--local` runs the tasks one at a time, without GNU parallel or pinning, and `--subset` selects tasks, as in:
+For development on a workstation, `--local` runs the tasks one at a time, without GNU parallel or pinning, and `--subset` selects tasks, as in the commands below.
+A local run has its own label directory, with the suffix `-local`, and the analyses of certification and distances refuse its rows unless given `--allow-local`, with which every output says how many rows of local runs it includes.
 
 ```bash
 python experiments/state_prep_certification/run_node.py EXPERIMENT --local --subset smoke --approved-cpu-hours H

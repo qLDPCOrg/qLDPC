@@ -14,9 +14,10 @@
   left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
 * **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label
   directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
-  the analysis of a run on golay a disagreement.  ``compare_with_sample`` reports a sample in which
-  one reference distance differs from that of ``sample.json``.  Each row's tuning is the shipped
-  default, with ``BZ_PRIOR`` for ``q_bz_prior``.
+  the analysis of a run on golay a disagreement.  The analysis refuses the rows of these local runs
+  without ``--allow-local``, and with it, every output says how many it includes.
+  ``compare_with_sample`` reports a sample in which one reference distance differs from that of
+  ``sample.json``.  Each row's tuning is the shipped default, with ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
   ``LOCAL_LIMIT_S``.
@@ -212,11 +213,28 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     out = label_dir / "analysis"
     script = pathlib.Path(__file__).with_name("analyze.py")
     command = [sys.executable, str(script), "--label-dir", str(label_dir), "--out", str(out)]
+    # the rows are of --local runs, which the analysis refuses without --allow-local
     result = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert result.returncode != 0 and "--allow-local" in result.stderr, result.stderr
+    result = subprocess.run(
+        command + ["--allow-local"], capture_output=True, text=True, check=False
+    )
     assert result.returncode == 0, result.stderr
     with open(out / "families.csv") as file:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
     assert (anchors["codes"], anchors["disagreement"]) == ("1", "1"), anchors
+
+    # every output says how many rows of local runs it includes
+    for path in out.iterdir():
+        if path.suffix == ".csv":
+            with open(path) as file:
+                reader = csv.DictReader(file)
+                assert "local_rows" in (reader.fieldnames or []), path.name
+                assert all(row["local_rows"] == "2" for row in reader), path.name
+        elif path.suffix == ".json":
+            assert json.loads(path.read_text())["local_rows"] == 2, path.name
+        else:
+            assert path.name == "distances.pdf", path.name
 
 
 @test

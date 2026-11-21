@@ -55,7 +55,9 @@
   ``compiled_in_timing`` set give the statuses, verdict, table counts, and times that
   ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
   whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
-  first run that finished.  Every case of the combined margin of ``analyze_applications.py`` gives
+  first run that finished.  With two of these rows marked as rows of ``--local`` runs,
+  ``analyze.py`` refuses the label without ``--allow-local``, and with it, every output says how
+  many it includes.  Every case of the combined margin of ``analyze_applications.py`` gives
   its value, its bound, or a disagreement, and a footnoted margin keeps its sector.  A margin or a
   deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
   makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
@@ -99,6 +101,7 @@ import hashlib
 import json
 import math
 import pathlib
+import subprocess
 import sys
 from typing import Any
 
@@ -121,7 +124,7 @@ from experiments.state_prep_certification.certification import (
     experiment,
     instrument,
 )
-from experiments.state_prep_certification.common import acceptance, local_runs
+from experiments.state_prep_certification.common import acceptance, local_runs, store
 
 SUITE = acceptance.Suite("spc-cert-")
 test = SUITE.test
@@ -660,6 +663,31 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         "x", {"options": {"max_weight": 2}}, first_flagged, repeat_flagged, first_flagged, {}, {}
     )
     assert weight["T_m_bz"] is None and weight["T_m_cc"] == 1.0, weight
+
+    # with rows of --local runs, the analysis refuses the label unless given --allow-local, and then
+    # every output says how many it includes
+    label_dir = directory / "label"
+    label_dir.mkdir()
+    (label_dir / "circuits.json").write_bytes(circuits.CIRCUITS_JSON.read_bytes())
+    for number, row in enumerate(rows):
+        store.append_row(label_dir, dict(row, local=number < 2))
+    command = [sys.executable, analyze.__file__, "--label-dir", str(label_dir)]
+    analysis = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert analysis.returncode != 0 and "--allow-local" in analysis.stderr, analysis.stderr
+    analysis = subprocess.run(
+        command + ["--allow-local"], capture_output=True, text=True, check=False
+    )
+    assert analysis.returncode == 0, analysis.stderr
+    for path in (label_dir / "analysis").rglob("*"):
+        if path.suffix == ".csv":
+            with open(path) as file:
+                reader = csv.DictReader(file)
+                assert "local_rows" in (reader.fieldnames or []), path.name
+                assert all(row["local_rows"] == "2" for row in reader), path.name
+        elif path.suffix == ".json":
+            assert json.loads(path.read_text())["local_rows"] == 2, path.name
+        elif path.is_file():
+            assert path.read_text().startswith("# local_rows: 2"), path.name
 
     _check_application_analysis(directory / "applications")
     print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")

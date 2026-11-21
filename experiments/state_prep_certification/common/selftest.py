@@ -875,6 +875,37 @@ def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
     assert len(labels) == 6, labels
 
 
+@test
+def test_label_suffixes(directory: pathlib.Path, node: bool) -> None:
+    """A label directory's suffixes: -dirty-<hash>, then -local, then -<subset>."""
+    from experiments.state_prep_certification.common import manifest, plugin
+
+    run_node = _run_node_module()
+    module = plugin.load_experiment("selftest")
+    names = {}
+    for dirty in (False, True):
+        commit = {
+            "commit": "c",
+            "dirty": dirty,
+            "diff_sha256": "0123456789abcdef" if dirty else None,
+        }
+        with _patched(manifest, "harness_commit", lambda commit=commit: commit):
+            for local in (False, True):
+                for subset in ("main", "smoke"):
+                    if local or not dirty:
+                        label_dir = run_node.get_label_dir(module, directory, subset, local)
+                        names[dirty, local, subset] = label_dir.name
+    label = names[False, False, "main"]
+    assert names == {
+        (False, False, "main"): label,
+        (False, False, "smoke"): f"{label}-smoke",
+        (False, True, "main"): f"{label}-local",
+        (False, True, "smoke"): f"{label}-local-smoke",
+        (True, True, "main"): f"{label}-dirty-01234567-local",
+        (True, True, "smoke"): f"{label}-dirty-01234567-local-smoke",
+    }, names
+
+
 @workstation_only
 @test
 def test_manifest_dirty_digest(directory: pathlib.Path, node: bool) -> None:

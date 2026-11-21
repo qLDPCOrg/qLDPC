@@ -35,10 +35,12 @@ the progress of the label.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session,
 and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development
-on a workstation, whose times are never used as results.  ``--dry-run`` stops after step 5 and
-prints the GNU parallel command.  ``--subset NAME`` selects a subset of the tasks, such as
-``smoke``; a subset other than ``main`` or ``acceptance`` gets its own label directory (see
-``common/manifest.py``).  ``--subset acceptance`` runs only the acceptance tests.
+on a workstation.  A local run has its own label directory, so ``--status`` and ``--cleanup`` of a
+local run need ``--local`` too, and the analyses refuse its rows unless given ``--allow-local``.
+``--dry-run`` stops after step 5 and prints the GNU parallel command.  ``--subset NAME`` selects a
+subset of the tasks, such as ``smoke``; a subset other than ``main`` or ``acceptance`` gets its own
+label directory (see ``common/manifest.py``).  ``--subset acceptance`` runs only the acceptance
+tests.
 """
 
 from __future__ import annotations
@@ -191,6 +193,7 @@ def get_label_dir(
     frozen = [plugin.experiment_dir(module.NAME) / name for name in module.FROZEN_FILES]
     label = manifest.compute_label(module.NAME, frozen, commit["commit"])
     label += f"-dirty-{commit['diff_sha256'][:8]}" if commit["dirty"] else ""
+    label += "-local" if local else ""
     label += "" if subset in ("main", "acceptance") else f"-{subset}"
     return results_dir / module.NAME / label
 
