@@ -13,10 +13,11 @@ drifts of the load of the machine affect both arms alike.
 
 Each trial appends a JSON line to ``trials.jsonl`` in the results directory, and a comparison skips
 the trials that the file holds, so an interrupted comparison resumes where it stopped.  The script
-prints a summary and writes it to ``summary-<tag>.csv`` in the results directory: for each workload,
-the median time and peak memory of each arm, and the median ratio of the proposed arm's time to the
-current arm's over rounds, with its spread and, from six rounds on, a confidence interval (see
-``get_median_interval``).  The summary flags each workload whose arms disagree on a result.
+prints a summary and writes it to ``summary-<tag>.csv`` in the results directory.  For each
+workload, the summary gives the median time and peak memory of each arm.  It also gives the median,
+least, and greatest over rounds of the ratio ``proposed time / current time``, and from six rounds
+on, a confidence interval of the median (see ``get_median_interval``).  The script warns of each
+workload whose arms disagree on a result.
 
 A trial's time is the median of its ``--repeat`` repetitions, and later repetitions reuse what codes
 and coset searches cache (see ``trial.py``).  Cached work that is the same in every arm, such as the
@@ -252,7 +253,7 @@ def get_environment(arm: dict[str, Any], name: str, results_dir: pathlib.Path) -
     """The environment of the processes of an arm: one thread, its source, and its bytecode.
 
     Each arm keeps the bytecode of its source in its own directory, so that after its first trial,
-    neither arm compiles modules within its timed searches.
+    neither arm writes Python bytecode within its timed searches.
     """
     environment = os.environ | SINGLE_THREAD
     paths = [str(pathlib.Path(arm["checkout"]) / "src"), os.environ.get("PYTHONPATH")]
@@ -335,8 +336,8 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One row for each workload of a comparison, pairing the arms of each round.
 
     Ratios of one round share the conditions of the machine, so their spread measures noise better
-    than the spread of times.  It warns of a workload whose arms disagree on a result, since no
-    tuning may change a result, except that of a distance search with an early exit.
+    than the spread of times.  The function warns of a workload whose arms disagree on a result,
+    since no tuning may change a result, except that of a distance search with an early exit.
     """
     by_workload: dict[str, list[dict[str, Any]]] = {}
     for trial in trials:

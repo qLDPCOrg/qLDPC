@@ -33,36 +33,41 @@ A code name is one of:
 
 A workload name is a kind, then a code name, then the arguments of the kind, separated by ``/``:
 
-- ``distance/<code>/<sector>``: ``get_distance_exact``, by the BZ method, of a quantum code, for the
-  sector ``X``, ``Z``, or ``both``, or of a classical code, whose sector must be ``-``;
-- ``ccdistance/<code>/<sector>``: the same, by the connected-cluster method;
+- ``distance/<code>/<sector>``: ``get_distance_exact``, by the Brouwer-Zimmermann (BZ) method, of a
+  quantum code, for the sector ``X``, ``Z``, or ``both``, or of a classical code, whose sector must
+  be ``-``.
+- ``ccdistance/<code>/<sector>``: the same, by the connected-cluster method.
 - ``hadamard/<code>``: ``get_distance_exact``, by the BZ method, of the code that Hadamards on the
-  second half of the qubits of a CSS code make, which is not CSS;
-- ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method;
+  second half of the qubits of a CSS code make, which is not CSS.
+- ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method.
 - ``ccount/<code>/<weight>``: the same count, in a process whose warm-up first calls
-  ``compile_search_setup`` (see ``trial.py``);
-- ``mcount/<code>/<num_codes>``: counts by the MacWilliams method of the logical operators at the
-  distance of ``num_codes`` codes, each the CSS code deformed by a CNOT on a pair of qubits that
-  NumPy's default generator draws from seed 0, as a search over deformed codes counts them;
-- ``coset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: the minimum weights,
-  up to ``max_weight``, that a ``CosetLeaderSearch`` on the logical state ``|0...0>`` of a CSS code
-  finds for the syndromes of random Pauli errors of ``error_weight`` qubits, by ``css`` or
-  ``physical`` weight, as residual-weight estimates search them;
+  ``compile_search_setup`` (see ``trial.py``).
+- ``mcount/<code>/<num_codes>``: counts, by the MacWilliams method, of the minimum-weight logical
+  operators of ``num_codes`` codes.  Each code is the CSS code deformed by a CNOT on a pair of
+  qubits that NumPy's default generator draws from seed 0.  These counts model a search over
+  deformed codes.
+- ``coset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: the minimum weights of
+  cosets, up to ``max_weight``, for the syndromes of random Pauli errors on ``error_weight`` qubits.
+  A ``CosetLeaderSearch`` on the logical state ``|0...0>`` of a CSS code finds these weights, by
+  ``css`` or ``physical`` weight (the ``css_weight`` argument of ``CosetLeaderSearch``).  The
+  workload models the coset searches of residual-weight estimates.
 - ``hcoset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: the same, on the state
   that Hadamards on the second half of the qubits make of ``|0...0>``, which is not CSS, so that
-  its searches by CSS weight are not split into searches of X and Z parts;
-- ``hbound/<code>/<error_weight>/<num_syndromes>``: ``get_min_weight_bound`` with maximum weight
-  one, by CSS weight, on that state, for the syndromes of random Pauli errors of ``error_weight``
-  qubits, as certifications of fault propagation query each primitive fault;
+  its searches by CSS weight are not split into searches of X and Z parts.
+- ``hbound/<code>/<error_weight>/<num_syndromes>``: the query ``get_min_weight_bound(syndrome, 1)``,
+  by CSS weight, on that state, for the syndromes of random Pauli errors on ``error_weight`` qubits.
+  Certifications of fault propagation make this query.  The workload makes ten passes over the
+  syndromes.  Its result is the number of queries, over all passes, whose coset has an error of CSS
+  weight at most one.
 - ``first/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``:
   ``find_first_not_within_max_weight`` for the syndromes of ``coset`` workloads, as certifications
-  of fault propagation search them;
+  of fault propagation search them.
 - ``certify/<code>/<weighing>/<max_weight>``: ``certify_bounded_fault_propagation`` of the encoding
   circuit of ``|0...0>`` of a CSS code under ``DepolarizingNoiseModel(1e-3)``, by ``css`` or
-  ``physical`` weight, whose result is the fault weight of the smallest violation, if any;
-- ``faultdist/<code>/<basis>``: ``get_fault_distance``, by the BZ method, of one round of a memory
-  experiment of a CSS code in the basis ``X`` or ``Z``, with noise only on its QEC cycle, as in the
-  notebook of fault-tolerance certificates.
+  ``physical`` weight, whose result is the fault weight of the smallest violation, if any.
+- ``faultdist/<code>/<basis>``: ``get_fault_distance``, by the BZ method, of a one-round memory
+  experiment of a CSS code in the basis ``X`` or ``Z``.  Only the QEC cycle of the experiment is
+  noisy, as in ``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb``.
 
 Each workload returns a short string of its result, which every tuning must reproduce.
 """

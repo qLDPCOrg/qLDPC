@@ -1,30 +1,38 @@
 # Checking the tuning of the exact distance searches
 
 Many defaults of `SearchTuning` in `qldpc.codes.distance._tuning` come from simple heuristics, such as "run an optional step when the work that it acts on reaches the cost of the step".
-The [Retuning section of `_tuning.py`](../../src/qldpc/codes/distance/_tuning.py) names the classes of defaults.
-These scripts check the tuning, and none of them sets or justifies a value, apart from running searches on one thread:
+The [Retuning section of `_tuning.py`](../../src/qldpc/codes/distance/_tuning.py) names the kinds of default and says when to change a default.
+[Section 4.4 of the Brouwer-Zimmermann code guide](../../src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models) describes the heuristics of Brouwer-Zimmermann searches and their known weak spots.
+These scripts check the tuning, and none of them sets or justifies a default:
 
 - [`workloads.py`](workloads.py) names the codes and the workloads that the other scripts run.
-- [`constants.py`](constants.py) checks that the orders of magnitude that the heuristics assume still hold on a machine.
+- [`constants.py`](constants.py) checks that the orders of magnitude that the heuristics assume still hold on a machine, and measures the coefficients of the cost model of completion tables ([Section 3.9 of the Brouwer-Zimmermann guide](../../src/qldpc/codes/distance/brouwer_zimmermann.md#39-skipping-completions-by-completion-tables); [Section 4.4 of `brouwer_zimmermann_code.md`](../../src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models) names them and gives the model).
 - [`trace.py`](trace.py) shows which decisions the searches of one workload make and what each of their stages costs, and compares the decisions of two traces.
-- [`sweep.py`](sweep.py) times the current tuning against a proposed one, or the defaults of two checkouts, in paired trials of [`trial.py`](trial.py), to catch gross regressions or bugs when the tuning or the search code changes.
+- [`sweep.py`](sweep.py) times two arms in paired trials, either the current tuning against a proposed one or the defaults of two checkouts, to catch gross regressions or bugs when the tuning or the search code changes.
+- [`trial.py`](trial.py) times one workload under one tuning in one process; `sweep.py` runs it for each trial.
 
 [`benchmark.py`](benchmark.py) compares the exact distance methods on known codes, and plays no part in tuning.
 Every script except `workloads.py` describes its outputs and options under `--help`.
-The outputs of the checks belong in the description of the pull request that they support, never in `_tuning.py` or the documentation.
+Report the outputs of the checks in the description of the pull request that they support ([Where documentation belongs](../../docs/source/contributing/standards/writing.rst#where-documentation-belongs)).
 [`workloads_test.py`](workloads_test.py) checks that the `qt7` workload keeps the parity checks of earlier releases, so that timings of it stay comparable; CI does not run it, so run `python -m pytest experiments/distance_tuning` after changing `QTCode` or `workloads.py`.
 
 ## Checking the orders of magnitude
 
-Run `constants.py` as its `--help` describes:
+Run `constants.py`, which takes hours, as its `--help` describes:
 
 ```bash
 python experiments/distance_tuning/constants.py
 ```
 
-`constants.py` does not check `macwilliams_shared_walk_rank`, which gates a test of whether the X and Z checks of a logical-operator counter span the same space.
-Trace `mcount` workloads of counters of rank 14 or more, such as `mcount/qrm:2:6/4`, with the test forced (`--tuning '{"macwilliams_shared_walk_rank": 0}'`).
-The default assumes that the test costs about as much as a walk of `2**14` steps, so compare the costliest `self-dual test` with `2**14` times the seconds per step of `walk` events of at least `2**16` steps.
+`constants.py` does not check `macwilliams_shared_walk_rank`, whose description in `_tuning.py` says what it gates.
+To check its default of 14:
+
+1. Trace an `mcount` workload whose X and Z checks have equal ranks of 14 or more, such as `mcount/qrm:2:6/4`, with `--tuning '{"macwilliams_shared_walk_rank": 0}'`.
+   With this setting, the trace records the test of whether the X and Z checks span the same space, whatever the default.
+2. Take the `seconds` of the costliest `self-dual test` event as the cost of the test.
+3. For each `walk` event of at least `2**16` steps, divide its `seconds` by its `steps` to estimate the cost of a step (`trace.py` describes these events).
+4. Compare the cost of the test with `2**14` times each estimate of the cost of a step.
+   If they differ by more than a factor of about 3, the default is off (see the Retuning section of `_tuning.py`).
 
 ## Tracing decisions
 
@@ -52,25 +60,12 @@ python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6
     --proposed '{"automorphism_minimum_states": 100000}'
 ```
 
-`sweep.py` says what the summary of a comparison gives and flags, and when to time with `--repeat`.
-A flagged disagreement, or a proposed arm much slower than the current one where the traced decisions do not change, points to a bug or a regression.
+`sweep.py` says what the summary of a comparison gives, when it warns, and when to time with `--repeat`.
+A warning that the arms disagree on a result, or a proposed arm much slower than the current one where the traced decisions do not change, points to a bug or a regression.
 
 Before timing:
 
 - Time searches in new single-threaded processes, one at a time, as `sweep.py` and `constants.py` do, since completion tables save less when several searches run at once.
-  `sweep.py` sets `NUMBA_NUM_THREADS=1` and `QLDPC_NUM_THREADS=1` for its trials.
-  `trace.py` and `benchmark.py` set `num_threads` to 1, and `trace.py` refuses a `--tuning` that sets another value, since it counts the work of one thread.
-  Set `QLDPC_NUM_THREADS=1` when you run `trial.py` directly.
+  `trace.py` and `benchmark.py` run their searches with `num_threads=1`.
+  When you run `trial.py` directly, limit it to one thread as its `--help` says.
 - Do not edit `src/` while the scripts run, since each process imports it anew.
-
-## Changing a default
-
-The Retuning section of `_tuning.py` says when to change a default.
-
-## Limits
-
-The heuristics have two known weak spots, which can cost time or memory but never change an exact result:
-
-- The cost of matroid partitioning varies widely between families of codes of the same size.
-  Its gate, `partition_work_ratio`, compares a formula for that cost with the estimated work of a search, which can far exceed the work done, so a search can partition and turn out small.
-- The cost model of completion tables decides at break-even with rough coefficients, so its marginal decisions can go either way.
