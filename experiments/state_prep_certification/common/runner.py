@@ -638,7 +638,7 @@ def measured_seconds() -> float:
 
 
 def send_partial(fields: dict[str, Any]) -> None:
-    """Forward a partial result, such as the counts of a finished layer, to the runner."""
+    """Forward a partial result, such as a finished stratum, to the runner."""
     _CHANNEL.send({"type": "partial", "fields": fields})
 
 

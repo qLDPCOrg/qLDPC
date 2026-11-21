@@ -11,7 +11,5 @@
   "completion_bound_minimum_layer_work": "MAX_VALUE",
   "completion_bound_max_table_bytes": 0,
   "automorphism_minimum_layer_work": "MAX_VALUE"
- },
- "work_counter": "work_counts",
- "work_counter_note": "The name in qldpc.codes.distance of the opt-in work counters of the distance searches; counting runs exist only if the installed qLDPC has it."
+ }
 }
