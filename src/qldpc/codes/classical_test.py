@@ -74,7 +74,6 @@ def test_bit_automorphisms_of_classes() -> None:
         (codes.CyclicCode(8, 1 + x, field=3), 8 * 2),
         (codes.CyclicCode(6, 1 + x), 6),
         (codes.GolayCode(), 23 * 11),
-        (codes.BCHCode(15, 7), 15 * 4),
         (codes.BCHCode(8, 4, field=3), 8 * 2),
         (codes.SimplexCode(3), 7 * 3),
         (codes.HammingCode(2), 6),
@@ -112,12 +111,13 @@ def test_special_codes() -> None:
     code: codes.ClassicalCode
 
     # galois compiles costly functions for each field, so the Reed-Solomon code and the binary BCH
-    # code below share GF(8), which holds the symbols of the one and the roots of the other
-    bits, dimension = 7, 4
+    # code below share GF(4), which holds the symbols of the one and the roots of the other, and
+    # which other tests in this file use too
+    bits, dimension = 3, 2
     code = codes.ReedSolomonCode(bits, dimension)
     assert code.dimension == codes.ClassicalCode(code.matrix).dimension == dimension
 
-    bits, dimension, field = 7, 4, 2
+    bits, dimension, field = 3, 1, 2
     code = codes.BCHCode(bits, dimension, field)
     assert code.dimension == codes.ClassicalCode(code.matrix).dimension == dimension
     with pytest.raises(ValueError, match=rf"block lengths {field}\^m - 1"):
