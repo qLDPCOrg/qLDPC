@@ -157,11 +157,15 @@ def test_store_recovery(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_store_archive(directory: pathlib.Path, node: bool) -> None:
-    """The archive holds every file of the label with matching checksums, and its .sha256."""
+    """The archive holds every file of the label with matching checksums, and its .sha256.
+
+    It leaves out the temporary file of an interrupted ``write_atomic``.
+    """
     label_dir = directory / "label"
     (label_dir / "logs").mkdir(parents=True)
     store.append_row(label_dir, {"task_key": "a"})
     (label_dir / "logs" / "a.txt").write_text("log")
+    (label_dir / ".manifest.json.123.tmp").write_text("{")
     archive = store.make_archive(label_dir, "label-host-utc")
     sha256 = (archive.parent / (archive.name + ".sha256")).read_text().split()[0]
     assert sha256 == store.sha256_file(archive)
@@ -885,6 +889,23 @@ def test_cleanup_reused_ids(directory: pathlib.Path, node: bool) -> None:
         assert run_node.live_runs(directory) == ["task"]
         run_node.cleanup(directory)
         assert ("group", reused) in killed, killed
+
+
+@test
+def test_cleanup_unreadable_records(directory: pathlib.Path, node: bool) -> None:
+    """An active record that vanished is skipped; an unreadable one is live until --cleanup."""
+    run_node = _run_node_module()
+    active = directory / "active"
+    active.mkdir()
+    (active / "gone").symlink_to(active / "nowhere")  # a file removed after the listing
+    (active / "torn").write_text('{"pid": 1')
+    run_node.refuse_other_hosts(directory)
+    assert run_node.live_runs(directory) == ["torn"]
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        run_node.cleanup(directory)
+    assert "torn: unreadable" in output.getvalue(), output.getvalue()
+    assert not (active / "torn").exists()
+    assert run_node.live_runs(directory) == []
 
 
 @test

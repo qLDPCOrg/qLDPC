@@ -12,7 +12,8 @@ such as a second row of a task that two runners ran at once.
 
 ``write_atomic`` writes the label's other records, such as ``acceptance.json``, ``manifest.json``,
 and the runner's ``active/`` files, whole or not at all, so that a kill during a write never
-leaves a partial record.
+leaves a partial record.  The temporary file that such a kill can leave, ``.<name>.<pid>.tmp``,
+never enters the archive.
 
 The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
 analysis refuses them with ``local_rows`` unless it is given ``--allow-local``, and then marks each
@@ -228,5 +229,11 @@ def _archived_files(label_dir: pathlib.Path) -> Iterable[pathlib.Path]:
     """Every regular file of a label's directory that belongs in its archive."""
     for path in label_dir.rglob("*"):
         parts = path.relative_to(label_dir).parts
-        if path.is_file() and not path.is_symlink() and parts[0] not in _UNARCHIVED:
+        temporary = path.name.startswith(".") and path.name.endswith(".tmp")  # see write_atomic
+        if (
+            path.is_file()
+            and not path.is_symlink()
+            and parts[0] not in _UNARCHIVED
+            and not temporary
+        ):
             yield path

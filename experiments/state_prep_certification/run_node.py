@@ -428,8 +428,8 @@ def lock_label(label_dir: pathlib.Path) -> None:
 def refuse_other_hosts(label_dir: pathlib.Path) -> None:
     """Exit if the label's ``active/`` directory lists a run of another host."""
     host = socket.gethostname()
-    for path in sorted((label_dir / "active").glob("*")):
-        other = json.loads(path.read_text()).get("host", host)
+    for path, record in _active_records(label_dir):
+        other = host if record is None else record.get("host", host)
         if other != host:
             sys.exit(
                 f"{path} lists a run on host {other}, which this host ({host}) can neither see nor "
@@ -453,12 +453,15 @@ def live_runs(label_dir: pathlib.Path) -> list[str]:
     """The tasks of ``active/`` whose runner or run is still the recorded process.
 
     A run is also live if its process group's leader is gone but members of the group remain,
-    which is when ``cleanup`` kills the group.
+    which is when ``cleanup`` kills the group.  An unreadable record counts as live, since nothing
+    shows that its run ended; ``cleanup`` removes it.
     """
     live = []
     table = runner.process_table()
-    for path in sorted((label_dir / "active").glob("*")):
-        record = json.loads(path.read_text())
+    for path, record in _active_records(label_dir):
+        if record is None:
+            live.append(path.name)
+            continue
         recorded = [
             (record["runner_pid"], record["runner_start"]),
             (record["pid"], record["pid_start"]),
@@ -483,17 +486,40 @@ def cleanup(label_dir: pathlib.Path) -> None:
     Each task runner is killed first, so that it cannot write a row for a run that it lost.  A
     process is killed only if its start time is the recorded one.  A run's process group is killed
     only if its leader is that recorded process, or if no process has the leader's id any more but
-    members of the group remain; a process that has reused the id is never killed.
+    members of the group remain; a process that has reused the id is never killed.  An unreadable
+    record is removed, with a note.
     """
-    for path in sorted((label_dir / "active").glob("*")):
-        record = json.loads(path.read_text())
+    for path, record in _active_records(label_dir):
+        if record is None:
+            print(
+                f"{path.name}: unreadable, so its run is unknown; removed the record.  If "
+                "processes of the run are alive, find and kill them by hand."
+            )
+            path.unlink(missing_ok=True)
+            continue
         _kill_if_same(record["runner_pid"], record["runner_start"], group=False)
         if record.get("pgid") is not None:
             killed = _kill_if_same(record["pid"], record["pid_start"], group=True)
         else:
             killed = _kill_tree_if_same(record["pid"], record["pid_start"])
         print(f"{path.name}: {'killed its run' if killed else 'its run had already ended'}")
-        path.unlink()
+        path.unlink(missing_ok=True)
+
+
+def _active_records(label_dir: pathlib.Path) -> list[tuple[pathlib.Path, dict[str, Any] | None]]:
+    """The files of the label's ``active/`` directory with their records, None if unreadable.
+
+    A file that vanishes before it is read, as when its run ends, is left out.
+    """
+    records: list[tuple[pathlib.Path, dict[str, Any] | None]] = []
+    for path in sorted((label_dir / "active").glob("*")):
+        try:
+            records.append((path, json.loads(path.read_text())))
+        except FileNotFoundError:
+            continue
+        except ValueError:
+            records.append((path, None))
+    return records
 
 
 def _kill_tree_if_same(pid: int, start: str | None) -> bool:
