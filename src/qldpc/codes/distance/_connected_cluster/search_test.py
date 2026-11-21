@@ -358,9 +358,15 @@ def test_the_distance_matches_enumeration(name: str, restrict_viable_symbols: bo
             )
 
 
+# The only lightest witness of "capped-scale", {0, 1}, has the least variable 0, from which the
+# searches of test_the_distance_matches_enumeration start.  Its capped scale changes only which
+# states are pruned, so its other roots, which root no word that light, could fail only as the roots
+# of other problems do.
 @pytest.mark.parametrize("pair_sums", [True, False])
 @pytest.mark.parametrize("cuts", [True, False])
-@pytest.mark.parametrize("name", [*SEARCHED_PROBLEMS, "steane-X"])
+@pytest.mark.parametrize(
+    "name", [name for name in [*SEARCHED_PROBLEMS, "steane-X"] if name != "capped-scale"]
+)
 def test_each_root_finds_the_lightest_witnesses_that_it_roots(
     name: str, cuts: bool, pair_sums: bool
 ) -> None:
@@ -1551,24 +1557,60 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return positions
 
 
-def get_threaded_cases() -> Iterator[
-    tuple[Problem, bool, Callable[[], npt.NDArray[np.int_]] | None]
-]:
-    """Problems, whether each is symplectic, and how to get automorphisms, for threaded searches.
+def get_read_only(array: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    """A read-only view of an array."""
+    view = array.view()
+    view.flags.writeable = False
+    return view
+
+
+@dataclasses.dataclass(frozen=True)
+class ThreadedCase:
+    """A problem for searches on threads, and the limits and switches with which they run.
+
+    The searches ask ``get_automorphisms`` for automorphisms, if it is given, and run the weight
+    limits from 1 to ``max_weight``, with the restriction to viable symbols and the overlap cuts
+    both set to each value of ``switches``.
+    """
+
+    problem: Problem
+    symplectic: bool = False
+    get_automorphisms: Callable[[], npt.NDArray[np.int_]] | None = None
+    max_weight: int = 7
+    switches: tuple[bool, ...] = (True, False)
+
+
+def get_threaded_cases() -> Iterator[ThreadedCase]:
+    """Cases of searches on threads.
 
     The searches of these problems split some weight limits into items so that the first witness
     is in the first item, a middle one, or the last, or comes after every item, above the frontier
-    at which the items start.  Other limits have no witness.
+    at which the items start.  Other limits have no witness.  The syndromes of every problem fit
+    one word.
     """
-    for problem in PROBLEMS.values():
-        yield problem, False, None
+    for name, problem in PROBLEMS.items():
+        # The sums of pairs of checks of "capped-scale" make its syndromes two words wide.
+        if name != "capped-scale":
+            yield ThreadedCase(problem)
     for problem in QUBIT_PROBLEMS.values():
-        yield problem, True, None
+        yield ThreadedCase(problem, symplectic=True)
+    # What the last two cases check, a frontier that deepens from one root, and a witness in the
+    # last of many roots, does not depend on the switches.  With the switches on, a search runs
+    # every part of the search that it runs with them off, so these cases run only with them on.
     # The Golay code has one root under its cyclic shifts, so the frontier deepens from that root.
-    yield get_golay_problem(), False, lambda: np.roll(np.arange(23), -1)[None]
-    # Only the last root is a witness, and on up to three threads, its 100 roots are the items.
-    checks = np.hstack([np.eye(99, dtype=np.uint8), np.zeros((99, 1), dtype=np.uint8)])
-    yield (checks, np.zeros((0, 100), dtype=np.uint8)), False, None
+    yield ThreadedCase(
+        get_golay_problem(),
+        get_automorphisms=lambda: np.roll(np.arange(23), -1)[None],
+        switches=(True,),
+    )
+    # Each of the first 64 variables is a check of its own, and each of the next 35 an excluded
+    # row, so only the last root is a witness, at every limit.  On up to three threads, the 100
+    # roots are the items.  On eight, the witness is in the last item at limit 1, and above the
+    # frontier at limit 2, as at every later limit.
+    checks = np.eye(64, 100, dtype=np.uint8)
+    yield ThreadedCase(
+        (checks, np.eye(35, 100, 64, dtype=np.uint8)), max_weight=2, switches=(True,)
+    )
 
 
 def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
@@ -1577,44 +1619,55 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     """In chunks and on threads, each weight limit finds the witness and states of one call.
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
-    both on or both off (Section 3.11 of ``connected_cluster.md``).  Chunks of one state resume the
-    search after every state, on one thread and on threads.  The threads run with every array of
-    the search read-only.  The first witness of some limit is in each of the positions that
+    both on or both off, as ``get_threaded_cases`` says (Section 3.11 of ``connected_cluster.md``).
+    Chunks of one state resume the search after every state, on one thread and on threads.  The
+    threads run with every array of the search read-only, and so is every array that their calls
+    of ``_search_supports`` take.  The first witness of some limit is in each of the positions that
     ``get_threaded_cases`` names, in a case with at least as many roots as the 8 threads.  So a
     witness above the frontier shows that the frontier deepens to more items than one per thread.
     """
     calls = record_thread_counts(monkeypatch)
     positions = record_witness_positions(monkeypatch)
-    # The roots and paths of the work items, which _search_on_threads makes for the threads, are not
-    # reached from the search, so they stay writeable (Section 5 of connected_cluster.md).
     checked = check_shared_arrays_on_threads(monkeypatch, lambda *_, **__: [search])
+    search_supports = cs._search_supports
+
+    # The roots and paths of the work items, which _search_on_threads makes for the threads, and the
+    # paths and ends of chunks are not reached from the search.  So a call on threads, whose tables
+    # are read-only, gets read-only views of every array, so that numba compiles one version for
+    # every such call, and rejects a write to any of its arrays (Section 5 of connected_cluster.md).
+    def search_read_only(*args: Any) -> Any:
+        if not get_kernel_arguments(args)["symbol_masks"].flags.writeable:
+            args = tuple(get_read_only(arg) if isinstance(arg, np.ndarray) else arg for arg in args)
+        return search_supports(*args)
+
+    monkeypatch.setattr(cs, "_search_supports", search_read_only)
     many_root_positions: set[str] = set()
-    for (problem, symplectic, get_automorphisms), switch in itertools.product(
-        get_threaded_cases(), [True, False]
-    ):
+    for case in get_threaded_cases():
         num_positions = len(positions)
-        results = []
-        for num_threads, chunk_states in [(1, cs.MAX_VALUE), (3, cs.MAX_VALUE), (1, 1), (8, 1)]:
-            search = get_search(
-                *problem,
-                symplectic=symplectic,
-                get_automorphisms=get_automorphisms,
-                restrict_viable_symbols=switch,
-                stabilizer_overlap_cuts=switch,
-                num_threads=num_threads,
-                split_minimum_states=-1,
-                chunk_states=chunk_states,
-            )
-            results.append(
-                [
-                    (None if witness is None else witness.tolist(), search.num_states)
-                    for witness in map(search.find_witness, range(1, 8))
-                ]
-            )
-        assert all(result == results[0] for result in results)
+        for switch in case.switches:
+            results = []
+            for num_threads, chunk_states in [(1, cs.MAX_VALUE), (3, cs.MAX_VALUE), (1, 1), (8, 1)]:
+                search = get_search(
+                    *case.problem,
+                    symplectic=case.symplectic,
+                    get_automorphisms=case.get_automorphisms,
+                    restrict_viable_symbols=switch,
+                    stabilizer_overlap_cuts=switch,
+                    num_threads=num_threads,
+                    split_minimum_states=-1,
+                    chunk_states=chunk_states,
+                )
+                results.append(
+                    [
+                        (None if witness is None else witness.tolist(), search.num_states)
+                        for witness in map(search.find_witness, range(1, case.max_weight + 1))
+                    ]
+                )
+            assert all(result == results[0] for result in results)
         # Without automorphisms, every variable is a root.
-        num_variables = problem[0].shape[1] // 2 if symplectic else problem[0].shape[1]
-        if get_automorphisms is None and num_variables >= 8:
+        width = case.problem[0].shape[1]
+        num_variables = width // 2 if case.symplectic else width
+        if case.get_automorphisms is None and num_variables >= 8:
             many_root_positions.update(positions[num_positions:])
     assert set(calls) == {3, 8}
     assert len(checked) == len(calls) and min(checked) > 0
