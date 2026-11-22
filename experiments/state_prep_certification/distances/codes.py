@@ -15,7 +15,7 @@ parameters whose length is nearest in log n, which can lie outside [n_lo, n_hi];
 smaller n, then to the smaller tie-break, a value that each family's ``admissible`` gives with its
 parameters.  Targets that land on the same parameters make one size.  The sample's ``ladders`` list
 each family's targets and the parameters that they land on, with ``merged`` set to true for a
-target that lands on the parameters of an earlier one.  No timing of any kind enters this rule.
+target that lands on the parameters of an earlier one.
 
 **Draws.**  For each size, draws i = 0, 1, ... are made until ``CODES_PER_SIZE`` are kept or
 ``MAX_DRAWS`` are made.  Draw i of a family's parameters uses ``numpy.random.default_rng`` with the

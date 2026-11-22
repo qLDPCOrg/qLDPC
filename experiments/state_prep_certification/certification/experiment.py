@@ -133,8 +133,8 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
     E-chen, and the A-ft circuits of the Steane code.  In every subset, ``brute_bz`` runs only where
     ``circuits.json`` puts U within the cap, ``ground_truth`` only where its rule applies,
     ``margin`` only where r > t, ``prune`` only on the families of ``settings.VERIFIED_FAMILIES``,
-    and ``prune_sensitivity`` only
-    on the circuits of ``prune.sensitivity_inputs`` of ``config.json``.
+    and ``prune_sensitivity`` only on the circuits of ``prune.sensitivity_inputs`` of
+    ``config.json``.
     """
     entries = [e for e in json.loads(CIRCUITS_JSON.read_text())["circuits"] if e["status"] == "ok"]
     if subset == "smoke":

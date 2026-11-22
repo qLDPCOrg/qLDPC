@@ -144,7 +144,7 @@ The ground truth (`counting.ground_truth`) requires a CSS state.
 
 The baseline enumerates the accepted fault combinations over the N_0 reduced mechanisms, fault weight by fault weight up to K, and queries them in batches with the certifier's own oracle, built from the same arguments, until the first batch that holds a violation.
 Only the fault search differs from `cert_bz`.
-U bounds both the combinations and the oracle rows that it queries, and is fixed by the circuit's parameters, so that a circuit over the cap gets no task, rather than a timeout.
+U bounds both the combinations and the oracle rows that it queries, and is fixed by the circuit's parameters, so that a circuit over the cap gets no task.
 
 A circuit with margin m* has bounded fault propagation up to exactly m* - 1.
 m* is "all" if no counterexample exists at any fault weight, which the search proves once it completes fault weight r + 1, or earlier if no flagged mechanism is heavy.
