@@ -171,7 +171,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import csv
 import json
 import math
 import pathlib
@@ -181,7 +180,15 @@ from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from experiments.state_prep_certification.certification import analyze_applications, experiment
+from experiments.state_prep_certification.certification import (
+    analyze_applications,
+    applications,
+    experiment,
+)
+from experiments.state_prep_certification.certification.analyze_applications import (
+    _status,
+    _write_csv,
+)
 from experiments.state_prep_certification.certification.settings import CONFIG, HERE
 from experiments.state_prep_certification.common import manifest, store
 from experiments.state_prep_certification.common import tasks as task_store
@@ -689,20 +696,6 @@ def _first_result(arm_rows: list[dict[str, Any]] | None) -> dict[str, Any]:
     return arm_rows[0]["result"] if arm_rows else {}
 
 
-def _status(arm_rows: list[dict[str, Any]] | None) -> str:
-    """The status of an arm's first run, or 'not run'.
-
-    A timeout whose row has ``compiled_in_timing`` set is ``timeout_compiled`` (see the module
-    docstring).
-    """
-    if not arm_rows:
-        return "not run"
-    first = arm_rows[0]
-    if first["status"] == "timeout" and first.get("compiled_in_timing"):
-        return "timeout_compiled"
-    return str(first["status"])
-
-
 def _run_verdict(run: dict[str, Any]) -> str:
     """The verdict of a finished certification, or its status."""
     return verdict(run["result"]) if run["status"] == "ok" else run["status"]
@@ -1014,18 +1007,6 @@ def _agreement(members: list[dict[str, Any]], key: str, arms: tuple[str, ...]) -
     return f"{sum(compared)}/{len(compared)}"
 
 
-def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> pathlib.Path:
-    """Write rows to a CSV file, with the union of their keys as columns; return its path."""
-    fields: list[str] = []
-    for row in rows:
-        fields += [key for key in row if key not in fields]
-    with open(path, "w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fields or ["empty"])
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
-
-
 ####################################################################################################
 # shadow.csv
 
@@ -1151,8 +1132,6 @@ def check_consistency(
       at which its search found a violation, or with that of another deletion task that ends at
       the same final circuit (``analyze_applications.final_contradictions``).
     """
-    from experiments.state_prep_certification.certification import applications
-
     claims = analyze_applications.margin_claims(circuit, arms)
     _, _, contradictions = analyze_applications.combine_claims(claims)
 

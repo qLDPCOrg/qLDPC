@@ -50,21 +50,23 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
+import stim
+
+from experiments.state_prep_certification.certification import baseline, code_files, counting
 from experiments.state_prep_certification.certification.settings import (
     CIRCUITS_JSON,
     CONFIG,
     DATA,
     INPUTS,
+    SYNTHESES,
+    VERIFIED_FAMILIES,
+    noisy_circuit,
 )
+from experiments.state_prep_certification.certification.states import same_state
 from experiments.state_prep_certification.common import store
+from qldpc import circuits as qldpc_circuits
+from qldpc.circuits.certification import fault_propagation
 
-SYNTHESIZED = DATA / "synthesized"
-SYNTHESIZED_MQT_1_9_0 = DATA / "synthesized_mqt_1.9.0"
-# The families of synthesized circuits: the prefix of their ids, and the folder of their circuits.
-SYNTHESES = {
-    "D-synth": ("dsynth", SYNTHESIZED),
-    "D-synth (MQT 1.9.0)": ("dsynth190", SYNTHESIZED_MQT_1_9_0),
-}
 MQT_DIR = DATA / "mqt"
 SOURCES = CONFIG["workstation_sources"]
 TRANSLATED = DATA / "translated"
@@ -173,12 +175,6 @@ A_CODES = {
 ALLOWED_GATES = {"H", "CX", "R", "RX", "M", "MR", "MX", "MRX", "CZ", "TICK"}
 RESET_GATES = {"R", "RX"}
 
-# The families of verified circuits: each gets a weakened variant, a code file, and deletion tasks.
-VERIFIED_FAMILIES = ("A-ft", "C-goto", *SYNTHESES)
-
-# The families whose design t is (d - 1) // 2 for the distance d of their code (``_sources``).
-T_FROM_DISTANCE = ("A-ft", "A-unv", *SYNTHESES)
-
 
 def build_inputs() -> None:
     """Build every certification input, with its weakened variant, and write ``circuits.json``.
@@ -210,8 +206,6 @@ def make_inputs(inputs: pathlib.Path) -> dict[str, Any]:
     ``VERIFIED_FAMILIES`` records its code file and the file's SHA-256
     (``code_files.code_file_fields``).
     """
-    from experiments.state_prep_certification.certification import code_files
-
     inputs.mkdir(parents=True, exist_ok=True)
     for name, path in LICENSES.items():
         shutil.copyfile(path, inputs / name)
@@ -233,16 +227,6 @@ def make_inputs(inputs: pathlib.Path) -> dict[str, Any]:
     return {"circuits": entries, "sources": SOURCES | {"mqt_qecc_synthesis_releases": releases}}
 
 
-def same_state(reference: list[str], other: list[str]) -> bool:
-    """Whether every stabilizer of ``other`` has expectation +1 in the state of ``reference``."""
-    import stim
-
-    tableau = stim.Tableau.from_stabilizers([stim.PauliString(text) for text in reference])
-    simulator = stim.TableauSimulator()
-    simulator.do_tableau(tableau, list(range(len(tableau))))
-    return all(simulator.peek_observable_expectation(stim.PauliString(text)) == 1 for text in other)
-
-
 def dem_parameters(circuit: Any, options: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
     """The DEM parameters of a noiseless input with the noise and certify options of a circuit.
 
@@ -256,16 +240,12 @@ def dem_parameters(circuit: Any, options: dict[str, Any]) -> tuple[Any, dict[str
     Raises:
         ValueError: If qLDPC rejects the circuit, such as for a nondeterministic detector.
     """
-    from experiments.state_prep_certification.certification import baseline, counting, experiment
-    from qldpc import circuits as qldpc_circuits
-    from qldpc.circuits.certification import fault_propagation
-
     recorded: dict[str, list[int]] = {}
 
     def recorder(flags: Any, syndromes: Any, *args: Any, **kwargs: Any) -> None:
         recorded["flags"], recorded["syndromes"] = list(flags), list(syndromes)
 
-    noisy = experiment.noisy_circuit(circuit, options["noise"])
+    noisy = noisy_circuit(circuit, options["noise"])
     original = fault_propagation.find_smallest_violation
     fault_propagation.find_smallest_violation = recorder
     try:
@@ -393,8 +373,6 @@ def _synthesized_circuits(folder: pathlib.Path) -> list[dict[str, Any]]:
 
 def _make_entry(source: dict[str, Any], inputs: pathlib.Path) -> dict[str, Any]:
     """Derive, validate, and write the certification input of one source circuit."""
-    import stim
-
     text = source["path"].read_text()
     entry = {key: value for key, value in source.items() if key != "path"}
     entry["source_sha256"] = hashlib.sha256(text.encode()).hexdigest()
@@ -442,8 +420,6 @@ def _make_weakened(parent: dict[str, Any], inputs: pathlib.Path) -> dict[str, An
     just before it, and so on, until qLDPC accepts the variant with the parent's output qubits and
     the variant prepares the parent's state, as ``_validate_and_write`` checks.
     """
-    import stim
-
     circuit = stim.Circuit((inputs / f"{parent['id']}.stim").read_text())
     options = dict(parent["options"], output_qubits=parent["output_qubits"])
     tried = []
@@ -486,8 +462,6 @@ def _dump(data: Any) -> str:
 
 def _prepend_resets(circuit: Any) -> tuple[Any, list[int]]:
     """Prepend ``R`` on every qubit whose first operation is not a reset."""
-    import stim
-
     first: dict[int, str] = {}
     for instruction in circuit.flattened():
         for target in instruction.targets_copy():
@@ -502,8 +476,6 @@ def _prepend_resets(circuit: Any) -> tuple[Any, list[int]]:
 
 def _measured_qubits_backwards(circuit: Any) -> list[int]:
     """Distinct measured qubits, from the last target of the last measurement backwards."""
-    import stim
-
     order: list[int] = []
     for instruction in reversed(circuit.flattened()):
         if stim.gate_data(instruction.name).produces_measurements:
@@ -520,8 +492,6 @@ def _delete_qubit(circuit: Any, qubit: int) -> tuple[Any, int, int]:
         ValueError: If the circuit has detectors or observables, whose measurement records the
             deletion of a measurement would shift.
     """
-    import stim
-
     result = stim.Circuit()
     deleted = measured = 0
     for instruction in circuit.flattened():
@@ -590,12 +560,8 @@ def _check_input(entry: dict[str, Any]) -> list[str]:
     ``config.json``.  An input of ``VERIFIED_FAMILIES`` must have a code file that passes
     ``code_files.check_code_file``, which checks, among other things, that the input's state is the
     code's |0...0>, that the record's n agrees with the code file, and that its t does where the
-    family takes t from the distance (``T_FROM_DISTANCE``) and the file gives the distance.
+    family takes t from the distance (``settings.T_FROM_DISTANCE``) and the file gives the distance.
     """
-    import stim
-
-    from experiments.state_prep_certification.certification import code_files
-
     name = entry["id"]
     path = INPUTS / f"{name}.stim"
     if not path.exists():
@@ -676,21 +642,6 @@ def _check_rebuilt(recorded: dict[str, Any]) -> list[str]:
         if old.get(circuit_id) != new.get(circuit_id)
     ]
     return problems
-
-
-def _check_code_state(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
-    """The problems of an input whose recorded state is not the code's |0...0>, if any.
-
-    Each row of the code must have one column per output qubit, as ``code_files.check_code`` checks
-    first.
-    """
-    expected = []
-    for rows, letter in ((code["Hx"], "X"), (code["Hz"], "Z"), (code["Lz"], "Z")):
-        for row in rows:
-            expected.append("+" + "".join(letter if bit else "_" for bit in row))
-    if not same_state(entry["stabilizers"], expected):
-        return [f"{entry['id']}: its state is not the code's |0...0>"]
-    return []
 
 
 if __name__ == "__main__":

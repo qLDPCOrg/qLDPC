@@ -194,6 +194,7 @@ from experiments.state_prep_certification.certification import (
     experiment,
     instrument,
     settings,
+    states,
 )
 from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
 from experiments.state_prep_certification.common import tasks as task_store
@@ -212,11 +213,11 @@ def _circuits() -> list[dict[str, Any]]:
 def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None) -> Any:
     """Certify a circuit of ``circuits.json`` with its options, at its K unless one is given."""
     entry = experiment._entry(circuit_id)
-    options = experiment.certify_options(entry)
+    options = settings.certify_options(entry)
     if max_weight is not None:
         options["max_weight"] = max_weight
     return qldpc_circuits.certify_bounded_fault_propagation(
-        experiment._noisy_input(entry), method=method, **options
+        settings.noisy_input(entry), method=method, **options
     )
 
 
@@ -287,7 +288,7 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
             len(reference.state_stabilizers),
         )
         reduced = counting.reduce_signatures(flags, syndromes)
-        stabilizers = experiment.stabilizer_matrix(reference.state_stabilizers)
+        stabilizers = states.stabilizer_matrix(reference.state_stabilizers)
         truth = counting.ground_truth(reduced, stabilizers, entry["options"]["max_weight"])
         _compare_counts(reduced.flags, truth["heavy"], entry["options"]["max_weight"], truth)
 
@@ -525,7 +526,7 @@ def at5_circuit_data(directory: pathlib.Path, node: bool) -> None:
     for entry in checked:
         circuit_id = entry["id"]
         p = entry["options"]["noise"]["p"]
-        noisy = experiment._noisy_input(entry)
+        noisy = settings.noisy_input(entry)
         for instruction in noisy.flattened():
             data = stim.gate_data(instruction.name)
             if data.produces_measurements:
@@ -948,7 +949,7 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
 
     # a deletion that changes the prepared state, and one that adds a random measurement
     goto = experiment._entry("cgoto")
-    options = experiment.certify_options(goto) | {
+    options = settings.certify_options(goto) | {
         "output_qubits": goto["output_qubits"],
         "max_weight": goto["t"],
     }
@@ -1059,8 +1060,8 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
     enumerated = sectors_enumerated = 0
     for circuit_id in dict.fromkeys(ids):
         entry = experiment._entry(circuit_id)
-        options = experiment.certify_options(entry)
-        result = applications.find_margin(experiment._noisy_input(entry), options)
+        options = settings.certify_options(entry)
+        result = applications.find_margin(settings.noisy_input(entry), options)
         margin = result["margin"]
         assert margin == expected.get(circuit_id, margin), (circuit_id, margin)
 
@@ -1274,7 +1275,7 @@ def _check_random_dems() -> dict[str, int]:
     Return the number of DEMs certified and with a violation.
     """
     reference = _certify("cgoto", "brouwer_zimmermann", max_weight=1)
-    stabilizers = experiment.stabilizer_matrix(reference.state_stabilizers)
+    stabilizers = states.stabilizer_matrix(reference.state_stabilizers)
     table = counting.residual_weight_table(stabilizers)
     light = np.flatnonzero(table <= 1)
     rng = np.random.default_rng(20261116)
@@ -1942,7 +1943,7 @@ def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps:
     accepted_enumerated = 0
 
     noise = entry["options"]["noise"]
-    options = experiment.certify_options(entry) | {
+    options = settings.certify_options(entry) | {
         "output_qubits": entry["output_qubits"],
         "max_weight": entry["t"],
     }
@@ -1954,7 +1955,7 @@ def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps:
             assert not _prepares(child, entry), record
             continue
         assert _prepares(child, entry), record
-        noisy = experiment.noisy_circuit(child, noise)
+        noisy = settings.noisy_circuit(child, noise)
         if outcome == "detectors rejected":
             certify = functools.partial(
                 qldpc_circuits.certify_bounded_fault_propagation,
@@ -1982,7 +1983,7 @@ def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps:
     text = applications.circuit_text(current)
     assert text == result["final_circuit"], entry["id"]
     assert hashlib.sha256(text.encode()).hexdigest() == result["final_sha256"], entry["id"]
-    noisy = experiment.noisy_circuit(stim.Circuit(text), noise)
+    noisy = settings.noisy_circuit(stim.Circuit(text), noise)
     final = qldpc_circuits.certify_bounded_fault_propagation(
         noisy, method="brouwer_zimmermann", **options
     )
@@ -2008,7 +2009,7 @@ def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps:
 
     # the acceptance estimates of parent and final circuit, against the exact probabilities
     parent = qldpc_circuits.certify_bounded_fault_propagation(
-        experiment.noisy_circuit(_input(entry["id"]), noise),
+        settings.noisy_circuit(_input(entry["id"]), noise),
         method="brouwer_zimmermann",
         **(options | {"max_weight": 1}),
     )
@@ -2057,7 +2058,7 @@ def _enumerated_violation(
 
     The DEM comes from an untimed certification at weight 1, as for the arm ``ground_truth``.
     """
-    noisy = experiment.noisy_circuit(circuit, entry["options"]["noise"])
+    noisy = settings.noisy_circuit(circuit, entry["options"]["noise"])
     reference = qldpc_circuits.certify_bounded_fault_propagation(
         noisy, method="brouwer_zimmermann", **(options | {"max_weight": 1})
     )
@@ -2067,7 +2068,7 @@ def _enumerated_violation(
         len(reference.state_stabilizers),
     )
     reduced = counting.reduce_signatures(flags, syndromes)
-    stabilizers = experiment.stabilizer_matrix(reference.state_stabilizers)
+    stabilizers = states.stabilizer_matrix(reference.state_stabilizers)
     smallest: int | None = counting.ground_truth(reduced, stabilizers, max_weight)[
         "smallest_violation"
     ]
@@ -2106,7 +2107,7 @@ def _enumerated_sectors(entry: dict[str, Any], output_pauli: str) -> tuple[int, 
     The X part is minimized over the X parts of the elements of the state's stabilizer group that
     have no Z part, and the Z part likewise, which enumerates the whole group.
     """
-    stabilizers = experiment.stabilizer_matrix([stim.PauliString(s) for s in entry["stabilizers"]])
+    stabilizers = states.stabilizer_matrix([stim.PauliString(s) for s in entry["stabilizers"]])
     n = len(entry["output_qubits"])
     x_part, z_part = (part.astype(np.uint8) for part in stim.PauliString(output_pauli).to_numpy())
     group = np.zeros((1, 2 * n), dtype=np.uint8)

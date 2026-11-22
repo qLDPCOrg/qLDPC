@@ -131,7 +131,7 @@ None of them can detect an error in what they all share: the DEM, the flags and 
   Its residual weights come from an enumeration of every X error and every Z error on the output qubits (`counting.residual_weight_table`), independent of both oracles, and it enumerates every accepted fault, so its agreement tests the oracles, the fault search, and the counts on the circuits that it covers.
   Its counts and the counters' share the definition of the flag classes (`counting.get_classes`).
 - The analysis checks a counterexample's exact residual weight against its fault weight, the certifier's lower bound, and, for CSS weight, the residual weights of its X and Z parts.
-  The residual weights of the counterexample and of its parts come from a BZ oracle (`_describe` in `experiment.py`), so this check does not test BZ itself.
+  The residual weights of the counterexample and of its parts come from a BZ oracle (`describe_certificate` in `applications.py`), so this check does not test BZ itself.
 
 ## Workflow
 

@@ -88,6 +88,7 @@ import numpy.typing as npt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from experiments.state_prep_certification.certification import circuits as certification_circuits
+from experiments.state_prep_certification.certification import states as certification_states
 from experiments.state_prep_certification.common import (
     acceptance,
     local_runs,
@@ -140,7 +141,7 @@ def rt1_inputs(directory: pathlib.Path) -> None:
             noiseless = experiment.noisy_input(entry, 0.001).without_noise()
             prepared = circuits.get_state_stabilizers(noiseless, entry["output_qubits"])
             assert len(prepared) == len(entry["output_qubits"]), entry["id"]
-            assert certification_circuits.same_state(
+            assert certification_states.same_state(
                 [str(op) for op in prepared], members[0]["stabilizers"]
             ), (group, entry["id"])
         print(f"  {group}: {[entry['id'] for entry in members]}")

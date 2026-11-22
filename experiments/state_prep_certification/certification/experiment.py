@@ -23,7 +23,7 @@ t + 1 for design t:
 * ``margin``: the smallest violating fault weight m* of a circuit whose flag rank r exceeds its
   design t, by BZ certification with no limit on the fault weight (``applications.py``).
 * ``prune`` and ``prune_sensitivity``: deletion of the measured qubits of a circuit of
-  ``circuits.VERIFIED_FAMILIES`` under exact certification at K = t, in two orders
+  ``settings.VERIFIED_FAMILIES`` under exact certification at K = t, in two orders
   (``applications.py``);
   ``prune_sensitivity`` runs only on the circuits of ``prune.sensitivity_inputs``.
 
@@ -46,7 +46,6 @@ under ``repeats.below_s`` gets ``repeats.count`` more runs (``repeat_tasks``).
 
 from __future__ import annotations
 
-import importlib
 import json
 import pathlib
 import shutil
@@ -56,18 +55,25 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import stim
 
-from experiments.state_prep_certification.certification import baseline, counting, instrument
+from experiments.state_prep_certification.certification import (
+    applications,
+    baseline,
+    circuits,
+    counting,
+    instrument,
+)
 from experiments.state_prep_certification.certification.settings import (
     CIRCUITS_JSON,
     CONFIG,
-    INPUTS,
+    VERIFIED_FAMILIES,
+    certify_options,
+    noisy_input,
 )
+from experiments.state_prep_certification.certification.states import stabilizer_matrix
 from experiments.state_prep_certification.common import runner
 from experiments.state_prep_certification.common.tasks import repeated_worst_case_s
 from qldpc import circuits as qldpc_circuits
-from qldpc import math as qldpc_math
 from qldpc.codes.distance import CosetLeaderSearch, CosetMethod
 
 NAME = "certification"
@@ -126,8 +132,6 @@ def prepare(label_dir: pathlib.Path) -> None:
     that ``circuits.py --build`` wrote may be run; it enters the label's hash, and its copy in the
     label directory travels in the label's archive, from which ``analyze.py`` reads it.
     """
-    from experiments.state_prep_certification.certification import circuits
-
     circuits.check_inputs()
     shutil.copyfile(CIRCUITS_JSON, label_dir / CIRCUITS_JSON.name)
 
@@ -139,11 +143,9 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
     and the deletions; ``check`` the ground truth; and ``smoke`` every arm that applies to C-goto,
     E-chen, and A-ft steane.  In every subset, ``brute_bz`` runs only where ``circuits.json`` puts U
     within the cap, ``ground_truth`` only where its rule applies, ``margin`` only where r > t,
-    ``prune`` only on the families of ``circuits.VERIFIED_FAMILIES``, and ``prune_sensitivity`` only
+    ``prune`` only on the families of ``settings.VERIFIED_FAMILIES``, and ``prune_sensitivity`` only
     on the circuits of ``prune.sensitivity_inputs`` of ``config.json``.
     """
-    from experiments.state_prep_certification.certification import circuits
-
     entries = [e for e in json.loads(CIRCUITS_JSON.read_text())["circuits"] if e["status"] == "ok"]
     if subset == "smoke":
         entries = [
@@ -165,7 +167,7 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
                 continue
             if arm == "margin" and entry["r"] <= entry["t"]:
                 continue
-            if arm == "prune" and entry["family"] not in circuits.VERIFIED_FAMILIES:
+            if arm == "prune" and entry["family"] not in VERIFIED_FAMILIES:
                 continue
             if (
                 arm == "prune_sensitivity"
@@ -260,12 +262,10 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     completed fault weight, so that a limit can stop it between weights on a machine of any speed.
     The tasks of ``applications.ARMS`` run in ``applications.run``.
     """
-    from experiments.state_prep_certification.certification import applications
-
     entry = _entry(task["input"]["id"])
     if task["arm"] in applications.ARMS:
         return applications.run(task, entry)
-    noisy = _noisy_input(entry)
+    noisy = noisy_input(entry)
     arm = task["arm"]
     options = certify_options(entry)
     max_weight = options["max_weight"]
@@ -310,7 +310,7 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
         # AT4 delays the description, so that it overruns a short post-processing allowance however
         # fast the description itself is
         time.sleep(float(task.get("post_delay_s", 0.0)))
-        return _describe(certificate)
+        return applications.describe_certificate(certificate)
 
     if arm == "brute_bz":
         brute = baseline.BruteForce(progress=runner.send_partial, clock=runner.elapsed)
@@ -372,34 +372,6 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     return fields
 
 
-def certify_options(entry: dict[str, Any]) -> dict[str, Any]:
-    """The keyword options of ``certify_bounded_fault_propagation`` for a circuit, K included."""
-    options = entry["options"]
-    keys = ("add_flags", "post_select", "output_qubits", "css_weight", "max_weight")
-    return {key: options[key] for key in keys}
-
-
-def noisy_circuit(circuit: stim.Circuit, noise: dict[str, Any]) -> stim.Circuit:
-    """The given noiseless circuit with the noise of ``noise``.
-
-    ``noise["model"]`` is the import path of a noise model of ``qldpc.circuits``, such as
-    ``qldpc.circuits.DepolarizingNoiseModel``, and ``noise["p"]`` its probability.
-    """
-    module, name = noise["model"].rsplit(".", 1)
-    model = getattr(importlib.import_module(module), name)
-    return model(noise["p"]).noisy_circuit(circuit)
-
-
-def stabilizer_matrix(stabilizers: Any) -> npt.NDArray[np.uint8]:
-    """State stabilizers, as ``stim.PauliString`` objects or their text, as rows ``[x | z]``.
-
-    Text is parsed by stim first, since ``string_to_op`` would take a leading sign for a qubit.
-    """
-    return np.array(
-        [qldpc_math.string_to_op(stim.PauliString(s)) for s in stabilizers], dtype=np.uint8
-    )
-
-
 def _listing(
     reduced: counting.ReducedDem,
     stabilizers: npt.NDArray[np.uint8],
@@ -445,45 +417,9 @@ def _delayed(
     return send_then_sleep
 
 
-def _describe(certificate: Any) -> dict[str, Any]:
-    """The untimed description of a certificate, with the exact residual of a counterexample.
-
-    The description of a counterexample also gives its sector (``applications.sector_fields``).
-    """
-    from experiments.state_prep_certification.certification import applications
-
-    fields: dict[str, Any] = {"certificate_text": str(certificate)}
-    example = certificate.counterexample
-    if example is None:
-        return fields
-    num_qubits = len(certificate.output_qubits)
-    fields |= {
-        "fault_indices": list(example.fault_indices),
-        "output_pauli": str(example.output_pauli),
-        "residual_weight_lower_bound": example.residual_weight_lower_bound,
-    }
-    oracle = CosetLeaderSearch(
-        stabilizer_matrix(certificate.state_stabilizers),
-        css_weight=certificate.css_weight,
-        method="brouwer_zimmermann",
-    )
-    batch = oracle.pack_syndromes(np.array(example.output_syndrome, dtype=np.uint8))
-    # with a cap of the number of output qubits, the returned weight is exact
-    weight = int(oracle.get_min_weights(batch, num_qubits)[0])
-    fields["residual_weight"] = weight
-    fields["residual_exceeds_fault_weight"] = weight > len(example.fault_indices)
-    return fields | applications.sector_fields(certificate)
-
-
 def _entry(circuit_id: str) -> dict[str, Any]:
     """The record of a circuit in ``circuits.json``."""
     for entry in json.loads(CIRCUITS_JSON.read_text())["circuits"]:
         if entry["id"] == circuit_id:
             return entry
     raise KeyError(circuit_id)
-
-
-def _noisy_input(entry: dict[str, Any]) -> stim.Circuit:
-    """The circuit's frozen noiseless input, with the noise of ``circuits.json``."""
-    circuit = stim.Circuit((INPUTS / f"{entry['id']}.stim").read_text())
-    return noisy_circuit(circuit, entry["options"]["noise"])

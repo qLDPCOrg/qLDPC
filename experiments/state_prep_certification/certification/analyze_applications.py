@@ -56,12 +56,16 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import pathlib
 import shutil
 from typing import Any
 
+import stim
+
+from experiments.state_prep_certification.certification import applications, circuits
 from experiments.state_prep_certification.certification.settings import INPUTS
 
 # The arms whose runs make claims on a circuit's m* by their results and their fault weights.
@@ -87,8 +91,6 @@ def margin_claims(
     claim holds the values ``exact`` that it determines, an integer or "all", and the largest lower
     bound ``bound`` k, meaning m* > k, or None.
     """
-    from experiments.state_prep_certification.certification import applications
-
     claims: dict[str, Claim] = {}
     cutoff = circuit["r"] + 1
 
@@ -303,8 +305,6 @@ def agree_prune(
     certification certifies or violates at t + 1, and otherwise both violate at the same weight.
     Each final circuit must be certified by the CC oracle.  None if nothing was compared.
     """
-    from experiments.state_prep_certification.certification import applications
-
     certification = bz if bz["status"] == "ok" else cc
     compared = []
     for arm in applications.PRUNE_ORDERS:
@@ -337,8 +337,6 @@ def final_contradictions(
     end at the same final circuit, by its ``final_sha256``.  The final circuit of a task that
     accepted no deletion is the parent, whose claims ``margin_claims`` compares instead.
     """
-    from experiments.state_prep_certification.certification import applications
-
     contradictions = []
     by_final_circuit: dict[str, dict[str, Claim]] = {}
     for arm in applications.PRUNE_ORDERS:
@@ -370,9 +368,6 @@ def write_applications(
 
     The module docstring describes the outputs.
     """
-    from experiments.state_prep_certification.certification import applications
-    from experiments.state_prep_certification.certification.analyze import _status, _write_csv
-
     # the circuits with m* <= t
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
     violations = [
@@ -545,8 +540,6 @@ def _table_row(
     not finish, ``final_margin_lower_bound`` is k, the largest of t and the fault weights that the
     search completed, meaning m* > k (the final circuit is certified at K = t).
     """
-    from experiments.state_prep_certification.certification import applications
-
     row: dict[str, Any] = {
         "id": circuit_id,
         "arm": arm,
@@ -593,10 +586,6 @@ def _rebuild_matches(
     None if the parent's input is missing, or is not the one that the label ran on, by its SHA-256
     in the label's ``circuits.json``.
     """
-    import stim
-
-    from experiments.state_prep_certification.certification import applications, circuits
-
     path = inputs / f"{circuit['id']}.stim"
     if (
         not path.exists()
@@ -609,3 +598,29 @@ def _rebuild_matches(
             parent, _, _ = circuits._delete_qubit(parent, record["qubit"])
     text = applications.circuit_text(parent)
     return hashlib.sha256(text.encode()).hexdigest() == checks["final_sha256"]
+
+
+def _status(arm_rows: list[dict[str, Any]] | None) -> str:
+    """The status of an arm's first run, or 'not run'.
+
+    A timeout whose row has ``compiled_in_timing`` set is ``timeout_compiled`` (see the
+    docstring of ``analyze.py``).
+    """
+    if not arm_rows:
+        return "not run"
+    first = arm_rows[0]
+    if first["status"] == "timeout" and first.get("compiled_in_timing"):
+        return "timeout_compiled"
+    return str(first["status"])
+
+
+def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> pathlib.Path:
+    """Write rows to a CSV file, with the union of their keys as columns; return its path."""
+    fields: list[str] = []
+    for row in rows:
+        fields += [key for key in row if key not in fields]
+    with open(path, "w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fields or ["empty"])
+        writer.writeheader()
+        writer.writerows(rows)
+    return path

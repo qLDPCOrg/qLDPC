@@ -10,8 +10,8 @@ that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz.
 
 The code files follow MQT QECC's definitions of the codes.  Those of the A-ft codes lie in
 ``circuit_data/codes/``, and those of the codes of each family of synthesized circuits beside its
-circuits (``circuits.SYNTHESES``).
-``code_file`` gives each circuit of ``circuits.VERIFIED_FAMILIES`` its file, ``circuits.py
+circuits (``settings.SYNTHESES``).
+``code_file`` gives each circuit of ``settings.VERIFIED_FAMILIES`` its file, ``circuits.py
 --build`` records the file and its SHA-256 in ``circuits.json``, and ``circuits.py --check`` checks
 each file against its circuit (``check_code_file``).
 """
@@ -23,8 +23,14 @@ from typing import Any
 
 import numpy as np
 
-from experiments.state_prep_certification.certification import circuits, counting
-from experiments.state_prep_certification.certification.settings import DATA, HERE
+from experiments.state_prep_certification.certification import counting, states
+from experiments.state_prep_certification.certification.settings import (
+    DATA,
+    HERE,
+    SYNTHESES,
+    T_FROM_DISTANCE,
+    VERIFIED_FAMILIES,
+)
 from experiments.state_prep_certification.common import store
 
 CODES = DATA / "codes"
@@ -36,10 +42,10 @@ def code_file(entry: dict[str, Any]) -> str | None:
     A-ft circuits use the file of their code's folder, C-goto that of the Steane code, and
     synthesized circuits that of their synthesis.  Other families have none.
     """
-    if entry["family"] not in circuits.VERIFIED_FAMILIES:
+    if entry["family"] not in VERIFIED_FAMILIES:
         return None
     name = "steane" if entry["family"] == "C-goto" else entry["id"].split(".")[1]
-    synthesis = circuits.SYNTHESES.get(entry["family"])
+    synthesis = SYNTHESES.get(entry["family"])
     folder = CODES if synthesis is None else synthesis[1]
     return str((folder / f"{name}_code.json").relative_to(HERE))
 
@@ -67,12 +73,12 @@ def check_code(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
 
     With n the number of output qubits, the four matrices must be binary with n columns.  Each row
     of Hx, Hz, and Lz must have expectation +1 in the state that ``circuits.json`` records for the
-    circuit, in output-qubit order (``circuits._check_code_state``), which implies that these rows
+    circuit, in output-qubit order (``_check_code_state``), which implies that these rows
     commute.  The number k = n - rank(Hx) - rank(Hz) of logical qubits must equal the k of the
     circuit's [[n, k, d]], and Lx and Lz must have k rows each.  Over GF(2), Hz Lx^T must vanish,
     and Lx Lz^T must be nonsingular.  Together, these checks imply that the rows of Hx, Hz, and Lz
     generate the state's stabilizer group.  The n of the circuit's [[n, k, d]] must be the n of the
-    matrices.  For a circuit of ``circuits.T_FROM_DISTANCE``, whose t is (d - 1) // 2, t must be
+    matrices.  For a circuit of ``settings.T_FROM_DISTANCE``, whose t is (d - 1) // 2, t must be
     that of the file's ``distance``, if it gives one.  Nothing checks the ``distance`` itself.
     """
     name = entry["id"]
@@ -84,12 +90,12 @@ def check_code(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
     hx, hz, lx, lz = (
         np.array(code[key], dtype=np.int64).reshape(-1, n) for key in ("Hx", "Hz", "Lx", "Lz")
     )
-    problems = circuits._check_code_state(entry, code)
+    problems = _check_code_state(entry, code)
     if entry["code"][0] != n:
         problems.append(f"{name}: the code's n is {entry['code'][0]}, not n = {n}")
     distance = code.get("distance")
     if (
-        entry["family"] in circuits.T_FROM_DISTANCE
+        entry["family"] in T_FROM_DISTANCE
         and distance is not None
         and entry["t"] != (distance - 1) // 2
     ):
@@ -109,6 +115,21 @@ def check_code(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
     if pairing.shape != (expected_k, expected_k) or _rank(pairing) != expected_k:
         problems.append(f"{name}: Lx Lz^T is not a nonsingular {expected_k} x {expected_k} matrix")
     return problems
+
+
+def _check_code_state(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
+    """The problems of an input whose recorded state is not the code's |0...0>, if any.
+
+    Each row of the code must have one column per output qubit, as ``code_files.check_code`` checks
+    first.
+    """
+    expected = []
+    for rows, letter in ((code["Hx"], "X"), (code["Hz"], "Z"), (code["Lz"], "Z")):
+        for row in rows:
+            expected.append("+" + "".join(letter if bit else "_" for bit in row))
+    if not states.same_state(entry["stabilizers"], expected):
+        return [f"{entry['id']}: its state is not the code's |0...0>"]
+    return []
 
 
 def _rank(matrix: Any) -> int:
