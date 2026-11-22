@@ -89,6 +89,16 @@ EXPECTED_BZ_PRIOR = {
     "completion_bound_max_table_bytes": 0,
     "automorphism_minimum_layer_work": _tuning.MAX_VALUE,
 }
+# a task's limits, the runner's window for a result, and the repeat policy, written out here
+# independently of config.json and the runner, which AT9 checks
+EXPECTED_LIMITS = {
+    "startup_cap_s": 120.0,
+    "limit_s": 1800.0,
+    "finish_s": 30.0,
+    "grace_s": 30.0,
+    "repeat_below_s": 300.0,
+    "repeats": 2,
+}
 
 
 SUITE = acceptance.Suite("spc-dist-")
@@ -348,8 +358,12 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     # the ceiling, by independent arithmetic: start-up cap, limit (or the repeat threshold for a
     # repeated run's first run), result window, and grace, for each run; then, for the runner's
     # retries, twice that and one more run at the first run's limit
-    task_cost = (120 + 300 + 30 + 30) + 2 * (120 + 1800 + 30 + 30)
-    run_cost = 120 + 1800 + 30 + 30  # one run at the first run's limit
+    startup, limit, below = (
+        EXPECTED_LIMITS[key] for key in ("startup_cap_s", "limit_s", "repeat_below_s")
+    )
+    after = EXPECTED_LIMITS["finish_s"] + EXPECTED_LIMITS["grace_s"]
+    run_cost = startup + limit + after  # one run at the first run's limit
+    task_cost = (startup + below + after) + EXPECTED_LIMITS["repeats"] * run_cost
     (golay,) = _entries(("golay",))
     for arm in arms.ARMS:
         assert experiment.worst_case_s(experiment._task(arm, golay, 0)) == task_cost
@@ -361,16 +375,16 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     # the repeat policy: two repeats of a first run that finished in under 300 s, and no others
     task = experiment._task("q_bz_on", golay, 0)
     for status, seconds, expected in (
-        ("ok", 299.9, 2),
-        ("ok", 300.0, 0),
-        ("timeout", 1800.0, 0),
+        ("ok", below - 0.1, EXPECTED_LIMITS["repeats"]),
+        ("ok", below, 0),
+        ("timeout", limit, 0),
         ("error", 1.0, 0),
     ):
         repeats = experiment.repeat_tasks(task, {"status": status, "T": seconds})
         assert len(repeats) == expected, (status, seconds, repeats)
         for number, repeat in enumerate(repeats, 1):
             assert repeat["key"] == task["key"].removesuffix(".r0") + f".r{number}", repeat["key"]
-            assert repeat["limit_s"] == task["limit_s"] and repeat["repeat"] == number
+            assert repeat["limit_s"] == limit and repeat["repeat"] == number
 
 
 @test
