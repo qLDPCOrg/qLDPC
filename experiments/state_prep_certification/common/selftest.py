@@ -183,8 +183,8 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
 
     It leaves out the temporary file of an interrupted ``write_atomic``, and the label's lock, but
     keeps a file named ``SHA256SUMS`` below the top level.  ``open_archive`` unpacks it, and refuses
-    it once its files no longer match its inner list, or the archive its ``.sha256``, or that file
-    is missing.
+    it once its files no longer match its inner list, or the archive its ``.sha256``, or once its
+    ``.sha256`` or inner ``SHA256SUMS`` is missing.
     """
     label_dir = directory / "label"
     (label_dir / "logs").mkdir(parents=True)

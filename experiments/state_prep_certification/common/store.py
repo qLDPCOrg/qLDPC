@@ -183,8 +183,7 @@ def allowed_environment(label_dir: pathlib.Path) -> list[str]:
     ``run_node.py``); ``starts.jsonl`` records, for each start, the names that it accepted, the
     environment, and its optimization level (``manifest.optimize_level``).  ``PYTHONOPTIMIZE``
     counts whenever a start ran with an optimization level above 0, whatever set it, such as -O.
-    Every start counts, dry runs too, since each records itself before it runs the acceptance tests,
-    whose pass later starts reuse.
+    Every start counts, dry runs too (see ``manifest.record_start``).
     """
     names: set[str] = set()
     for start in _starts(label_dir):

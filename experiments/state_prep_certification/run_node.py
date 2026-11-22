@@ -14,15 +14,14 @@ experiment (``common/manifest.py``), it
    and an environment variable of ``REFUSED_ENVIRONMENT``, such as ``PYTHONPATH``, unless
    ``--allow-env NAME`` accepts it (``NUMBA_CACHE_DIR``, which ``node.sh`` sets, is allowed),
    and then records the start, with its host, CPU model, environment, and Python's optimization
-   level, in ``starts.jsonl`` (``manifest.record_start``), so that the analyses see every
-   environment in which the acceptance tests ran, even that of a start that stops at a later step;
-2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
-   label directory, and stops if they fail.  Each such attempt, an acceptance attempt, runs the
-   acceptance tests in a fresh directory under ``acceptance/<label directory>/`` of the results
-   directory, which ``acceptance.json`` records, and the self-tests in temporary directories, which
-   they remove;
+   level, in ``starts.jsonl``, before the tests of step 2 (see ``manifest.record_start``);
+2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, unless they
+   passed for the label directory before (see ``run_acceptance``), and stops if they fail.  Each
+   such attempt, an acceptance attempt, runs the acceptance tests in a fresh directory under
+   ``acceptance/<label directory>/`` of the results directory, which ``acceptance.json`` records,
+   and the self-tests in temporary directories, which they remove;
 3. refuses a task list in which a task's memory cap exceeds a job slot's memory (``JOB_MEM_GIB``),
-   prints the number of tasks of pass 1 and their ceiling of CPU-hours (``tasks.ceiling_hours``),
+   prints the number of tasks of pass 1 and the ceiling of CPU-hours (``tasks.ceiling_hours``),
    and stops with exit status 1 unless ``--approved-cpu-hours`` covers the ceiling;
 4. prepares the inputs (``prepare``), which checks them against the experiment's frozen files, and
    writes the task list;
@@ -35,8 +34,8 @@ experiment (``common/manifest.py``), it
    CPU, then the repeats of pass 2.  While GNU parallel runs, ``active/_parallel`` records it.
    After each pass, the script stops if a task of the pass has no final row, lists such tasks in
    ``missing-pass<N>.txt``, and says how to rerun them through a start (see ``run_pass``);
-7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz`` and its ``.sha256`` file: the files
-   to copy back.
+7. writes the archive ``archive/<label directory>-<host>-<UTC>.tar.gz`` and its ``.sha256`` file:
+   the files to copy back.
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
 with status 0, and the task runner skips tasks that already have a final row, whatever its status,
@@ -49,9 +48,8 @@ directory's acceptance attempts on this host, whose runners record it under the 
 It also refuses to start, and ``--cleanup`` refuses to act, while the label's ``active/`` directory
 lists a run of another host, which this host can neither see nor stop.  A start refuses a machine
 whose CPU model differs from the one in the label's manifest, so that one label never mixes the
-times of two CPU models; another host with the same CPU model may resume, since a machine's hostname
-can change between its allocations, and ``starts.jsonl`` records each start's host and number of job
-slots.
+times of two CPU models; another host with the same CPU model may resume, and ``starts.jsonl``
+records each start's host and number of job slots.
 
 After a hard kill of this script or of GNU parallel, run it once with ``--cleanup``, which kills GNU
 parallel, every run still listed in the label's ``active/`` directory, and this host's runs of the
@@ -110,7 +108,7 @@ CLEANUP_WAIT_S = 2.0
 # Python's -O, which strips the asserts of the acceptance tests that this script runs, and paths
 # that can import other code.  numba reads NUMBA_DISABLE_JIT with int(), and a value that does not
 # parse leaves the JIT on.  PYTHONOPTIMIZE is refused when this interpreter, or a Python that it
-# starts, runs with -O, as Python reads the variable (see check_environment), not by its value.
+# starts, runs with -O (see check_environment), not by its value.
 REFUSED_ENVIRONMENT: dict[str, Callable[[str], bool]] = {
     "QLDPC_DISABLE_COMPILATION": lambda value: value == "1",
     "NUMBA_DISABLE_JIT": lambda value: _nonzero_integer(value),
@@ -173,7 +171,7 @@ def main() -> None:
         },
     )
 
-    # 2. self-tests and acceptance tests, once per label directory
+    # 2. self-tests and acceptance tests, unless they passed for the label directory before
     if args.subset == "acceptance" or not args.local:
         if not run_acceptance(module, label_dir, results_dir, node=not args.local):
             sys.exit("The acceptance tests failed; see above.  Nothing was run.")
@@ -345,11 +343,10 @@ def run_acceptance(
     """Run the self-tests (on the node) and the acceptance tests, unless they passed before.
 
     A pass in local mode does not count for node mode, nor a pass on another CPU model.  Each
-    attempt runs the experiment's
-    acceptance tests in a fresh directory, ``acceptance/<label directory>/<UTC>-<random>/`` in the
-    results directory, which ``acceptance.json`` records, so that no attempt reuses the rows of
-    another; the node self-tests run in temporary directories, which they remove.  Every attempt's
-    directory is kept.
+    attempt runs the experiment's acceptance tests in a fresh directory,
+    ``acceptance/<label directory>/<UTC>-<random>/`` in the results directory, which
+    ``acceptance.json`` records, so that no attempt reuses the rows of another; the node self-tests
+    run in temporary directories, which they remove.  Every attempt's directory is kept.
     """
     record = label_dir / "acceptance.json"
     if record.exists():
@@ -589,10 +586,11 @@ def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, lo
 def print_status(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) -> None:
     """Print the label's directory, its final rows by pass and status, and its recorded runs.
 
-    Each record of a run, in the label's ``active/`` directory or, given the results directory,
-    under the label directory's acceptance attempts, is said to be alive or ended, as
-    ``live_runs`` finds it, or else to be unreadable or of another host, whose processes this host
-    cannot check.
+    For each pass, it also counts the tasks that ``missing-pass<N>.txt`` lists as having ended the
+    pass without a final row, and that still have none.  Each record of a run, in the label's
+    ``active/`` directory or, given the results directory, under the label directory's acceptance
+    attempts, is said to be alive or ended, as ``live_runs`` finds it, or else to be unreadable or
+    of another host, whose processes this host cannot check.
     """
     print(f"label directory: {label_dir}")
     problems: list[str] = []
