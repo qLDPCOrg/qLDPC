@@ -134,7 +134,7 @@ The determined values must agree and exceed every certified fault weight; otherw
 `families.csv` gets the margin counts: per family, the circuits with m* <= t, m* = t + 1, m* >= t + 2, "all", m* > k, and no information on m*.
 `margin_violations.csv` lists the circuits with m* <= t, with the residual weights of the X and Z parts of their counterexamples, since the property certified here bounds both parts, whereas the verification of a circuit's source may target only one part.
 `deletion_table.csv` has one row per finished deletion task whose parent is certified at K = t, on a circuit without a disagreement, with the gate counts, measured qubits, measurements, and acceptance probabilities of parent and final circuit; it compares each final circuit only with its parent.
-`deletion_notes.json` lists the deletion orders, the parents not certified at K = t, the tasks that did not finish, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every finished task whose parent is certified at K = t, disagreements included, and `pruned/` holds the final circuits of `deletion_table.csv`.
+`deletion_notes.json` lists the deletion orders, the parents not certified at K = t, the tasks that did not finish, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every finished task whose parent is certified at K = t, disagreements included, and `pruned/` holds the final circuits of `deletion_table.csv`, and nothing else: the analysis deletes it with everything in it first.
 
 ## Attributions and licenses
 

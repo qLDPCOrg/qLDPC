@@ -37,7 +37,8 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
 * ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the tasks
   that did not finish with their completed steps and any final checks, the disagreements, and the
   final circuits whose rebuild does not match.
-* ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.
+* ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.  The analysis deletes
+  ``pruned/`` with everything in it before it writes them, so that it holds only these circuits.
 """
 
 from __future__ import annotations

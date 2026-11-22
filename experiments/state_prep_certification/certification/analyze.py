@@ -237,7 +237,9 @@ def write_outputs(
 
     Every output takes each circuit's verdict from the rows of summary.csv.  Every output that this
     call writes carries ``marks``, if any, such as the number of rows of ``--local`` runs
-    (``store.mark_outputs``); other files in ``out`` are left as they are.
+    (``store.mark_outputs``).  The directory ``out/pruned/`` is deleted with everything in it and
+    written again, so that it holds only this call's circuits; other files in ``out`` are left as
+    they are.
     """
     summary_rows, weight_rows = summarize(per_circuit)
     paths = write_tables(summary_rows, weight_rows, out)
