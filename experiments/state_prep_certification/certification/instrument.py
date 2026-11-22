@@ -17,11 +17,12 @@ them, without editing qLDPC, and restores on exit the values that it found on en
   ``FaultLister.find_first`` times each fault weight and reports a progress record after it.
 
 With ``shadow=True``, every outermost query is also answered by a connected-cluster
-``CosetLeaderSearch`` built once on the same stabilizers, timed separately.  The two answers must
-agree (``within_max_weight``, or the index of the first failing row); a disagreement raises
-``ShadowDisagreement``.  Each mirrored call is appended to a JSON-lines file.  The shadow record
-also names the method that ``method="auto"`` takes for these queries (``auto``), so that the
-``bz`` and ``cc`` times of the calls file compare auto's choice with the other oracle.
+``CosetLeaderSearch`` built once on the same stabilizers, timed separately.  BZ answers each query
+first, then CC.  The two answers must agree (``within_max_weight``, or the index of the first
+failing row); a disagreement raises ``ShadowDisagreement``.  Each mirrored call is appended to a
+JSON-lines file.  The shadow record also names the method to which qLDPC resolves
+``method="auto"`` (``auto``), which is the same for every query, so that the ``bz`` and ``cc``
+times of the calls file compare auto's choice with the other oracle.
 """
 
 from __future__ import annotations
@@ -56,8 +57,8 @@ class Instrumentation:
         batches: For each threshold m, the batch calls, submitted rows, and oracle time.
         weights: Per-weight records of ``find_first``: m, T_m, rows, oracle time, cumulative T.
         lister: ``max_syndromes`` of the fault lister.
-        shadow: Totals of the CC oracle by threshold, its setup time, and the method that
-            ``method="auto"`` takes for these queries, with ``shadow=True``.
+        shadow: Totals of the CC oracle by threshold, its setup time, and the method to which
+            ``method="auto"`` resolves, with ``shadow=True``.
     """
 
     def __init__(
