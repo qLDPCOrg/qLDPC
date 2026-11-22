@@ -1369,14 +1369,20 @@ def test_run_node_missing_row(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_run_node_other_host(directory: pathlib.Path, node: bool) -> None:
-    """A start and --cleanup refuse a label whose ``active/`` lists a run of another host."""
+    """A start and --cleanup refuse a label whose ``active/`` lists runs of other hosts.
+
+    The refusal names every such record.
+    """
     label_dir, command = _local_label(directory)
     (label_dir / "active").mkdir(parents=True)
     record = {"pid": 1, "pid_start": None, "pgid": None, "runner_pid": 1, "runner_start": None}
     (label_dir / "active" / "t").write_text(json.dumps(record | {"host": "elsewhere.example"}))
+    (label_dir / "active" / "u").write_text(json.dumps(record | {"host": "far.example"}))
     for extra in ([], ["--cleanup"]):
         refused = subprocess.run(command + extra, capture_output=True, text=True, check=False)
-        assert refused.returncode != 0 and "elsewhere.example" in refused.stderr, refused.stderr
+        assert refused.returncode != 0, refused.stderr
+        for name, host in (("t", "elsewhere.example"), ("u", "far.example")):
+            assert f"active/{name} (host {host})" in refused.stderr, refused.stderr
     assert (label_dir / "active" / "t").exists()
     assert not (label_dir / tasks.TASKS_FILE).exists()
 

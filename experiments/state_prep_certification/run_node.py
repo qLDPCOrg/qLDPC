@@ -431,16 +431,20 @@ def lock_label(label_dir: pathlib.Path) -> None:
 
 
 def refuse_other_hosts(label_dir: pathlib.Path) -> None:
-    """Exit if the label's ``active/`` directory lists a run of another host."""
+    """Exit if the label's ``active/`` directory lists runs of other hosts, naming every record."""
     host = socket.gethostname()
-    for path, record in _active_records(label_dir):
-        other = host if record is None else record.get("host", host)
-        if other != host:
-            sys.exit(
-                f"{path} lists a run on host {other}, which this host ({host}) can neither see nor "
-                f"stop.  Resume, or run --cleanup, on {other}; if that host's runs are gone, "
-                "delete the file."
-            )
+    others = {
+        path: record["host"]
+        for path, record in _active_records(label_dir)
+        if record is not None and record.get("host", host) != host
+    }
+    if others:
+        listed = "".join(f"\n  {path} (host {other})" for path, other in others.items())
+        sys.exit(
+            f"These records list runs of other hosts, which this host ({host}) can neither see nor "
+            f"stop:{listed}\nResume, or run --cleanup, on those hosts; if a host's runs are gone, "
+            "delete its records."
+        )
 
 
 def refuse_other_cpu(label_dir: pathlib.Path) -> None:

@@ -87,7 +87,7 @@ bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hour
 `node.sh --check` runs only the preflight, and needs only `node.sh` and `pins.json`, so it can run on the node before any bundle exists.
 `node.sh` keeps the results, each bundle's installs, and each bundle's preflight record in `results/` beside it, or in the directory that `FTSP_RESULTS` names, which bundles may share.
 Before the experiment first runs for its label, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
-Repeating the command resumes the run, on any host with the same CPU model, but not while the label's `active/` directory lists runs of another host.
+Repeating the command resumes the run, on any host with the same CPU model, but not while the label's `active/` directory lists runs of another host; if that host's runs are gone, delete their records, which the refusal lists.
 One start, or `--cleanup`, owns a label directory at a time.
 A start refuses while GNU parallel, a run of an earlier start's passes, or a run of its acceptance tests on this host is alive.
 If a pass ends with tasks that have no final row, as after damage to `runs.jsonl`, `run_node.py` stops and lists them in `missing-pass<N>.txt` of the label directory, which `--status` counts.
