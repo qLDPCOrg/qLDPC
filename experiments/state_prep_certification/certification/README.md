@@ -3,7 +3,7 @@
 This experiment measures exact certification of bounded fault propagation on published state preparation circuits, and how its cost grows with the size of the problem.
 It measures which circuits certify within the time limit, the number of faults that the listing considers against all accepted fault combinations, the smallest counterexamples where violations exist, and the cost of the two weight oracles on identical queries.
 Its one baseline is internal: brute force that queries every accepted fault combination with the certifier's own oracle.
-It compares with no other tool; its internal checks are the agreement of the Brouwer-Zimmermann (BZ) and connected-cluster (CC) oracles (qLDPC's [BZ guide](../../../src/qldpc/codes/distance/brouwer_zimmermann.md) and [connected-cluster guide](../../../src/qldpc/codes/distance/connected_cluster.md)), the agreement of the certifier with the baseline, and brute force on small circuits.
+It compares with no other tool; its internal checks are the agreement of the Brouwer-Zimmermann (BZ) and connected-cluster (CC) oracles (qLDPC's [BZ guide](../../../src/qldpc/codes/distance/brouwer_zimmermann.md) and [connected-cluster guide](../../../src/qldpc/codes/distance/connected_cluster.md)), the agreement of the certifier with the baseline, and, on small circuits, brute force with exact residual weights computed without either oracle (the ground truth); [Internal checks](#internal-checks) says what each covers.
 Two applications of the certifier use the same circuits: the exact margin of each circuit, and the deletion of verification measurements under exact certification.
 
 ## Circuits
@@ -44,6 +44,22 @@ The experiment runs with whatever `circuits.json` and inputs `--build` wrote: `c
 C-goto's circuit is the flagged preparation of the Steane code's |0> state with one ancilla qubit for verification, Figure 1c of H. Goto, "Minimizing resource overheads for fault-tolerant preparation of encoded states of the Steane code", Scientific Reports 6, 19578 (2016), doi:10.1038/srep19578, as qLDPC's notebook `examples/logical_error_rates/5_fault_tolerance_certificates.ipynb` writes it.
 E-chen's circuit is the 8-qubit cat preparation of K. Chen, Y. Liu, W. Fang, J. Paykin, X.-C. Wu, A. Schmitz, S. Zdancewic, and G. Li, "Verifying Fault-Tolerance of Quantum Error Correction Codes", Computer Aided Verification (CAV 2025), pp. 3-27, doi:10.1007/978-3-031-98685-7_1, arXiv:2501.14380.
 
+A W variant of a circuit, its parent, deletes every instruction target group that involves one measured qubit of the parent.
+`circuits.py --build` tries the measured qubits from the last target of the last measurement backwards, and keeps the first variant that qLDPC accepts with the parent's output qubits and that prepares the parent's state (`circuits._make_weakened`).
+The variant keeps its parent's code and t.
+It need not violate at K = t + 1, since the verification that remains may still bound fault propagation, so the W variants are not negative controls.
+
+Each circuit's design t sets K = t + 1, the margins' groups, and the deletions' K = t.
+It is a trusted input, which `circuits.py` takes from each family's source (`circuits._sources`):
+
+- A-ft, A-unv: (d - 1) // 2, with d from the [[n, k, d]] that `circuits.A_CODES` lists for each of MQT QECC's codes;
+- B-cat: the t of the file name `ft_ghz_<w>_<t>`;
+- C-goto: 1, and E-chen: 2, as `circuits.py` sets them;
+- D-synth, D-synth (MQT 1.9.0): (d - 1) // 2, with d from the synthesis call's record in `provenance.json`;
+- W: the parent's t.
+
+`circuits.py --check` checks that K = t + 1, and checks t against the `distance` of the code file of each circuit of A-ft and both D-synth families; nothing checks these distances, or the d of `circuits.A_CODES` and `provenance.json`, themselves.
+
 Each A-ft, C-goto, and synthesized entry of `circuits.json` also names its code file, `code_file`, with its SHA-256, `code_sha256`.
 A code file `<code>_code.json` holds the code's `distance` and its matrices `Hx`, `Hz`, `Lx`, and `Lz`, with one column per output qubit, in output-qubit order.
 `circuits.py --check` checks each input's state against these matrices, which split the state's Z-type stabilizers into checks Hz and logical operators Lz as the code's definition in MQT QECC does; the state alone does not determine that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz.
@@ -52,7 +68,10 @@ MQT's `RotatedSurfaceCode(5)` at that commit has its X checks where the shipped 
 
 Each certification input prepends resets to qubits that start without one.
 Each B-cat circuit gets a detector for each pair of consecutive measurement results, on which it is post-selected; E-chen's verification measurements are flags, as in the other families.
-The node applies `DepolarizingNoiseModel(1e-3)` and K = t + 1.
+The node applies qLDPC's `DepolarizingNoiseModel(1e-3)` and K = t + 1.
+This noise model puts faults only on gates, resets, and measurements: one- or two-qubit depolarization after each gate, a reset to the orthogonal state, and a flipped measurement result, each with probability p.
+Idle qubits get no errors, so a verdict covers only these fault locations.
+The value of p changes no verdict, count, or margin, which depend only on where the model puts faults; it enters only the acceptance probabilities that the deletion tasks estimate.
 It leaves `css_weight` at its default, None, under which qLDPC chooses CSS weight for a CSS state.
 Every input prepares one, as the top-level `css_weight` of each input in `circuits.json` records.
 The ground truth (`counting.brute_force`) requires a CSS state.
@@ -93,6 +112,20 @@ This certification is preparation, not a warm-up, but it also compiles, or loads
 The experiment's own compiled code, in `counting.py` and `baseline.py`, is cached on disk by qLDPC's `always_compiled`, as qLDPC's is; a comment near the top of `counting.py` says what this code may call and read.
 
 `analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
+
+## Internal checks
+
+Each internal check compares computations that share some of their inputs and code, and cannot detect an error in what they share.
+None of them can detect an error in what they all share: the DEM, the flags and syndromes of its mechanisms, and the state's stabilizers, as qLDPC builds them from the circuit.
+
+- BZ against CC (`cert_bz`, `cert_cc`, and the `shadow` run, in which a CC oracle answers every query of a BZ certification): the same certification with two weight oracles.
+  They share the reduction to N_0 mechanisms and the fault search, so their agreement tests the oracles.
+- The baseline (`brute_bz`) against the certifier: the same certification, with the fault search replaced by queries of every accepted fault combination to the same BZ oracle.
+  They share the rule of the reduction and the oracle, so their agreement tests the fault search (its listing, its classification of heavy mechanisms, the cutoff K', and its skipping), not the oracle.
+- The ground truth (`ground_truth`) against the certifier, the baseline, and the counters: it takes the DEM from an untimed certification at fault weight 1, as the counters do, and reduces it by the same rule.
+  Its residual weights come from an enumeration of every X error and every Z error on the output qubits (`counting.residual_weight_table`), independent of both oracles, and it enumerates every accepted fault, so its agreement tests the oracles, the fault search, and the counts on the circuits that it covers.
+  Its counts and the counters' share the definition of the flag classes (`counting.get_classes`).
+- A counterexample's exact residual weight, which the analysis checks against its fault weight and the certifier's lower bound, comes from a BZ oracle (`_describe` in `experiment.py`), so this check does not test BZ itself.
 
 ## Workflow
 
