@@ -12,7 +12,8 @@ module whose only compiled functions have neither decorator of ``_compilation``,
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+import functools
+from dataclasses import dataclass
 from pathlib import Path
 
 import qldpc
@@ -24,20 +25,20 @@ from . import _compilation
 
 def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
     """Only ``always_compiled`` may ask numba for a disk cache, since it makes that cache safe."""
-    for path, tree in _get_source_trees():
-        for node in ast.walk(tree):
+    for file in _get_source_files():
+        for node in file.nodes:
             if not (isinstance(node, ast.Call) and _is_njit(node.func)):
                 continue
             if any(keyword.arg == "cache" for keyword in node.keywords):
-                assert path.name == "_compilation.py", f"{path.name} caches without it"
+                assert file.path.name == "_compilation.py", f"{file.path.name} caches without it"
 
 
 def test_only_compilation_calls_numba_jit() -> None:
     """Numba code uses the decorators of ``_compilation``, which the tests of the rules read."""
-    for path, tree in _get_source_trees():
-        if path.name == "_compilation.py":
+    for file in _get_source_files():
+        if file.path.name == "_compilation.py":
             continue
-        for node in ast.walk(tree):
+        for node in file.nodes:
             if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("numba"):
                 names = {alias.name for alias in node.names}
             elif isinstance(node, ast.Attribute):
@@ -45,19 +46,19 @@ def test_only_compilation_calls_numba_jit() -> None:
             else:
                 continue
             assert not names & {"njit", "jit"}, (
-                f"{path.name}:{node.lineno} uses numba's njit or jit"
+                f"{file.path.name}:{node.lineno} uses numba's njit or jit"
             )
 
 
 def test_compiling_decorators_are_used_only_as_decorators() -> None:
     """``conftest.get_compiled_functions`` sees the decorators only where ``@`` applies them."""
-    for path, tree in _get_source_trees():
-        if path.name == "_compilation.py":
+    for file in _get_source_files():
+        if file.path.name == "_compilation.py":
             continue
 
         # The names under which the module imports the decorators.
         names = {"always_compiled", "compiled_on_request"}
-        for node in ast.walk(tree):
+        for node in file.nodes:
             if isinstance(node, ast.ImportFrom):
                 names |= {
                     alias.asname for alias in node.names if alias.name in names and alias.asname
@@ -66,15 +67,15 @@ def test_compiling_decorators_are_used_only_as_decorators() -> None:
         # Each use of those names applies a decorator to a function.
         decorators = {
             decorator.func if isinstance(decorator, ast.Call) else decorator
-            for node in ast.walk(tree)
+            for node in file.nodes
             if isinstance(node, ast.FunctionDef)
             for decorator in node.decorator_list
         }
-        for node in ast.walk(tree):
+        for node in file.nodes:
             if isinstance(node, ast.Name | ast.Attribute):
                 name = node.id if isinstance(node, ast.Name) else node.attr
                 assert name not in names or node in decorators, (
-                    f"{path.name}:{node.lineno} uses {name} other than as a decorator"
+                    f"{file.path.name}:{node.lineno} uses {name} other than as a decorator"
                 )
 
 
@@ -84,39 +85,39 @@ def test_nothing_asks_numba_for_parallel_code() -> None:
     ``always_compiled`` has no ``parallel`` option, and compiled code uses nothing from outside
     qLDPC, so this keeps numba-parallel code out of the compiled code that threads run.
     """
-    for path, tree in _get_source_trees():
-        for node in ast.walk(tree):
+    for file in _get_source_files():
+        for node in file.nodes:
             if isinstance(node, ast.Call) and _is_njit(node.func):
                 names = {keyword.arg for keyword in node.keywords}
-                assert "parallel" not in names, f"{path.name} asks numba for parallel code"
+                assert "parallel" not in names, f"{file.path.name} asks numba for parallel code"
 
 
 def test_always_compiled_functions_do_not_call_compiled_on_request_functions() -> None:
     """An always-compiled function is compiled and cached by itself, in every mode."""
-    trees = list(_get_source_trees())
-    registered = _get_names_decorated_by(trees, "compiled_on_request")
+    registered = _get_names_decorated_by("compiled_on_request")
     assert registered
-    for path, tree in trees:
-        for function in _get_functions_decorated_by(tree, "always_compiled"):
+    for file in _get_source_files():
+        for function in file.compiled_functions["always_compiled"]:
             used = {
                 node.id if isinstance(node, ast.Name) else node.attr
                 for statement in function.body
                 for node in ast.walk(statement)
                 if isinstance(node, ast.Name | ast.Attribute)
             }
-            assert not used & registered, f"{path.name}: {function.name} calls {used & registered}"
+            assert not used & registered, (
+                f"{file.path.name}: {function.name} calls {used & registered}"
+            )
 
 
 def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
     """A name imported by ``from`` keeps the plain function, since only its module is updated."""
-    trees = list(_get_source_trees())
-    registered = _get_names_decorated_by(trees, "compiled_on_request")
+    registered = _get_names_decorated_by("compiled_on_request")
     assert registered
-    for path, tree in trees:
-        for node in ast.walk(tree):
+    for file in _get_source_files():
+        for node in file.nodes:
             if isinstance(node, ast.ImportFrom):
                 imported = {alias.name for alias in node.names} & registered
-                assert not imported, f"{path.name} imports {imported} by name"
+                assert not imported, f"{file.path.name} imports {imported} by name"
 
 
 def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> None:
@@ -137,19 +138,20 @@ def test_nogil_is_passed_as_a_literal() -> None:
     It reads every decorator of an always-compiled function, and cannot see ``nogil`` in ``**``.
     """
     num_literals = 0
-    for path, tree in _get_source_trees():
-        for function in _get_functions_decorated_by(tree, "always_compiled"):
+    for file in _get_source_files():
+        for function in file.compiled_functions["always_compiled"]:
             for decorator in function.decorator_list:
                 if not isinstance(decorator, ast.Call):
                     continue
                 for keyword in decorator.keywords:
                     assert keyword.arg is not None, (
-                        f"{path.name}: {function.name} passes options by **"
+                        f"{file.path.name}: {function.name} passes options by **"
                     )
                     if keyword.arg == "nogil":
                         value = getattr(keyword.value, "value", None)
                         assert isinstance(value, bool), (
-                            f"{path.name}: {function.name} passes nogil other than as True or False"
+                            f"{file.path.name}: {function.name} passes nogil other than as True or"
+                            " False"
                         )
                         num_literals += 1
     assert num_literals
@@ -161,11 +163,13 @@ def test_run_work_items_is_not_imported_by_name() -> None:
     ``check_code_on_threads`` replaces only ``_threads.run_work_items``, so helpers imported by
     name, which call it there, stay checked.
     """
-    for path, tree in _get_source_trees():
-        for node in ast.walk(tree):
+    for file in _get_source_files():
+        for node in file.nodes:
             if isinstance(node, ast.ImportFrom):
                 names = {alias.name for alias in node.names}
-                assert "run_work_items" not in names, f"{path.name} imports run_work_items by name"
+                assert "run_work_items" not in names, (
+                    f"{file.path.name} imports run_work_items by name"
+                )
 
 
 def test_entry_points_without_the_lock_are_in_packages_that_state_rules_on_threads() -> None:
@@ -185,16 +189,17 @@ def test_entry_points_without_the_lock_are_in_packages_that_state_rules_on_threa
 
 def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:
     """Only qLDPC's source is hashed, but numba checks its version and implements NumPy itself."""
-    for path, tree in _get_source_trees():
-        outside = _get_names_imported_from_outside_qldpc(tree)
-        for function in _get_functions_decorated_by(tree, "always_compiled"):
+    for file in _get_source_files():
+        functions = file.compiled_functions["always_compiled"]
+        outside = _get_names_imported_from_outside_qldpc(file.tree) if functions else set()
+        for function in functions:
             names = {
                 node.id
                 for statement in function.body
                 for node in ast.walk(statement)
                 if isinstance(node, ast.Name)
             }
-            assert not names & outside, f"{path.name}: {function.name} uses {names & outside}"
+            assert not names & outside, f"{file.path.name}: {function.name} uses {names & outside}"
 
 
 def test_names_imported_from_outside_qldpc_are_found() -> None:
@@ -230,10 +235,32 @@ print(*sorted({item.namespace["__name__"] for item in _compilation._ON_REQUEST_F
 """
 
 
-def _get_source_trees() -> Iterator[tuple[Path, ast.Module]]:
-    """The syntax tree of every source file of the library that is not a test."""
+@dataclass(frozen=True)
+class _SourceFile:
+    """A source file of the library that is not a test, parsed for the tests of the rules.
+
+    ``nodes`` holds every node of ``tree`` in the order of ``ast.walk``, and ``compiled_functions``
+    holds the compiled functions of the module by the name of their decorator.
+    """
+
+    path: Path
+    tree: ast.Module
+    nodes: tuple[ast.AST, ...]
+    compiled_functions: dict[str, list[ast.FunctionDef]]
+
+
+@functools.cache
+def _get_source_files() -> tuple[_SourceFile, ...]:
+    """Every source file of the library that is not a test.
+
+    The tests of the rules only read the syntax trees, so they share one parse of each file.
+    """
+    files = []
     for path in _compilation._get_source_paths(Path(qldpc.__file__).parent):
-        yield path, ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        nodes = tuple(ast.walk(tree))
+        files.append(_SourceFile(path, tree, nodes, conftest.get_compiled_functions(tree)))
+    return tuple(files)
 
 
 def _is_njit(function: ast.expr) -> bool:
@@ -241,15 +268,10 @@ def _is_njit(function: ast.expr) -> bool:
     return getattr(function, "attr", getattr(function, "id", "")) in ("njit", "jit")
 
 
-def _get_functions_decorated_by(tree: ast.Module, name: str) -> list[ast.FunctionDef]:
-    """The functions of a module with the decorator ``name``: one of the two of ``_compilation``."""
-    return conftest.get_compiled_functions(tree)[name]
-
-
-def _get_names_decorated_by(trees: list[tuple[Path, ast.Module]], name: str) -> set[str]:
-    """The names of the functions in the given syntax trees that have the decorator ``name``."""
+def _get_names_decorated_by(name: str) -> set[str]:
+    """The names of the library's functions with the decorator ``name``, one of ``_compilation``."""
     return {
-        function.name for _, tree in trees for function in _get_functions_decorated_by(tree, name)
+        function.name for file in _get_source_files() for function in file.compiled_functions[name]
     }
 
 
