@@ -77,7 +77,7 @@ For a fixed set of fault mechanisms, each with nonzero probability, the value of
 Setting p = 0 removes every fault mechanism, so it does not pose the same certification problem.
 It leaves `css_weight` at its default, None, under which qLDPC chooses CSS weight for a CSS state.
 Every input prepares one, as the top-level `css_weight` of each input in `circuits.json` records.
-The ground truth (`counting.brute_force`) requires a CSS state.
+The ground truth (`counting.ground_truth`) requires a CSS state.
 
 ## Arms
 

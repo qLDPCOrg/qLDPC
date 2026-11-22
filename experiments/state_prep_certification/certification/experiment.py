@@ -367,7 +367,7 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     else:
         # the ground truth uses galois's GF(2) arithmetic, which this compiles first
         counting._compile_galois()
-        fields |= runner.timed(counting.brute_force, reduced, stabilizers, max_weight)
+        fields |= runner.timed(counting.ground_truth, reduced, stabilizers, max_weight)
     return fields
 
 

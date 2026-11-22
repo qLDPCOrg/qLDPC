@@ -23,7 +23,7 @@ These counts describe the listing of irreducible accepted faults in ``fault_prop
   reduced mechanisms whose flags sum to zero) by dynamic programming over classes, with C(N_0, m)
   beside them.  It counts up to K, not K', as the brute-force baseline (``baseline.py``)
   enumerates up to K; for K' < m <= K nothing is listed, and Phi_m = 0.
-* ``brute_force`` enumerates every accepted fault of weight at most K of a small reduced DEM, and
+* ``ground_truth`` enumerates every accepted fault of weight at most K of a small reduced DEM, and
   gives the smallest violating fault weight, A by its definition up to K, and Pi, E, and Phi by
   their definitions up to K'.
 """
@@ -503,7 +503,7 @@ def residual_weight_table(stabilizers: npt.NDArray[np.uint8]) -> npt.NDArray[np.
     return np.maximum(least[0][z_keys], least[1][x_keys])
 
 
-def brute_force(
+def ground_truth(
     reduced: ReducedDem, stabilizers: npt.NDArray[np.uint8], max_weight: int
 ) -> dict[str, Any]:
     """Every accepted fault of weight at most K of a small reduced DEM, by enumeration.

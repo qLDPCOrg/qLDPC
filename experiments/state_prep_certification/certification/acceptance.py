@@ -287,7 +287,7 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
         )
         reduced = counting.reduce_signatures(flags, syndromes)
         stabilizers = experiment.stabilizer_matrix(reference.state_stabilizers)
-        truth = counting.brute_force(reduced, stabilizers, entry["options"]["max_weight"])
+        truth = counting.ground_truth(reduced, stabilizers, entry["options"]["max_weight"])
         _compare_counts(reduced.flags, truth["heavy"], entry["options"]["max_weight"], truth)
 
         # the BZ oracle classifies the flagged mechanisms as brute force does
@@ -1237,7 +1237,7 @@ def _check_brute_bz(circuit_id: str) -> bool:
     reduced = counting.reduce_signatures(recorded["flags"], recorded["syndromes"])
     stabilizers = np.array(recorded["stabilizers"], dtype=np.uint8)
     if entry["ground_truth"]:
-        truth = counting.brute_force(reduced, stabilizers, max_weight)
+        truth = counting.ground_truth(reduced, stabilizers, max_weight)
         assert truth["smallest_violation"] == weights[1], (circuit_id, truth, weights)
     if not found.certified:
         example = found.counterexample
@@ -1288,7 +1288,7 @@ def _check_random_dems() -> dict[str, int]:
         brute = baseline.BruteForce()
         found = brute.find_smallest_violation(*arguments, method="brouwer_zimmermann")
         reduced = counting.reduce_signatures(flags, syndromes)
-        truth = counting.brute_force(reduced, stabilizers, max_weight)
+        truth = counting.ground_truth(reduced, stabilizers, max_weight)
         weights = [None if v is None else len(v.fault_indices) for v in (expected, found)]
         assert weights[0] == weights[1] == truth["smallest_violation"], (weights, truth)
         outcomes["certified" if found is None else "violation"] += 1
@@ -2021,7 +2021,7 @@ def _enumerable(entry: dict[str, Any]) -> bool:
     """Whether the ground-truth enumeration up to K = t is within its rule for a circuit.
 
     The sum over 1 <= m <= t of C(N_0, m) must be within the ground-truth limit, and the flags must
-    fit in 64 bits, as ``counting.brute_force`` requires.
+    fit in 64 bits, as ``counting.ground_truth`` requires.
     """
     size = sum(math.comb(entry["N0"], m) for m in range(1, entry["t"] + 1))
     limit = experiment.CONFIG["ground_truth"]["max_combinations"]
@@ -2067,7 +2067,7 @@ def _enumerated_violation(
     )
     reduced = counting.reduce_signatures(flags, syndromes)
     stabilizers = experiment.stabilizer_matrix(reference.state_stabilizers)
-    smallest: int | None = counting.brute_force(reduced, stabilizers, max_weight)[
+    smallest: int | None = counting.ground_truth(reduced, stabilizers, max_weight)[
         "smallest_violation"
     ]
     return smallest
