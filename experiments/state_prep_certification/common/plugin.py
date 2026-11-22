@@ -17,7 +17,8 @@ Each experiment is a subdirectory with an ``experiment.py`` module that defines:
   without the runner's retries, which ``tasks.ceiling_hours`` adds;
 * ``repeat_tasks(task, row)``: the tasks of pass 2 that a task of pass 1 and its row call for;
 * ``run(task, label_dir)``: run one task in the child process, calling ``runner.timed`` once;
-* ``acceptance(node, results_dir)``: run the acceptance tests, and return whether they passed.
+* ``acceptance(node, results_dir)``: run the acceptance tests, writing their runs into
+  ``results_dir``, a fresh directory of each attempt, and return whether they passed.
 
 An experiment may also give a ``qldpc_commit`` in its ``config.json``; ``bundle.py`` refuses a
 bundle if it differs from the pinned commit of ``pins.json``.

@@ -10,7 +10,7 @@ the harness commit, the experiments, the platforms, and the resolved requirement
 one directory of the same name, with:
 
 * ``qLDPC/``: ``git archive`` of this worktree's HEAD, with the experiments' ``DATA`` directories
-  (inputs built on the workstation and not committed) and
+  (their inputs that are not committed, as each experiment's README describes) and
   ``experiments/state_prep_certification/bundle.json``;
 * ``wheels/``: wheels for the pinned CPython and Linux platform of ``pins.json``.  They cover
   qLDPC's runtime requirements with the extras of ``qldpc_extras``, each experiment's
@@ -26,15 +26,19 @@ one directory of the same name, with:
 run on the node, so that a label fixes the versions of the third-party packages too.
 
 A requirement without a wheel for the platform is built into a wheel here, from its sdist checked
-against the resolution's hash, if it is pure Python (``py3-none-any``); the lockfile's hash for it
-is then replaced by the hash of that wheel, since an install with ``--require-hashes`` would
-otherwise reject it.  Any other requirement without a wheel stops the script.
+against the resolution's hash, if it is pure Python (``py3-none-any`` or ``py2.py3-none-any``); the
+lockfile's hash for it is then replaced by the hash of that wheel, since an install with
+``--require-hashes`` would otherwise reject it.  Any other requirement without a wheel stops the
+script.
 
-The script refuses a worktree with uncommitted changes to tracked files.  It refuses an unpinned
-qLDPC commit (``qldpc_commit`` of ``pins.json`` is null) unless ``--unfrozen`` asks for a trial,
-which ``bundle.json`` then records.  With a pinned commit, it checks that HEAD descends from that
-commit and that ``src/`` and ``pyproject.toml`` are unchanged since, so that the bundle's source,
-its qLDPC wheel, and the run's manifest name one qLDPC commit.
+The script refuses a named experiment whose frozen files (``FROZEN_FILES``) are not all in the
+staged tree, before any download, so that an experiment whose frozen files lie in another
+experiment's directory needs that experiment in the bundle too.  It refuses a worktree with
+uncommitted changes to tracked files.  It refuses an unpinned qLDPC commit (``qldpc_commit`` of
+``pins.json`` is null) unless ``--unfrozen`` asks for a trial, which ``bundle.json`` then records.
+With a pinned commit, it checks that HEAD descends from that commit and that ``src/`` and
+``pyproject.toml`` are unchanged since, so that the bundle's source, its qLDPC wheel, and the run's
+manifest name one qLDPC commit.
 
 Downloads are cached in ``DIR/cache``.  ``--uv-python-platform`` and ``--wheel-platform`` build a
 bundle for another platform.  ``node.sh`` itself runs only on x86-64 Linux, but a bundle for the
@@ -47,6 +51,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -97,10 +102,14 @@ def main() -> None:
         for data in module.DATA:
             source = plugin.experiment_dir(module.NAME) / data
             if not source.is_dir():
-                sys.exit(f"{module.NAME}: its data directory {source} does not exist; build it")
+                sys.exit(
+                    f"{module.NAME}: its data directory {source} does not exist; make it, as "
+                    f"{module.NAME}'s README says"
+                )
             shutil.copytree(
                 source, tree / "experiments" / "state_prep_certification" / module.NAME / data
             )
+    check_frozen_files(tree, modules)
 
     # wheels and the hashed requirements
     qldpc_wheel = build_qldpc_wheel(tree, staging / "wheels")
@@ -108,7 +117,8 @@ def main() -> None:
     requirements = download_wheels(
         requirements, staging / "wheels", cache, pins["python"]["version"], wheel_platforms
     )
-    requirements += f"qldpc=={_wheel_version(qldpc_wheel)} \\\n    --hash=sha256:{store.sha256_file(qldpc_wheel)}\n"
+    qldpc_hash = store.sha256_file(qldpc_wheel)
+    requirements += f"qldpc=={_wheel_version(qldpc_wheel)} \\\n    --hash=sha256:{qldpc_hash}\n"
     (staging / "requirements-node.txt").write_text(requirements)
 
     # the bundle's name: a hash of the pins, the harness commit, the experiments, the platforms,
@@ -198,6 +208,28 @@ def parse_args() -> argparse.Namespace:
 
 ####################################################################################################
 # checks
+
+
+def check_frozen_files(tree: pathlib.Path, modules: list[Any]) -> None:
+    """Stop unless the staged tree holds every frozen file of the named experiments.
+
+    A frozen file in another experiment's directory travels only in a bundle that names that
+    experiment too.  A missing file of a named experiment is reported as that experiment's.
+    """
+    experiments_dir = tree / "experiments" / "state_prep_certification"
+    named = {module.NAME for module in modules}
+    for module in modules:
+        for name in module.FROZEN_FILES:
+            path = pathlib.Path(os.path.normpath(experiments_dir / module.NAME / name))
+            if path.is_file():
+                continue
+            owner = path.relative_to(experiments_dir).parts[0]
+            if owner not in named:
+                sys.exit(f"{module.NAME} needs {owner}'s {path.name}: bundle {owner} too")
+            sys.exit(
+                f"{owner}: its frozen file {path.relative_to(experiments_dir / owner)} is not in "
+                f"the bundle; make it, as {owner}'s README says"
+            )
 
 
 def check_tree(pins: dict[str, Any], modules: list[Any], unfrozen: bool) -> str:
@@ -368,23 +400,22 @@ def build_pure_python_wheel(
             "--quiet",
         ]
     )
-    normalized = re.sub(r"[-_.]+", "[-_.]", name)
+    name_pattern = re.sub(r"[-_.]+", "[-_.]", name)
     (sdist,) = [
         path
         for path in sdists.iterdir()
         if re.match(
-            f"{normalized}-{re.escape(version)}\\.(tar\\.gz|zip)$", path.name, re.IGNORECASE
+            f"{name_pattern}-{re.escape(version)}\\.(tar\\.gz|zip)$", path.name, re.IGNORECASE
         )
     ]
     built = cache / "built"
     built.mkdir(exist_ok=True)
     _run(["uv", "build", "--wheel", "--out-dir", str(built), str(sdist)])
     (wheel,) = [
-        path
-        for path in built.glob("*.whl")
-        if path.name.lower().startswith(name.lower().replace("-", "_") + "-" + version)
+        path for path in built.glob("*.whl") if _wheel_name(path) == (_normalized(name), version)
     ]
-    if not wheel.name.endswith("-py3-none-any.whl"):
+    python, abi, platform = wheel.name.removesuffix(".whl").split("-")[-3:]
+    if "py3" not in python.split(".") or (abi, platform) != ("none", "any"):
         sys.exit(
             f"{name}=={version} has no wheel for the node's platform, and its build "
             f"{wheel.name} is not pure Python: pin another version, or add a wheel platform"
@@ -448,6 +479,17 @@ def _git(*args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True
     ).stdout.strip()
+
+
+def _normalized(name: str) -> str:
+    """A distribution's name, normalized as in wheel file names."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _wheel_name(wheel: pathlib.Path) -> tuple[str, str] | None:
+    """The normalized name and the version of a wheel, from ``name-version[-build]-tags.whl``."""
+    parts = wheel.name.removesuffix(".whl").split("-")
+    return (_normalized(parts[0]), parts[1]) if len(parts) in (5, 6) else None
 
 
 def _wheel_version(wheel: pathlib.Path) -> str:

@@ -117,8 +117,8 @@ def prepare(label_dir: pathlib.Path) -> None:
     """
     if not CIRCUITS_JSON.exists():
         raise SystemExit(
-            f"{CIRCUITS_JSON} is missing: link certification's circuit_data from the data "
-            "repository, or build a bundle that also names certification"
+            f"{CIRCUITS_JSON} is missing: provide certification's data directory, "
+            "certification/circuit_data/, or build a bundle that also names certification"
         )
     from experiments.state_prep_certification.certification import circuits
 

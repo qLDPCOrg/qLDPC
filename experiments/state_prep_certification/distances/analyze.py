@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Analyze a run of the distance experiment: ratios, family tables, the figure, and summary.csv.
+"""Analyze a run of the distance experiment: summary.csv, families.csv, anchors.csv, distances.pdf.
 
-    python analyze.py (--archive PATH | --label-dir DIR) [--out DIR]
+    python analyze.py (--archive PATH | --label-dir DIR) [--out DIR] [--allow-local]
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
@@ -32,9 +32,9 @@ A value above 1.2 is *faster* (the arm with everything on is faster), below 1/1.
 otherwise *similar*; a lower bound is faster if it exceeds 1.2 and *inconclusive* otherwise, and an
 upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
-For each family, the table gives the counts of each class of R_T and the median of R_T over the
-codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only bounds,
-"<=" if upper bounds are, and omitted if there are both.  The table also gives the number of these
+For each family, ``families.csv`` gives the counts of each class of R_T and the median of R_T over
+the codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only
+bounds, "<=" if upper bounds are, and omitted if there are both.  It also gives the number of these
 ratios, and how many of them are lower bounds and how many upper bounds.  The anchors' row gives the
 counts of each class only; anchors are reported per code and never pooled with the families.
 
@@ -44,9 +44,19 @@ does not change the analysis of an earlier run.
 
 Outputs in ``--out`` (by default ``analysis/`` in the label directory, which is a temporary
 directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``families.csv``,
-``anchors.csv``, ``distances.pdf`` (a log-log panel of T, prior against on), and
-``figure_notes.json`` (the number of codes that the panel omits, for lack of a value, or for a
-disagreement, a failure, or an incomplete timing).
+``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on), and
+``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or for
+a disagreement, a failure, or an incomplete timing).
+
+The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
+``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
+``local_rows``.  If a start of the label accepted a refused environment variable with
+``--allow-env`` (see ``run_node.py``), or ran Python with -O, it marks every output with the names
+of these variables, ``PYTHONOPTIMIZE`` for -O, ``allowed_environment``.  If the recorded environment
+variables of the label's starts differ, such as those of a resume in another shell, it marks every
+output with the names of the variables that differ, ``environment_changed``.  Each mark is a column
+in each CSV file, a key in ``figure_notes.json``, and part of the title and of the Subject in the
+metadata of ``distances.pdf``.
 """
 
 from __future__ import annotations
@@ -78,13 +88,28 @@ def main() -> None:
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {problem}")
+    marks: dict[str, Any] = {}
+    local_rows = store.count_local_rows(final.values(), args.allow_local)
+    if local_rows:
+        marks["local_rows"] = local_rows
+    allowed = store.allowed_environment(label_dir)
+    if allowed:
+        print(
+            f"note: a start ran with, or accepted, settings that a node start refuses: "
+            f"{', '.join(allowed)}; every output names them"
+        )
+        marks["allowed_environment"] = " ".join(allowed)
+    changed = store.changed_environment(label_dir)
+    if changed:
+        print(f"note: the starts ran with different {', '.join(changed)}; every output says so")
+        marks["environment_changed"] = " ".join(changed)
     sample = load_sample(label_dir)
     expected = list(tasks.load_tasks(label_dir, pass2=False).values())
     missing = [key for key in tasks.load_tasks(label_dir) if key not in final]
     if missing:
         print(f"note: {len(missing)} tasks have no final row, such as {missing[0]}")
     per_code = summarize(list(final.values()), sample, expected)
-    write_outputs(per_code, sample, out)
+    write_outputs(per_code, sample, out, marks)
     print(f"wrote {out}")
 
 
@@ -97,6 +122,9 @@ def parse_args() -> argparse.Namespace:
     source.add_argument("--archive", type=pathlib.Path, help="the archive from the node")
     source.add_argument("--label-dir", type=pathlib.Path, help="a label directory")
     parser.add_argument("--out", type=pathlib.Path, help="the output directory")
+    parser.add_argument(
+        "--allow-local", action="store_true", help="analyze rows of --local runs, and say so"
+    )
     return parser.parse_args()
 
 
@@ -117,14 +145,13 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
     """The run's copy of ``sample.json``, which ``experiment.prepare`` puts in the label directory.
 
     Raises:
-        ValueError: If the label directory has no copy, as for a run made before runs kept one.
+        ValueError: If the label directory has no ``sample.json``.
     """
     path = label_dir / "sample.json"
     if not path.exists():
         raise ValueError(
-            f"{label_dir} has no sample.json, as for a run made before runs kept a copy of the"
-            " sample; copy code_data/sample.json from the run's harness commit (in its manifest)"
-            " into it"
+            f"{label_dir} has no sample.json, which experiment.prepare copies into each label "
+            "directory before its tasks run; analyze the run's archive, which holds it"
         )
     sample: dict[str, Any] = json.loads(path.read_text())
     return sample
@@ -260,11 +287,21 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 ####################################################################################################
-# families, tables, and the figure
+# summary.csv, families.csv, anchors.csv, and distances.pdf
 
 
-def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pathlib.Path) -> None:
-    """Write summary.csv, families.csv, anchors.csv, and the figure."""
+def write_outputs(
+    records: list[dict[str, Any]],
+    sample: dict[str, Any],
+    out: pathlib.Path,
+    marks: dict[str, Any] | None = None,
+) -> None:
+    """Write summary.csv, families.csv, anchors.csv, distances.pdf, and figure_notes.json.
+
+    Every output carries ``marks``, if any, such as the number of rows of ``--local`` runs: as a
+    column, a key, or part of the title and the metadata of ``distances.pdf``.  Other files in
+    ``out`` are left as they are.
+    """
     fields = [
         "name",
         "kind",
@@ -280,7 +317,8 @@ def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pa
         "reference_d",
         "limit_s",
     ]
-    with open(out / "summary.csv", "w", newline="") as file:
+    summary = out / "summary.csv"
+    with open(summary, "w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(records)
@@ -304,9 +342,10 @@ def write_outputs(records: list[dict[str, Any]], sample: dict[str, Any], out: pa
                     "prior": prior,
                 }
             )
-    _write_families(pairs, out)
-    _write_anchors(by_code, sample, out)
-    _plot(pairs, out)
+    paths = [summary, _write_families(pairs, out), _write_anchors(by_code, sample, out)]
+    paths += _plot(pairs, out, marks or {})
+    if marks:
+        store.mark_outputs(paths, marks)
 
 
 def _median(results: list[dict[str, Any]]) -> str:
@@ -321,8 +360,8 @@ def _median(results: list[dict[str, Any]]) -> str:
     return f"{bounds.pop() if bounds else ''}{median:.3g}"
 
 
-def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
-    """Counts and medians per family, and one row for the anchors."""
+def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> pathlib.Path:
+    """Write families.csv: counts and medians per family, and one row for the anchors."""
     classes = [
         "faster",
         "similar",
@@ -363,18 +402,21 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
                 }
             )
         )
-    with open(out / "families.csv", "w", newline="") as file:
+    path = out / "families.csv"
+    with open(path, "w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0]) if rows else ["family"])
         writer.writeheader()
         writer.writerows(rows)
+    return path
 
 
 def _write_anchors(
     by_code: dict[str, dict[str, dict[str, Any]]], sample: dict[str, Any], out: pathlib.Path
-) -> None:
-    """One row per anchor: n, k, the reference d, the d found, and the T of each arm."""
+) -> pathlib.Path:
+    """Write anchors.csv: one row per anchor, with n, k, the reference d, the d found, and Ts."""
     arms = [ON, PRIOR]
-    with open(out / "anchors.csv", "w", newline="") as file:
+    path = out / "anchors.csv"
+    with open(path, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["name", "n", "k", "reference_d", "d_found"] + [f"{arm}_T" for arm in arms])
         for entry in sample["anchors"]:
@@ -403,6 +445,7 @@ def _write_anchors(
                 ]
                 + cells
             )
+    return path
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -412,8 +455,14 @@ def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else [value]
 
 
-def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
-    """A log-log panel of T, with the prior arm's T on the x axis and the on arm's on the y axis."""
+def _plot(
+    pairs: list[dict[str, Any]], out: pathlib.Path, marks: dict[str, Any]
+) -> list[pathlib.Path]:
+    """A log-log plot of T, with the prior arm's T on the x axis and the on arm's on the y axis.
+
+    Write distances.pdf and figure_notes.json, and return their paths.  The marks go into the
+    title, and into the Subject of the PDF's metadata.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -447,12 +496,14 @@ def _plot(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
     axis.plot(limits, limits, "k-", lw=0.6)
     axis.plot(limits, [x / FASTER for x in limits], "k:", lw=0.6)
     axis.plot(limits, [x * FASTER for x in limits], "k:", lw=0.6)
-    axis.set_title("time (s)")
+    marked = "; ".join(f"{name}: {value}" for name, value in marks.items())
+    axis.set_title(f"time (s); {marked}" if marks else "time (s)")
     axis.set_xlabel("prior")
     axis.set_ylabel("on")
     figure.tight_layout()
-    figure.savefig(out / "distances.pdf")
+    figure.savefig(out / "distances.pdf", metadata={"Subject": marked} if marks else None)
     (out / "figure_notes.json").write_text(json.dumps({"T": omitted}, indent=1) + "\n")
+    return [out / "distances.pdf", out / "figure_notes.json"]
 
 
 if __name__ == "__main__":

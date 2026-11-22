@@ -11,7 +11,7 @@ The code-annealing experiment and the shared code of `state_prep_certification/`
 | [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS and SWEL codes, scored exactly | `python -m experiments.code_annealing.reproduce_paper`; or `write_jobs`, its jobs, `collect_data`, and `make_figures` (see its guide) |
 | [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and checks of the heuristics behind their tuning | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
-| [`state_prep_certification/`](state_prep_certification/) | Exact certification of fault-tolerant state preparation circuits, the exact distance searches that it relies on, and a ranking of the certified circuits, run offline on a Linux node | `node.sh` on the node; `bundle.py` on a workstation |
+| [`state_prep_certification/`](state_prep_certification/) | Exact certification of fault-tolerant state preparation circuits, the exact distance searches that it relies on, and an exploratory ranking of the certified circuits, which the other two do not use; all run offline on a Linux node | `node.sh` on the node; `bundle.py` on a workstation |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
 `state_prep_certification/node.sh` describes itself in its header comment, which `--help` prints.
@@ -29,7 +29,7 @@ Commands below are written relative to the repository root.
 ## Results
 
 Every experiment that saves results stores them in a `results/` directory beside its scripts, which Git ignores.
-Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
+Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment (`state_prep_certification/node.sh` takes the variable `FTSP_RESULTS` instead).
 The [code standard](../docs/source/contributing/standards/code.rst) says which data files an experiment may commit.
 To ignore a data directory that is a symlink, name it in `.gitignore` without a trailing slash, as the root `.gitignore` does for `results` and [`state_prep_certification/.gitignore`](state_prep_certification/.gitignore) does for its data.
 Each experiment in the table below holds a CSV summary in its results directory, together with the resumable intermediate data from which that summary is built:
@@ -250,7 +250,7 @@ See the [lattice-surgery README](lattice_surgery/README.md) for example commands
 
 ## State preparation certification
 
-[`state_prep_certification/`](state_prep_certification/) holds experiments on the exact certification of fault-tolerant state preparation circuits, on the exact distance searches that it relies on, and on a ranking of the certified circuits.
+[`state_prep_certification/`](state_prep_certification/) holds experiments on the exact certification of fault-tolerant state preparation circuits, on the exact distance searches that it relies on, and on an exploratory ranking of the certified circuits, which the other two do not use.
 They run only qLDPC and its Python dependencies, on a Linux node without practical network access.
 A workstation builds one offline bundle with `bundle.py`.
 The node runs an experiment with `node.sh` and GNU parallel, one pinned core per run, and one archive comes back for analysis.

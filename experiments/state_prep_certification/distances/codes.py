@@ -5,12 +5,13 @@
     python codes.py --out DIR [--write-sample] [--check]
 
 **Families and sizes.**  Each family has endpoints n_lo and n_hi from its published source,
-recorded with their sources in ``code_data/endpoints.json``.  The four target lengths are
-n_j = n_lo (n_hi / n_lo)^(j / 3) for j = 0, ..., 3, and each target goes to the family's
-admissible parameters whose length is nearest in log n; ties go to the smaller n, then to the
-family's tie-break.  Targets that land on the same parameters merge; in the ``ladders`` of
-``code_data/sample.json``, a target that lands on the parameters of an earlier one has ``merged``
-set to true.  No timing of any kind enters this rule.
+recorded in ``code_data/endpoints.json``; the README cites each source and gives the rule by which
+the endpoints were read from it.  The four target lengths are n_j = n_lo (n_hi / n_lo)^(j / 3)
+for j = 0, ..., 3, and each target goes to the family's admissible parameters whose length is
+nearest in log n; ties go to the smaller n, then to the family's tie-break.  Targets that land on
+the same parameters merge; in the ``ladders`` of ``code_data/sample.json``, a target that lands on
+the parameters of an earlier one has ``merged`` set to true.  No timing of any kind enters this
+rule.
 
 **Draws.**  For each size, draws i = 0, 1, ... are made until 4 are kept or 100 are made.  Draw i
 of parameters ``params`` of family ``f`` uses ``numpy.random.default_rng(seed)`` with
@@ -26,7 +27,7 @@ rule that produced the frozen ``sample.json``.  Every draw and its outcome goes 
 unexpected exception stops the script.
 
 **Anchors.**  The named codes of ``ANCHORS``, from ``experiments/distance_tuning/workloads.py``,
-qLDPC's constructors, and the vendored constructions below, with a reference distance where an
+qLDPC's constructors, and the constructions below, with a reference distance where an
 independent source gives one.
 
 **Storage.**  Every code is stored as plain matrices, ``H_X`` and ``H_Z`` for a CSS code and
@@ -39,9 +40,6 @@ untracked changes.  It covers nothing outside ``src/``, such as this experiment'
 compares their ``COMPARED_FIELDS`` with ``sample.json``.  These fields include the anchors'
 reference distances, which the analysis reads from the sample.  Git ignores ``code_data/``, which
 the offline bundle carries.
-
-The constructions of the families and of some anchors are vendored, with changes, from an earlier
-unpublished version of this experiment by its authors.
 """
 
 from __future__ import annotations
@@ -224,7 +222,12 @@ def size_ladder(
 
 
 def draw_bb(params: dict[str, Any], rng: np.random.Generator) -> codes.CSSCode:
-    """Bivariate bicycle code with A = x^a + y^b + y^c and B = y^d + x^e + x^f (Bravyi et al.)."""
+    """Bivariate bicycle code with A = x^a + y^b + y^c and B = y^d + x^e + x^f.
+
+    The bivariate bicycle codes, with A and B of this form, are those of S. Bravyi, A. W. Cross,
+    J. M. Gambetta, D. Maslov, P. Rall, and T. J. Yoder, "High-threshold and low-overhead
+    fault-tolerant quantum memory", Nature 627, 778-782 (2024), arXiv:2308.07915.
+    """
     l, m = params["l"], params["m"]
     a, d = int(rng.integers(l)), int(rng.integers(m))
     b, c = (int(v) for v in rng.choice(m, 2, replace=False))
@@ -320,7 +323,7 @@ def draw_qt(params: dict[str, Any], rng: np.random.Generator) -> codes.CSSCode:
         group: abstract.Group = abstract.DihedralGroup(order // 2)
     else:
         group = abstract.CyclicGroup(order)
-    # the row-reduced checks that qldpc built when sample.json was fixed
+    # the row-reduced checks, which the frozen sample records
     code = workloads.get_row_reduced_qt_code(
         codes.QTCode.random(group, local_code(length), seed=int(rng.integers(2**31)))
     )
@@ -464,6 +467,25 @@ def color_666(distance: int) -> codes.CSSCode:
 
 # Anchors: name -> (constructor, reference distance or None, source).  The quantum distance of
 # CSS(Q, Q) for a quadratic-residue code Q of length p = -1 mod 8 is the minimum odd weight of Q.
+# Full references of the sources below:
+# - Lee et al. 2026: J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for
+#   ultra-high-rate quantum codes" (2026), arXiv:2609.30069;
+# - Okada and Kasai 2026: K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum
+#   LDPC codes" (2026), arXiv:2607.14091;
+# - Bravyi et al. 2024: S. Bravyi, A. W. Cross, J. M. Gambetta, D. Maslov, P. Rall, and T. J. Yoder,
+#   "High-threshold and low-overhead fault-tolerant quantum memory", Nature 627, 778-782 (2024),
+#   doi:10.1038/s41586-024-07107-7, arXiv:2308.07915, whose "Table 3" is that of arXiv:2308.07915v2;
+# - Panteleev and Kalachev 2021: P. Panteleev and G. Kalachev, "Degenerate Quantum LDPC Codes With
+#   Good Finite Length Performance", Quantum 5, 585 (2021), doi:10.22331/q-2021-11-22-585,
+#   arXiv:1904.02703;
+# - He, Reed, and Truong 2001, a short key for four authors: R. He, I. S. Reed, T.-K. Truong, and
+#   X. Chen, "Decoding the (47,24,11) quadratic residue code", IEEE Trans. Inf. Theory 47(3),
+#   1181-1186 (2001), doi:10.1109/18.915677;
+# - Rains and Sloane 1998: E. M. Rains and N. J. A. Sloane, "Self-Dual Codes", in Handbook of
+#   Coding Theory, eds. V. S. Pless and W. C. Huffman (1998), pp. 177-294, arXiv:math/0208001;
+# - Knill and Laflamme 1996: E. Knill and R. Laflamme, "Concatenated Quantum Codes" (1996),
+#   arXiv:quant-ph/9608012.
+# The source strings stay short, since the frozen sample.json records them.
 ANCHORS: dict[str, tuple[Callable[[], Any], int | None, str]] = {
     "pp110": (lambda: workloads.get_code("pp110"), 12, "workloads.py; Lee et al. 2026"),
     "pp170": (lambda: workloads.get_code("pp170"), 20, "workloads.py; Lee et al. 2026"),
@@ -656,7 +678,7 @@ def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
             arrays["matrix_z"].astype(np.int_),
             is_subsystem_code=False,
         )
-        # whether the plain code searches only its X sector, which AT1 checks on two anchors
+        # whether the plain code has equal X and Z distances because H_X = H_Z, which AT1 checks
         equal_sectors = bool(plain_css._equal_distance_xz)
         plain: codes.QuditCode = plain_css
     else:

@@ -52,19 +52,25 @@
   whose enumerated combinations differ from A_m, each make their circuit a disagreement, as does a
   baseline stopped after a violation at weight m against a finished certification whose smallest
   violation is not at m.  An expected task without a row is reported as ``missing``.  Rows with
-  ``compiled_in_timing`` set give the statuses, verdict, table counts, and times that
+  ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and times that
   ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
   whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
-  first run that finished.  Every case of the combined margin of ``analyze_applications.py`` gives
-  its value, its bound, or a disagreement, and a footnoted margin keeps its sector.  A margin or a
-  deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
+  first run that finished.  With two of the synthetic rows marked as rows of ``--local`` runs,
+  ``analyze.py`` refuses the label without ``--allow-local``; with it, every output gives the number
+  of these rows, and the name of the refused environment variable that a start, here a dry run,
+  accepted with ``--allow-env``.  ``analyze.py`` warns of a label whose hash does not match its
+  ``circuits.json``, the working tree's other frozen files, and the commit and requirements of its
+  manifest, and of no other.  Every case of the combined margin of ``analyze_applications.py`` gives
+  its value, its bound, or a disagreement, and a margin of at most t keeps its sector.  A margin or
+  a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
   makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
-  so also when its verdict is only in the partial results of a killed task.  The whole margin column
-  of one family is checked, and the footnote lists m* = t, but not m* = t + 1 or a disagreement.
-  The deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave
-  the rebuild unchecked for an input that is not the label's, exclude a disagreement from the table
-  but list its task, list an uncertified parent, and give a timeout and a flagged timeout their
-  statuses.
+  so also when its verdict is only in the partial results of a killed task.  The margin counts of
+  one family are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a
+  disagreement.  The deletion outputs rebuild a reduced circuit from its input, report a wrong final
+  SHA-256, leave the rebuild unchecked for an input that is not the label's, exclude a disagreement
+  from ``deletion_table.csv`` but list its task, list an uncertified parent, and give a timeout and
+  a flagged timeout their statuses.  ``deletion_table.csv`` lists its circuits in the order of their
+  ids, and an analysis's marks head each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -85,29 +91,32 @@
   Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
   that names it.
 
-The expected values of AT1 come from qLDPC's notebook and tests; a failure is investigated and
-reported, never fixed by changing a rule.  Each test prints PASS or FAIL; the script exits with
-status 1 if any failed.  The tests are the same on the node and on a workstation: ``--local`` and
-the ``node`` argument of each test exist because the plug-in interface passes whether the tests
+The expected values of AT1 on C-goto and its weakened variant come from qLDPC: the notebook
+``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb`` certifies C-goto's circuit up
+to any fault weight when it post-selects on the flag, and finds a violation at fault weight 1 when
+it does not, and ``test_steane_preparation_meets_css_weight_but_not_physical_weight`` of
+``src/qldpc/circuits/certification/fault_propagation_test.py`` certifies the circuit with its flag.
+A failure of AT1 means that the experiment disagrees with these results: find the cause, rather than
+change a rule of the experiment until AT1 passes.  Each test prints PASS or FAIL; the script exits
+with status 1 if any failed.  The tests are the same on the node and on a workstation: ``--local``
+and the ``node`` argument of each test exist because the plug-in interface passes whether the tests
 run on the node.
 """
 
 from __future__ import annotations
 
-import argparse
+import contextlib
 import csv
 import hashlib
+import io
 import json
 import math
 import pathlib
+import shutil
+import subprocess
 import sys
-import tempfile
-import time
-import traceback
-from collections.abc import Callable
 from typing import Any
 
-import numba
 import numpy as np
 import numpy.typing as npt
 
@@ -127,74 +136,11 @@ from experiments.state_prep_certification.certification import (
     experiment,
     instrument,
 )
-from experiments.state_prep_certification.common import local_runs
+from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
 
-# The failures that a test reports as FAIL, after which the other tests still run.
-FAILURES = (
-    ArithmeticError,
-    AssertionError,
-    AttributeError,
-    ImportError,
-    LookupError,
-    OSError,
-    RuntimeError,
-    SystemExit,
-    TypeError,
-    ValueError,
-    instrument.ShadowDisagreement,
-    numba.core.errors.NumbaError,
-)
-
-TESTS: dict[str, Callable[[pathlib.Path, bool], None]] = {}
-
-
-def main() -> None:
-    """Run the selected tests."""
-    args = parse_args()
-    results_dir = args.results_dir or pathlib.Path(tempfile.mkdtemp(prefix="spc-cert-"))
-    passed = run_all(node=not args.local, results_dir=results_dir, only=args.only)
-    sys.exit(0 if passed else 1)
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "--local",
-        action="store_true",
-        help="mark the run as off the node, which runs the same tests",
-    )
-    parser.add_argument(
-        "--only", nargs="*", choices=sorted(TESTS), help="run only these tests, such as AT1"
-    )
-    parser.add_argument("--results-dir", type=pathlib.Path, help="where the tests' runs go")
-    return parser.parse_args()
-
-
-def run_all(node: bool, results_dir: pathlib.Path, only: list[str] | None = None) -> bool:
-    """Run the tests, print PASS or FAIL for each, and return whether all passed."""
-    results_dir.mkdir(parents=True, exist_ok=True)
-    failed = []
-    for name, test in TESTS.items():
-        if only and name not in only:
-            continue
-        start = time.monotonic()
-        try:
-            test(results_dir / name, node)
-            print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except FAILURES:
-            failed.append(name)
-            print(f"FAIL {name}\n{traceback.format_exc()}", flush=True)
-    print(f"{len(failed)} failed: {failed}" if failed else "all passed", flush=True)
-    return not failed
-
-
-def test(function: Callable[[pathlib.Path, bool], None]) -> Callable[[pathlib.Path, bool], None]:
-    """Register a test by the ID at the start of its name, as in ``at1_...`` for AT1."""
-    TESTS[function.__name__.split("_")[0].upper()] = function
-    return function
+SUITE = acceptance.Suite("spc-cert-")
+test = SUITE.test
+run_all = SUITE.run_all
 
 
 def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None) -> Any:
@@ -402,9 +348,9 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     # a circuit with t = 2, so that weight 2 has no violation, and K = 3, so that the full run
     # reports two weights.  Each run sleeps after reporting each weight, and the limit falls in the
     # middle of the sleep after the next-to-last weight.  The runner checks the limit every 0.2 s or
-    # so, and its kill took effect 0.1-0.25 s after the limit in measured runs, well within the
-    # sleep.  The full run compiles nothing in its measured call, since run_locally fails if it
-    # does.
+    # so, a small part of the 1 s of sleep that remains after the limit, so that it kills the run
+    # before the run reports another weight.  The full run compiles nothing in its measured call,
+    # since run_locally fails if it does.
     circuit, delay = experiment._entry("bcat.w13.t2"), 2.0
     task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
     task["weight_delay_s"] = delay
@@ -545,10 +491,10 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     """Analysis of synthetic rows: partial counts, disagreements, missing tasks, flagged rows."""
     # six B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
     # times out; the ground truth of the second and the baseline of the third disagree on a count,
-    # and both violate at 3, so the box would prefer either of them over the first if they agreed;
-    # the fourth certifies, and its cert_cc task has no row.  The certifications and baselines of
-    # the fifth and sixth time out, and the rows of the fifth's cert_bz and brute_bz runs have
-    # compiled_in_timing set (rows of retries that compiled too).
+    # and both violate at 3, so the example counterexample of their group would be either of them,
+    # not the first, if they agreed; the fourth certifies, and its cert_cc task has no row.  The
+    # certifications and baselines of the fifth and sixth time out, and the rows of the fifth's
+    # cert_bz and brute_bz runs have compiled_in_timing set (rows of retries that compiled too).
     first, second, third, fourth, fifth, sixth = (
         experiment._entry(f"bcat.w{w}.t2") for w in (10, 11, 12, 13, 14, 15)
     )
@@ -617,7 +563,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         partial=[class_parameters, {"m": 2, "Pi": 1, "E": 0, "Phi": 40}],
     )
 
-    # Phi_2 = A_2 on the second and third circuits would raise the listing table's maximum
+    # Phi_2 = A_2 on the second and third circuits would raise listing_table.csv's maximum
     for entry, phi in ((second, 400), (third, 400), (fourth, 80)):
         counts = listing | {"Phi": listing["Phi"] | {"2": phi}}
         add(entry, "count_listing", "ok", 1.0, counts | class_parameters | {"K_prime": 3})
@@ -641,14 +587,14 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         add(fifth, arm, "timeout", 1800.0, compiled=arm != "cert_cc")
         add(sixth, arm, "timeout", 1800.0)
 
-    # analyze the rows, and read the tables
+    # analyze the rows, and read summary.csv, per_weight.csv, and families.csv
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     by_id = {entry["id"]: entry for entry in entries}
     out = directory / "analysis"
     out.mkdir(parents=True, exist_ok=True)
     analyze.write_outputs(analyze.collect(rows, by_id, expected), by_id, out)
     tables = {}
-    for name in ("summary", "per_weight", "main_table"):
+    for name in ("summary", "per_weight", "families"):
         with open(out / f"{name}.csv") as file:
             tables[name] = list(csv.DictReader(file))
 
@@ -691,8 +637,12 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     assert analyze._agree_baseline(stopped, [brute], accepted_counts) is False
     assert analyze._agree_baseline(stopped, [], accepted_counts) is True
 
-    # the disagreements
+    # the disagreements, whose counterexamples are listed but are not the group's example
     assert [summary[e["id"]]["verdict"] for e in (second, third)] == ["disagreement"] * 2, summary
+    counterexamples = json.loads((out / "counterexamples.json").read_text())
+    assert counterexamples["examples"] == {"B-cat": first["id"]}, counterexamples["examples"]
+    listed = [(entry["id"], entry["disagreement"]) for entry in counterexamples["all"]]
+    assert listed == [(first["id"], False), (second["id"], True), (third["id"], True)], listed
     assert summary[second["id"]]["agree_ground_truth"] == "False", summary[second["id"]]
     assert summary[third["id"]]["agree_baseline"] == "False", summary[third["id"]]
 
@@ -707,7 +657,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         "timeout",
         "undecided",
     )
-    (family,) = tables["main_table"]
+    (family,) = tables["families"]
     keys = ("timeout_compiled_cert_bz", "timeout_cert_bz", "timeout_compiled", "undecided")
     assert [family[key] for key in (*keys, "brute_timed_out")] == ["1"] * 5, family
 
@@ -729,6 +679,67 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         "x", {"options": {"max_weight": 2}}, first_flagged, repeat_flagged, first_flagged, {}, {}
     )
     assert weight["T_m_bz"] is None and weight["T_m_cc"] == 1.0, weight
+
+    # with two of the synthetic rows marked as rows of --local runs, the analysis refuses the label
+    # unless given --allow-local, and then every output gives their number; it also names, in
+    # every output, the refused environment variable that a start accepted with --allow-env, here a
+    # dry run, which can run the acceptance tests whose pass later starts reuse, and the recorded
+    # variable that a resume changed
+    label_dir = directory / "label"
+    label_dir.mkdir()
+    (label_dir / "circuits.json").write_bytes(circuits.CIRCUITS_JSON.read_bytes())
+    for number, row in enumerate(rows):
+        store.append_row(label_dir, dict(row, local=number < 2))
+    start = {
+        "allowed_environment": ["PYTHONPATH"],
+        "environment": {"PYTHONPATH": "/elsewhere"},
+        "dry_run": True,
+    }
+    resume = {"environment": {"PYTHONPATH": "/elsewhere", "NUMBA_OPT": "0"}}
+    (label_dir / store.STARTS_FILE).write_text(json.dumps(start) + "\n" + json.dumps(resume) + "\n")
+
+    # the label check: a label made with the working tree's frozen files, of which the label's
+    # circuits.json is a copy, and a bundle's requirements matches; any other label warns
+    frozen = [experiment.HERE / name for name in experiment.FROZEN_FILES]
+    commit, requirements = "c" * 40, "0" * 64
+    label = manifest.compute_label(
+        experiment.NAME, manifest.label_files(frozen), commit, requirements
+    )
+    for name, warns in ((label[:-1] + ("1" if label[-1] == "0" else "0"), True), (label, False)):
+        record = {
+            "label": f"{name}-local",
+            "harness": {"commit": commit},
+            "bundle": {"requirements_sha256": requirements},
+        }
+        (label_dir / "manifest.json").write_text(json.dumps(record))
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            analyze.check_frozen_files(label_dir)
+        assert ("does not match" in output.getvalue()) == warns, (name, output.getvalue())
+    earlier = label_dir / "analysis" / "earlier"
+    earlier.mkdir(parents=True)
+    (earlier / "families.csv").write_text("id\nx\n")
+    (earlier / "notes.json").write_text("[]\n")
+    command = [sys.executable, analyze.__file__, "--label-dir", str(label_dir)]
+    analysis = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert analysis.returncode != 0 and "--allow-local" in analysis.stderr, analysis.stderr
+    analysis = subprocess.run(
+        command + ["--allow-local"], capture_output=True, text=True, check=False
+    )
+    assert analysis.returncode == 0, analysis.stderr
+    assert "settings that a node start refuses: PYTHONPATH;" in analysis.stdout, analysis.stdout
+    assert "different NUMBA_OPT" in analysis.stdout, analysis.stdout
+    assert "warning" not in analysis.stdout, analysis.stdout
+    # the analysis marks only the files that it wrote, not those of an earlier analysis beside them
+    assert (earlier / "families.csv").read_text() == "id\nx\n"
+    assert (earlier / "notes.json").read_text() == "[]\n"
+    shutil.rmtree(earlier)
+    marks = {
+        "local_rows": 2,
+        "allowed_environment": "PYTHONPATH",
+        "environment_changed": "NUMBA_OPT",
+    }
+    others = acceptance.check_marked(label_dir / "analysis", marks)
+    assert not others, others  # no deletion run, so no circuit in pruned/
 
     _check_application_analysis(directory / "applications")
     print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")
@@ -1260,8 +1271,8 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     expected = {"echen", "cgoto", "aft.steane.heuristic_opt", "aft.shor.heuristic_opt"}
     assert disagreements == expected, disagreements
 
-    # the margin column of one family with t = 2, as (m*, lower bound, verdict)
-    column = [
+    # the margin counts of one family with t = 2, as (m*, lower bound, verdict)
+    margin_cases = [
         (2, None, "certified"),
         (3, None, "certified"),
         (4, None, "certified"),
@@ -1271,8 +1282,8 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         (1, None, "disagreement"),
     ]
     keys = ("margin", "margin_lower_bound", "verdict")
-    column_rows = [{"t": 2} | dict(zip(keys, row)) for row in column]
-    assert analyze_applications.margin_column(column_rows) == {
+    margin_rows = [{"t": 2} | dict(zip(keys, row)) for row in margin_cases]
+    assert analyze_applications.margin_counts(margin_rows) == {
         "margin_at_most_t": 1,
         "margin_t_plus_1": 1,
         "margin_at_least_t_plus_2": 1,
@@ -1285,7 +1296,8 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
 
     # the deletion outputs: a reduced circuit rebuilt from its input, a wrong final SHA-256, an
     # input that is not the one the label ran on, a disagreement, a parent not certified at K = t,
-    # and a timeout with its final checks
+    # and a timeout with its final checks; deletion_table.csv is ordered by circuit id, so the
+    # finished task of BB [[72,12,6]], whose input is missing, comes last
     reduced_id = "aft.cc_4_8_8.heuristic_opt"
     reduced = applications.prune(
         _input(reduced_id), experiment._entry(reduced_id), "last_measured_first", 0
@@ -1304,6 +1316,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         "aft.steane.heuristic_opt": [run("ok", reduced | {"final_sha256": "0" * 64})],
         "aft.shor.heuristic_opt": [run("ok", reduced)],
         "aft.steane.opt_opt": [run("ok", reduced)],
+        "dsynth190.bb72.naive": [run("ok", reduced)],
         "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
         "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
         "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
@@ -1312,7 +1325,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
         for circuit_id, arm_rows in arms.items()
     }
-    # the footnote lists m* = t, and leaves out m* = t + 1 and a disagreement
+    # margin_violations.csv lists m* = t, and leaves out m* = t + 1 and a disagreement
     margins = {reduced_id: (2, "certified"), "aft.steane.heuristic_opt": (3, "certified")}
     margins["aft.steane.opt_opt"] = (1, "disagreement")
     summary_rows = [
@@ -1321,31 +1334,43 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         for circuit_id in arms
     ]
     out = directory / "analysis"
-    out.mkdir(parents=True, exist_ok=True)
-    analyze_applications.write_applications(per_circuit, summary_rows, out, inputs)
+    (out / "pruned").mkdir(parents=True, exist_ok=True)
+    (out / "pruned" / "prune.stale.stim").write_text("H 0\n")  # of an earlier analysis
+    paths = analyze_applications.write_applications(per_circuit, summary_rows, out, inputs)
+    assert not (out / "pruned" / "prune.stale.stim").exists(), "pruned/ was not written whole"
     with open(out / "deletion_table.csv") as file:
-        table = {row["id"]: row["rebuild_matches"] for row in csv.DictReader(file)}
+        table_rows = list(csv.DictReader(file))
+    ids = [row["id"] for row in table_rows]
+    assert ids == sorted(ids), ids
+    table = {row["id"]: row["rebuild_matches"] for row in table_rows}
     expected_table = {
         reduced_id: "True",
         "aft.steane.heuristic_opt": "False",
         "aft.shor.heuristic_opt": "",
+        "dsynth190.bb72.naive": "",
     }
     assert table == expected_table, table
     with open(out / "deletion_tasks.csv") as file:
         tasks = {row["id"]: row["disagreement"] for row in csv.DictReader(file)}
     assert tasks == dict.fromkeys(table, "False") | {"aft.steane.opt_opt": "True"}, tasks
-    caption = json.loads((out / "deletion_caption.json").read_text())
-    assert [entry["id"] for entry in caption["not_certified_at_t"]] == ["cgoto"], caption
-    assert caption["unfinished"][0]["final_checks"] == checks, caption
+    notes = json.loads((out / "deletion_notes.json").read_text())
+    assert [entry["id"] for entry in notes["not_certified_at_t"]] == ["cgoto"], notes
+    assert notes["unfinished"][0]["final_checks"] == checks, notes
     # a deletion run's plain and flagged timeouts
-    statuses = {entry["id"]: entry["status"] for entry in caption["unfinished"]}
-    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, caption
-    assert caption["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], caption
-    mismatches = caption["rebuild_mismatches"]
-    assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], caption
-    with open(out / "margin_footnote.csv") as file:
+    statuses = {entry["id"]: entry["status"] for entry in notes["unfinished"]}
+    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, notes
+    assert notes["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], notes
+    mismatches = notes["rebuild_mismatches"]
+    assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], notes
+    with open(out / "margin_violations.csv") as file:
         assert [row["id"] for row in csv.DictReader(file)] == [reduced_id]
     stim.Circuit((out / "pruned" / f"prune.{reduced_id}.stim").read_text())
+
+    # an analysis's marks head each circuit of pruned/, which still parses
+    store.mark_outputs(paths, {"local_rows": 2})
+    pruned = (out / "pruned" / f"prune.{reduced_id}.stim").read_text()
+    assert pruned.startswith("# local_rows: 2\n"), pruned[:80]
+    stim.Circuit(pruned)
 
 
 def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps: bool) -> int:
@@ -1553,4 +1578,4 @@ def _input(circuit_id: str) -> Any:
 
 
 if __name__ == "__main__":
-    main()
+    SUITE.main(__doc__)

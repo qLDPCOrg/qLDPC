@@ -14,8 +14,12 @@
   left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
 * **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label
   directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
-  the analysis of a run on golay a disagreement.  ``compare_with_sample`` reports a sample in which
-  one reference distance differs from that of ``sample.json``.  Each row's tuning is the shipped
+  the analysis of a run on golay a disagreement.  AT5's runs are local, so the analysis refuses
+  their rows without ``--allow-local``; with it, every output gives the number of these rows, the
+  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for
+  a start under -O, which sets no variable, and the recorded variable that a resume changed,
+  ``distances.pdf`` in its metadata.  ``compare_with_sample`` reports a sample in which one
+  reference distance differs from that of ``sample.json``.  Each row's tuning is the shipped
   default, with ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
@@ -33,15 +37,15 @@
   timed-out repeat, some of them on codes that disagree or fail.  ``load_sample`` refuses a label
   directory without a copy of the sample.
 
-GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
-``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
-install (AT8) is rehearsed with ``bundle.py``.  AT4 and AT7 are retired.  Each test prints PASS or
-FAIL.
+GNU parallel's stop and resume and its job-slot pinning are tested by ``common/selftest.py``:
+locally with stand-in CPU numbers, and in node mode on Linux before the node's acceptance tests.
+``node.sh``'s offline install can be rehearsed on a workstation with a bundle that ``bundle.py``
+builds for the workstation's platform.  The IDs AT3, AT4, AT7, and AT8 are unused.  Each test prints
+PASS or FAIL.
 """
 
 from __future__ import annotations
 
-import argparse
 import copy
 import csv
 import dataclasses
@@ -51,22 +55,17 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
-import time
-import traceback
-from collections.abc import Callable
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
-from experiments.state_prep_certification.common import local_runs, store, tasks
+from experiments.state_prep_certification.common import acceptance, local_runs, store, tasks
 from experiments.state_prep_certification.distances import arms, codes, experiment
 from qldpc import codes as qldpc_codes
 from qldpc.codes.distance import _tuning
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-TESTS: dict[str, Callable[[pathlib.Path, bool], None]] = {}
 AT1_CODES = ("bb72", "pp110", "golay", "qr47", "five_five", "surface9")
 EQUAL_SECTORS = ("golay", "qr47")
 LOCAL_LIMIT_S = 60.0
@@ -80,59 +79,9 @@ EXPECTED_BZ_PRIOR = {
 }
 
 
-def main() -> None:
-    """Run the selected tests."""
-    args = parse_args()
-    results_dir = args.results_dir or pathlib.Path(tempfile.mkdtemp(prefix="spc-dist-"))
-    passed = run_all(node=not args.local, results_dir=results_dir, only=args.only)
-    sys.exit(0 if passed else 1)
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--local", action="store_true", help="the workstation's tests")
-    parser.add_argument("--only", nargs="*", help="run only these tests, such as AT1")
-    parser.add_argument("--results-dir", type=pathlib.Path, help="where the tests' runs go")
-    return parser.parse_args()
-
-
-def run_all(node: bool, results_dir: pathlib.Path, only: list[str] | None = None) -> bool:
-    """Run the tests, print PASS or FAIL for each, and return whether none failed."""
-    results_dir.mkdir(parents=True, exist_ok=True)
-    failed = []
-    for name, test in TESTS.items():
-        if only and name not in only:
-            continue
-        start = time.monotonic()
-        try:
-            test(results_dir / name, node)
-            print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except (
-            ArithmeticError,
-            AssertionError,
-            AttributeError,
-            ImportError,
-            LookupError,
-            OSError,
-            RuntimeError,
-            subprocess.SubprocessError,
-            SystemExit,
-            TypeError,
-            ValueError,
-        ):
-            failed.append(name)
-            print(f"FAIL {name}\n{traceback.format_exc()}", flush=True)
-    print(f"{len(failed)} failed: {failed}" if failed else "none failed", flush=True)
-    return not failed
-
-
-def test(function: Callable[[pathlib.Path, bool], None]) -> Callable[[pathlib.Path, bool], None]:
-    """Register a test by the ID at the start of its name, as in ``at1_...`` for AT1."""
-    TESTS[function.__name__.split("_")[0].upper()] = function
-    return function
+SUITE = acceptance.Suite("spc-dist-")
+test = SUITE.test
+run_all = SUITE.run_all
 
 
 def _sample() -> dict[str, Any]:
@@ -179,8 +128,10 @@ def _run_arms(
 def at1_anchors(directory: pathlib.Path, node: bool) -> None:
     """Both arms return the reference distance on fast anchors, searching the same sectors.
 
-    Both arms make the same code-method call on a plain code, so they search one sector exactly
-    when the plain code has ``_equal_distance_xz``: on the codes with H_X = H_Z, and on no other.
+    Both arms make the same code-method call on a plain code, so they search the same sectors.  The
+    plain codes with H_X = H_Z, and only those, have ``_equal_distance_xz``, under which a search
+    covers only the X sector; with bliss, a sector map can also give a search of one sector of a
+    code whose check matrices differ.
     """
     label_dir = _prepared(directory)
     entries = _entries(AT1_CODES)
@@ -265,14 +216,40 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     copy_of_sample = copy.deepcopy(_sample())
     next(e for e in copy_of_sample["anchors"] if e["name"] == "golay")["reference_d"] = 8
     (label_dir / "sample.json").write_text(json.dumps(copy_of_sample))
+    # a start that accepted PYTHONPATH, and a resume under -O, which sets no variable
+    start = {"allowed_environment": ["PYTHONPATH"], "environment": {"PYTHONPATH": "/elsewhere"}}
+    resume = {"environment": {"PYTHONPATH": "/elsewhere", "NUMBA_OPT": "0"}, "python_optimize": 1}
+    (label_dir / store.STARTS_FILE).write_text(json.dumps(start) + "\n" + json.dumps(resume) + "\n")
     out = label_dir / "analysis"
     script = pathlib.Path(__file__).with_name("analyze.py")
     command = [sys.executable, str(script), "--label-dir", str(label_dir), "--out", str(out)]
+    # the rows are of --local runs, which the analysis refuses without --allow-local
     result = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert result.returncode != 0 and "--allow-local" in result.stderr, result.stderr
+    result = subprocess.run(
+        command + ["--allow-local"], capture_output=True, text=True, check=False
+    )
     assert result.returncode == 0, result.stderr
+    assert "settings that a node start refuses: PYTHONOPTIMIZE, PYTHONPATH;" in result.stdout, (
+        result.stdout
+    )
+    assert "different NUMBA_OPT" in result.stdout, result.stdout
     with open(out / "families.csv") as file:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
     assert (anchors["codes"], anchors["disagreement"]) == ("1", "1"), anchors
+
+    # every output gives the number of rows of local runs, the refused environment variables that a
+    # start accepted with --allow-env or ran under, and the recorded variable that a resume changed,
+    # distances.pdf in its metadata too
+    marks = {
+        "local_rows": 2,
+        "allowed_environment": "PYTHONOPTIMIZE PYTHONPATH",
+        "environment_changed": "NUMBA_OPT",
+    }
+    others = acceptance.check_marked(out, marks)
+    assert [path.name for path in others] == ["distances.pdf"], others
+    subject = "; ".join(f"{name}: {value}" for name, value in marks.items())
+    assert f"/Subject ({subject})".encode() in (out / "distances.pdf").read_bytes()
 
 
 @test
@@ -518,7 +495,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         "lp": ("-", "2", "1", "1"),
         "anchors": ("-", "-", "-", "-"),
     }, medians
-    # the figure omits the disagreements, failures, and incomplete timings: golay, qr79, qr47,
+    # distances.pdf omits the disagreements, failures, and incomplete timings: golay, qr79, qr47,
     # third, fourth, and pp110
     assert json.loads((out / "figure_notes.json").read_text()) == {"T": 6}
 
@@ -535,8 +512,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     # the T cell of a failed arm with a flagged first run shows the failure: qr79's memout repeat
     assert cells["qr79"]["q_bz_on_T"] == "memout", cells["qr79"]
 
-    # a label directory without a copy of the sample, such as one from a run made before runs kept
-    # a copy, is refused
+    # a label directory without a copy of the sample is refused
     try:
         analyze.load_sample(directory)
     except ValueError:
@@ -546,4 +522,4 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    SUITE.main(__doc__)

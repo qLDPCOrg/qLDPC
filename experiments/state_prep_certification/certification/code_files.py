@@ -3,15 +3,14 @@
 """The code files: each code's check matrices and logical operators, in output-qubit order.
 
 A code file ``<code>_code.json`` holds ``distance``, ``Hx``, ``Hz``, ``Lx``, and ``Lz``, with one
-column per output qubit, in the order of the circuit's output qubits, so that a consumer of a run's
-circuits, such as a ranking of them by their residual errors, has each code's matrices.  The signed
-stabilizers of a circuit's state do not give these matrices: the Z-type stabilizers of |0...0>_L
-span both Hz and Lz, and which rows are checks and which are logical operators comes from the code's
-definition.
+column per output qubit, in the order of the circuit's output qubits.  ``circuits.py --check``
+checks each input's state against these matrices, which split the state's Z-type stabilizers into
+checks Hz and logical operators Lz as the code's definition does; the state alone does not determine
+that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz.
 
-Like the circuits, the code files are made outside qLDPC, from MQT QECC's definitions of the codes:
-those of the A-ft codes in ``circuit_data/codes/``, and those of the codes of each family of
-synthesized circuits, by the synthesis, beside its circuits (``circuits.SYNTHESES``).
+The code files follow MQT QECC's definitions of the codes.  Those of the A-ft codes lie in
+``circuit_data/codes/``, and those of the codes of each family of synthesized circuits beside its
+circuits (``circuits.SYNTHESES``).
 ``code_file`` gives each circuit of ``circuits.VERIFIED_FAMILIES`` its file, ``circuits.py
 --build`` records the file and its SHA-256 in ``circuits.json``, and ``circuits.py --check`` checks
 each file against its circuit (``check_code_file``).

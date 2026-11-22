@@ -454,10 +454,10 @@ def residual_weight_table(stabilizers: npt.NDArray[np.uint8]) -> npt.NDArray[np.
     """The CSS residual weight of every syndrome of a CSS stabilizer state on at most 20 qubits.
 
     ``stabilizers`` has one row ``[x | z]`` per generator, and syndrome bit j of an error is whether
-    it anticommutes with generator j.  The generators need not be pure X or pure Z: the table first
-    finds pure ones, T = G S over GF(2), whose syndrome is G times the original one.  The residual
-    weight of a syndrome is then the larger of the least weights of an X error and a Z error with
-    its parts on the pure-Z and pure-X generators.
+    it anticommutes with generator j.  The generators need not be pure X or pure Z: this function
+    first finds pure ones, T = G S over GF(2), whose syndrome is G times the original one.  The
+    residual weight of a syndrome is then the larger of the least weights of an X error and a Z
+    error with its parts on the pure-Z and pure-X generators.
     """
     import galois
 

@@ -4,14 +4,19 @@
 
 A task is a JSON object with a unique ``key``, the ``experiment``, ``arm``, ``mode``, ``repeat``,
 ``limit_s``, and ``mem_cap_gib``.  It may also set ``post_s``, ``startup_cap_s``, and ``grace_s``,
-which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Beyond
-these, it holds whatever the experiment needs to run it, such as an input.  ``write_pass1`` writes
-every task of pass 1 to ``tasks.json`` and their keys, shuffled with a fixed seed, to
+which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Each limit
+must be finite and positive, and ``grace_s`` at most ``runner.TERM_WAIT_S`` less 2 s, so that GNU
+parallel's signal sequence leaves the runner its grace.  A key must not start with ``_``, which
+names GNU parallel's record beside the runs' records in a label's ``active/`` directory (see
+``run_node.py``).  ``runner.check_task`` refuses a task that breaks one of these rules.  Beyond
+these, a task holds whatever the experiment needs to run it, such as an input.  ``write_pass1``
+writes every task of pass 1 to ``tasks.json`` and their keys, shuffled with a fixed seed, to
 ``tasks-pass1.txt``.  ``write_pass2`` writes the repeats that the experiment's repeat policy asks
 for, once every task of pass 1 has a final row, to ``tasks-pass2.json`` and ``tasks-pass2.txt``, in
-the order of pass 1.  A task file is written once and never changed, since GNU parallel's
-resumption depends on its order; writing it again with other contents is an error, because a
-changed input must give a new label.  ``cores.txt`` lists the logical CPU of each job slot.
+the order of pass 1; their keys must be unique and differ from those of pass 1.  A task file is
+written once and never changed, since GNU parallel's resumption depends on its order; writing it
+again with other contents is an error, because a changed input must give a new label.  ``cores.txt``
+lists the logical CPU of each job slot.
 
 The ceiling is the worst-case CPU time of the task list, with the runner's retries.  For each task
 of pass 1, the experiment's ``worst_case_s`` W counts its first run and the repeats that it can
@@ -26,14 +31,14 @@ exceeds the approved CPU-hours.
 from __future__ import annotations
 
 import json
-import os
+import math
 import pathlib
 import random
 import shlex
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common import runner, store
 
 TASKS_FILE = "tasks.json"
 PASS2_TASKS_FILE = "tasks-pass2.json"
@@ -58,13 +63,18 @@ class ApprovalError(Exception):
 
 
 def pass_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
-    """The key list of a pass, such as ``1``, ``2``, or a retry of a pass."""
+    """The key list of a pass, ``1`` or ``2``."""
     return label_dir / f"tasks-pass{name}.txt"
 
 
 def joblog_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
     """GNU parallel's job log of a pass."""
     return label_dir / f"joblog-pass{name}.tsv"
+
+
+def missing_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
+    """The keys of the tasks of a pass that ended its last run without a final row, if any."""
+    return label_dir / f"missing-pass{name}.txt"
 
 
 def write_pass1(label_dir: pathlib.Path, tasks: Sequence[dict[str, Any]]) -> list[str]:
@@ -100,6 +110,9 @@ def write_pass2(
     if missing:
         raise ValueError(f"{len(missing)} tasks of pass 1 have no final row, such as {missing[0]}")
     repeats = [repeat for key in order for repeat in repeat_tasks(tasks[key], final[key])]
+    keys = [task["key"] for task in repeats]
+    if len(set(keys)) != len(keys) or not tasks.keys().isdisjoint(keys):
+        raise ValueError("Repeat keys must be unique, and differ from the keys of pass 1")
     for task in repeats:
         runner.check_task(task)
     write_once(label_dir / PASS2_TASKS_FILE, json.dumps(repeats, indent=1, sort_keys=True) + "\n")
@@ -157,7 +170,11 @@ def check_memory_caps(tasks: Sequence[dict[str, Any]], job_mem_gib: float) -> No
 
 
 def check_approval(ceiling: float, approved: float | None) -> None:
-    """Raise ``ApprovalError`` unless the approved CPU-hours cover the ceiling."""
+    """Raise ``ApprovalError`` unless the approved CPU-hours cover the ceiling, both finite."""
+    if not math.isfinite(ceiling):
+        raise ApprovalError(f"The ceiling is {ceiling} CPU-hours; a task's limits are not finite")
+    if approved is not None and not math.isfinite(approved):
+        raise ApprovalError(f"The approved CPU-hours must be finite, not {approved}")
     if approved is None:
         raise ApprovalError(
             f"The ceiling is {ceiling:,.1f} CPU-hours; pass --approved-cpu-hours to run it"
@@ -201,7 +218,11 @@ def choose_cpus(
     if jobs is not None:
         count = min(count, jobs)
     if count < 1:
-        raise ValueError("No job slot fits on this machine")
+        raise ValueError(
+            f"No job slot fits on this machine: it has {len(cores)} physical cores, of which "
+            f"{RESERVED_CORES} are reserved, and memory for {max(by_memory, 0)} slots of "
+            f"{mem_per_job_gib:g} GiB beyond the reserved {RESERVED_MEM_GIB:g} GiB"
+        )
     slots = [min(core) for core in cores[RESERVED_CORES : RESERVED_CORES + count]]
     reserved = sorted(cpu for core in cores[:RESERVED_CORES] for cpu in core)
     return slots, reserved
@@ -223,9 +244,7 @@ def write_once(path: pathlib.Path, text: str) -> None:
                 f"{path} exists with other contents; a changed input needs a new label"
             )
         return
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(text)
-    os.replace(temporary, path)
+    store.write_atomic(path, text)
 
 
 ####################################################################################################

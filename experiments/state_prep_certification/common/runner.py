@@ -6,30 +6,46 @@ The parent side, ``run_task``, starts the child with the thread variables of ``T
 set to 1, and, if it is given a CPU, has the child pin itself to that CPU.  On the node, the
 runner itself inherits the CPUs of the reserved cores from ``run_node.py``, so that its polling
 of processes every second runs off the measured cores; rows record both affinities.  The runner
-records the child's process group (or, in local mode, its process id) and the start times of the
-child and the runner in ``active/<task_key>``, and watches the child:
+records the child's process group (or, in local mode, its process id), the start times of the
+child and the runner, and the host in ``active/<task_key>``, which it keeps from the task's first
+run until after its row is appended, and watches the child:
 
 * **Start-up cap:** the child must report that timing started within ``startup_cap_s`` of its
   launch (process start, imports, and any untimed preparation); otherwise it is killed and the
   run is an ``error``.
 * **Limit:** the measured call gets ``limit_s`` from the moment that the child reports its start.
   The parent kills the child as soon as the limit has passed, and the run is a ``timeout``
-  whenever the measured time T is at least the limit, even if the call returned later.  The T of a
-  killed timeout is the time from the start to the kill, a censoring time.
-* **After the measured call:** once it has ended, the child has ``post_s`` (by default
-  ``FINISH_S``) to send its result and exit.  An experiment with untimed post-processing, such as
-  describing a counterexample, sends its measured result first with ``send_result`` and declares a
-  longer ``post_s``; running out of it then marks only the row's ``post_status``, and the
-  measured result stands.  Without ``send_result``, running out of
-  ``post_s`` makes the run an ``error``.
+  whenever the measured time T is at least the limit, even if the call returned later or a memory
+  kill followed, and whenever a memory kill during the measured call came at or after the limit,
+  as after a slow poll.  The T of a killed timeout is the time from the start to the kill, a
+  censoring time.
+* **After the measured call:** once it has ended, the child has ``post_s`` (by default ``FINISH_S``)
+  to send its result and exit.  An experiment with untimed post-processing, such as describing a
+  counterexample, sends its measured result first with ``send_result`` and declares a longer
+  ``post_s``; running out of it then marks only the row's ``post_status``, and the measured result
+  stands.  Without ``send_result``, a run whose result has not arrived within ``post_s`` is an
+  ``error``, and a run killed after its final result arrived, for not exiting within ``post_s``,
+  stays ``ok``, unless its peak until the result exceeded the cap (see below).
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
-  process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.
+  process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since the
+  polls can miss a short peak, the parent also checks the peak that the operating system records for
+  the child and the processes that it waited for: the child sends it with its result
+  (``getrusage``), of ``send_result`` or final, and the parent reads it when the child exits without
+  a kill (``wait4``).  These are peaks of single processes, not of their sum, so a short peak of the
+  run's summed memory between two polls can still go unseen.  An ``ok`` run whose peak until its
+  result exceeds the cap becomes a ``memout``, with an ``error`` that says that the peak was found
+  after the run.  For a run that sends its result before post-processing, the peak that the child
+  sends with the result decides the status; a later peak above the cap marks only ``post_status``.
+  The row's ``peak_rss_gib`` is the largest of the polled peak and these peaks.
 * **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
   partial results and the report of a compilation that the child wrote before the kill, waits up
-  to ``grace_s`` for the processes to go, and accepts no other message.  On the node, a kill
-  signals the run's process group, whose id cannot be reused while a member lives.  Locally, a
-  process is killed only if its start time is the one recorded when it was seen, so that a reused
-  process id is never killed.
+  to ``grace_s`` for the processes to go, and accepts no other message.  The row's ``error`` lists
+  each process left after the grace, with its command line, and the run's record stays in
+  ``active/``, as ``active/<run_id>``, with the id and start time of each such process, so that
+  ``run_node.py --cleanup`` kills exactly those that are still the same processes, even once the
+  run's own process and its runner have exited.  On the node, a kill signals the run's process
+  group, whose id cannot be reused while a member lives.  Locally, a process is killed only if its
+  start time is the one recorded when it was seen, so that a reused process id is never killed.
 * **Compilation:** while the measured call runs, the child listens to two of numba's documented
   events: ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and
   ``"numba:run_pass"``, which it sends for each compiler pass of any compilation, including those
@@ -51,30 +67,40 @@ child and the runner in ``active/<task_key>``, and watches the child:
   T include a compilation that numba reports.  That happens for code whose compilation was lost when
   the discarded run was killed at its limit or memory cap or ended in an error, for code that the
   discarded run never reached, and for code that numba does not cache on disk, such as galois's
-  arithmetic when a task does not compile it first.  It can also happen when processes compile
-  different versions of one function at once, since one can overwrite the cache entry that another
-  wrote (numba/numba#10862).  Such a row is kept so that it is visible.  ``compiled_in_timing`` is
-  the flag that the analyses test, and ``compiled_function`` names the first function compiled, to
-  show what to look into.
+  arithmetic when a task does not compile it first.  Such a row is kept so that it is visible.
+  ``compiled_in_timing`` is the flag that the analyses test, and ``compiled_function`` names the
+  first function compiled, to show what to look into.
+
+  numba saves to its disk cache without a lock across processes, so processes that first compile
+  different signatures of one function at once can lose a cache entry, so that a later run
+  compiles again, which ``compiled_in_timing`` can show, or leave an entry that loads the code
+  compiled for another signature (numba/numba#10862), which can give wrong results or fail when
+  the code is called.  No row records such a load.
 
 ``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
 during or between its runs, kills any current run, waits up to the grace for its processes to go,
 and returns 2 without a row; ``run_task.py`` exits with that status.  If the parent itself fails, it
-kills the run before it exits.
+kills the run before it exits.  If it cannot tell that the run's processes are gone, as when ``ps``
+fails, it kills the run's own process, if it has not reaped it, and keeps the run's record in
+``active/``.  On the node, where the kill reached the run's process group, the record lets a start
+and ``--cleanup`` find members of the group that survive it; locally, the run's other processes
+may survive unrecorded.  If it cannot write the record of the processes left after a run's grace,
+the task's record stays as it was.
 
 The child side is ``child_main``.  The experiment's ``run(task, label_dir)`` calls ``timed`` once
 around the measured call, may call ``send_partial`` with partial results as they arrive and
 ``send_result`` with the measured result before it starts post-processing, and returns the
 remaining fields.  On the node, the child runs in a new session, so that its process group holds
-the whole run; locally (``local=True``), it stays in the runner's session, so that a supervisor of
-the calling session can account for it and stop it, and kills walk its process tree instead.  In
-local mode, a process that the run leaves behind after a normal exit is neither killed nor
-reported.
+the whole run; locally (``local=True``), it stays in the runner's session, so that whatever watches
+or stops that session reaches it too, and kills walk its process tree instead.  In local mode, a
+process that the run leaves behind after a normal exit is neither killed nor reported.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import math
 import os
 import pathlib
 import platform
@@ -119,17 +145,32 @@ _CLEANUP_S = 2.0
 _CHANNEL_VARIABLE = "FTSP_CHANNEL_FD"
 _CPU_VARIABLE = "FTSP_CPU"
 _LOG_TAIL_BYTES = 1 << 16
+_MAXRSS_UNIT = 1 if sys.platform == "darwin" else 1024  # the unit of ru_maxrss, in bytes
 _ReturnType = TypeVar("_ReturnType")
 
 
 def check_task(task: dict[str, Any]) -> None:
-    """Raise ValueError if a task's limits cannot be enforced, such as a grace that is too long."""
-    grace = float(task.get("grace_s", GRACE_S))
-    if grace > TERM_WAIT_S - _CLEANUP_S:
+    """Raise ValueError if a task's limits cannot be enforced, or if its key is reserved.
+
+    Each limit must be finite and positive, since a comparison with NaN, or with infinity, never
+    triggers a kill, and ``grace_s`` at most ``TERM_WAIT_S - _CLEANUP_S``, so that GNU parallel's
+    signal sequence leaves the runner its grace and its clean-up.  A key must not start with ``_``,
+    which names GNU parallel's record in a label's ``active/`` directory (see ``run_node.py``).
+    """
+    if task["key"].startswith("_"):
+        raise ValueError(f"{task['key']}: a task key must not start with '_'")
+    limits = {
+        "limit_s": task["limit_s"],
+        "mem_cap_gib": task["mem_cap_gib"],
+        "startup_cap_s": task.get("startup_cap_s", STARTUP_CAP_S),
+        "grace_s": task.get("grace_s", GRACE_S),
+        "post_s": task.get("post_s", FINISH_S),
+    }
+    for field, value in limits.items():
+        if not (math.isfinite(float(value)) and float(value) > 0):
+            raise ValueError(f"{task['key']}: {field} must be finite and positive, not {value}")
+    if float(limits["grace_s"]) > TERM_WAIT_S - _CLEANUP_S:
         raise ValueError(f"{task['key']}: grace_s must be at most {TERM_WAIT_S - _CLEANUP_S:g} s")
-    for field in ("limit_s", "mem_cap_gib"):
-        if float(task[field]) <= 0:
-            raise ValueError(f"{task['key']}: {field} must be positive")
 
 
 class Process(NamedTuple):
@@ -183,6 +224,11 @@ def run_task(
     previous_handlers = {
         sig: signal.signal(sig, on_signal) for sig in (signal.SIGTERM, signal.SIGINT)
     }
+    # each run writes the task's active file, which stays between the runs and until the row is in,
+    # or, if the runner failed before it knew that the run was gone or had kept the record of the
+    # processes left after its grace, for a start and --cleanup
+    active_file = label_dir / "active" / task["key"]
+    watcher: _Watcher | None = None
     try:
         row: dict[str, Any] | None = None
         for _ in range(RUNS_PER_TASK):
@@ -204,6 +250,8 @@ def run_task(
         store.append_row(label_dir, row)
         return 0
     finally:
+        if watcher is None or not watcher.may_live:
+            active_file.unlink(missing_ok=True)
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
 
@@ -248,6 +296,7 @@ class _Watcher:
         self.child_error: str | None = None
         self.compiled_function: str | None = None
         self.peak_rss = 0
+        self.result_peak_rss = 0
         self.threads_peak: int | None = None
         self.seen: dict[int, str] = {}
         self.stop = stop
@@ -257,6 +306,7 @@ class _Watcher:
         self.timing_started_at: float | None = None
         self.measured_at: float | None = None
         self.killed_at: float | None = None
+        self.may_live = False
 
     def run(self, command: list[str]) -> dict[str, Any] | None:
         """Start the child, watch it, and return its row, or None if a signal stopped it."""
@@ -272,30 +322,50 @@ class _Watcher:
         env[_CHANNEL_VARIABLE] = str(write_fd)
         if self.cpu is not None:
             env[_CPU_VARIABLE] = str(self.cpu)
-        with open(log_file, "wb") as log:
-            child = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                env=env,
-                pass_fds=(write_fd,),
-                start_new_session=not self.local,
-            )
-        os.close(write_fd)
+        try:
+            with open(log_file, "wb") as log:
+                child = subprocess.Popen(
+                    command,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    pass_fds=(write_fd,),
+                    start_new_session=not self.local,
+                )
+        except BaseException:
+            os.close(read_fd)
+            raise
+        finally:
+            os.close(write_fd)
         self.root = child.pid
-        self.group = os.getpgid(child.pid) if not self.local else None
-        active_file.write_text(
-            json.dumps(
-                {
-                    "pid": child.pid,
-                    "pid_start": process_start(child.pid),
-                    "pgid": self.group,
-                    "runner_pid": os.getpid(),
-                    "runner_start": process_start(os.getpid()),
-                }
-            )
-        )
+
+        # record the run; if that fails, kill the child, which on the node leads its process group,
+        # without the process table, before failing
+        try:
+            self.group = os.getpgid(child.pid) if not self.local else None
+            root_start = process_start(child.pid)
+            if root_start is not None:
+                self.seen[child.pid] = root_start
+            record = {
+                "pid": child.pid,
+                "pid_start": root_start,
+                "pgid": self.group,
+                "runner_pid": os.getpid(),
+                "runner_start": process_start(os.getpid()),
+                "host": socket.gethostname(),
+            }
+            # the temporary file is outside active/, whose readers would find it
+            store.write_atomic(active_file, json.dumps(record), self.label_dir)
+        except BaseException:
+            with contextlib.suppress(ProcessLookupError):
+                if self.local:
+                    os.kill(child.pid, signal.SIGKILL)
+                else:
+                    os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+            os.close(read_fd)
+            raise
 
         # watch the child until it ends, or until a limit or a signal ends it; if this runner
         # fails, kill the run before failing
@@ -304,29 +374,53 @@ class _Watcher:
             finished_at = _utc_now()
             stray = self._wait_until_gone(child) if kill_reason or not self.local else []
         except BaseException:
-            self._kill()
-            self._wait_until_gone(child)
-            active_file.unlink(missing_ok=True)
+            self.may_live = True
+            try:
+                self._kill()
+                self._keep_record(active_file, self._wait_until_gone(child))
+                self.may_live = False
+            finally:
+                # if the run may live on, as when ps fails, kill at least its own process, unless
+                # it was reaped, when its id may have been reused; its record stays (see run_task)
+                if self.may_live and child.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.kill(child.pid, signal.SIGKILL)
             raise
         finally:
             os.close(read_fd)
+        self._keep_record(active_file, stray)
         _keep_tail(log_file)
         if self.stop.signum is not None:
-            active_file.unlink(missing_ok=True)
             return None
 
         # the run's row
         if rusage is not None:
-            scale = 1 if sys.platform == "darwin" else 1024
-            self.peak_rss = max(self.peak_rss, rusage.ru_maxrss * scale)
+            self.peak_rss = max(self.peak_rss, rusage.ru_maxrss * _MAXRSS_UNIT)
         if child.returncode and self.child_error is None:
             self.child_error = log_file.read_text(errors="replace")[-2000:].strip()
         row = self._row(kill_reason, child.returncode, started_at, finished_at)
         if stray:
-            left = f"processes left after the grace: {stray}"
+            left = f"processes left after the grace: {describe_processes(stray)}"
             row["error"] = f"{row['error']}; {left}" if row["error"] else left
-        active_file.unlink(missing_ok=True)
         return row
+
+    def _keep_record(self, active_file: pathlib.Path, stray: list[int]) -> None:
+        """Keep the run's active record as ``active/<run_id>`` if processes of the run are left.
+
+        The kept record adds ``survivors``, the id and start time of each process left, so that
+        ``live_runs`` and ``--cleanup`` of ``run_node.py`` find them after this runner has exited,
+        and the next run of the task cannot overwrite the record.  Until it is written, the run
+        may live (``may_live``), so that if the write fails, the task's record stays.
+        """
+        if stray:
+            self.may_live = True
+            record = json.loads(active_file.read_text())
+            record["survivors"] = [[pid, self.seen.get(pid) or process_start(pid)] for pid in stray]
+            store.write_atomic(
+                active_file.with_name(self.run_id), json.dumps(record), self.label_dir
+            )
+            active_file.unlink()
+            self.may_live = False
 
     def _watch(
         self, child: subprocess.Popen[bytes], read_fd: int, launch: float
@@ -417,6 +511,7 @@ class _Watcher:
         elif kind == "result":
             self.result = message["fields"]
             self.post_phase = not message.get("final", False)
+            self.result_peak_rss = int(message.get("max_rss_bytes", 0))
         elif kind == "post":
             self.post = message["fields"]
         elif kind == "error":
@@ -435,17 +530,22 @@ class _Watcher:
         if self.measured is not None:
             T, T_cpu = float(self.measured["T"]), float(self.measured["T_cpu"])
 
-        # the status, from the measured call first
-        if kill_reason == "memout" and self.result is None:
+        # the status, from the measured call first; a kill during the measured call at or past its
+        # limit, by the limit or by a memory poll that crossed it, makes a timeout
+        started, killed = self.timing_started_at, self.killed_at
+        killed_T = None
+        if self.measured is None and started is not None and killed is not None:
+            killed_T = killed - started
+        if T is not None and T >= self.limit_s:
+            status = "timeout"
+        elif killed_T is not None and (
+            kill_reason == "timeout" or (kill_reason == "memout" and killed_T >= self.limit_s)
+        ):
+            status, T = "timeout", max(self.limit_s, killed_T)
+        elif kill_reason == "memout" and self.result is None:
             status = "memout"
         elif kill_reason == "startup":
             status, error = "error", f"start-up cap of {self.startup_cap_s:g} s exceeded"
-        elif self.measured is None and kill_reason == "timeout":
-            status = "timeout"
-            assert self.timing_started_at is not None and self.killed_at is not None
-            T = max(self.limit_s, self.killed_at - self.timing_started_at)
-        elif T is not None and T >= self.limit_s:
-            status = "timeout"
         elif self.measured is not None and self.result is not None:
             status = "ok"
         elif kill_reason == "post_timeout":
@@ -454,9 +554,21 @@ class _Watcher:
             status = "error"
             error = self.child_error or f"the child exited with status {returncode}"
 
+        # a peak above the memory cap: the peak until the result decides the status, and a later
+        # peak, in post-processing, marks only the post-processing.  The error says when a peak
+        # was found after the run, rather than by the poll that killed the run.
+        peak_rss = max(self.peak_rss, self.result_peak_rss)
+        peak_before_result = self.result_peak_rss if self.post_phase else peak_rss
+        if status == "ok" and peak_before_result > self.mem_cap_bytes:
+            status = "memout"
+            if kill_reason != "memout" or self.post_phase:
+                error = self._over_cap(peak_before_result)
+
         # the post-processing, which never changes an ok status
         if status == "ok" and self.post_phase:
-            if self.post is not None:
+            if self.post is not None and peak_rss > self.mem_cap_bytes:
+                post_status, error = "memout", self._over_cap(peak_rss)
+            elif self.post is not None:
                 post_status = "ok"
             elif kill_reason in ("post_timeout", "memout"):
                 post_status = "timeout" if kill_reason == "post_timeout" else "memout"
@@ -479,10 +591,10 @@ class _Watcher:
             "post_status": post_status,
             "T": T,
             "T_cpu": T_cpu,
-            "peak_rss_gib": self.peak_rss / 2**30,
+            "peak_rss_gib": peak_rss / 2**30,
             "limit_s": self.limit_s,
             "host": socket.gethostname(),
-            "cpu": _cpu_model(),
+            "cpu": cpu_model(),
             "pinned_cpu": self.cpu,
             "affinity": start_info.get("affinity"),
             "runner_affinity": _affinity(),
@@ -499,12 +611,30 @@ class _Watcher:
             "result": result,
         }
 
+    def _over_cap(self, peak: float) -> str:
+        """The error of a run whose peak memory, found after the run, exceeds its cap."""
+        return (
+            f"peak memory of {peak / 2**30:.3g} GiB above the cap of "
+            f"{self.mem_cap_bytes / 2**30:g} GiB, found after the run"
+        )
+
     def _members(self, table: dict[int, Process]) -> list[int]:
-        """The live processes of the run: its process group, or locally its process tree."""
+        """The live processes of the run: its process group, or locally its process tree.
+
+        Locally, the tree is that of each process seen before that is still the same process: the
+        run's own process, seen when it was recorded, and others such as a grandchild whose parent
+        has exited.  A process that has reused the id of a seen one is not walked, so that its
+        descendants never join the run.
+        """
         if self.group is not None:
             members = [pid for pid, process in table.items() if process.pgid == self.group]
         else:
-            members = descendants(table, self.root)
+            roots = [
+                pid
+                for pid, start in self.seen.items()
+                if pid in table and table[pid].start == start
+            ]
+            members = sorted({member for root in roots for member in descendants(table, root)})
         for pid in members:
             self.seen.setdefault(pid, table[pid].start)
         return members
@@ -557,6 +687,8 @@ class _Watcher:
             if not alive and child.returncode is not None:
                 return []
             if time.monotonic() >= deadline:
+                if child.returncode is None and self.root not in alive:
+                    alive.append(self.root)  # the child itself, not yet reaped
                 return alive
             self._kill()
             time.sleep(0.2)
@@ -647,7 +779,7 @@ def send_result(fields: dict[str, Any]) -> None:
     if _CHANNEL.measured is None:
         raise RuntimeError("send_result(...) needs a finished timed(...) call")
     _CHANNEL.result_sent = True
-    _CHANNEL.send({"type": "result", "fields": fields})
+    _CHANNEL.send({"type": "result", "fields": fields, "max_rss_bytes": _max_rss_bytes()})
 
 
 def pin_child() -> None:
@@ -673,7 +805,9 @@ def child_main(
     if _CHANNEL.result_sent:
         _CHANNEL.send({"type": "post", "fields": fields})
     else:
-        _CHANNEL.send({"type": "result", "fields": fields, "final": True})
+        _CHANNEL.send(
+            {"type": "result", "fields": fields, "final": True, "max_rss_bytes": _max_rss_bytes()}
+        )
     return 0
 
 
@@ -754,24 +888,19 @@ def descendants(table: dict[int, Process], root: int) -> list[int]:
     return members
 
 
-####################################################################################################
-# helpers
+def describe_processes(pids: list[int]) -> str:
+    """Processes by id, each with its command line, as ``ps`` shows it."""
+    output = subprocess.run(
+        ["ps", "-o", "pid=,command=", "-p", ",".join(str(pid) for pid in pids)],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+    commands = dict(line.split(None, 1) for line in output.splitlines() if len(line.split()) > 1)
+    return ", ".join(f"{pid} ({commands.get(str(pid), 'gone').strip()})" for pid in pids)
 
 
-def _affinity() -> list[int] | None:
-    """The CPUs that this process may run on, where the system reports them (Linux)."""
-    if sys.platform.startswith("linux"):
-        return sorted(os.sched_getaffinity(0))
-    return None
-
-
-def _cpu_seconds() -> float:
-    """The CPU time of this process and its waited-for children, in seconds."""
-    times = os.times()
-    return times.user + times.system + times.children_user + times.children_system
-
-
-def _cpu_model() -> str:
+def cpu_model() -> str:
     """The model name of this machine's CPU."""
     try:
         if sys.platform.startswith("linux"):
@@ -788,6 +917,29 @@ def _cpu_model() -> str:
     except OSError:
         pass
     return platform.processor()
+
+
+####################################################################################################
+# helpers
+
+
+def _affinity() -> list[int] | None:
+    """The CPUs that this process may run on, where the system reports them (Linux)."""
+    if sys.platform.startswith("linux"):
+        return sorted(os.sched_getaffinity(0))
+    return None
+
+
+def _max_rss_bytes() -> int:
+    """The peak resident memory of this process, or of one of its waited-for children, in bytes."""
+    usage = (resource.getrusage(who) for who in (resource.RUSAGE_SELF, resource.RUSAGE_CHILDREN))
+    return _MAXRSS_UNIT * max(entry.ru_maxrss for entry in usage)
+
+
+def _cpu_seconds() -> float:
+    """The CPU time of this process and its waited-for children, in seconds."""
+    times = os.times()
+    return times.user + times.system + times.children_user + times.children_system
 
 
 def _keep_tail(path: pathlib.Path) -> None:

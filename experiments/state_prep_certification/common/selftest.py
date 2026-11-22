@@ -8,36 +8,49 @@
 Each test writes into a fresh temporary directory and uses the stand-in experiment of
 ``selftest_plugin.py``.  By default, runs use local mode (``--local``), which keeps every run in
 this session.  With ``--node`` (Linux only), the tests of the runner, of GNU parallel, and of
-``--cleanup`` run in node mode instead: each run in a new session, killed by process group, with its
-child pinned to a CPU and its runner on other CPUs; ``run_node.py`` runs them before the node's
-acceptance tests.  The test of ``bundle.check_tree``, which needs git, runs only without
-``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``.
+``--cleanup`` run in node mode instead: each run in a new session, killed by process group.  The
+tests that run GNU parallel pin each run's child to its job slot's CPU, and only the test of GNU
+parallel's pinning also runs the runners on other CPUs and checks both affinities; the other tests
+run their runs on this process's CPUs.  ``run_node.py`` runs the node-mode tests before the node's
+acceptance tests.  The tests that need git, of ``bundle.check_tree`` and of a dirty tree's label,
+run only without ``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``, and the
+test of ``node.sh`` runs copies of it with ``bash``: through its install on Linux x86-64, with
+stand-ins of uv, GNU parallel, and a bundle's interpreter, and up to its preflight elsewhere.
 
-The script prints one line per test and exits with status 1 if any test failed.
+The script prints one line per test and exits with status 1 if any test failed.  An exception that
+a test raises fails that test only, if it derives from ``Exception`` or is ``SystemExit``
+(``acceptance.FAILURES``), and ``--only`` refuses an unknown test name.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
+import functools
+import io
 import json
 import multiprocessing
 import os
 import pathlib
+import platform
+import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 import traceback
+import types
 from collections.abc import Callable, Iterator
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from experiments.state_prep_certification.common import store, tasks
+from experiments.state_prep_certification.common import acceptance, store, tasks
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_task.py"
@@ -63,17 +76,7 @@ def main() -> None:
         try:
             test(directory, args.node)
             print(f"PASS {name} ({time.monotonic() - start:.1f} s)", flush=True)
-        except (
-            AssertionError,
-            OSError,
-            RuntimeError,
-            ValueError,
-            KeyError,
-            TypeError,
-            AttributeError,
-            IndexError,
-            subprocess.SubprocessError,
-        ):
+        except acceptance.FAILURES:
             failed.append(name)
             print(f"FAIL {name}\n{traceback.format_exc()}", flush=True)
         finally:
@@ -89,7 +92,7 @@ def parse_args() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--node", action="store_true", help="test node mode (Linux)")
-    parser.add_argument("--only", nargs="*", help="run only these tests")
+    parser.add_argument("--only", nargs="*", choices=sorted(TESTS), help="run only these tests")
     parser.add_argument("--keep", action="store_true", help="keep the temporary directories")
     return parser.parse_args()
 
@@ -162,11 +165,16 @@ def test_store_recovery(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_store_archive(directory: pathlib.Path, node: bool) -> None:
-    """The archive holds every file of the label with matching checksums, and its .sha256."""
+    """The archive holds every file of the label with matching checksums, and its .sha256.
+
+    It leaves out the temporary file of an interrupted ``write_atomic``, and the label's lock.
+    """
     label_dir = directory / "label"
     (label_dir / "logs").mkdir(parents=True)
     store.append_row(label_dir, {"task_key": "a"})
     (label_dir / "logs" / "a.txt").write_text("log")
+    (label_dir / ".manifest.json.123.tmp").write_text("{")
+    (label_dir / store.LOCK_FILE).write_text("")
     archive = store.make_archive(label_dir, "label-host-utc")
     sha256 = (archive.parent / (archive.name + ".sha256")).read_text().split()[0]
     assert sha256 == store.sha256_file(archive)
@@ -305,6 +313,136 @@ def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None
 
 
 @test
+def test_runner_timeout_before_memout(directory: pathlib.Path, node: bool) -> None:
+    """A run whose T reached its limit is a timeout, even if a memory kill followed.
+
+    So is a run that a memory poll killed during its measured call at or past the limit, as after
+    a slow poll; before the limit, the kill is a memout.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    def watcher() -> Any:
+        task = _task("late", [], limit_s=1.0)
+        return runner._Watcher(
+            directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+        )
+
+    returned = watcher()
+    returned._receive({"type": "measured", "T": 1.5, "T_cpu": 1.5})
+    row = returned._row("memout", None, "", "")
+    assert row["status"] == "timeout" and row["T"] == 1.5, row
+    for killed_at, status, T in ((1.5, "timeout", 1.5), (0.5, "memout", None)):
+        killed = watcher()
+        killed.timing_started_at, killed.killed_at = 10.0, 10.0 + killed_at
+        row = killed._row("memout", None, "", "")
+        assert (row["status"], row["T"]) == (status, T), (killed_at, row)
+
+
+@test
+def test_runner_peak_after_run(directory: pathlib.Path, node: bool) -> None:
+    """An ok run whose peak memory, found after the run, exceeds its cap is a memout.
+
+    With post-processing, the peak that the child reports with its result decides the status, and a
+    later peak marks only the post-processing.  The row's peak is the largest that the runner knows,
+    and a memout that a poll found does not say that it was found after the run.  Without
+    ``send_result``, a run killed after its final result, for not exiting within ``post_s``, is ok
+    unless the peak that the child sends with that result exceeds the cap, and a run whose result
+    did not arrive is an error.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    def row(
+        peak_gib: float, post: bool, result_peak_gib: float = 0.0, kill: str | None = None
+    ) -> dict[str, Any]:
+        task = _task("peak", [], mem_cap_gib=1.0)
+        watcher = runner._Watcher(
+            directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+        )
+        watcher._receive({"type": "measured", "T": 0.1, "T_cpu": 0.1})
+        result_peak = int(result_peak_gib * 2**30)
+        watcher._receive(
+            {"type": "result", "fields": {}, "final": not post, "max_rss_bytes": result_peak}
+        )
+        if post and kill is None:
+            watcher._receive({"type": "post", "fields": {}})
+        watcher.peak_rss = int(peak_gib * 2**30)
+        return watcher._row(kill, 0 if kill is None else -9, "", "")
+
+    over = row(1.5, post=False)
+    assert over["status"] == "memout" and "found after the run" in over["error"], over
+    assert row(0.5, post=False)["status"] == "ok"
+    late = row(1.5, post=True, result_peak_gib=0.5)
+    assert late["status"] == "ok" and late["post_status"] == "memout", late
+    assert "found after the run" in late["error"], late
+    assert row(1.5, post=True, result_peak_gib=1.5)["status"] == "memout"
+
+    # a peak that only the child reported, with post-processing killed: no rusage, and polls below
+    killed = row(0.5, post=True, result_peak_gib=1.5, kill="post_timeout")
+    assert killed["status"] == "memout" and killed["peak_rss_gib"] == 1.5, killed
+
+    # without send_result: a run killed after its final result, for not exiting, is ok unless the
+    # peak that the child sent with that result exceeds the cap, and one with no result is an error
+    stalled = row(0.5, post=False, result_peak_gib=0.5, kill="post_timeout")
+    assert stalled["status"] == "ok" and stalled["post_status"] is None, stalled
+    stalled = row(0.5, post=False, result_peak_gib=1.5, kill="post_timeout")
+    assert stalled["status"] == "memout" and stalled["peak_rss_gib"] == 1.5, stalled
+    assert "found after the run" in stalled["error"], stalled
+    silent = runner._Watcher(
+        directory, _task("silent", []), local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+    )
+    silent._receive({"type": "measured", "T": 0.1, "T_cpu": 0.1})
+    silent_row = silent._row("post_timeout", -9, "", "")
+    assert silent_row["status"] == "error" and "no result within" in silent_row["error"], silent_row
+    sent: list[dict[str, Any]] = []
+    channel = types.SimpleNamespace(timing_started=True, result_sent=False, send=sent.append)
+    with _patched(runner, "_CHANNEL", channel):
+        runner.child_main(_task("final", []), directory, lambda task, label_dir: {})
+    assert sent[-1]["final"] and sent[-1]["max_rss_bytes"] > 0, sent
+
+    # a poll that kills a run above its cap just after its final result
+    polled = row(1.5, post=False, kill="memout")
+    assert polled["status"] == "memout" and polled["error"] is None, polled
+
+
+@test
+def test_runner_missed_peak(directory: pathlib.Path, node: bool) -> None:
+    """A measured call above its memory cap for a fraction of a second is a memout.
+
+    The polls, a second apart, may miss the peak, but the peak that the child sends with its result,
+    or that the runner reads when the child exits, does not.  The polls are blinded here, so that
+    only these peaks can make the run a memout.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    for steps in ([["flash", 0.6]], [["flash", 0.6], ["post", 0.1]]):
+        label_dir = directory / str(len(steps))
+        label_dir.mkdir()
+        task = _task("flash", steps, mem_cap_gib=0.3, post_s=5.0)
+        tasks.write_pass1(label_dir, [task])
+        with _patched(runner._Watcher, "_poll_resources", lambda self: (0, None)):
+            assert runner.run_task(label_dir, task, local=not node) == 0
+        row = store.final_rows(label_dir)[0][task["key"]]
+        assert row["status"] == "memout" and row["peak_rss_gib"] > 0.3, (steps, row)
+
+
+@test
+def test_runner_child_peak(directory: pathlib.Path, node: bool) -> None:
+    """The peak of a process that the measured call waited for counts in the peak of its result.
+
+    The polls are blinded, so that only the peak that the child sends with its result, which
+    covers the processes that it waited for, can make the run a memout.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("child", [["child_flash", 0.6], ["post", 0.1]], mem_cap_gib=0.3, post_s=5.0)
+    tasks.write_pass1(directory, [task])
+    with _patched(runner._Watcher, "_poll_resources", lambda self: (0, None)):
+        assert runner.run_task(directory, task, local=not node) == 0
+    row = store.final_rows(directory)[0][task["key"]]
+    assert row["status"] == "memout" and row["peak_rss_gib"] > 0.5, row
+
+
+@test
 def test_runner_compile_retry(directory: pathlib.Path, node: bool) -> None:
     """A run whose measured call compiles is discarded; its retry, which loads the code, is kept."""
     with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
@@ -422,6 +560,176 @@ def test_runner_stop_during_retry(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_reparented(directory: pathlib.Path, node: bool) -> None:
+    """Locally, a run's processes include a seen grandchild whose parent exited, and its children.
+
+    A process that has reused the id of a seen process, the run's own included, is not one of them,
+    nor are its children.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    watcher = runner._Watcher(
+        directory, _task("tree", []), local=True, job_slot=None, cpu=None, stop=runner._Stop()
+    )
+    watcher.root = 100
+    watcher.seen = {100: "root", 101: "grandchild"}
+    table = {
+        100: runner.Process(1, 100, 1, None, "root"),
+        101: runner.Process(1, 100, 2**30, None, "grandchild"),
+        102: runner.Process(101, 100, 1, None, "its child"),
+    }
+    assert watcher._members(table) == [100, 101, 102], watcher._members(table)
+    table = {
+        100: runner.Process(1, 100, 1, None, "root"),
+        101: runner.Process(1, 1, 1, None, "a later process"),
+    }
+    assert watcher._members(table) == [100], watcher._members(table)
+    table = {
+        100: runner.Process(1, 100, 1, None, "a later root"),
+        103: runner.Process(100, 100, 1, None, "its child"),
+    }
+    assert watcher._members(table) == [], watcher._members(table)
+
+
+@test
+def test_runner_registration_failure(directory: pathlib.Path, node: bool) -> None:
+    """A runner that fails to record its run after starting it kills the run before failing."""
+    from experiments.state_prep_certification.common import runner
+
+    watcher = runner._Watcher(
+        directory,
+        _task("unrecorded", []),
+        local=not node,
+        job_slot=None,
+        cpu=None,
+        stop=runner._Stop(),
+    )
+
+    def failing_ps(pid: int) -> str | None:
+        raise RuntimeError("ps failed")
+
+    command = [sys.executable, "-c", "import time; time.sleep(56.25)"]
+    with _patched(runner, "process_start", failing_ps):
+        try:
+            watcher.run(command)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("the runner did not fail")
+    survivors = _processes_matching("time.sleep(56.25)")
+    if survivors:  # the run, still this process's unreaped child, is stopped before failing
+        os.kill(watcher.root, signal.SIGKILL)
+        os.waitpid(watcher.root, 0)
+    assert not survivors, "the unrecorded run survived"
+
+
+@test
+def test_runner_survivors(directory: pathlib.Path, node: bool) -> None:
+    """A process that survives the grace is listed, and --cleanup kills it after its runner ends.
+
+    The kept record names the survivor, here a grandchild left after the run's own process was
+    killed, with its start time, so that --cleanup finds it once that process and the runner are
+    gone.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    run_node = _run_node_module()
+    task = _task("survives", [], startup_cap_s=3.0, grace_s=1.0)
+    watcher = runner._Watcher(
+        directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+    )
+
+    def kill_root_only() -> None:  # as for a grandchild in D state
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(watcher.root, signal.SIGKILL)
+
+    watcher._kill = kill_root_only  # type: ignore[method-assign]
+    grandchild = "import time; time.sleep(57.75)"
+    script = (
+        f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {grandchild!r}]); "
+        "time.sleep(57.25)"
+    )
+    survivors: list[list[Any]] = []
+    try:
+        row = watcher.run([sys.executable, "-c", script])
+        assert row is not None and row["status"] == "error", row
+        path = directory / "active" / row["run_id"]
+        record = json.loads(path.read_text())
+        survivors = record["survivors"]
+        ((survivor, _),) = survivors
+        assert survivor != watcher.root and f"{survivor} (" in row["error"], (record, row)
+        assert "time.sleep(57.75)" in row["error"], row
+        assert not (directory / "active" / task["key"]).exists()
+
+        # once the runner has exited too, the survivor is still live, and --cleanup kills it
+        record |= {"runner_pid": record["pid"], "runner_start": record["pid_start"]}
+        path.write_text(json.dumps(record))
+        assert run_node.live_runs(directory) == [row["run_id"]]
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_node.cleanup(directory)
+        time.sleep(1)
+        assert not _processes_matching("time.sleep(57.75)"), "a survivor outlived --cleanup"
+        assert run_node.live_runs(directory) == []
+    finally:
+        recorded = [(watcher.root, watcher.seen.get(watcher.root))] + [
+            (pid, start) for pid, start in survivors
+        ]
+        for pid, start in recorded:
+            if pid > 0 and start is not None and runner.process_start(pid) == start:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+        if watcher.root > 0:
+            with contextlib.suppress(ChildProcessError):
+                os.waitpid(watcher.root, os.WNOHANG)
+
+
+@test
+def test_runner_survivors_unrecorded(directory: pathlib.Path, node: bool) -> None:
+    """A runner that cannot write the record of a run's survivors keeps the task's record.
+
+    The write fails as on a full disk, and the runner fails, so that the task's record in
+    ``active/`` still shows that the run may live.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("unrecorded", [["spawn", 56.75]], limit_s=3.0, grace_s=1.0)
+    tasks.write_pass1(directory, [task])
+
+    def kill_root_only(watcher: Any) -> None:  # as for a grandchild in D state
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(watcher.root, signal.SIGKILL)
+
+    write_atomic = store.write_atomic
+    survivors: list[list[Any]] = []
+
+    def failing_write(path: pathlib.Path, text: str, *args: Any) -> None:
+        if path.name == task["key"]:
+            write_atomic(path, text, *args)
+            return
+        survivors.extend(json.loads(text)["survivors"])
+        raise OSError("no space left on the device")
+
+    try:
+        with (
+            _patched(runner._Watcher, "_kill", kill_root_only),
+            _patched(store, "write_atomic", failing_write),
+        ):
+            try:
+                runner.run_task(directory, task, local=not node)
+            except OSError:
+                pass
+            else:
+                raise AssertionError("the record of the survivors was written")
+        assert survivors, "no process survived the grace"
+        assert (directory / "active" / task["key"]).exists()
+    finally:
+        for pid, start in survivors:
+            if start is not None and runner.process_start(pid) == start:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+
+
+@test
 def test_local_runs_reject_compiled(directory: pathlib.Path, node: bool) -> None:
     """``local_runs.run_locally`` fails if a row with status ok has ``compiled_in_timing`` set.
 
@@ -487,6 +795,91 @@ def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
     assert not _processes_matching("time.sleep(49.25)")
 
 
+@test
+def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
+    """A runner that fails kills its run, removes its active file, and writes no row."""
+    tasks.write_pass1(directory, [_task("broken", [["garbage", 52.25]], limit_s=60.0)])
+    result = subprocess.run(
+        _run_task_command(directory, "broken", node), capture_output=True, check=False
+    )
+    assert result.returncode != 0
+    assert not (directory / "active" / "broken").exists()
+    assert store.read_rows(directory) == ([], [])
+    time.sleep(1)
+    assert not _processes_matching("broken"), "the failed runner's run survived"
+
+
+@test
+def test_runner_failed_process_table(directory: pathlib.Path, node: bool) -> None:
+    """A runner whose process table fails kills its run's own process and keeps the run's record.
+
+    The runner cannot tell whether other processes of the run live, so the record stays in
+    ``active/``: on the node, a start and --cleanup find members of the run's group that survive.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("blind", [["sleep", 54.75]], limit_s=60.0)
+    tasks.write_pass1(directory, [task])
+    process_table = runner.process_table
+    calls: list[None] = []
+
+    def failing_table() -> dict[int, Any]:  # works while the runner records the run
+        calls.append(None)
+        if len(calls) > 2:
+            raise RuntimeError("ps failed")
+        return process_table()
+
+    def reaped(pid: int) -> bool:  # the run's process is this process's child
+        try:
+            return os.waitpid(pid, os.WNOHANG)[0] == pid
+        except ChildProcessError:
+            return True
+
+    record = directory / "active" / task["key"]
+    pid = None
+    try:
+        with _patched(runner, "process_table", failing_table):
+            try:
+                runner.run_task(directory, task, local=not node)
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("the runner did not fail")
+        pid = json.loads(record.read_text())["pid"]
+        _wait_for(functools.partial(reaped, pid), timeout=10)
+        pid = None
+    finally:
+        if pid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+            reaped(pid)
+
+
+@test
+def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None:
+    """A task's active file stays from its first run, through its retry, until its row is in."""
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("twice", [["compile", False], ["value", 1]])
+    tasks.write_pass1(directory, [task])
+    active = directory / "active" / task["key"]
+    after_runs: list[bool] = []
+    run = runner._Watcher.run
+
+    def watched_run(watcher: Any, command: list[str]) -> dict[str, Any] | None:
+        row = run(watcher, command)
+        after_runs.append(active.exists())
+        return row
+
+    with (
+        _environment("NUMBA_CACHE_DIR", str(directory / "numba")),
+        _patched(runner._Watcher, "run", watched_run),
+    ):
+        assert runner.run_task(directory, task, local=not node) == 0
+    assert after_runs == [True, True] and not active.exists(), after_runs
+    assert len(store.read_rows(directory)[0]) == 1
+
+
 ####################################################################################################
 # task lists, GNU parallel, run_node, and cleanup
 
@@ -537,16 +930,6 @@ def test_tasks_ceiling_and_cores(directory: pathlib.Path, node: bool) -> None:
     assert tasks.choose_cpus(lscpu, 48 * 2**30, 8)[0] == [2, 3, 4, 5]  # (48 - 16) / 8 = 4 jobs
     assert tasks.choose_cpus(lscpu, 128 * 2**30, 8, jobs=2)[0] == [2, 3]
 
-    # a task whose limits cannot be enforced is rejected when written
-    for bad in ({"grace_s": 40.0}, {"limit_s": 0.0}, {"mem_cap_gib": -1.0}):
-        try:
-            tasks.write_pass1(directory, [_task("bad", [], **bad)])
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"a task with {bad} was written")
-    assert not (directory / tasks.TASKS_FILE).exists()
-
     # a task whose memory cap exceeds a job slot's is refused
     tasks.check_memory_caps([_task("fits", [], mem_cap_gib=8.0)], 8.0)
     try:
@@ -555,6 +938,69 @@ def test_tasks_ceiling_and_cores(directory: pathlib.Path, node: bool) -> None:
         pass
     else:
         raise AssertionError("a task with too large a memory cap passed")
+
+
+@test
+def test_stand_in_worst_case(directory: pathlib.Path, node: bool) -> None:
+    """The stand-in's worst case is three runs of tasks.run_cost_s, post-processing included."""
+    from experiments.state_prep_certification.common import selftest_plugin
+
+    task = _task("long_post", [], post_s=600.0)
+    assert selftest_plugin.worst_case_s(task) == 3 * tasks.run_cost_s(task) == 3 * 735.0
+
+
+@test
+def test_tasks_refused(directory: pathlib.Path, node: bool) -> None:
+    """A task with a limit that cannot be enforced, or a reserved key, is refused when written.
+
+    So is a non-finite approval.  Each limit must be finite and positive, and the grace short enough
+    for GNU parallel's signal sequence.
+    """
+    nan, inf = float("nan"), float("inf")
+    for bad in (
+        {"limit_s": nan},
+        {"mem_cap_gib": inf},
+        {"startup_cap_s": 0.0},
+        {"post_s": -1.0},
+        {"grace_s": 40.0},
+        {"key": "_parallel"},
+    ):
+        try:
+            tasks.write_pass1(directory, [_task("bad", []) | bad])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"a task with {bad} was written")
+    assert not (directory / tasks.TASKS_FILE).exists()
+    for ceiling, approved in ((1.0, nan), (1.0, inf), (nan, 10.0)):
+        try:
+            tasks.check_approval(ceiling, approved)
+        except tasks.ApprovalError:
+            pass
+        else:
+            raise AssertionError(f"a ceiling of {ceiling} passed an approval of {approved}")
+
+
+@test
+def test_tasks_pass2_keys(directory: pathlib.Path, node: bool) -> None:
+    """Pass 2 refuses repeat keys that are not unique, or that are keys of pass 1."""
+    tasks.write_pass1(directory, [_task("a", []), _task("b", [])])
+    final = {key: {"status": "ok", "T": 0.1} for key in ("a", "b")}
+
+    def same_keys(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
+        return [dict(task, key="repeat")]
+
+    def pass1_key(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
+        return [dict(task, key="a")] if task["key"] == "b" else []
+
+    for policy in (same_keys, pass1_key):
+        try:
+            tasks.write_pass2(directory, final, policy)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"the repeats of {policy.__name__} were written")
+    assert not (directory / tasks.PASS2_TASKS_FILE).exists()
 
 
 @test
@@ -639,7 +1085,14 @@ def test_parallel_stop_and_resume(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
-    """run_node.py refuses without approval, then runs both passes and writes an archive."""
+    """run_node.py refuses without approval, runs both passes, writes an archive, and reports.
+
+    The refused start records itself in ``starts.jsonl`` too, as does a start whose acceptance tests
+    fail, before it runs them.  ``--status`` and ``--cleanup`` name the label directory that they
+    read, and ``--cleanup`` says when it has nothing to clean up.
+    """
+    from experiments.state_prep_certification.common import plugin
+
     command = [
         sys.executable,
         str(RUN_NODE),
@@ -653,25 +1106,66 @@ def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     assert not list(directory.rglob(tasks.TASKS_FILE))
     subprocess.run(command + ["--approved-cpu-hours", "10"], check=True, capture_output=True)
     (label_dir,) = [path.parent for path in directory.rglob(tasks.TASKS_FILE)]
+    starts = [json.loads(line) for line in (label_dir / store.STARTS_FILE).read_text().splitlines()]
+    assert ["jobs" in start for start in starts] == [False, True], starts
     final, problems = store.final_rows(label_dir)
     pass1, pass2 = tasks.pass_keys(label_dir, "1"), tasks.pass_keys(label_dir, "2")
     assert len(pass1) == 3 and len(pass2) == 6 and set(final) == set(pass1 + pass2), problems
     assert list((label_dir / "archive").glob("*.tar.gz"))
+    status = subprocess.run(command + ["--status"], capture_output=True, text=True, check=True)
+    assert f"label directory: {label_dir.resolve()}\npass 1: 3 tasks" in status.stdout, (
+        status.stdout
+    )
+    cleanup = subprocess.run(command + ["--cleanup"], capture_output=True, text=True, check=True)
+    assert f"label directory: {label_dir.resolve()}\n" in cleanup.stdout, cleanup.stdout
+    assert "nothing to clean up" in cleanup.stdout, cleanup.stdout
+
+    # a start records itself before its acceptance tests, so even one whose tests fail does
+    run_node = _run_node_module()
+    module = plugin.load_experiment("selftest")
+    results = directory / "failed"
+    argv = ["run_node.py", "selftest", "--local", "--subset", "acceptance"]
+    with (
+        _patched(sys, "argv", argv + ["--results-dir", str(results)]),
+        _patched(module, "acceptance", lambda node, results_dir: False),
+        _patched(run_node, "lock_label", lambda label_dir: None),  # no lock left in this process
+        contextlib.redirect_stdout(io.StringIO()),
+    ):
+        try:
+            run_node.main()
+        except SystemExit as error:
+            assert "The acceptance tests failed" in str(error.code), error.code
+        else:
+            raise AssertionError("failed acceptance tests let the start go on")
+    (starts_file,) = results.rglob(store.STARTS_FILE)
+    (start,) = [json.loads(line) for line in starts_file.read_text().splitlines()]
+    assert start["subset"] == "acceptance", start
 
 
 @test
 def test_cleanup(directory: pathlib.Path, node: bool) -> None:
-    """After a runner is killed hard, its run is live until --cleanup kills it."""
+    """After a runner is killed hard, its run is live until --cleanup kills it.
+
+    ``--status`` says which records' runs are alive and which ended.
+    """
     run_node = _run_node_module()
 
     tasks.write_pass1(directory, [_task("hard", [["spawn", 51.25]], limit_s=60.0)])
     process = subprocess.Popen(_run_task_command(directory, "hard", node))
     _wait_for(lambda: (directory / "active" / "hard").exists())
+    record = json.loads((directory / "active" / "hard").read_text())
+    assert record["host"] == socket.gethostname(), record
     time.sleep(2)
     process.kill()
     process.wait()
     assert _processes_matching("time.sleep(51.25)")
     assert run_node.live_runs(directory) == ["hard"]
+    ended = record | {"pid_start": "another start", "runner_start": "another start"}
+    (directory / "active" / "ended").write_text(json.dumps(ended))
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        run_node.print_status(directory)
+    assert "\n  ended: ended (--cleanup" in output.getvalue(), output.getvalue()
+    assert "\n  hard: alive\n" in output.getvalue(), output.getvalue()
     run_node.cleanup(directory)
     time.sleep(1)
     assert not _processes_matching("time.sleep(51.25)"), "a run survived --cleanup"
@@ -680,8 +1174,65 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_cleanup_acceptance(directory: pathlib.Path, node: bool) -> None:
+    """A run of an acceptance attempt whose runner was killed hard is live until --cleanup kills it.
+
+    Its record is in the active/ directory of a label directory under the attempt's directory.
+    """
+    run_node = _run_node_module()
+    results = directory / "results"
+    label_dir = results / "selftest" / "label"
+    label_dir.mkdir(parents=True)
+    attempt = run_node.acceptance_dir(label_dir, results) / "attempt" / "AT1"
+    attempt.mkdir(parents=True)
+    tasks.write_pass1(attempt, [_task("hard", [["spawn", 50.75]], limit_s=60.0)])
+    process = subprocess.Popen(_run_task_command(attempt, "hard", node=False))
+    record = attempt / "active" / "hard"
+    _wait_for(lambda: record.exists())
+    time.sleep(2)
+    process.kill()
+    process.wait()
+    assert _processes_matching("time.sleep(50.75)")
+    assert run_node.live_runs(label_dir) == []
+    assert run_node.live_runs(label_dir, results) == [str(record)]
+    with contextlib.redirect_stdout(io.StringIO()):
+        run_node.cleanup(label_dir, results)
+    time.sleep(1)
+    assert not _processes_matching("time.sleep(50.75)"), "a run survived --cleanup"
+    assert not record.exists()
+    assert run_node.live_runs(label_dir, results) == []
+
+
+@test
+def test_cleanup_parallel(directory: pathlib.Path, node: bool) -> None:
+    """After a hard kill of run_node.py, its GNU parallel is live until --cleanup kills it."""
+    run_node = _run_node_module()
+    stand_in = [sys.executable, "-c", "import time; time.sleep(53.25)"]  # for GNU parallel
+    script = (
+        f"import pathlib, sys; sys.path.insert(0, {str(RUN_NODE.parent)!r}); import run_node; "
+        f"run_node.run_parallel(pathlib.Path({str(directory)!r}), {stand_in!r})"
+    )
+    record = directory / "active" / run_node.PARALLEL_RECORD
+    process = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.DEVNULL)
+    try:
+        _wait_for(lambda: process.poll() is not None or record.exists())
+        assert record.exists(), "no record of GNU parallel"
+        process.kill()
+        process.wait()
+        assert _processes_matching("time.sleep(53.25)")
+        assert run_node.live_runs(directory) == [run_node.PARALLEL_RECORD]
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_node.cleanup(directory)
+        time.sleep(1)
+        assert not _processes_matching("time.sleep(53.25)"), "GNU parallel survived --cleanup"
+        assert not list((directory / "active").iterdir())
+    finally:
+        _kill(process)
+
+
+@test
 def test_cleanup_reused_ids(directory: pathlib.Path, node: bool) -> None:
-    """--cleanup never kills a process that has reused a recorded id, even as a group leader."""
+    """--cleanup never kills a process that has reused a recorded id, even as a group's id."""
     from experiments.state_prep_certification.common import runner
 
     run_node = _run_node_module()
@@ -706,31 +1257,83 @@ def test_cleanup_reused_ids(directory: pathlib.Path, node: bool) -> None:
         run_node.cleanup(directory)
         assert not killed, killed
 
-        # a group whose leader is gone, with members left, is killed
+        # a group whose leader is gone, with members left, may be a later group with the same id:
+        # it stays live, and cleanup names its members, kills none, and keeps the record
         table = {reused + 1: runner.Process(1, reused, 0, None, "member")}
         (directory / "active" / "task").write_text(json.dumps(record))
         assert run_node.live_runs(directory) == ["task"]
-        run_node.cleanup(directory)
-        assert ("group", reused) in killed, killed
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            run_node.cleanup(directory)
+        assert not killed, killed
+        assert f"{reused + 1} (" in output.getvalue(), output.getvalue()
+        assert run_node.live_runs(directory) == ["task"]
 
 
 @test
-def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
-    """A runner that fails kills its run, removes its active file, and writes no row."""
-    tasks.write_pass1(directory, [_task("broken", [["garbage", 52.25]], limit_s=60.0)])
-    result = subprocess.run(
-        _run_task_command(directory, "broken", node), capture_output=True, check=False
-    )
-    assert result.returncode != 0
-    assert not (directory / "active" / "broken").exists()
-    assert store.read_rows(directory) == ([], [])
-    time.sleep(1)
-    assert not _processes_matching("broken"), "the failed runner's run survived"
+def test_cleanup_unkillable(directory: pathlib.Path, node: bool) -> None:
+    """A process left after a run's grace that outlives --cleanup's SIGKILL keeps its record.
+
+    --cleanup says so, and the run stays live, so that a start still refuses.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    run_node = _run_node_module()
+    survivor = os.getpid()
+    table = {survivor: runner.Process(1, survivor, 0, None, "the recorded start")}
+    record = {
+        "pid": survivor + 1,
+        "pid_start": "gone",
+        "pgid": None,
+        "runner_pid": survivor + 1,
+        "runner_start": "gone",
+        "survivors": [[survivor, "the recorded start"]],
+    }
+    (directory / "active").mkdir()
+    path = directory / "active" / "task.0123abcd"
+    path.write_text(json.dumps(record))
+    killed: list[int] = []
+    with (
+        _patched(runner, "process_table", lambda: table),
+        _patched(run_node.os, "kill", lambda pid, sig: killed.append(pid)),
+        _patched(run_node, "CLEANUP_WAIT_S", 0.0),
+    ):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            run_node.cleanup(directory)
+        assert killed == [survivor], killed
+        assert "survived SIGKILL" in output.getvalue(), output.getvalue()
+        assert path.exists()
+        assert run_node.live_runs(directory) == [path.name]
+
+
+@test
+def test_cleanup_unreadable_records(directory: pathlib.Path, node: bool) -> None:
+    """An active record that vanished is skipped; an unreadable one is live until --cleanup.
+
+    ``--status`` says that the record is unreadable, not that its run is alive.
+    """
+    run_node = _run_node_module()
+    active = directory / "active"
+    active.mkdir()
+    (active / "gone").symlink_to(active / "nowhere")  # a file removed after the listing
+    (active / "torn").write_text('{"pid": 1')
+    run_node.refuse_other_hosts(directory)
+    assert run_node.live_runs(directory) == ["torn"]
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        run_node.print_status(directory)
+    assert "\n  torn: unreadable (" in output.getvalue(), output.getvalue()
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        run_node.cleanup(directory)
+    assert "torn: unreadable" in output.getvalue(), output.getvalue()
+    assert not (active / "torn").exists()
+    assert run_node.live_runs(directory) == []
 
 
 @test
 def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
-    """run_node.py refuses live runs, a local acceptance pass for node mode, and trial bundles."""
+    """run_node.py refuses live runs and a local acceptance pass for node mode.
+
+    It also recognizes a trial bundle, which a node start refuses unless given --allow-unfrozen.
+    """
     from experiments.state_prep_certification.common import manifest, runner
 
     run_node = _run_node_module()
@@ -775,7 +1378,15 @@ def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
     record_dir = directory / "acceptance"
     record_dir.mkdir()
     module: Any = Module
-    with _patched(run_node.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0)):
+    run = subprocess.run
+
+    def run_selftest(command: list[str], *args: Any, **kwargs: Any) -> Any:
+        # the node self-tests pass; every other command, such as the CPU model's, runs
+        if command[:2] == [sys.executable, str(run_node.SELFTEST)]:
+            return subprocess.CompletedProcess(command, 0)
+        return run(command, *args, **kwargs)
+
+    with _patched(run_node.subprocess, "run", run_selftest):
         assert run_node.run_acceptance(module, record_dir, directory, node=False)
         assert run_node.run_acceptance(module, record_dir, directory, node=False)
         assert run_node.run_acceptance(module, record_dir, directory, node=True)
@@ -799,8 +1410,465 @@ def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_run_node_jobs(directory: pathlib.Path, node: bool) -> None:
+    """--jobs is auto or a positive integer, and a machine without room for a slot is refused."""
+    from experiments.state_prep_certification.common import manifest, plugin
+
+    run_node = _run_node_module()
+    for jobs in ("0", "-1", "two"):
+        with (
+            _patched(sys, "argv", ["run_node.py", "selftest", "--jobs", jobs]),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            _expect_exit(run_node.parse_args)
+    with _patched(sys, "argv", ["run_node.py", "selftest", "--jobs", "3"]):
+        assert run_node.parse_args().jobs == "3"
+
+    lscpu = "# CPU,Core,Socket\n0,0,0\n1,1,0\n"  # two physical cores, both reserved
+    module = plugin.load_experiment("selftest")
+    with (
+        _patched(
+            run_node.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, lscpu)
+        ),
+        _patched(manifest, "mem_total_bytes", lambda: 2**40),
+    ):
+        try:
+            run_node.choose_slots(module, directory, "auto", local=False)
+        except SystemExit as error:
+            assert "No job slot fits on this machine: it has 2" in str(error.code), error.code
+        else:
+            raise AssertionError("no slot fits, but none was refused")
+
+
+@test
+def test_run_node_missing_row(directory: pathlib.Path, node: bool) -> None:
+    """A pass after which a task has no final row stops, and lists the task in a file.
+
+    GNU parallel never reruns a task whose runner exited with status 0, as for a row damaged after
+    it was written.  The message says how to rerun the task through a start: on the node, after
+    deleting its lines from the pass's job log.  ``--status`` names the file.
+    """
+    run_node = _run_node_module()
+    task_list = [_task("kept", []), _task("lost", [])]
+    tasks.write_pass1(directory, task_list)
+    for task in task_list:
+        store.append_row(
+            directory, {"task_key": task["key"], "run_id": task["key"], "status": "ok"}
+        )
+    runs = directory / store.RUNS_FILE
+    runs.write_text(runs.read_text().replace('"task_key":"lost"', '"task_key":lost'))
+    passes: list[str] = []
+    messages = []
+    with _patched(run_node, "_run_keys", lambda *args: passes.append(args[1])):
+        for local in (True, False):
+            try:
+                run_node.run_pass(directory, "1", 1, local=local)
+            except SystemExit as error:
+                messages.append(str(error.code))
+            else:
+                raise AssertionError("a pass with a lost row passed")
+    assert passes == ["1", "1"], passes
+    missing = tasks.missing_file(directory, "1")
+    assert missing.read_text() == "lost\n"
+    local_message, node_message = messages
+    assert str(missing) in local_message and "repeat this start" in local_message, local_message
+    assert "job log" not in local_message, local_message
+    assert str(tasks.joblog_file(directory, "1")) in node_message, node_message
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        run_node.print_status(directory)
+    assert f"1 of them ended the pass without a final row: see {missing}" in output.getvalue()
+
+
+@test
+def test_run_node_other_host(directory: pathlib.Path, node: bool) -> None:
+    """A start and --cleanup refuse a label whose ``active/`` lists runs of other hosts.
+
+    The refusal names every such record, and ``--status`` names each record's host, not whether its
+    run is alive.
+    """
+    label_dir, command = _local_label(directory)
+    (label_dir / "active").mkdir(parents=True)
+    record = {"pid": 1, "pid_start": None, "pgid": None, "runner_pid": 1, "runner_start": None}
+    (label_dir / "active" / "t").write_text(json.dumps(record | {"host": "elsewhere.example"}))
+    (label_dir / "active" / "u").write_text(json.dumps(record | {"host": "far.example"}))
+    for extra in ([], ["--cleanup"]):
+        refused = subprocess.run(command + extra, capture_output=True, text=True, check=False)
+        assert refused.returncode != 0, refused.stderr
+        for name, host in (("t", "elsewhere.example"), ("u", "far.example")):
+            assert f"active/{name} (host {host})" in refused.stderr, refused.stderr
+    assert (label_dir / "active" / "t").exists()
+    assert not (label_dir / tasks.TASKS_FILE).exists()
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        _run_node_module().print_status(label_dir)
+    assert "\n  t: on host elsewhere.example," in output.getvalue(), output.getvalue()
+
+
+@test
+def test_run_node_cpu_model(directory: pathlib.Path, node: bool) -> None:
+    """A start refuses a CPU model other than the one in the label's manifest.
+
+    A dry run writes no manifest, so that the manifest is that of a start that runs tasks; it
+    records itself, with its CPU model, in ``starts.jsonl``.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    label_dir, command = _local_label(directory)
+    label_dir.mkdir(parents=True)
+    (label_dir / "manifest.json").write_text(json.dumps({"cpu_model": "Another CPU 9000"}))
+    refused = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert refused.returncode != 0 and "Another CPU 9000" in refused.stderr, refused.stderr
+    assert not (label_dir / tasks.TASKS_FILE).exists()
+
+    (label_dir / "manifest.json").unlink()
+    subprocess.run(command, check=True, capture_output=True)
+    assert not (label_dir / "manifest.json").exists()
+    (start,) = [json.loads(line) for line in (label_dir / "starts.jsonl").read_text().splitlines()]
+    assert start["dry_run"] and start["cpu_model"] == runner.cpu_model(), start
+
+
+@test
+def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
+    """A node start refuses a misleading environment unless ``--allow-env`` accepts it.
+
+    ``PYTHONOPTIMIZE`` is refused when Python, or a Python that it starts, runs with -O, as a Python
+    that it starts reads the variable even when it does not (-E), and ``NUMBA_DISABLE_JIT`` when
+    ``int`` reads a nonzero value, as numba does.  The manifest records the environment variables
+    that can change a run.
+    """
+    from experiments.state_prep_certification.common import manifest
+
+    run_node = _run_node_module()
+    environ = {
+        "PYTHONOPTIMIZE": "1",
+        "NUMBA_CACHE_DIR": "/cache",
+        "NUMBA_DISABLE_JIT": "0",
+        "QLDPC_DISABLE_COMPILATION": "0",
+        "LD_PRELOAD": "/lib.so",
+        "HOME": "/home",
+    }
+    try:
+        run_node.check_environment(environ, [], optimize=1)
+    except SystemExit as error:
+        assert "unset PYTHONOPTIMIZE" in str(error.code), error.code
+    else:
+        raise AssertionError("PYTHONOPTIMIZE was accepted")
+    run_node.check_environment(environ, ["PYTHONOPTIMIZE"], optimize=1)
+
+    # PYTHONOPTIMIZE that this interpreter ignores, as under -E, still makes its children optimize
+    assert manifest.optimize_level({**os.environ, "PYTHONOPTIMIZE": "1"}) == 1
+    _expect_exit(functools.partial(run_node.check_environment, {"PYTHONOPTIMIZE": "1"}, []))
+    assert manifest.optimize_level(
+        {k: v for k, v in os.environ.items() if k != "PYTHONOPTIMIZE"}
+    ) == (sys.flags.optimize)
+
+    # PYTHONOPTIMIZE as Python reads it, in a fresh interpreter
+    for value, on in (
+        ("0 ", True),
+        (" ", True),
+        ("\u0660", True),
+        (" 0", False),
+        ("+0", False),
+        ("-0", False),
+        ("00", False),
+    ):
+        optimize = subprocess.run(
+            [sys.executable, "-c", "import sys; print(sys.flags.optimize)"],
+            env=dict(os.environ, PYTHONOPTIMIZE=value),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        check = functools.partial(
+            run_node.check_environment, {"PYTHONOPTIMIZE": value}, [], int(optimize)
+        )
+        if on:
+            _expect_exit(check)
+        else:
+            check()
+    for value, on in (("1", True), (" 1 ", True), ("00", False), ("yes", False)):
+        check = functools.partial(run_node.check_environment, {"NUMBA_DISABLE_JIT": value}, [], 0)
+        if on:
+            _expect_exit(check)
+        else:
+            check()
+    for refused in (
+        {"QLDPC_DISABLE_COMPILATION": "1"},
+        {"PYTHONPATH": ""},
+        {"PYTHONHOME": "/python"},
+    ):
+        _expect_exit(functools.partial(run_node.check_environment, refused, [], 0))
+    recorded = manifest.recorded_environment(environ)
+    assert recorded == {name: environ[name] for name in environ if name != "HOME"}, recorded
+
+
+@test
+def test_run_node_lock(directory: pathlib.Path, node: bool) -> None:
+    """A start, or --cleanup, refuses a label whose lock another process holds."""
+    label_dir, command = _local_label(directory)
+    label_dir.mkdir(parents=True)
+    fd = os.open(label_dir / "lock", os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        for extra in ([], ["--cleanup"]):
+            refused = subprocess.run(command + extra, capture_output=True, text=True, check=False)
+            assert refused.returncode != 0 and "Another start" in refused.stderr, refused.stderr
+        assert not (label_dir / tasks.TASKS_FILE).exists()
+    finally:
+        os.close(fd)
+    subprocess.run(command, check=True, capture_output=True)
+    assert (label_dir / tasks.TASKS_FILE).exists()
+
+
+@test
+def test_records_atomic(directory: pathlib.Path, node: bool) -> None:
+    """A killed write of ``acceptance.json``, ``starts.jsonl``, or the manifest leaves no part."""
+    from experiments.state_prep_certification.common import manifest
+
+    run_node = _run_node_module()
+
+    class Killed(Exception):
+        """The stand-in of a kill during a write."""
+
+    write_text = pathlib.Path.write_text
+
+    def torn_write(path: pathlib.Path, text: str, *args: Any, **kwargs: Any) -> int:
+        write_text(path, text[: len(text) // 2])
+        raise Killed
+
+    class Module:
+        @staticmethod
+        def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
+            return True
+
+    module: Any = Module
+    label_dir = directory / "label"
+    label_dir.mkdir()
+    record = label_dir / "acceptance.json"
+    record.write_text(json.dumps({"passed": False, "node": False}))
+    manifest.record_start(label_dir, directory, {"dry_run": False})
+    starts = (label_dir / store.STARTS_FILE).read_text()
+    with _patched(pathlib.Path, "write_text", torn_write):
+        for write in (
+            lambda: run_node.run_acceptance(module, label_dir, directory, node=False),
+            lambda: manifest.write_manifest(label_dir, {"jobs": 1}),
+        ):
+            try:
+                write()
+            except Killed:
+                pass
+            else:
+                raise AssertionError("the write was not interrupted")
+    assert json.loads(record.read_text()) == {"passed": False, "node": False}
+    assert (label_dir / store.STARTS_FILE).read_text() == starts
+    assert not (label_dir / "manifest.json").exists()
+
+
+####################################################################################################
+# acceptance
+
+
+@test
+def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
+    """A second acceptance attempt runs its tasks again, in a fresh directory, keeping the first."""
+    from experiments.state_prep_certification.common import local_runs
+
+    run_node = _run_node_module()
+    task = _task("at", [["value", 1]])
+    attempts: list[tuple[pathlib.Path, str]] = []
+
+    class Module:
+        @staticmethod
+        def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
+            row = local_runs.run_locally(results_dir / "AT1", [task])[task["key"]]
+            attempts.append((results_dir, row["run_id"]))
+            return len(attempts) > 1  # the first attempt fails
+
+    module: Any = Module
+    label_dir = directory / "results" / "selftest" / "label"
+    label_dir.mkdir(parents=True)
+    assert not run_node.run_acceptance(module, label_dir, directory / "results", node=False)
+    assert run_node.run_acceptance(module, label_dir, directory / "results", node=False)
+    (first, first_run), (second, second_run) = attempts
+    assert first_run != second_run, "the second attempt passed on the first attempt's row"
+    assert first != second and first.exists()
+    assert first.parent == second.parent == directory / "results" / "acceptance" / "label"
+    record = json.loads((label_dir / "acceptance.json").read_text())
+    assert record["directory"] == str(second), record
+
+    # a pass recorded on another CPU model does not count: the tests run again
+    record["cpu_model"] = "another CPU model"
+    (label_dir / "acceptance.json").write_text(json.dumps(record) + "\n")
+    assert run_node.run_acceptance(module, label_dir, directory / "results", node=False)
+    assert len(attempts) == 3, "a pass on another CPU model was reused"
+
+
+@test
+def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
+    """A test that raises an ``Exception``, or ``SystemExit``, fails alone.
+
+    An unknown test ID is refused.
+    """
+
+    class Unexpected(Exception):
+        pass
+
+    suite = acceptance.Suite("spc-suite-")
+    ran = []
+
+    @suite.test
+    def at1_raises(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+        raise Unexpected
+
+    @suite.test
+    def at2_exits(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+        sys.exit("an analysis refused")
+
+    @suite.test
+    def at3_passes(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert not suite.run_all(node=node, results_dir=directory)
+    assert ran == ["AT1", "AT2", "AT3"], ran
+    assert suite.parse_args("", ["--only", "AT3"]).only == ["AT3"]
+    with contextlib.redirect_stderr(io.StringIO()):
+        _expect_exit(lambda: suite.parse_args("", ["--only", "AT4"]))
+
+    # the self-tests refuse an unknown test name too
+    command = [sys.executable, __file__, "--only", "no_such_test"]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert result.returncode != 0 and "invalid choice" in result.stderr, result
+
+
+@test
+def test_acceptance_limit(directory: pathlib.Path, node: bool) -> None:
+    """A test past its suite's limit fails, the next test still runs, and no timer stays armed."""
+    suite = acceptance.Suite("spc-limit-", limit_s=0.5)
+    ran = []
+
+    @suite.test
+    def at1_slow(test_dir: pathlib.Path, node: bool) -> None:
+        time.sleep(10)
+        ran.append(test_dir.name)
+
+    @suite.test
+    def at2_quick(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+
+    previous = signal.getsignal(signal.SIGALRM)
+    start = time.monotonic()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            assert not suite.run_all(node=node, results_dir=directory)
+        assert time.monotonic() - start < 5, "the slow test was not stopped"
+        assert ran == ["AT2"], ran
+        assert "FAIL AT1" in output.getvalue() and "PASS AT2" in output.getvalue(), output
+        assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0), "a timer stayed armed"
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous if previous is not None else signal.SIG_DFL)
+
+
+@test
+def test_acceptance_selection(directory: pathlib.Path, node: bool) -> None:
+    """Each experiment's plug-in runs its suite's node tests on the node, and every test off it.
+
+    The suite's tests are replaced by stand-ins that record their IDs; the IDs, the plug-in's
+    ``acceptance``, and the shared runner's selection are the experiment's own.  ``--only`` runs
+    only the tests that it names.
+    """
+    import importlib
+
+    from experiments.state_prep_certification.common import plugin
+
+    ran: list[str] = []
+    for name in plugin.EXPERIMENTS:
+        module = plugin.load_experiment(name)
+        tests_module = importlib.import_module(module.__name__.rsplit(".", 1)[0] + ".acceptance")
+        suite = tests_module.SUITE
+        ids = list(suite.tests)
+        node_ids = [test_id for test_id in ids if test_id in (suite.node_tests or ids)]
+        assert node_ids and set(node_ids) == set(suite.node_tests or ids), (name, ids, node_ids)
+        stand_ins = {
+            test_id: lambda test_dir, node, test_id=test_id: ran.append(test_id) for test_id in ids
+        }
+        with _patched(suite, "tests", stand_ins), contextlib.redirect_stdout(io.StringIO()):
+            for on_node, expected in ((True, node_ids), (False, ids)):
+                ran.clear()
+                assert module.acceptance(on_node, directory / name / str(on_node))
+                assert ran == expected, (name, on_node, ran)
+            ran.clear()
+            assert suite.run_all(node=False, results_dir=directory / name, only=ids[-1:])
+            assert ran == ids[-1:], (name, ran)
+
+
+####################################################################################################
+# manifest and labels
+
+
+@test
+def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
+    """Each start records its environment and Python's optimization level in ``starts.jsonl``.
+
+    So a resume under a changed environment is recorded.  ``manifest.json`` keeps the first start's
+    line.  Each start's line gets its job slots.  The recorded level is that of the start's children
+    when it is higher, as under ``PYTHONOPTIMIZE``, which this interpreter has already read.
+    """
+    from experiments.state_prep_certification.common import manifest
+
+    for value in ("1", "2"):
+        with _environment("NUMBA_OPT", value):
+            manifest.record_start(directory, directory, {"start": value, "dry_run": False})
+            manifest.write_manifest(directory, {"jobs": int(value)})
+    record = json.loads((directory / "manifest.json").read_text())
+    assert (record["start"], record["environment"]["NUMBA_OPT"]) == ("1", "1"), record
+    assert record["jobs"] == 1, record
+    starts = [json.loads(line) for line in (directory / "starts.jsonl").read_text().splitlines()]
+    assert [start["environment"]["NUMBA_OPT"] for start in starts] == ["1", "2"], starts
+    assert [start["jobs"] for start in starts] == [1, 2], starts
+    assert [start["python_optimize"] for start in starts] == [sys.flags.optimize] * 2, starts
+    with _environment("PYTHONOPTIMIZE", "1"):
+        manifest.record_start(directory, directory, {"start": "optimized", "dry_run": False})
+    last = json.loads((directory / "starts.jsonl").read_text().splitlines()[-1])
+    assert last["python_optimize"] == max(sys.flags.optimize, 1), last
+
+
+@test
+def test_manifest_optimize_level(directory: pathlib.Path, node: bool) -> None:
+    """``optimize_level`` reads the child's last line, and exits with the child's error if it fails.
+
+    A ``sitecustomize`` that prints a line first leaves the level readable.  One that prints a level
+    and then exits with an error, and one that silences the child's output, each end the start, the
+    first with the child's error.
+    """
+    from experiments.state_prep_certification.common import manifest
+
+    def environ(name: str, site: str, **extra: str) -> dict[str, str]:
+        (directory / name).mkdir()
+        (directory / name / "sitecustomize.py").write_text(site)
+        return {**os.environ, "PYTHONPATH": str(directory / name), **extra}
+
+    chatty = environ("chatty", 'print("site")\n', PYTHONOPTIMIZE="1")
+    assert manifest.optimize_level(chatty) == max(sys.flags.optimize, 1)
+    failing = environ("failing", 'import sys\nprint(0)\nsys.exit("child marker")\n')
+    silent = environ("silent", "import os, sys\nsys.stdout = open(os.devnull, 'w')\n")
+    for child, expected in ((failing, "child marker"), (silent, "fails")):
+        try:
+            manifest.optimize_level(child)
+        except SystemExit as error:
+            assert expected in str(error.code), error.code
+        else:
+            raise AssertionError("no error")
+
+
+@test
 def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
-    """A label covers the pins, frozen files, harness commit, and a bundle's requirements."""
+    """A label covers the pins, frozen files, harness commit, and the requirements it is given.
+
+    The label reads no bundle record: a ``bundle.json`` beside the code leaves it unchanged.
+    """
     from experiments.state_prep_certification.common import manifest
 
     frozen = directory / "frozen.json"
@@ -810,20 +1878,179 @@ def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
     record = directory / "bundle.json"
     labels = set()
     with _patched(manifest, "BUNDLE_RECORD", record), _patched(manifest, "PINS_FILE", pins):
-        labels.add(manifest.compute_label("exp", [frozen], "c1"))
-        labels.add(manifest.compute_label("exp", [frozen], "c2"))
+        assert manifest.label_files([frozen]) == [("pins.json", b"{}"), ("frozen.json", b"{}")]
+        assert manifest.bundle_record() is None
+        unbundled = manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None)
+        labels.add(unbundled)
+        labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c2", None))
         for digest in ("aa", "bb"):
-            record.write_text(json.dumps({"requirements_sha256": digest}))
-            labels.add(manifest.compute_label("exp", [frozen], "c1"))
+            labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c1", digest))
+        record.write_text(json.dumps({"requirements_sha256": "aa"}))
+        assert manifest.bundle_record() == {"requirements_sha256": "aa"}
+        assert (
+            manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None) == unbundled
+        )
         frozen.write_text('{"changed": 1}')
-        labels.add(manifest.compute_label("exp", [frozen], "c1"))
+        labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None))
         pins.write_text('{"changed": 1}')
-        labels.add(manifest.compute_label("exp", [frozen], "c1"))
+        labels.add(manifest.compute_label("exp", manifest.label_files([frozen]), "c1", None))
     assert len(labels) == 6, labels
 
 
+@test
+def test_label_suffixes(directory: pathlib.Path, node: bool) -> None:
+    """A label directory's suffixes: -dirty-<hash>, then -local, then -<subset>.
+
+    In a bundle, the label covers the commit and the requirements of ``bundle.json``.
+    """
+    from experiments.state_prep_certification.common import manifest, plugin
+
+    run_node = _run_node_module()
+    module = plugin.load_experiment("selftest")
+    names = {}
+    for dirty in (False, True):
+        commit = {
+            "commit": "c",
+            "dirty": dirty,
+            "diff_sha256": "0123456789abcdef" if dirty else None,
+        }
+        with _patched(manifest, "harness_commit", lambda commit=commit: commit):
+            for local in (False, True):
+                for subset in ("main", "smoke"):
+                    if local or not dirty:
+                        label_dir = run_node.get_label_dir(module, directory, subset, local)
+                        names[dirty, local, subset] = label_dir.name
+    label = names[False, False, "main"]
+
+    # in a bundle, the label covers the commit and the requirements that bundle.json records
+    record = directory / "bundle.json"
+    record.write_text(json.dumps({"harness_commit": "c" * 40, "requirements_sha256": "aa"}))
+    with _patched(manifest, "BUNDLE_RECORD", record):
+        bundled = run_node.get_label_dir(module, directory, "main", False).name
+    files = manifest.label_files([])
+    assert bundled == manifest.compute_label(module.NAME, files, "c" * 40, "aa"), bundled
+    assert names == {
+        (False, False, "main"): label,
+        (False, False, "smoke"): f"{label}-smoke",
+        (False, True, "main"): f"{label}-local",
+        (False, True, "smoke"): f"{label}-local-smoke",
+        (True, True, "main"): f"{label}-dirty-01234567-local",
+        (True, True, "smoke"): f"{label}-dirty-01234567-local-smoke",
+    }, names
+
+
+@workstation_only
+@test
+def test_manifest_dirty_digest(directory: pathlib.Path, node: bool) -> None:
+    """A dirty tree's label directory names a hash of its staged and unstaged tracked changes."""
+    from experiments.state_prep_certification.common import manifest, plugin
+
+    run_node = _run_node_module()
+    module = plugin.load_experiment("selftest")
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(directory), *args], capture_output=True, check=True)
+
+    def digest() -> str | None:
+        with (
+            _patched(manifest, "REPOSITORY_ROOT", directory),
+            _patched(manifest, "BUNDLE_RECORD", directory / "no-bundle.json"),
+        ):
+            name = run_node.get_label_dir(module, directory, "main", local=True).name
+            commit = manifest.harness_commit()
+        assert commit["dirty"] == (commit["diff_sha256"] is not None), commit
+        if commit["dirty"]:
+            assert f"-dirty-{commit['diff_sha256'][:8]}" in name, (name, commit)
+        else:
+            assert "-dirty" not in name, name
+        return commit["diff_sha256"]
+
+    git("init", "-q")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "test")
+    (directory / "a.txt").write_text("1\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "base")
+    assert digest() is None
+    (directory / "a.txt").write_text("2\n")
+    unstaged = digest()
+    git("add", "a.txt")
+    assert digest() == unstaged, "staging a change changed the digest"
+    (directory / "a.txt").write_text("3\n")
+    changed = digest()
+    assert changed not in (None, unstaged)
+    (directory / "untracked.txt").write_text("x\n")
+    assert digest() == changed, "an untracked file changed the digest"
+
+
 ####################################################################################################
-# bundle
+# bundle and node.sh
+
+
+@test
+def test_node_sh(directory: pathlib.Path, node: bool) -> None:
+    """node.sh stops with a message on a missing pin, a missing bundle, or a misplaced option.
+
+    On Linux x86-64, where its preflight passes, two bundles that share a results directory each
+    install and record their own CPython and GNU parallel, also on a later start, and the preflight
+    record is JSON where a value needs escaping.  Stand-ins of uv, GNU parallel, and the bundle's
+    interpreter replace the real tools.
+    """
+    shutil.copy(ROOT / "experiments" / "state_prep_certification" / "node.sh", directory)
+    pins = {"python": {"version": "3.12"}, "platform": {}, "gnu_parallel": {"version": "20240122"}}
+    (directory / "pins.json").write_text(json.dumps(pins))
+    for arguments, message in (
+        ([], "node.sh EXPERIMENT --approved-cpu-hours H"),
+        (["--check"], 'pins.json has no string "min_glibc" in "platform"'),
+        (["selftest", "--status"], "no bundle.json beside node.sh"),
+        (["selftest", "--results-dir", "x"], "set FTSP_RESULTS"),
+    ):
+        result = subprocess.run(
+            ["bash", str(directory / "node.sh"), *arguments],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={key: value for key, value in os.environ.items() if key != "FTSP_RESULTS"},
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode == 1 and message in output, (arguments, result)
+        # neither the system's python nor run_node.py ran
+        assert "/bin/python:" not in output and "can't open file" not in output, (arguments, result)
+
+    if not (sys.platform.startswith("linux") and platform.machine() == "x86_64"):
+        return
+    stubs, results = directory / "stubs", directory / "results"
+    uv_version = 'uv 0.0 "quoted" \\back'
+    _write_script(
+        stubs / "uv",
+        f"""case "$1" in
+    --version) printf '%s\\n' {shlex.quote(uv_version)} ;;
+    python) exit 1 ;;
+    venv) mkdir -p "$5/bin" && printf '%s\\n' "$4" > "$5/built_with" &&
+        printf '#!/bin/sh\\nexit 0\\n' > "$5/bin/python" && chmod +x "$5/bin/python" ;;
+esac""",
+    )
+    _write_script(stubs / "parallel", "echo 'GNU parallel 20000101'")  # older than the pin
+    # the stubs come first on the PATH, so that they stand in for uv and GNU parallel, and the
+    # other tools of the preflight are found wherever this machine has them
+    path = os.pathsep.join([str(stubs), os.environ.get("PATH", "/usr/bin:/bin")])
+    environment = {"PATH": path, "FTSP_RESULTS": str(results), "HOME": "/"}
+    for name in ("a", "b", "a"):
+        script = _node_sh_bundle(directory / name, name)
+        result = subprocess.run(
+            ["bash", str(script), "selftest", "--approved-cpu-hours", "1"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+        )
+        assert result.returncode == 0, (name, result)
+        preflight = json.loads((results / f"preflight-{name}.json").read_text())
+        assert preflight["uv"] == uv_version, preflight
+        parallel = f"{results / f'ext-{name}' / 'bin' / 'parallel'} GNU parallel 20240122 {name}"
+        assert preflight["parallel_used"] == parallel, preflight
+        built_with = (results / f"venv-{name}" / "built_with").read_text().strip()
+        assert built_with == str(results / f"python-{name}" / "bin" / "python3.12"), built_with
 
 
 @test
@@ -848,6 +2075,59 @@ def test_bundle_requirements(directory: pathlib.Path, node: bool) -> None:
         ("typing-extensions", "4.16.0"),
     ], entries
     assert entries[0][2].count("--hash") == 2 and "via" not in entries[0][2]
+
+
+@test
+def test_bundle_frozen_files(directory: pathlib.Path, node: bool) -> None:
+    """A bundle refuses an experiment whose frozen files are missing, naming the one to add."""
+    from experiments.state_prep_certification import bundle
+
+    certification = types.SimpleNamespace(
+        NAME="certification", FROZEN_FILES=["config.json", "data/circuits.json"]
+    )
+    reader = types.SimpleNamespace(
+        NAME="reader", FROZEN_FILES=["config.json", "../certification/data/circuits.json"]
+    )
+    experiments_dir = directory / "experiments" / "state_prep_certification"
+    for path in ("reader/config.json", "certification/config.json"):
+        (experiments_dir / path).parent.mkdir(parents=True, exist_ok=True)
+        (experiments_dir / path).write_text("{}")
+    for modules, message in (
+        ([reader], "reader needs certification's circuits.json: bundle certification too"),
+        ([certification], "certification: its frozen file data/circuits.json is not in the bundle"),
+    ):
+        try:
+            bundle.check_frozen_files(directory, modules)
+        except SystemExit as error:
+            assert str(error.code).startswith(message), error.code
+        else:
+            raise AssertionError(f"no error for {[module.NAME for module in modules]}")
+    (experiments_dir / "certification" / "data").mkdir()
+    (experiments_dir / "certification" / "data" / "circuits.json").write_text("{}")
+    bundle.check_frozen_files(directory, [certification, reader])
+
+
+@test
+def test_bundle_pure_wheel(directory: pathlib.Path, node: bool) -> None:
+    """A built wheel is matched by its normalized name and version, and may be py2.py3."""
+    from experiments.state_prep_certification import bundle
+
+    cache, wheels = directory / "cache", directory / "wheels"
+    for path in ("sdists/foo.bar-1.1.tar.gz", "built/foo_bar-1.10-py3-none-any.whl"):
+        (cache / path).parent.mkdir(parents=True, exist_ok=True)
+        (cache / path).write_text("")
+    wheels.mkdir()
+    built = cache / "built"
+    with _patched(bundle, "_run", lambda command: None):
+        (built / "foo_bar-1.1-py2.py3-none-any.whl").write_text("")
+        target = bundle.build_pure_python_wheel("Foo-Bar", "1.1", directory, wheels, cache)
+        assert target == wheels / "foo_bar-1.1-py2.py3-none-any.whl", target
+        (built / "foo_bar-1.1-py2.py3-none-any.whl").rename(
+            built / "foo_bar-1.1-cp312-cp312-linux_x86_64.whl"
+        )
+        _expect_exit(
+            lambda: bundle.build_pure_python_wheel("Foo-Bar", "1.1", directory, wheels, cache)
+        )
 
 
 @workstation_only
@@ -1016,6 +2296,51 @@ def _patched(owner: Any, name: str, value: Any) -> Iterator[None]:
         setattr(owner, name, previous)
 
 
+def _write_script(path: pathlib.Path, body: str) -> None:
+    """Write an executable shell script."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\n{body}\n")
+    path.chmod(0o755)
+
+
+def _node_sh_bundle(root: pathlib.Path, name: str) -> pathlib.Path:
+    """Make an unpacked stand-in bundle, once, and return the path of its ``node.sh``.
+
+    The bundle's CPython and GNU parallel are shell scripts, and its GNU parallel names the bundle.
+    """
+    experiments_dir = root / "qLDPC" / "experiments" / "state_prep_certification"
+    if experiments_dir.exists():
+        return experiments_dir / "node.sh"
+    experiments_dir.mkdir(parents=True)
+    shutil.copy(ROOT / "experiments" / "state_prep_certification" / "node.sh", experiments_dir)
+    pins = {
+        "python": {"version": "3.12.7", "standalone_asset": "cpython.tar.gz"},
+        "platform": {"min_glibc": "2.17"},
+        "gnu_parallel": {"version": "20240122"},
+    }
+    (experiments_dir / "pins.json").write_text(json.dumps(pins))
+    (experiments_dir / "bundle.json").write_text(json.dumps({"name": name}))
+    (root / "wheels").mkdir()
+    (root / "requirements-node.txt").write_text("")
+    for path in ("python", "parallel"):
+        (root / path).mkdir()
+    with tarfile.open(root / "python" / "cpython.tar.gz", "w:gz") as tar:
+        _add_text(tar, "python/bin/python3.12", "#!/bin/sh\n")
+    with tarfile.open(root / "parallel" / "parallel-20240122.tar.bz2", "w:bz2") as tar:
+        script = f"#!/bin/sh\necho 'GNU parallel 20240122 {name}'\n"
+        _add_text(tar, "parallel-20240122/src/parallel", script)
+    pins_path = "qLDPC/experiments/state_prep_certification/pins.json"
+    (root / "SHA256SUMS").write_text(f"{store.sha256_file(root / pins_path)}  {pins_path}\n")
+    return experiments_dir / "node.sh"
+
+
+def _add_text(tar: tarfile.TarFile, name: str, text: str) -> None:
+    """Add an executable file with the given text to an archive."""
+    info = tarfile.TarInfo(name)
+    info.size, info.mode = len(text.encode()), 0o755
+    tar.addfile(info, io.BytesIO(text.encode()))
+
+
 def _run_node_module() -> Any:
     """The module of run_node.py."""
     if str(RUN_NODE.parent) not in sys.path:
@@ -1023,6 +2348,21 @@ def _run_node_module() -> Any:
     import run_node
 
     return run_node
+
+
+def _local_label(directory: pathlib.Path) -> tuple[pathlib.Path, list[str]]:
+    """The stand-in's label directory for local runs in ``directory/results``, and a start of it.
+
+    The start is a dry run, which stops after writing the task list and its line in
+    ``starts.jsonl``.
+    """
+    from experiments.state_prep_certification.common import plugin
+
+    results = directory / "results"
+    module = plugin.load_experiment("selftest")
+    label_dir = _run_node_module().get_label_dir(module, results, "main", True)
+    command = [sys.executable, str(RUN_NODE), "selftest", "--local", "--results-dir", str(results)]
+    return label_dir, command + ["--approved-cpu-hours", "10", "--dry-run"]
 
 
 def _require_parallel() -> None:
