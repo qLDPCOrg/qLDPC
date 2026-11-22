@@ -120,8 +120,8 @@ of ``--label-dir``):
 * ``shadow.csv``, the cost of the two weight oracles on identical queries, one row per circuit and
   threshold m of the queries of its ``shadow`` run: the calls, their rows, and the seconds of BZ
   and CC (``shadow_table``).  A run that did not finish gives the calls that it wrote to
-  ``oracle_calls/`` in the label directory.  Runs with ``compiled_in_timing`` set and circuits
-  with a disagreement are left out.
+  ``oracle_calls/`` in the label directory, and no row if it wrote none; ``summary.csv`` gives its
+  status.  Runs with ``compiled_in_timing`` set and circuits with a disagreement are left out.
 * The margins and deletions (``analyze_applications.py``): the combined margin m* of each circuit
   and its agreement in ``summary.csv`` (``margin``, ``margin_lower_bound``, ``agree_margin``, and
   the arm and sector of one counterexample, ``counterexample_*``), with ``agree_prune`` for its
@@ -1004,8 +1004,9 @@ def shadow_table(
     gives the totals of its result (``instrument.py``), and a run that did not finish gives the
     sums of the calls that it wrote to its file in ``calls_dir`` before it stopped; ``status`` is
     the run's.  The file's last line, which a kill can cut off, is left out if it is not valid
-    JSON, and any other such line raises a ValueError.  The runs whose rows have ``compiled_in_timing`` set, and the circuits with a
-    disagreement, are left out.
+    JSON, and any other such line raises a ValueError.  A run that wrote no calls, such as one
+    killed before its first, has no row; ``summary.csv`` gives its status.  The runs whose rows
+    have ``compiled_in_timing`` set, and the circuits with a disagreement, are left out.
     """
     table = []
     for circuit_id, entry in sorted(per_circuit.items()):
