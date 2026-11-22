@@ -34,16 +34,17 @@ The connected-cluster (CC) search is not compared here: the certification experi
 
 [`codes.py`](codes.py) generates every code from fixed rules and seeds, with no timing of any kind:
 
-- the families of `FAMILIES` in `codes.py`, each at sizes between its endpoints n_lo and n_hi (below) by geometric spacing, with a fixed number of codes per size;
+- the families of `FAMILIES` in `codes.py`, each at up to four sizes: the admissible lengths nearest to four targets spaced geometrically from its endpoints n_lo to n_hi (below), which can lie outside the endpoints; a size has at most `CODES_PER_SIZE` codes, and can have none;
 - the anchors of `ANCHORS` in `codes.py`: named codes, most with a reference distance from an independent source.
 
-The docstring of `codes.py` gives the rule that draws the codes of the families, with its sizes, draws, merges, and shortfalls, and the sources of the anchors.
+The docstring of `codes.py` gives the rule that draws the codes of the families: its sizes, draws, merges, and shortfalls.
 The analysis checks each arm's distance on an anchor against the anchor's reference distance, and reports each anchor on its own, in `anchors.csv`, never pooled with the families.
 
 The data directory `code_data/` holds two files, which are not committed: the experiment reads them from that directory, which Git ignores, and the offline bundle carries it.
-`code_data/endpoints.json` records each family's endpoints with their source, as in the table below; it is an input that no script of the experiment makes, which the experiment takes as given.
+`code_data/endpoints.json` records each family's endpoints with their source, as in the table below; it is an input that no script of the experiment makes.
 `code_data/sample.json` fixes every code: a drawn code by its name, family, parameters, draw, seed, and hash, and an anchor by its name, source, hash, and reference distance, if any.
-`codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, and `codes.py --check` checks a regenerated sample against it.
+`codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, overwriting the frozen sample, so run it only to refreeze the sample.
+`codes.py --check` compares a regenerated sample with it, as every start does before it runs any task (`codes.compare_with_sample`).
 For each family, n_lo and n_hi are the smallest and largest lengths among the published instances of its source.
 For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at least 6, and n_hi the largest n <= 256 whose upper bound on d is at most 20, in Grassl's table of qubit stabilizer codes with k = 2.
 
@@ -55,11 +56,8 @@ For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at 
 | `lp` | lifted products | 544, 1428 | Q. Xu, J. P. Bonilla Ataides, C. A. Pattison, N. Raveendran, D. Bluvstein, J. Wurtz, B. Vasić, M. D. Lukin, L. Jiang, and H. Zhou, "Constant-overhead fault-tolerant quantum computation with reconfigurable atom arrays", Nature Physics 20, 1084-1090 (2024), doi:10.1038/s41567-024-02479-z, arXiv:2308.08648, Methods |
 | `pp` | pair-partition codes of published arrays | 110, 3122 | Okada and Kasai (2026) and Lee et al. (2026), cited under [Attributions](#attributions) |
 | `qt` | quantum Tanner | 144, 576 | A. Leverrier, W. Rozendaal, and G. Zémor, "Small quantum Tanner codes from left-right Cayley complexes" (2025), arXiv:2512.20532, Table 1(b) |
-| `css_walk`, `rstab` | dense CSS codes from random walks of CNOT gates, and dense random stabilizer codes, both with k = 2 | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de, qubit stabilizer codes with k = 2 |
+| `css_walk`, `rstab` | dense CSS codes from random walks of CNOT gates, and dense random stabilizer codes, both with k = 2 | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de (accessed 2026), qubit stabilizer codes with k = 2 |
 
-`codes.py --write-sample` overwrites the frozen `sample.json`, so run it only to refreeze the sample; use `--check` otherwise.
-The node regenerates the sample and stops on any difference from the frozen one, in the codes or in the metadata of their draws, such as the endpoints and each code's family, parameters, and seed (`codes.compare_with_sample`).
-It ignores the name of the class that built each code and the qLDPC source tree that `sample.json` records.
 
 ## Commands
 
@@ -70,7 +68,7 @@ python experiments/state_prep_certification/run_node.py distances --local --subs
 python experiments/state_prep_certification/distances/analyze.py --label-dir experiments/state_prep_certification/results/distances/<label>-local-smoke --allow-local
 ```
 
-`codes.py --check` writes the regenerated codes and `draws.jsonl` to `--out`, a scratch directory, and compares the regenerated sample with `sample.json`.
+`codes.py` writes the regenerated codes and `draws.jsonl` to `--out`, a scratch directory.
 The subset `smoke` runs both arms on four small anchors.
 Its runs take minutes, but its ceiling is about 24 CPU-hours, which the approval of 25 covers; `run_node.py distances --local --subset smoke --dry-run` without an approval prints the ceiling.
 The local run's label directory, which `run_node.py` prints, ends in `-local-smoke`, and its rows were not timed as on the node, so the analysis refuses them without `--allow-local`, and with it marks every output with their number.

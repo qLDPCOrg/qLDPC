@@ -9,13 +9,13 @@ inputs, outputs, and documentation.
 
 **Families and sizes.**  Each family of ``FAMILIES`` has endpoints n_lo and n_hi from its published
 source, recorded in ``code_data/endpoints.json``; the README cites each source and gives the rule
-by which the endpoints were read from it.  The family has four sizes, j = 0, ..., 3, each with the
-target length n_j = n_lo (n_hi / n_lo)^(j / 3).  Each target goes to the family's admissible
-parameters whose length is nearest in log n; ties go to the smaller n, then to the family's
-tie-break, a value that each family's ``admissible`` gives with its parameters.  Targets that land
-on the same parameters merge into one size.  The sample's ``ladders`` list each family's targets
-and the parameters that they land on, with ``merged`` set to true for a target that lands on the
-parameters of an earlier one.  No timing of any kind enters this rule.
+by which the endpoints were read from it.  The family has four target lengths
+n_j = n_lo (n_hi / n_lo)^(j / 3), j = 0, ..., 3.  Each target goes to the family's admissible
+parameters whose length is nearest in log n, which can lie outside [n_lo, n_hi]; ties go to the
+smaller n, then to the smaller tie-break, a value that each family's ``admissible`` gives with its
+parameters.  Targets that land on the same parameters make one size.  The sample's ``ladders`` list
+each family's targets and the parameters that they land on, with ``merged`` set to true for a
+target that lands on the parameters of an earlier one.  No timing of any kind enters this rule.
 
 **Draws.**  For each size, draws i = 0, 1, ... are made until ``CODES_PER_SIZE`` are kept or
 ``MAX_DRAWS`` are made.  Draw i of a family's parameters uses ``numpy.random.default_rng`` with the
@@ -25,23 +25,23 @@ the CSS codes of ``trial.WARM_UP_CODES``, and their Hadamard variants, which app
 second half of their qubits (``workloads.get_hadamard_code``).  ``trial.WARM_UP_CODES`` are the
 codes on which ``experiments/distance_tuning`` warms up; no run of this experiment warms up on
 them, but the screen against them is part of the rule that produced the frozen ``sample.json``.
-Every draw and its outcome goes to ``draws.jsonl``.  A size with fewer kept draws is a shortfall,
-which goes to ``shortfalls`` of the sample, such as a bivariate bicycle size where every draw has
-k = 0.  An unexpected exception stops the script.
+Every draw and its outcome goes to ``draws.jsonl``.  A size with fewer than ``CODES_PER_SIZE``
+kept draws is a shortfall, which goes to ``shortfalls`` of the sample, such as a bivariate bicycle
+size where every draw has k = 0.  An unexpected exception stops the script.
 
 **Anchors.**  The named codes of ``ANCHORS``, from ``experiments/distance_tuning/workloads.py``,
 qLDPC's constructors, and the constructions below, with a reference distance where an
 independent source gives one.
 
-**Storage.**  Every code is stored as plain matrices in ``codes/<code_hash>.npz`` (``store_code``).
+**Storage.**  Every run of the script regenerates every code, and stores it as plain matrices in
+``DIR/codes/<code_hash>.npz`` (``store_code``), with its draws in ``DIR/draws.jsonl``.
 ``--write-sample`` writes ``code_data/sample.json``, with ``qldpc_src_tree``, the Git tree of this
 checkout's ``src/`` at ``HEAD``.  That tree is the qLDPC source that generated the sample under two
 conditions: the imported ``qldpc`` is this checkout's ``src/``, and ``src/`` has no uncommitted or
 untracked changes.  It covers nothing outside ``src/``, such as this experiment's code,
-``experiments/distance_tuning/``, or other packages.  ``--check`` regenerates the codes and
-compares the regenerated sample with ``sample.json`` (``compare_with_sample``), including the
-anchors' reference distances and the codes' families, which the analysis reads from the sample.
-Git ignores ``code_data/``, which the offline bundle carries.
+``experiments/distance_tuning/``, or other packages.  ``--check`` compares the regenerated sample
+with ``sample.json`` (``compare_with_sample``), including the anchors' reference distances and the
+codes' families, which the analysis reads from the sample.
 """
 
 from __future__ import annotations
