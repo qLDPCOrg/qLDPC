@@ -215,7 +215,8 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     next(e for e in copy_of_sample["anchors"] if e["name"] == "golay")["reference_d"] = 8
     (label_dir / "sample.json").write_text(json.dumps(copy_of_sample))
     start = {"allowed_environment": ["PYTHONPATH"], "environment": {"PYTHONPATH": "/elsewhere"}}
-    (label_dir / store.STARTS_FILE).write_text(json.dumps(start) + "\n")
+    resume = {"environment": {"PYTHONPATH": "/elsewhere", "NUMBA_OPT": "0"}}
+    (label_dir / store.STARTS_FILE).write_text(json.dumps(start) + "\n" + json.dumps(resume) + "\n")
     out = label_dir / "analysis"
     script = pathlib.Path(__file__).with_name("analyze.py")
     command = [sys.executable, str(script), "--label-dir", str(label_dir), "--out", str(out)]
@@ -227,16 +228,23 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "accepted PYTHONPATH with --allow-env" in result.stdout, result.stdout
+    assert "different NUMBA_OPT" in result.stdout, result.stdout
     with open(out / "families.csv") as file:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
     assert (anchors["codes"], anchors["disagreement"]) == ("1", "1"), anchors
 
-    # every output gives the number of rows of local runs, and the refused environment variable
-    # that a start accepted with --allow-env, distances.pdf in its metadata too
-    others = acceptance.check_marked(out, {"local_rows": 2, "allowed_environment": "PYTHONPATH"})
+    # every output gives the number of rows of local runs, the refused environment variable that a
+    # start accepted with --allow-env, and the recorded variable that a resume changed,
+    # distances.pdf in its metadata too
+    marks = {
+        "local_rows": 2,
+        "allowed_environment": "PYTHONPATH",
+        "environment_changed": "NUMBA_OPT",
+    }
+    others = acceptance.check_marked(out, marks)
     assert [path.name for path in others] == ["distances.pdf"], others
-    subject = b"/Subject (local_rows: 2; allowed_environment: PYTHONPATH)"
-    assert subject in (out / "distances.pdf").read_bytes()
+    subject = "; ".join(f"{name}: {value}" for name, value in marks.items())
+    assert f"/Subject ({subject})".encode() in (out / "distances.pdf").read_bytes()
 
 
 @test

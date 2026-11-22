@@ -18,8 +18,10 @@ never enters the archive.
 The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
 analysis that refuses them, as those of certification and distances do, counts them with
 ``count_local_rows``, which exits unless the analysis is given ``--allow-local``.  Such an analysis
-also reads with ``allowed_environment`` the refused environment variables that a start accepted
-with ``--allow-env`` (see ``run_node.py``), and marks each of its outputs with both, if any, with
+also reads, with ``allowed_environment``, the refused environment variables that a start accepted
+with ``--allow-env`` (see ``run_node.py``), and, with ``changed_environment``, the recorded
+environment variables whose values differ among the label's starts.  It marks each of its outputs
+with these, and with the number of rows of local runs, whichever are nonempty, with
 ``mark_outputs``.
 """
 
@@ -133,6 +135,19 @@ def allowed_environment(label_dir: pathlib.Path) -> list[str]:
         environment = start.get("environment", {})
         names |= {name for name in start.get("allowed_environment") or [] if name in environment}
     return sorted(names)
+
+
+def changed_environment(label_dir: pathlib.Path) -> list[str]:
+    """The recorded environment variables whose values differ among the starts of the label.
+
+    A variable that one start set and another did not counts too.  Every start counts, as in
+    ``allowed_environment``.
+    """
+    environments = [start.get("environment", {}) for start in _starts(label_dir)]
+    names = {name for environment in environments for name in environment}
+    return sorted(
+        name for name in names if len({environment.get(name) for environment in environments}) > 1
+    )
 
 
 def mark_outputs(out: pathlib.Path, marks: dict[str, Any]) -> None:

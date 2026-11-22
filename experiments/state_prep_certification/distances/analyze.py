@@ -52,8 +52,11 @@ The analysis refuses a label whose final rows include rows of ``--local`` runs, 
 ``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
 ``local_rows``.  If a start of the label accepted a refused environment variable with
 ``--allow-env`` (see ``run_node.py``), it marks every output with the names of these variables,
-``allowed_environment``.  Each mark is a column in each CSV file, a key in ``figure_notes.json``,
-and part of the title and of the Subject in the metadata of ``distances.pdf``.
+``allowed_environment``.  If the recorded environment variables of the label's starts differ, such
+as those of a resume in another shell, it marks every output with the names of the variables that
+differ, ``environment_changed``.  Each mark is a column in each CSV file, a key in
+``figure_notes.json``, and part of the title and of the Subject in the metadata of
+``distances.pdf``.
 """
 
 from __future__ import annotations
@@ -93,6 +96,10 @@ def main() -> None:
     if allowed:
         print(f"note: a start accepted {', '.join(allowed)} with --allow-env; every output says so")
         marks["allowed_environment"] = " ".join(allowed)
+    changed = store.changed_environment(label_dir)
+    if changed:
+        print(f"note: the starts ran with different {', '.join(changed)}; every output says so")
+        marks["environment_changed"] = " ".join(changed)
     sample = load_sample(label_dir)
     expected = list(tasks.load_tasks(label_dir, pass2=False).values())
     missing = [key for key in tasks.load_tasks(label_dir) if key not in final]

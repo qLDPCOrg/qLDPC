@@ -681,14 +681,16 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
 
     # with two of the synthetic rows marked as rows of --local runs, the analysis refuses the label
     # unless given --allow-local, and then every output gives their number; it also names, in
-    # every output, the refused environment variable that a start accepted with --allow-env
+    # every output, the refused environment variable that a start accepted with --allow-env, and
+    # the recorded variable that a resume changed
     label_dir = directory / "label"
     label_dir.mkdir()
     (label_dir / "circuits.json").write_bytes(circuits.CIRCUITS_JSON.read_bytes())
     for number, row in enumerate(rows):
         store.append_row(label_dir, dict(row, local=number < 2))
     start = {"allowed_environment": ["PYTHONPATH"], "environment": {"PYTHONPATH": "/elsewhere"}}
-    (label_dir / "starts.jsonl").write_text(json.dumps(start) + "\n")
+    resume = {"environment": {"PYTHONPATH": "/elsewhere", "NUMBA_OPT": "0"}}
+    (label_dir / store.STARTS_FILE).write_text(json.dumps(start) + "\n" + json.dumps(resume) + "\n")
 
     # the label check: a label made with the working tree's frozen files, of which the label's
     # circuits.json is a copy, and a bundle's requirements matches; any other label warns
@@ -715,8 +717,13 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     )
     assert analysis.returncode == 0, analysis.stderr
     assert "accepted PYTHONPATH with --allow-env" in analysis.stdout, analysis.stdout
+    assert "different NUMBA_OPT" in analysis.stdout, analysis.stdout
     assert "warning" not in analysis.stdout, analysis.stdout
-    marks = {"local_rows": 2, "allowed_environment": "PYTHONPATH"}
+    marks = {
+        "local_rows": 2,
+        "allowed_environment": "PYTHONPATH",
+        "environment_changed": "NUMBA_OPT",
+    }
     others = acceptance.check_marked(label_dir / "analysis", marks)
     assert not others, others  # no deletion run, so no circuit in pruned/
 
