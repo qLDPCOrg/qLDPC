@@ -6,13 +6,15 @@
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
-first run and repeats on the code, with a repeat that timed out counted as the limit L.  If the
-first run did not finish, or a repeat ended in an error or memout, T is the first run's time.  An
-arm counts as finished if its first run finished, even if a repeat timed out; ``summary.csv``
-records the number of unfinished repeats in ``repeats_unfinished``, and a median that is L is in
-effect a bound.  A row with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A
-repeat with it is left out of the median, as a missing repeat is.  A first run with it leaves the
-arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
+first run and repeats on the code, with a repeat that timed out counted as the limit L.  If a run
+that timed out determines the median, as the middle one of an odd number of runs or either middle
+one of an even number, the median timed out: the arm has no T, and its status in ``summary.csv``
+and its T cell in ``anchors.csv`` are ``median_timed_out``.  If the first run did not finish, or a
+repeat ended in an error or memout, T is the first run's time.  An arm counts as finished if its
+first run finished and its median did not time out; ``summary.csv`` records the number of unfinished
+repeats in ``repeats_unfinished``.  A row with ``compiled_in_timing`` set (see ``common/runner.py``)
+enters no T.  A repeat with it is left out of the median, as a missing repeat is.  A first run with
+it leaves the arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
 ``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats`` and
 ``repeats_unfinished``.  The cases, in order:
 
@@ -24,17 +26,18 @@ arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm fa
    ``summary.csv`` records;
 3. **incomplete timing:** the row of either arm's first run has ``compiled_in_timing`` set; no
    ratio;
-4. **both finished:** R_T = T_prior / T_on;
-5. **only on finished:** R_T >= L / T_on, a lower bound;
-6. **only prior finished:** R_T <= T_prior / L, an upper bound;
-7. **both timed out:** "both > L", no ratio.
+4. **median timed out:** the median of either arm timed out; no ratio;
+5. **both finished:** R_T = T_prior / T_on;
+6. **only on finished:** R_T >= L / T_on, a lower bound;
+7. **only prior finished:** R_T <= T_prior / L, an upper bound;
+8. **both timed out:** "both > L", no ratio.
 
 A value above 1.2 is *faster* (the arm with everything on is faster), below 1/1.2 *slower*, and
 otherwise *similar*; a lower bound is faster if it exceeds 1.2 and *inconclusive* otherwise, and an
 upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
 For each family, ``families.csv`` gives the counts of each class of R_T and the median of R_T over
-the codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only
+the codes of cases 5-7, with each bound at its value: marked ">=" if lower bounds are the only
 bounds, "<=" if upper bounds are, and omitted if there are both.  It also gives the number of these
 ratios, and how many of them are lower bounds and how many upper bounds.  The anchors' row gives the
 counts of each class only; anchors are reported per code and never pooled with the families.
@@ -219,6 +222,8 @@ def ratio(on: dict[str, Any], prior: dict[str, Any]) -> dict[str, Any]:
         return {"case": "failure", "value": None, "bound": None}
     if not (on["timing_complete"] and prior["timing_complete"]):
         return {"case": "incomplete timing", "value": None, "bound": None}
+    if "median_timed_out" in (on["status"], prior["status"]):
+        return {"case": "median timed out", "value": None, "bound": None}
     on_done, prior_done = on["status"] == "ok", prior["status"] == "ok"
     if on_done and prior_done:
         return {"case": "both", "value": prior["T"] / on["T"], "bound": None}
@@ -246,12 +251,13 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     The status is that of the first run, unless a repeat ended in an error or memout, whose status
     it then takes.  An arm without a first run is missing, even if a repeat has a row, and keeps the
-    repeats' distances for the disagreement check.  A repeat that timed out counts as the limit,
-    which is larger than every finished value, and is counted in ``repeats_unfinished``.  A row with
-    ``compiled_in_timing`` set enters no T and is left out of ``repeats`` and
-    ``repeats_unfinished``: a repeat with it is left out of the median, and a first run with it
-    makes T None and the timing incomplete.  Repeats that report different distances make the arm's
-    distance a list, which ``ratio`` treats as a disagreement.
+    repeats' distances for the disagreement check.  A repeat that timed out counts as the limit in
+    the median, and is counted in ``repeats_unfinished``.  If a run that timed out determines the
+    median, as the middle one of an odd number of runs or either middle one of an even number, the
+    status is ``median_timed_out`` and T is None.  A row with ``compiled_in_timing`` set enters no T
+    and is left out of ``repeats`` and ``repeats_unfinished``: a repeat with it is left out of the
+    median, and a first run with it makes T None and the timing incomplete.  Repeats that report
+    different distances make the arm's distance a list, which ``ratio`` treats as a disagreement.
     """
     distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
     distance = distances[0] if len(distances) == 1 else (distances or None)
@@ -268,14 +274,17 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     status = failed[0] if failed else first["status"]
     compiled = [row for row in rows if row.get("compiled_in_timing")]
     timing_complete = not first.get("compiled_in_timing")
-    times = [
-        row["T"] if row["status"] == "ok" else row["limit_s"]
+    counted = sorted(
+        (row["T"], False) if row["status"] == "ok" else (row["limit_s"], True)
         for row in rows
         if not row.get("compiled_in_timing")
-    ]
+    )
+    middle = counted[(len(counted) - 1) // 2 : len(counted) // 2 + 1]
+    if status == "ok" and timing_complete and any(timed_out for _, timed_out in middle):
+        status = "median_timed_out"
     T = None
-    if timing_complete:
-        T = statistics.median(times) if status == "ok" else first["T"]
+    if timing_complete and status != "median_timed_out":
+        T = statistics.median(value for value, _ in counted) if status == "ok" else first["T"]
     return {
         "status": status,
         "T": T,
@@ -372,6 +381,7 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> pathlib.P
         "slower",
         "inconclusive",
         "both > L",
+        "median timed out",
         "incomplete timing",
         "failure",
         "disagreement",
