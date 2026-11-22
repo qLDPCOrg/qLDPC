@@ -150,14 +150,16 @@ def changed_environment(label_dir: pathlib.Path) -> list[str]:
     )
 
 
-def mark_outputs(out: pathlib.Path, marks: dict[str, Any]) -> None:
-    """Mark the outputs in ``out`` with ``marks``, such as the number of rows of local runs.
+def mark_outputs(paths: Iterable[pathlib.Path], marks: dict[str, Any]) -> None:
+    """Mark the outputs that an analysis wrote, ``paths``, with ``marks``.
 
     Each CSV file gets a column per mark, each JSON object a key per mark, and each Stim circuit a
-    first comment line per mark, ``# <name>: <value>``.  Other files are left to the analysis.
+    first comment line per mark, ``# <name>: <value>``.  Other files are left to the analysis, and
+    files that the analysis did not write, such as those of an earlier analysis in the same
+    directory, are never marked.
     """
     header = "".join(f"# {name}: {value}\n" for name, value in marks.items())
-    for path in sorted(out.rglob("*")):
+    for path in sorted(paths):
         if path.suffix == ".csv":
             with open(path, newline="") as file:
                 table = list(csv.reader(file))

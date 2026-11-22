@@ -234,16 +234,17 @@ def write_outputs(
 ) -> None:
     """Write every output of the circuits that ``collect`` gives, as the module docstring lists.
 
-    Every output takes each circuit's verdict from the rows of summary.csv.  Every output carries
-    ``marks``, if any, such as the number of rows of ``--local`` runs (``store.mark_outputs``).
+    Every output takes each circuit's verdict from the rows of summary.csv.  Every output that this
+    call writes carries ``marks``, if any, such as the number of rows of ``--local`` runs
+    (``store.mark_outputs``); other files in ``out`` are left as they are.
     """
     summary_rows, weight_rows = summarize(per_circuit)
-    write_tables(summary_rows, weight_rows, out)
+    paths = write_tables(summary_rows, weight_rows, out)
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
-    write_counterexamples(per_circuit, verdicts, circuits, out)
-    analyze_applications.write_applications(per_circuit, summary_rows, out)
+    paths.append(write_counterexamples(per_circuit, verdicts, circuits, out))
+    paths += analyze_applications.write_applications(per_circuit, summary_rows, out)
     if marks:
-        store.mark_outputs(out, marks)
+        store.mark_outputs(paths, marks)
 
 
 def parse_args() -> argparse.Namespace:
@@ -534,12 +535,14 @@ def summarize(
 
 def write_tables(
     summary_rows: list[dict[str, Any]], weight_rows: list[dict[str, Any]], out: pathlib.Path
-) -> None:
-    """Write summary.csv, per_weight.csv, families.csv, and listing_table.csv."""
-    _write_csv(out / "summary.csv", summary_rows)
-    _write_csv(out / "per_weight.csv", weight_rows)
-    _write_csv(out / "families.csv", _family_rows(summary_rows))
-    _write_csv(out / "listing_table.csv", listing_table(summary_rows, weight_rows))
+) -> list[pathlib.Path]:
+    """Write summary.csv, per_weight.csv, families.csv, and listing_table.csv; return the paths."""
+    return [
+        _write_csv(out / "summary.csv", summary_rows),
+        _write_csv(out / "per_weight.csv", weight_rows),
+        _write_csv(out / "families.csv", _family_rows(summary_rows)),
+        _write_csv(out / "listing_table.csv", listing_table(summary_rows, weight_rows)),
+    ]
 
 
 def certifier_rows(run: dict[str, Any]) -> int | None:
@@ -911,8 +914,8 @@ def _agreement(members: list[dict[str, Any]], key: str, arms: tuple[str, ...]) -
     return f"{sum(compared)}/{len(compared)}"
 
 
-def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
-    """Write rows to a CSV file, with the union of their keys as columns."""
+def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> pathlib.Path:
+    """Write rows to a CSV file, with the union of their keys as columns; return its path."""
     fields: list[str] = []
     for row in rows:
         fields += [key for key in row if key not in fields]
@@ -920,6 +923,7 @@ def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(file, fieldnames=fields or ["empty"])
         writer.writeheader()
         writer.writerows(rows)
+    return path
 
 
 ####################################################################################################
@@ -931,11 +935,13 @@ def write_counterexamples(
     verdicts: dict[str, str],
     circuits: dict[str, dict[str, Any]],
     out: pathlib.Path,
-) -> None:
-    """Every counterexample, and three example counterexamples, one per group, by a fixed rule.
+) -> pathlib.Path:
+    """Write counterexamples.json, and return its path.
 
-    ``verdicts`` holds each circuit's verdict, as in summary.csv.  A counterexample on a circuit
-    with a disagreement is listed, marked as such, but is never an example.
+    It holds every counterexample, and up to three example counterexamples, one for each group
+    that has an eligible counterexample, by a fixed rule.  ``verdicts`` holds each circuit's
+    verdict, as in summary.csv.  A counterexample on a circuit with a disagreement is listed,
+    marked as such, but is never an example.
     """
     counterexamples = []
     for circuit_id, entry in sorted(per_circuit.items()):
@@ -974,9 +980,9 @@ def write_counterexamples(
         if members:
             best = max(members, key=lambda e: (e["violation_weight"] or 0, -(e["N0"] or 0)))
             examples[name] = best["id"]
-    (out / "counterexamples.json").write_text(
-        json.dumps({"examples": examples, "all": counterexamples}, indent=1) + "\n"
-    )
+    path = out / "counterexamples.json"
+    path.write_text(json.dumps({"examples": examples, "all": counterexamples}, indent=1) + "\n")
+    return path
 
 
 def _parent_family(circuit: dict[str, Any], circuits: dict[str, dict[str, Any]]) -> str | None:

@@ -296,7 +296,8 @@ def write_outputs(
     """Write summary.csv, families.csv, anchors.csv, distances.pdf, and figure_notes.json.
 
     Every output carries ``marks``, if any, such as the number of rows of ``--local`` runs: as a
-    column, a key, or part of the title and the metadata of ``distances.pdf``.
+    column, a key, or part of the title and the metadata of ``distances.pdf``.  Other files in
+    ``out`` are left as they are.
     """
     fields = [
         "name",
@@ -313,7 +314,8 @@ def write_outputs(
         "reference_d",
         "limit_s",
     ]
-    with open(out / "summary.csv", "w", newline="") as file:
+    summary = out / "summary.csv"
+    with open(summary, "w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(records)
@@ -337,11 +339,10 @@ def write_outputs(
                     "prior": prior,
                 }
             )
-    _write_families(pairs, out)
-    _write_anchors(by_code, sample, out)
-    _plot(pairs, out, marks or {})
+    paths = [summary, _write_families(pairs, out), _write_anchors(by_code, sample, out)]
+    paths += _plot(pairs, out, marks or {})
     if marks:
-        store.mark_outputs(out, marks)
+        store.mark_outputs(paths, marks)
 
 
 def _median(results: list[dict[str, Any]]) -> str:
@@ -356,8 +357,8 @@ def _median(results: list[dict[str, Any]]) -> str:
     return f"{bounds.pop() if bounds else ''}{median:.3g}"
 
 
-def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
-    """Counts and medians per family, and one row for the anchors."""
+def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> pathlib.Path:
+    """Write families.csv: counts and medians per family, and one row for the anchors."""
     classes = [
         "faster",
         "similar",
@@ -398,18 +399,21 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> None:
                 }
             )
         )
-    with open(out / "families.csv", "w", newline="") as file:
+    path = out / "families.csv"
+    with open(path, "w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0]) if rows else ["family"])
         writer.writeheader()
         writer.writerows(rows)
+    return path
 
 
 def _write_anchors(
     by_code: dict[str, dict[str, dict[str, Any]]], sample: dict[str, Any], out: pathlib.Path
-) -> None:
-    """One row per anchor: n, k, the reference d, the d found, and the T of each arm."""
+) -> pathlib.Path:
+    """Write anchors.csv: one row per anchor, with n, k, the reference d, the d found, and Ts."""
     arms = [ON, PRIOR]
-    with open(out / "anchors.csv", "w", newline="") as file:
+    path = out / "anchors.csv"
+    with open(path, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["name", "n", "k", "reference_d", "d_found"] + [f"{arm}_T" for arm in arms])
         for entry in sample["anchors"]:
@@ -438,6 +442,7 @@ def _write_anchors(
                 ]
                 + cells
             )
+    return path
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -447,10 +452,13 @@ def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else [value]
 
 
-def _plot(pairs: list[dict[str, Any]], out: pathlib.Path, marks: dict[str, Any]) -> None:
+def _plot(
+    pairs: list[dict[str, Any]], out: pathlib.Path, marks: dict[str, Any]
+) -> list[pathlib.Path]:
     """A log-log plot of T, with the prior arm's T on the x axis and the on arm's on the y axis.
 
-    The marks go into the title, and into the Subject of the PDF's metadata.
+    Write distances.pdf and figure_notes.json, and return their paths.  The marks go into the
+    title, and into the Subject of the PDF's metadata.
     """
     import matplotlib
 
@@ -492,6 +500,7 @@ def _plot(pairs: list[dict[str, Any]], out: pathlib.Path, marks: dict[str, Any])
     figure.tight_layout()
     figure.savefig(out / "distances.pdf", metadata={"Subject": marked} if marks else None)
     (out / "figure_notes.json").write_text(json.dumps({"T": omitted}, indent=1) + "\n")
+    return [out / "distances.pdf", out / "figure_notes.json"]
 
 
 if __name__ == "__main__":

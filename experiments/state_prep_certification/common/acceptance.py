@@ -113,8 +113,9 @@ def check_marked(out: pathlib.Path, marks: dict[str, Any]) -> list[pathlib.Path]
     """Check that every CSV and JSON output in ``out`` carries ``marks``; return the other files.
 
     A CSV file carries a mark as a column with its value in every row, and a JSON file as a key.
+    ``out`` must hold at least one CSV or JSON file.
     """
-    others = []
+    others, marked = [], 0
     for path in sorted(out.rglob("*")):
         if path.suffix == ".csv":
             with open(path, newline="") as file:
@@ -123,11 +124,14 @@ def check_marked(out: pathlib.Path, marks: dict[str, Any]) -> list[pathlib.Path]
             assert set(marks) <= set(reader.fieldnames or []), (path.name, reader.fieldnames)
             for name, value in marks.items():
                 assert all(row[name] == str(value) for row in rows), (path.name, name)
+            marked += 1
         elif path.suffix == ".json":
             data = json.loads(path.read_text())
             assert all(data.get(name) == value for name, value in marks.items()), (path.name, data)
+            marked += 1
         elif path.is_file():
             others.append(path)
+    assert marked, f"no CSV or JSON output in {out}"
     return others
 
 

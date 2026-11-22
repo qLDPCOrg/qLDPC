@@ -196,8 +196,11 @@ def write_applications(
     summary_rows: list[dict[str, Any]],
     out: pathlib.Path,
     inputs: pathlib.Path = INPUTS,
-) -> None:
-    """Write margin_violations.csv and the deletion outputs; see the module docstring."""
+) -> list[pathlib.Path]:
+    """Write margin_violations.csv and the deletion outputs, and return their paths.
+
+    The module docstring describes the outputs.
+    """
     from experiments.state_prep_certification.certification import applications
     from experiments.state_prep_certification.certification.analyze import _status, _write_csv
 
@@ -221,7 +224,7 @@ def write_applications(
         and isinstance(row["margin"], int)
         and row["margin"] <= row["t"]
     ]
-    _write_csv(out / "margin_violations.csv", violations)
+    paths = [_write_csv(out / "margin_violations.csv", violations)]
 
     # each deletion task's steps, its row of deletion_tasks.csv, and its row of deletion_table.csv
     # or its entry in deletion_notes.json
@@ -276,13 +279,16 @@ def write_applications(
             else:
                 if row["rebuild_matches"] is False:
                     notes["rebuild_mismatches"].append({"id": circuit_id, "arm": arm})
-                (out / "pruned" / f"{arm}.{circuit_id}.stim").write_text(result["final_circuit"])
+                pruned = out / "pruned" / f"{arm}.{circuit_id}.stim"
+                pruned.write_text(result["final_circuit"])
+                paths.append(pruned)
                 table.append(row)
     table.sort(key=lambda row: row["id"])
-    _write_csv(out / "deletion.csv", steps)
-    _write_csv(out / "deletion_table.csv", table)
-    _write_csv(out / "deletion_tasks.csv", tasks)
+    paths.append(_write_csv(out / "deletion.csv", steps))
+    paths.append(_write_csv(out / "deletion_table.csv", table))
+    paths.append(_write_csv(out / "deletion_tasks.csv", tasks))
     (out / "deletion_notes.json").write_text(json.dumps(notes, indent=1) + "\n")
+    return [*paths, out / "deletion_notes.json"]
 
 
 def _final_checks(run: dict[str, Any]) -> dict[str, Any] | None:
