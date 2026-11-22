@@ -181,14 +181,15 @@ def test_store_recovery(directory: pathlib.Path, node: bool) -> None:
 def test_store_archive(directory: pathlib.Path, node: bool) -> None:
     """The archive holds every file of the label with matching checksums, and its .sha256.
 
-    It leaves out the temporary file of an interrupted ``write_atomic``, and the label's lock.
-    ``open_archive`` unpacks it, and refuses it once a file or the archive no longer matches its
-    checksum.
+    It leaves out the temporary file of an interrupted ``write_atomic``, and the label's lock, but
+    keeps a file named ``SHA256SUMS`` below the top level.  ``open_archive`` unpacks it, and refuses
+    it once a file or the archive no longer matches its checksum.
     """
     label_dir = directory / "label"
     (label_dir / "logs").mkdir(parents=True)
     store.append_row(label_dir, {"task_key": "a"})
     (label_dir / "logs" / "a.txt").write_text("log")
+    (label_dir / "logs" / "SHA256SUMS").write_text("sums")
     (label_dir / ".manifest.json.123.tmp").write_text("{")
     (label_dir / store.LOCK_FILE).write_text("")
     archive = store.make_archive(label_dir, "label-host-utc")
@@ -199,11 +200,12 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
         sums_file = tar.extractfile("label-host-utc/SHA256SUMS")
         assert sums_file is not None
         sums = sums_file.read().decode()
-    expected = {f"label-host-utc/{name}" for name in ("runs.jsonl", "logs/a.txt", "SHA256SUMS")}
+    listed = ("logs/SHA256SUMS", "logs/a.txt", "runs.jsonl")
+    expected = {f"label-host-utc/{name}" for name in (*listed, "SHA256SUMS")}
     assert names == expected, names
     assert sums == "".join(
         f"{hashlib.sha256((label_dir / name).read_bytes()).hexdigest()}  {name}\n"
-        for name in ("logs/a.txt", "runs.jsonl")
+        for name in listed
     ), sums
     store.make_archive(label_dir, "second")  # earlier archives never enter a later one
     with tarfile.open(label_dir / "archive" / "second.tar.gz") as tar:

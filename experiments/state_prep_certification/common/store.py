@@ -310,7 +310,7 @@ def open_archive(archive: pathlib.Path) -> Iterator[pathlib.Path]:
         present = {
             path.relative_to(label_dir).as_posix()
             for path in label_dir.rglob("*")
-            if path.is_file() and path.name != "SHA256SUMS"
+            if path.is_file() and path != label_dir / "SHA256SUMS"
         }
         if present != set(listed) or any(
             sha256_file(label_dir / name) != digest for name, digest in listed.items()
