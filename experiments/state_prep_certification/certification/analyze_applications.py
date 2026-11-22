@@ -62,8 +62,7 @@ import pathlib
 import shutil
 from typing import Any
 
-HERE = pathlib.Path(__file__).resolve().parent
-INPUTS = HERE / "circuit_data" / "inputs"
+from experiments.state_prep_certification.certification.settings import INPUTS
 
 # The arms whose runs make claims on a circuit's m* by their results and their fault weights.
 MARGIN_ARMS = ("cert_bz", "cert_cc", "shadow", "brute_bz", "margin", "ground_truth")

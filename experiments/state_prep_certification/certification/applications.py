@@ -44,6 +44,7 @@ import numpy as np
 import stim
 
 from experiments.state_prep_certification.certification import circuits, experiment, instrument
+from experiments.state_prep_certification.certification.settings import CONFIG, INPUTS
 from experiments.state_prep_certification.common import runner
 from qldpc import circuits as qldpc_circuits
 from qldpc.codes.distance import CosetLeaderSearch
@@ -68,7 +69,7 @@ def run(task: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
         options = experiment.certify_options(entry)
         result = runner.timed(find_margin, noisy, options, report)
         return fields | result | {"cutoff_reached": cutoff_reached(result, entry["r"])}
-    circuit = stim.Circuit((experiment.INPUTS / f"{entry['id']}.stim").read_text())
+    circuit = stim.Circuit((INPUTS / f"{entry['id']}.stim").read_text())
     seed = int(hashlib.sha256(task["key"].encode()).hexdigest()[:8], 16)
     order = PRUNE_ORDERS[task["arm"]]
     return fields | runner.timed(prune, circuit, entry, order, seed, report)
@@ -204,7 +205,7 @@ def prune(
     # unbounded and reports each completed fault weight
     text = circuit_text(current)
     final_cc = _certify(current, noise, options, "connected_cluster")
-    shots = int(experiment.CONFIG["prune"]["acceptance_shots"])
+    shots = int(CONFIG["prune"]["acceptance_shots"])
     checks = {
         "parent_counts": count_gates(circuit),
         "final_counts": count_gates(current),

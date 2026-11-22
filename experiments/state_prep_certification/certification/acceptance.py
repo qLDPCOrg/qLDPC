@@ -193,6 +193,7 @@ from experiments.state_prep_certification.certification import (
     counting,
     experiment,
     instrument,
+    settings,
 )
 from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
 from experiments.state_prep_certification.common import tasks as task_store
@@ -204,7 +205,7 @@ run_all = SUITE.run_all
 
 def _circuits() -> list[dict[str, Any]]:
     """The records of ``circuits.json``."""
-    records: list[dict[str, Any]] = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    records: list[dict[str, Any]] = json.loads(settings.CIRCUITS_JSON.read_text())["circuits"]
     return records
 
 
@@ -474,10 +475,10 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     # a fast run gets the configured repeats, each without post-processing
     task = experiment._task("cert_bz", experiment._entry("cgoto"), 0, experiment._limit("cert_bz"))
     row = local_runs.run_locally(directory / "fast", [task])[task["key"]]
-    assert row["status"] == "ok" and row["T"] < experiment.CONFIG["repeats"]["below_s"], row
+    assert row["status"] == "ok" and row["T"] < settings.CONFIG["repeats"]["below_s"], row
     assert row["post_status"] == "ok" and "certificate_text" in row["result"], row
     repeats = experiment.repeat_tasks(task, row)
-    assert len(repeats) == experiment.CONFIG["repeats"]["count"], repeats
+    assert len(repeats) == settings.CONFIG["repeats"]["count"], repeats
     for repeat in repeats:
         assert repeat["limit_s"] == 600.0 and "post_s" not in repeat, repeat
     row = local_runs.run_locally(directory / "repeat", repeats[:1])[repeats[0]["key"]]
@@ -846,7 +847,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     # variable that a resume changed
     label_dir = directory / "label"
     label_dir.mkdir()
-    (label_dir / "circuits.json").write_bytes(circuits.CIRCUITS_JSON.read_bytes())
+    (label_dir / "circuits.json").write_bytes(settings.CIRCUITS_JSON.read_bytes())
     task_store.write_pass1(label_dir, list(expected.values()))
     for number, row in enumerate(rows):
         store.append_row(label_dir, dict(row, local=number < 2))
@@ -860,7 +861,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
 
     # the label check: a label made with the working tree's frozen files, of which the label's
     # circuits.json is a copy, and a bundle's requirements matches; any other label warns
-    frozen = [experiment.HERE / name for name in experiment.FROZEN_FILES]
+    frozen = [settings.HERE / name for name in experiment.FROZEN_FILES]
     commit, requirements = "c" * 40, "0" * 64
     label = manifest.compute_label(
         experiment.NAME, manifest.label_files(frozen), commit, requirements
@@ -1090,7 +1091,7 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
         # the enumeration to min(m*, r + 1), where it is small enough
         limit = entry["r"] + 1 if margin == "all" else min(margin, entry["r"] + 1)
         size = sum(math.comb(entry["N0"], m) for m in range(1, limit + 1))
-        if size <= experiment.CONFIG["ground_truth"]["max_combinations"]:
+        if size <= settings.CONFIG["ground_truth"]["max_combinations"]:
             truth = _enumerated_violation(_input(circuit_id), entry, options, limit)
             assert truth == (None if margin == "all" else margin), (circuit_id, truth, margin)
             enumerated += 1
@@ -1116,9 +1117,9 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
 def at11_code_files(directory: pathlib.Path, node: bool) -> None:
     """Altered copies of code files fail the check that they break; AT5 checks the files."""
     entry = experiment._entry("aft.steane.heuristic_opt")
-    code = json.loads((code_files.HERE / entry["code_file"]).read_text())
+    code = json.loads((settings.HERE / entry["code_file"]).read_text())
     surface = experiment._entry("aft.rotated_surface_d5.heuristic_opt")
-    exchanged = json.loads((code_files.HERE / surface["code_file"]).read_text())
+    exchanged = json.loads((settings.HERE / surface["code_file"]).read_text())
     swap = {"Hx": "Hz", "Hz": "Hx", "Lx": "Lz", "Lz": "Lx"}
     alterations: tuple[tuple[dict[str, Any], dict[str, Any], str], ...] = (
         (
@@ -1251,7 +1252,7 @@ def _check_brute_bz(circuit_id: str) -> bool:
 
     # on each completed weight, every accepted combination is enumerated and queried
     accepted = counting.accepted_counts(
-        reduced.flags, max_weight, experiment.CONFIG["accepted_dp_max_entries"]
+        reduced.flags, max_weight, settings.CONFIG["accepted_dp_max_entries"]
     )["A"]
     truth_accepted = truth["A"] if entry["ground_truth"] else accepted
     for record in brute.weights:
@@ -1301,7 +1302,7 @@ def _check_random_dems() -> dict[str, int]:
             assert table[found.syndrome] > len(found.fault_indices) < found.bound.lower_bound
 
         accepted = counting.accepted_counts(
-            reduced.flags, max_weight, experiment.CONFIG["accepted_dp_max_entries"]
+            reduced.flags, max_weight, settings.CONFIG["accepted_dp_max_entries"]
         )["A"]
         for record in brute.weights:
             if not record["violation"]:
@@ -1358,7 +1359,7 @@ def _compare_counts(
     weight_limit = min(max_weight, counting.gf2_rank(flags) + 1)
     listing = counting.listing_counts(classes, weight_limit)
     accepted = counting.accepted_counts(
-        flags, max_weight, experiment.CONFIG["accepted_dp_max_entries"]
+        flags, max_weight, settings.CONFIG["accepted_dp_max_entries"]
     )
     truth = truth or counting.brute_force_counts(flags, heavy, max_weight)
     for key in ("Pi", "E", "Phi"):
@@ -2024,7 +2025,7 @@ def _enumerable(entry: dict[str, Any]) -> bool:
     fit in 64 bits, as ``counting.ground_truth`` requires.
     """
     size = sum(math.comb(entry["N0"], m) for m in range(1, entry["t"] + 1))
-    limit = experiment.CONFIG["ground_truth"]["max_combinations"]
+    limit = settings.CONFIG["ground_truth"]["max_combinations"]
     return size <= limit and entry["num_post_selection_detectors"] <= 64
 
 
@@ -2121,7 +2122,7 @@ def _enumerated_sectors(entry: dict[str, Any], output_pauli: str) -> tuple[int, 
 
 def _input(circuit_id: str) -> Any:
     """The noiseless certification input of a circuit."""
-    return stim.Circuit((experiment.INPUTS / f"{circuit_id}.stim").read_text())
+    return stim.Circuit((settings.INPUTS / f"{circuit_id}.stim").read_text())
 
 
 if __name__ == "__main__":

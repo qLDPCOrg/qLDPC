@@ -50,11 +50,14 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
+from experiments.state_prep_certification.certification.settings import (
+    CIRCUITS_JSON,
+    CONFIG,
+    DATA,
+    INPUTS,
+)
 from experiments.state_prep_certification.common import store
 
-HERE = pathlib.Path(__file__).resolve().parent
-CONFIG = json.loads((HERE / "config.json").read_text())
-DATA = HERE / "circuit_data"
 SYNTHESIZED = DATA / "synthesized"
 SYNTHESIZED_MQT_1_9_0 = DATA / "synthesized_mqt_1.9.0"
 # The families of synthesized circuits: the prefix of their ids, and the folder of their circuits.
@@ -64,9 +67,7 @@ SYNTHESES = {
 }
 MQT_DIR = DATA / "mqt"
 SOURCES = CONFIG["workstation_sources"]
-INPUTS = DATA / "inputs"
 TRANSLATED = DATA / "translated"
-CIRCUITS_JSON = INPUTS / "circuits.json"
 # The licenses that travel with the inputs, by their name beside the inputs.
 LICENSES = {
     "MQT_QECC_LICENSE": MQT_DIR / "LICENSE",

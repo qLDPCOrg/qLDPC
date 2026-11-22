@@ -32,9 +32,7 @@ part of T, and each weight records it as ``distinct_seconds``.  By default, ``ba
 
 from __future__ import annotations
 
-import json
 import math
-import pathlib
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -47,12 +45,11 @@ from experiments.state_prep_certification.certification.counting import (
     pack_words,
     reduce_signatures,
 )
+from experiments.state_prep_certification.certification.settings import CONFIG
 from qldpc._compilation import always_compiled
 from qldpc.circuits.certification import _fault_search, fault_propagation
 from qldpc.circuits.certification._fault_search import Violation
 from qldpc.codes.distance import CosetMethod
-
-CONFIG = json.loads((pathlib.Path(__file__).resolve().parent / "config.json").read_text())
 
 # The number of rows in each batch of oracle queries.
 BATCH_SIZE = int(CONFIG["brute_force"]["batch_size"])

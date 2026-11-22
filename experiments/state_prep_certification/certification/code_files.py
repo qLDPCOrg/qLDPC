@@ -19,16 +19,15 @@ each file against its circuit (``check_code_file``).
 from __future__ import annotations
 
 import json
-import pathlib
 from typing import Any
 
 import numpy as np
 
 from experiments.state_prep_certification.certification import circuits, counting
+from experiments.state_prep_certification.certification.settings import DATA, HERE
 from experiments.state_prep_certification.common import store
 
-HERE = pathlib.Path(__file__).resolve().parent
-CODES = circuits.DATA / "codes"
+CODES = DATA / "codes"
 
 
 def code_file(entry: dict[str, Any]) -> str | None:

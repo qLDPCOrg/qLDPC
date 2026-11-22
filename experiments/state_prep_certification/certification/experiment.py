@@ -59,6 +59,11 @@ import numpy.typing as npt
 import stim
 
 from experiments.state_prep_certification.certification import baseline, counting, instrument
+from experiments.state_prep_certification.certification.settings import (
+    CIRCUITS_JSON,
+    CONFIG,
+    INPUTS,
+)
 from experiments.state_prep_certification.common import runner
 from experiments.state_prep_certification.common.tasks import repeated_worst_case_s
 from qldpc import circuits as qldpc_circuits
@@ -74,12 +79,8 @@ DATA = [
     "circuit_data/codes",
 ]
 FROZEN_FILES = ["config.json", "circuit_data/inputs/circuits.json"]
-HERE = pathlib.Path(__file__).resolve().parent
-CONFIG = json.loads((HERE / "config.json").read_text())
 LIMITS = CONFIG["limits"]
 JOB_MEM_GIB = float(CONFIG["mem_cap_gib"])
-INPUTS = HERE / "circuit_data" / "inputs"
-CIRCUITS_JSON = INPUTS / "circuits.json"
 
 ARMS: tuple[str, ...] = (
     "cert_bz",

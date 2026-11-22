@@ -181,12 +181,11 @@ from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from experiments.state_prep_certification.certification import analyze_applications
+from experiments.state_prep_certification.certification import analyze_applications, experiment
+from experiments.state_prep_certification.certification.settings import CONFIG, HERE
 from experiments.state_prep_certification.common import manifest, store
 from experiments.state_prep_certification.common import tasks as task_store
 
-HERE = pathlib.Path(__file__).resolve().parent
-CONFIG = json.loads((HERE / "config.json").read_text())
 REPEATS = CONFIG["repeats"]
 BRUTE_CAP = int(CONFIG["brute_force"]["max_combinations"])
 
@@ -196,18 +195,7 @@ OVER_CAP = "not run (U > {})".format(
 )
 
 # The arms whose timeouts, memouts, and errors summary.csv and families.csv report.
-REPORTED_ARMS = (
-    "cert_bz",
-    "cert_cc",
-    "brute_bz",
-    "shadow",
-    "count_accepted",
-    "count_listing",
-    "ground_truth",
-    "margin",
-    "prune",
-    "prune_sensitivity",
-)
+REPORTED_ARMS = experiment.ARMS
 
 # The statuses of an arm's first run that families.csv counts per arm (see ``_status``).
 COUNTED_STATUSES = ("timeout", "timeout_compiled", "memout", "error", "missing")
@@ -346,8 +334,6 @@ def check_frozen_files(label_dir: pathlib.Path) -> None:
     copy of ``circuits.json``, the working tree's other files, and the commit and bundle that the
     label's ``manifest.json`` records, and compared with the hash in the label's name.
     """
-    from experiments.state_prep_certification.certification import experiment
-
     record_path = label_dir / "manifest.json"
     if not record_path.exists():
         print(f"warning: {label_dir.name} has no manifest.json; its frozen files are not checked")
