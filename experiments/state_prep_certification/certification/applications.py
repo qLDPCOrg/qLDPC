@@ -68,11 +68,7 @@ _SHOTS_PER_BATCH = 100_000
 def run(task: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
     """Run a task of ``margin``, ``prune``, or ``prune_sensitivity`` on a circuit of the list."""
     fields: dict[str, Any] = {"id": entry["id"], "family": entry["family"], "t": entry["t"]}
-
-    def report(record: dict[str, Any]) -> None:
-        runner.send_partial(record)
-        time.sleep(float(task.get("step_delay_s", 0.0)))
-
+    report = delayed_progress(float(task.get("step_delay_s", 0.0)))
     if task["arm"] == "margin":
         noisy = noisy_input(entry)
         options = certify_options(entry["options"])
@@ -82,6 +78,22 @@ def run(task: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
     seed = int(hashlib.sha256(task["key"].encode()).hexdigest()[:8], 16)
     order = PRUNE_ORDERS[task["arm"]]
     return fields | runner.timed(prune, circuit, entry, order, seed, report)
+
+
+def delayed_progress(delay: float) -> Callable[[dict[str, Any]], None]:
+    """``runner.send_partial``, followed by a sleep of ``delay`` seconds after each record.
+
+    Only the acceptance tests set a delay, through a task's ``step_delay_s`` or ``weight_delay_s``;
+    without one, this is ``runner.send_partial`` itself.
+    """
+    if not delay:
+        return runner.send_partial
+
+    def send_then_sleep(record: dict[str, Any]) -> None:
+        runner.send_partial(record)
+        time.sleep(delay)
+
+    return send_then_sleep
 
 
 ####################################################################################################

@@ -48,8 +48,6 @@ class Instrumentation:
     """Counters and times of one certification, filled by the wrappers of ``install``.
 
     Attributes:
-        shadow_search: The class of the shadow oracle, ``CosetLeaderSearch``; a test may override
-            it in a subclass.
         search_seconds: T_search, the time of ``find_smallest_violation``.
         oracle_setup_seconds: The time to construct the oracle of the fault search (the last one,
             if it constructs several).
@@ -61,8 +59,6 @@ class Instrumentation:
         shadow: Totals of the CC oracle by threshold, its setup time, and the method that
             ``method="auto"`` takes for these queries, with ``shadow=True``.
     """
-
-    shadow_search: type[CosetLeaderSearch] = CosetLeaderSearch
 
     def __init__(
         self,
@@ -225,7 +221,7 @@ def _instrumented_search(
             self._shadow: CosetLeaderSearch | None = None
             if instrumentation.shadow_enabled:
                 start = time.perf_counter()
-                self._shadow = instrumentation.shadow_search(
+                self._shadow = CosetLeaderSearch(
                     stabilizers,
                     css_weight=kwargs.get("css_weight", False),
                     method="connected_cluster",

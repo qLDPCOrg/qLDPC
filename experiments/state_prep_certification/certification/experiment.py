@@ -51,7 +51,6 @@ import json
 import pathlib
 import shutil
 import time
-from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -275,10 +274,9 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
             (label_dir / "oracle_calls").mkdir(exist_ok=True)
             calls_file = label_dir / "oracle_calls" / f"{task['key']}.jsonl"
             calls_file.unlink(missing_ok=True)
-        delay = float(task.get("weight_delay_s", 0.0))
         instrumentation = instrument.Instrumentation(
             shadow=arm == "shadow",
-            progress=_delayed(runner.send_partial, delay) if delay else runner.send_partial,
+            progress=applications.delayed_progress(float(task.get("weight_delay_s", 0.0))),
             clock=runner.elapsed,
             calls_file=calls_file,
         )
@@ -400,18 +398,6 @@ def _listing(
     # them beside the weights that it completed
     runner.send_partial(fields)
     return fields | counting.listing_counts(classes, weight_limit, progress=runner.send_partial)
-
-
-def _delayed(
-    send: Callable[[dict[str, Any]], None], delay: float
-) -> Callable[[dict[str, Any]], None]:
-    """``send``, followed by a sleep of ``delay`` seconds."""
-
-    def send_then_sleep(record: dict[str, Any]) -> None:
-        send(record)
-        time.sleep(delay)
-
-    return send_then_sleep
 
 
 def _entry(circuit_id: str) -> dict[str, Any]:

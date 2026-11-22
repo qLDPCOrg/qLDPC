@@ -419,7 +419,8 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 
     # a shadow oracle that shifts its answer to each batch is caught
     def certify_shifted() -> None:
-        with _ShiftedShadow(shadow=True).install():
+        shadow = instrument.Instrumentation(shadow=True)
+        with mock.patch.object(instrument, "CosetLeaderSearch", _ShiftedSearch), shadow.install():
             _certify("echen", "brouwer_zimmermann")
 
     acceptance.raises(instrument.ShadowDisagreement, certify_shifted)
@@ -1416,12 +1417,6 @@ class _ShiftedSearch(CosetLeaderSearch):
     ) -> tuple[int, MinWeightBound | None]:
         index, bound = super().find_first_not_within_max_weight(syndromes, max_weight)
         return index + 1, bound
-
-
-class _ShiftedShadow(instrument.Instrumentation):
-    """Instrumentation whose shadow oracle shifts its answers."""
-
-    shadow_search = _ShiftedSearch
 
 
 def _check_consistency() -> None:
