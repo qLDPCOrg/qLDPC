@@ -119,9 +119,6 @@ ARMS = {
     "prune_sensitivity": Arm("prune", "prune_s"),
 }
 
-# The oracle of each certification arm.
-METHODS = {arm: spec.method for arm, spec in ARMS.items() if spec.method is not None}
-
 # The circuits of the ``smoke`` subset.
 SMOKE_FAMILIES = ("C-goto", "E-chen")
 SMOKE_PREFIX = "aft.steane."
@@ -177,7 +174,7 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
                 and entry["id"] not in CONFIG["prune"]["sensitivity_inputs"]
             ):
                 continue
-            task_list.append(_task(arm, entry, 0, _limit(arm)))
+            task_list.append(_task(arm, entry))
     return task_list
 
 
@@ -212,20 +209,20 @@ def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
     return tests.run_all(node=node, results_dir=results_dir)
 
 
-def _limit(arm: str) -> float:
-    """The shared allowance of an arm's task."""
-    return float(LIMITS[ARMS[arm].limit_key])
+def _task(
+    arm: str, entry: dict[str, Any], repeat: int = 0, limit: float | None = None
+) -> dict[str, Any]:
+    """A task of one arm on one circuit; only the first run of a certification has ``post_s``.
 
-
-def _task(arm: str, entry: dict[str, Any], repeat: int, limit: float) -> dict[str, Any]:
-    """A task of one arm on one circuit; only the first run of a certification has ``post_s``."""
+    Its limit is ``limit``, if given, and otherwise the arm's shared allowance in ``config.json``.
+    """
     task = {
         "key": f"{arm}.{entry['id']}.r{repeat}",
         "experiment": NAME,
         "arm": arm,
         "mode": ARMS[arm].mode,
         "repeat": repeat,
-        "limit_s": limit,
+        "limit_s": float(LIMITS[ARMS[arm].limit_key]) if limit is None else limit,
         "mem_cap_gib": JOB_MEM_GIB,
         "startup_cap_s": float(LIMITS["startup_cap_s"]),
         "grace_s": float(LIMITS["grace_s"]),
@@ -253,20 +250,21 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     certificate by that many seconds, within the post-processing allowance.  Its ``weight_delay_s``,
     which only AT4 sets, makes a certification sleep that many seconds after it reports each
     completed fault weight, so that a limit can stop it between weights on a machine of any speed.
-    The tasks of ``applications.ARMS`` run in ``applications.run``.
+    The tasks of the modes ``margin`` and ``prune`` run in ``applications.run``.
     """
     entry = _entry(task["input"]["id"])
     arm = task["arm"]
-    if arm in applications.ARMS:
+    mode = ARMS[arm].mode
+    if mode in ("margin", "prune"):
         return applications.run(task, entry)
     fields: dict[str, Any] = {
         "id": entry["id"],
         "family": entry["family"],
         "K": entry["options"]["max_weight"],
     }
-    if arm in METHODS or arm == "shadow":
+    if mode in ("timed", "shadow"):
         return _run_certification(task, entry, fields, label_dir)
-    if arm == "brute_bz":
+    if mode == "brute":
         return fields | _run_baseline(entry)
     return fields | _run_counts(arm, entry)
 
@@ -282,7 +280,7 @@ def _run_certification(
     arm = task["arm"]
     noisy = noisy_input(entry)
     options = certify_options(entry["options"])
-    method: CosetMethod = METHODS.get(arm, "brouwer_zimmermann")
+    method: CosetMethod = ARMS[arm].method or "brouwer_zimmermann"
     calls_file = None
     if arm == "shadow":
         (label_dir / "oracle_calls").mkdir(exist_ok=True)

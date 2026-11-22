@@ -114,14 +114,15 @@ def at1_known_circuits(directory: pathlib.Path, node: bool) -> None:
     flag.  A failure of this test means that the experiment disagrees with these results: find the
     cause, rather than change a rule of the experiment until it passes.
     """
-    for method in experiment.METHODS.values():
+    methods = [spec.method for spec in experiment.ARMS.values() if spec.method is not None]
+    for method in methods:
         goto = _certify("cgoto", method, max_weight=2)
         assert goto.certified, (method, str(goto))
         weakened = _certify("w.cgoto", method, max_weight=2)
         assert not weakened.certified, (method, str(weakened))
         assert len(weakened.counterexample.fault_indices) == 1
     verdicts = []
-    for method in experiment.METHODS.values():
+    for method in methods:
         chen = _certify("echen", method, max_weight=3)
         verdicts.append(
             (chen.certified, None if chen.certified else len(chen.counterexample.fault_indices))
@@ -223,7 +224,7 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
         ("ground_truth", "w.aft.shor.opt_opt"),
         ("ground_truth", "cgoto"),
     ):
-        task = experiment._task(arm, experiment._entry(circuit_id), 0, experiment._limit(arm))
+        task = experiment._task(arm, experiment._entry(circuit_id))
         row = local_runs.run_locally(directory / task["key"], [task])[task["key"]]
         assert row["status"] == "ok", (task["key"], row["status"])
 
@@ -359,7 +360,7 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     # before the run reports another weight.  The full run compiles nothing in its measured call,
     # since run_locally fails if it does.
     circuit, delay = experiment._entry("bcat.w13.t2"), 2.0
-    task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
+    task = experiment._task("cert_bz", circuit)
     task["weight_delay_s"] = delay
     full = local_runs.run_locally(directory / "full", [task])[task["key"]]
     assert full["status"] == "ok" and full["T"] is not None, full
@@ -386,7 +387,7 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     # a short post-processing allowance, which a delayed description exceeds, marks only the
     # post-processing
     entry = experiment._entry("w.cgoto")
-    task = experiment._task("cert_bz", entry, 0, experiment._limit("cert_bz"))
+    task = experiment._task("cert_bz", entry)
     task |= {"post_s": 1.0, "post_delay_s": 5.0}
     row = local_runs.run_locally(directory / "short_post", [task])[task["key"]]
     result = row["result"]
@@ -397,7 +398,7 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     print(f"  {entry['id']}: violation at {result['violation_weight']}, post-processing timeout")
 
     # a fast run gets the configured repeats, each without post-processing
-    task = experiment._task("cert_bz", experiment._entry("cgoto"), 0, experiment._limit("cert_bz"))
+    task = experiment._task("cert_bz", experiment._entry("cgoto"))
     row = local_runs.run_locally(directory / "fast", [task])[task["key"]]
     assert row["status"] == "ok" and row["T"] < settings.CONFIG["repeats"]["below_s"], row
     assert row["post_status"] == "ok" and "certificate_text" in row["result"], row
@@ -502,9 +503,7 @@ def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
     print(f"  brute_bz on {len(ids)} circuits, {violations} with a violation")
 
     # the arm itself, through the task runner, on E-chen
-    task = experiment._task(
-        "brute_bz", experiment._entry("echen"), 0, experiment._limit("brute_bz")
-    )
+    task = experiment._task("brute_bz", experiment._entry("echen"))
     row = local_runs.run_locally(directory / "arm", [task])[task["key"]]
     assert row["status"] == "ok" and row["post_status"] is None, row
     certificate = _certify("echen", "brouwer_zimmermann")
@@ -600,13 +599,11 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         compiled: bool = False,
     ) -> None:
         # an opaque key, so that the analysis must take each row's circuit from its task's input
-        task = experiment._task(arm, entry, 0, experiment._limit(arm)) | {
-            "key": f"task{len(expected)}"
-        }
+        task = experiment._task(arm, entry) | {"key": f"task{len(expected)}"}
         expected[task["key"]] = task
         if status == "missing":
             return
-        post_status = "ok" if arm in experiment.METHODS else None
+        post_status = "ok" if experiment.ARMS[arm].method is not None else None
         rows.append(
             {
                 "task_key": task["key"],
@@ -1017,7 +1014,7 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
     accepted = 0
     for circuit_id in ("cgoto", "aft.steane.heuristic_opt", "aft.cc_4_8_8.heuristic_opt"):
         entry = experiment._entry(circuit_id)
-        task = experiment._task("prune", entry, 0, experiment._limit("prune"))
+        task = experiment._task("prune", entry)
         runs = [
             local_runs.run_locally(directory / f"{circuit_id}.{run}", [task])[task["key"]]
             for run in range(2)
@@ -1753,7 +1750,7 @@ def _check_consistency() -> None:
         entries[entry["id"]] = entry
         for arm, runs in arms.items():
             for repeat, (status, result, partial, fields) in enumerate(runs):
-                task = experiment._task(arm, entry, repeat, experiment._limit(arm))
+                task = experiment._task(arm, entry, repeat)
                 task_list[task["key"]] = task
                 rows.append(
                     {"task_key": task["key"], "arm": arm, "repeat": repeat, "post_status": None}
@@ -1861,7 +1858,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     task_list = {}
     for circuit_id, results in synthetic.items():
         for arm, result in results.items():
-            task = experiment._task(arm, experiment._entry(circuit_id), 0, experiment._limit(arm))
+            task = experiment._task(arm, experiment._entry(circuit_id))
             task_list[task["key"]] = task
             rows.append(
                 {"task_key": task["key"], "arm": arm, "repeat": 0, "post_status": None}

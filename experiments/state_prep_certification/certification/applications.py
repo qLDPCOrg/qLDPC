@@ -59,7 +59,6 @@ from experiments.state_prep_certification.common import runner
 from qldpc import circuits as qldpc_circuits
 from qldpc.codes.distance import CosetLeaderSearch
 
-ARMS = ("margin", "prune", "prune_sensitivity")
 PRUNE_ORDERS = {"prune": "last_measured_first", "prune_sensitivity": "first_measured_first"}
 
 # The number of shots that each batch of the acceptance estimate samples, which bounds its memory.
