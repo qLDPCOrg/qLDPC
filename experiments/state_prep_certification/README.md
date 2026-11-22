@@ -95,7 +95,7 @@ To rerun them under all the checks of a start, delete their lines from the pass'
 After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming.
 It kills GNU parallel, the runs that the label's `active/` directory lists, and this host's runs of the label's acceptance attempts, whose records are in the `active/` directories under `results/acceptance/<label directory>/`, if their processes are still the recorded ones.
 The node self-tests' runs, in temporary directories, have no such records: after a hard kill during the self-tests, wait for `common/selftest.py` to end before resuming.
-`--status` prints the progress.
+`--status` prints the progress, and says of each recorded run whether its processes are alive.
 Both act on one label directory, which both print: give them the run's `--subset` if it was not `main`, and the same `FTSP_RESULTS`.
 The archive that the run prints at its end is the one file to copy back.
 

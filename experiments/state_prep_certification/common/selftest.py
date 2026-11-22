@@ -999,7 +999,10 @@ def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_cleanup(directory: pathlib.Path, node: bool) -> None:
-    """After a runner is killed hard, its run is live until --cleanup kills it."""
+    """After a runner is killed hard, its run is live until --cleanup kills it.
+
+    ``--status`` says which records' runs are alive and which ended.
+    """
     run_node = _run_node_module()
 
     tasks.write_pass1(directory, [_task("hard", [["spawn", 51.25]], limit_s=60.0)])
@@ -1012,6 +1015,12 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
     process.wait()
     assert _processes_matching("time.sleep(51.25)")
     assert run_node.live_runs(directory) == ["hard"]
+    ended = record | {"pid_start": "another start", "runner_start": "another start"}
+    (directory / "active" / "ended").write_text(json.dumps(ended))
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        run_node.print_status(directory)
+    assert "\n  ended: ended (--cleanup" in output.getvalue(), output.getvalue()
+    assert "\n  hard: alive\n" in output.getvalue(), output.getvalue()
     run_node.cleanup(directory)
     time.sleep(1)
     assert not _processes_matching("time.sleep(51.25)"), "a run survived --cleanup"

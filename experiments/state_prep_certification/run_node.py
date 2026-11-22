@@ -53,11 +53,11 @@ directory, and this host's runs of the label directory's acceptance attempts, if
 still the ones recorded; the node self-tests run in temporary directories without such records, so
 after a hard kill during them, wait for ``common/selftest.py`` to end.  ``--cleanup`` names, and
 leaves alive, the processes of a run's group whose leader is gone (see ``cleanup``).  ``--status``
-prints the label directory and its progress, and ``--cleanup`` prints the label directory and what
-it kills, or that it has nothing to clean up.  Both act on the label directory of ``--subset``,
-``--local``, ``--results-dir``, and the tree, whose uncommitted changes name a dirty label's
-directory: run them with the run's options and before any change to the tree, and check that the
-label directory that they print is the run's.
+prints the label directory, its progress, and whether each recorded run is alive, and ``--cleanup``
+prints the label directory and what it kills, or that it has nothing to clean up.  Both act on the
+label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose uncommitted
+changes name a dirty label's directory: run them with the run's options and before any change to the
+tree, and check that the label directory that they print is the run's.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session, and
 skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development on a
@@ -132,7 +132,7 @@ def main() -> None:
         cleanup(label_dir, results_dir)
         return
     if args.status:
-        print_status(label_dir)
+        print_status(label_dir, results_dir)
         return
     if not args.local and not sys.platform.startswith("linux"):
         sys.exit("Node mode needs Linux (lscpu, CPU affinity); pass --local on other systems")
@@ -550,36 +550,51 @@ def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, lo
 # status and cleanup
 
 
-def print_status(label_dir: pathlib.Path) -> None:
-    """Print the label's directory, its final rows by pass and status, and its active runs."""
+def print_status(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) -> None:
+    """Print the label's directory, its final rows by pass and status, and its recorded runs.
+
+    Each record of a run, in the label's ``active/`` directory or, given the results directory,
+    under the label directory's acceptance attempts, is said to be alive or ended, as
+    ``live_runs`` finds it.
+    """
     print(f"label directory: {label_dir}")
-    if not (label_dir / tasks.TASKS_FILE).exists():
+    problems: list[str] = []
+    if (label_dir / tasks.TASKS_FILE).exists():
+        final, problems = store.final_rows(label_dir)
+        for name in ("1", "2"):
+            if not tasks.pass_file(label_dir, name).exists():
+                continue
+            keys = tasks.pass_keys(label_dir, name)
+            counts: dict[str, int] = {}
+            for key in keys:
+                status = final[key]["status"] if key in final else "pending"
+                counts[status] = counts.get(status, 0) + 1
+            print(f"pass {name}: {len(keys)} tasks; {counts}")
+            missing = tasks.missing_file(label_dir, name)
+            listed = missing.read_text().split() if missing.exists() else []
+            lost = [key for key in listed if key not in final]
+            if lost:
+                print(f"  {len(lost)} of them ended the pass without a final row: see {missing}")
+    else:
         print("no task list yet")
-        return
-    final, problems = store.final_rows(label_dir)
-    for name in ("1", "2"):
-        if not tasks.pass_file(label_dir, name).exists():
-            continue
-        keys = tasks.pass_keys(label_dir, name)
-        counts: dict[str, int] = {}
-        for key in keys:
-            status = final[key]["status"] if key in final else "pending"
-            counts[status] = counts.get(status, 0) + 1
-        print(f"pass {name}: {len(keys)} tasks; {counts}")
-        missing = tasks.missing_file(label_dir, name)
-        listed = missing.read_text().split() if missing.exists() else []
-        lost = [key for key in listed if key not in final]
-        if lost:
-            print(f"  {len(lost)} of them ended the pass without a final row: see {missing}")
-    active = sorted(path.name for path in (label_dir / "active").glob("*"))
-    if PARALLEL_RECORD in active:
-        active.remove(PARALLEL_RECORD)
-        running = PARALLEL_RECORD in live_runs(label_dir)
+    live = set(live_runs(label_dir, results_dir))
+    records = _active_records(label_dir) + _acceptance_records(label_dir, results_dir)
+    names = [_record_name(label_dir, path) for path, _ in records]
+    if PARALLEL_RECORD in names:
+        names.remove(PARALLEL_RECORD)
         print(
             f"GNU parallel: recorded in active/{PARALLEL_RECORD}, "
-            + ("still running" if running else "no longer running (--cleanup removes the record)")
+            + (
+                "still running"
+                if PARALLEL_RECORD in live
+                else "no longer running (--cleanup removes the record)"
+            )
         )
-    print(f"active runs: {len(active)}" + "".join(f"\n  {key}" for key in active))
+    ended = "ended (--cleanup removes the record)"
+    print(
+        f"recorded runs: {len(names)}"
+        + "".join(f"\n  {name}: {'alive' if name in live else ended}" for name in names)
+    )
     for problem in problems:
         print(f"note: {problem}")
 
