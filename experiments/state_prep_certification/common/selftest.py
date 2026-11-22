@@ -1279,7 +1279,15 @@ def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
     record_dir = directory / "acceptance"
     record_dir.mkdir()
     module: Any = Module
-    with _patched(run_node.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0)):
+    run = subprocess.run
+
+    def run_selftest(command: list[str], *args: Any, **kwargs: Any) -> Any:
+        # the node self-tests pass; every other command, such as the CPU model's, runs
+        if command[:2] == [sys.executable, str(run_node.SELFTEST)]:
+            return subprocess.CompletedProcess(command, 0)
+        return run(command, *args, **kwargs)
+
+    with _patched(run_node.subprocess, "run", run_selftest):
         assert run_node.run_acceptance(module, record_dir, directory, node=False)
         assert run_node.run_acceptance(module, record_dir, directory, node=False)
         assert run_node.run_acceptance(module, record_dir, directory, node=True)
