@@ -81,12 +81,13 @@ of ``--label-dir``):
   - ``max_rss_gib``: the largest peak memory of a run of ``cert_bz`` or ``cert_cc``, of any
     status, as each ``rss_*`` of summary.csv is (see ``summarize_certification``);
   - ``agreement_bz_cc`` (verdicts), ``agreement_baseline`` (the verdict and smallest violating
-    weight of a finished ``brute_bz`` against those of each finished certification, and, finished
-    or not, its enumerated combinations on each weight that it completed against A_m of
-    ``count_accepted``, or of the ground truth where ``count_accepted`` did not compute it), and
-    ``agreement_ground_truth`` (the smallest violating weight of ``ground_truth`` against that of
-    every finished certification, and its Pi, E, Phi, and A against those of ``count_listing`` and
-    ``count_accepted`` on the weights that both completed).
+    weight of a finished ``brute_bz`` against those of each finished certification, and, finished or
+    not, its enumerated combinations against A_m of ``count_accepted``, or of the ground truth where
+    ``count_accepted`` did not compute it, which they must equal on each weight that it completed
+    and not exceed on one where it found a violation), and ``agreement_ground_truth`` (the smallest
+    violating weight of ``ground_truth`` against that of every finished certification, and its Pi,
+    E, Phi, and A against those of ``count_listing`` and ``count_accepted`` on the weights that both
+    completed).
 
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
   the brute-force cap, the verdicts, T, timing completeness, and peak memory of both certification
@@ -760,15 +761,17 @@ def _agree_baseline(
 
 
 def _baseline_counts_match(records: list[dict[str, Any]], counts: dict[str, int]) -> bool | None:
-    """Whether a run of brute_bz enumerated A_m combinations on each weight that it completed.
+    """Whether a run of brute_bz enumerated as many combinations as A_m allows on each weight.
 
     ``records`` are the run's per-weight records, and ``counts`` holds A_m by weight
-    (``_accepted_counts``).  None if no completed weight has a known A_m.
+    (``_accepted_counts``).  A completed weight must have exactly A_m combinations, and a weight
+    where the run found a violation, which stops its enumeration early, at most A_m.  None if no
+    weight of the records has a known A_m.
     """
     compared = [
-        record["combinations"] == counts[str(record["m"])]
+        record["combinations"] <= count if record["violation"] else record["combinations"] == count
         for record in records
-        if "m" in record and not record["violation"] and str(record["m"]) in counts
+        if "m" in record and (count := counts.get(str(record["m"]))) is not None
     ]
     return all(compared) if compared else None
 
@@ -1111,9 +1114,10 @@ def check_consistency(
     * a ``shadow`` run that ended in ``ShadowDisagreement``, by its row's error, or by the error of
       the run that the runner discarded because it compiled (``discarded_run``), whose timing
       stays discarded;
-    * the combinations that each run of ``brute_bz``, repeats included, enumerated on a completed
-      weight, against A_m of ``count_accepted``, or of the ground truth where ``count_accepted`` did
-      not compute it (``_accepted_counts``);
+    * the combinations that each run of ``brute_bz``, repeats included, enumerated on a weight,
+      against A_m of ``count_accepted``, or of the ground truth where ``count_accepted`` did not
+      compute it (``_accepted_counts``), which they must equal on a completed weight and not exceed
+      on one where the run found a violation;
     * the ground truth's Pi, E, Phi, and A against the counters' on the weights of both, and its
       number of heavy mechanisms against h of ``count_listing``;
     * Phi_m of ``count_listing`` or of the ground truth above A_m (``_accepted_counts``), since each
