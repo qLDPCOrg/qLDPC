@@ -12,16 +12,19 @@ sleeps that many seconds after each step, so that a short limit ends the run bet
   weight of an accepted fault whose residual weight exceeds its fault weight.  It gives "all" if no
   such fault exists at any weight: the search proves this when it completes the cutoff r + 1, or
   earlier when no flagged mechanism is heavy, and ``cutoff_reached`` says which.  A run killed at
-  its limit gives only its completed weights without a violation: m* exceeds the largest of them.
+  its limit gives its completed weights without a violation, so that m* exceeds the largest of
+  them, and the weight at which it found a violation, if it found one, which is m*.
 * ``prune`` (and ``prune_sensitivity``, the same in another order): delete the measured qubits of a
   verified circuit one at a time, and keep a deletion only if the circuit then still prepares the
   parent's signed state on the parent's output qubits, qLDPC accepts its detectors, and BZ certifies
-  it at K = t.  A step is one tried qubit.  ``prune`` tries the measured qubits in decreasing order
-  of their last measurement ("last measured first"), and ``prune_sensitivity`` in increasing order
-  of their first measurement ("first measured first").  The final circuit is then certified at K = t
-  by the connected-cluster oracle, the acceptance probability of parent and final circuit is
-  estimated by sampling, and these are sent as a partial result before the final circuit gets its
-  m*.  A parent that is not certified at K = t gets no step.
+  it at K = t.  A step is one tried qubit, and, in the search of the final m*, a completed fault
+  weight.  ``prune`` tries the measured qubits in decreasing order of their last measurement ("last
+  measured first"), and ``prune_sensitivity`` in increasing order of their first measurement ("first
+  measured first").  The final circuit is then certified at K = t by the connected-cluster oracle,
+  the acceptance probability of parent and final circuit is estimated by sampling, and these are
+  sent as a partial result, with the final circuit, before the final circuit gets its m*, whose
+  search sends each completed fault weight as a partial result.  A parent that is not certified at
+  K = t gets no step.
 
 Deleting a qubit removes every instruction target group that involves it, as for the weakened
 variants (``circuits._delete_qubit``).  The sector of a counterexample is the residual weight of the
@@ -164,9 +167,10 @@ def prune(
         entry: The circuit's record in ``circuits.json``.
         order: ``"last_measured_first"`` or ``"first_measured_first"``.
         seed: The seed of the acceptance estimates of parent and final circuit.
-        report: If given, receives the record of each step.  The parent's verdict, before the first
-            step, and the final checks, before the final m*, go to the runner directly as partial
-            results, without the delay of a step.
+        report: If given, receives the record of each step, and then that of each fault weight
+            that the search of the final m* completes (``instrument.py``).  The parent's verdict,
+            before the first step, and the final checks, before the final m*, go to the runner
+            directly as partial results, without the delay of a step.
     """
     report = report or (lambda record: None)
     options = experiment.certify_options(entry) | {
@@ -175,7 +179,7 @@ def prune(
     }
     noise = entry["options"]["noise"]
     parent = _certify(circuit, noise, options, "brouwer_zimmermann")
-    fields: dict[str, Any] = {"order": order, "parent_counts": count_gates(circuit)}
+    fields: dict[str, Any] = {"order": order}
     example = parent.counterexample
     verdict = {
         "parent_certified": example is None,
@@ -196,11 +200,13 @@ def prune(
         if record["outcome"] == "accepted":
             current = child
 
-    # the checks of the final circuit, sent before its m*, whose search is unbounded
+    # the checks of the final circuit, sent with the circuit before its m*, whose search is
+    # unbounded and reports each completed fault weight
     text = circuit_text(current)
     final_cc = _certify(current, noise, options, "connected_cluster")
     shots = int(experiment.CONFIG["prune"]["acceptance_shots"])
     checks = {
+        "parent_counts": count_gates(circuit),
         "final_counts": count_gates(current),
         "final_certified_cc": final_cc.certified,
         "acceptance": {
@@ -208,21 +214,14 @@ def prune(
             "parent": estimate_acceptance(parent, shots, seed),
             "final": estimate_acceptance(final_cc, shots, seed),
         },
+        "final_circuit": text,
+        "final_sha256": hashlib.sha256(text.encode()).hexdigest(),
     }
     runner.send_partial({"final_checks": checks})
-    final_margin = find_margin(experiment.noisy_circuit(current, noise), options)
+    final_margin = find_margin(experiment.noisy_circuit(current, noise), options, report)
     final_margin.pop("per_weight")
     final_margin.pop("certificate_text", None)
-    return (
-        fields
-        | checks
-        | {
-            "steps": steps,
-            "final_circuit": text,
-            "final_sha256": hashlib.sha256(text.encode()).hexdigest(),
-            "final_margin": final_margin,
-        }
-    )
+    return fields | checks | {"steps": steps, "final_margin": final_margin}
 
 
 def measured_qubits(circuit: stim.Circuit, order: str) -> list[int]:

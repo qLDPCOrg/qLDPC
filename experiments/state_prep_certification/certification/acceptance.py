@@ -89,7 +89,8 @@
   accepts their detectors (a flipped sign, a rotated qubit), and one with an added random
   measurement, are rejected for those reasons.  ``prune`` runs twice through the task runner on
   C-goto, steane, and ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial
-  results.  Each step and each final circuit, rebuilt, has its recorded outcome: by Stim's
+  results, and then its final checks, with the final circuit, and the fault weights of the search of
+  its final m*.  Each step and each final circuit, rebuilt, has its recorded outcome: by Stim's
   simulator, by certification, and, where small enough, by the enumeration of the ground truth.  The
   final m* agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final
   circuit agree with the exact probabilities from their DEMs.  The enumeration also checks every
@@ -869,7 +870,8 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
     assert outcome == "detectors rejected" and _prepares(random, goto), outcome
 
     # through the task runner, twice each, with the same steps, in the order of the arm, each
-    # step and the final circuit checked by rebuilding it, and the final checks sent last
+    # step and the final circuit checked by rebuilding it, and the final checks, with the final
+    # circuit, sent before the fault weights of the final m*'s search
     accepted = 0
     for circuit_id in ("cgoto", "aft.steane.heuristic_opt", "aft.cc_4_8_8.heuristic_opt"):
         entry = experiment._entry(circuit_id)
@@ -885,8 +887,19 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
         order = applications.measured_qubits(_input(circuit_id), "last_measured_first")
         assert [record["qubit"] for record in first["steps"]] == order, circuit_id
         accepted += _check_prune(entry, first, _enumerable(entry))
-        keys = ("final_counts", "final_certified_cc", "acceptance")
-        assert runs[0]["partial"][-1] == {"final_checks": {k: first[k] for k in keys}}, circuit_id
+        keys = (
+            "parent_counts",
+            "final_counts",
+            "final_certified_cc",
+            "acceptance",
+            "final_circuit",
+            "final_sha256",
+        )
+        partial = runs[0]["partial"]
+        (index,) = [i for i, record in enumerate(partial) if "final_checks" in record]
+        assert partial[index] == {"final_checks": {k: first[k] for k in keys}}, circuit_id
+        searched = [record["m"] for record in partial[index + 1 :]]
+        assert searched == list(range(2, 2 + len(searched))), (circuit_id, searched)
         kept = sum(record["outcome"] == "accepted" for record in first["steps"])
         print(f"  {circuit_id}: {kept} of {len(first['steps'])} deletions accepted")
 
@@ -1412,6 +1425,13 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         (bz(None), not_run, [run("timeout", None, weights)], 7, "> 4"),
         (bz(None), not_run, [run("timeout", None, weights[:1])], 7, "> 3"),
         (run("timeout", None, weights[:1]), not_run, None, 7, "> 2"),
+        (
+            bz(None),
+            not_run,
+            [run("timeout", None, [*weights[:2], {"m": 4, "violation": True}])],
+            7,
+            4,
+        ),
         (not_run, not_run, None, 7, None),
         (bz(3), not_run, [run("ok", {"margin": 4})], 7, "disagreement"),
         (bz(None), not_run, [run("ok", {"margin": 3})], 7, "disagreement"),
@@ -1508,8 +1528,9 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
 
     # the deletion outputs: a reduced circuit rebuilt from its input, a wrong final SHA-256, an
     # input that is not the one the label ran on, a disagreement, a parent not certified at K = t,
-    # and a timeout with its final checks; deletion_table.csv is ordered by circuit id, so the
-    # finished task of BB [[72,12,6]], whose input is missing, comes last
+    # a timeout with final checks that do not hold the final circuit, and a timeout during the
+    # search of the final m*; deletion_table.csv is ordered by circuit id, so the finished task of
+    # BB [[72,12,6]], whose input is missing, comes last
     reduced_id = "aft.cc_4_8_8.heuristic_opt"
     reduced = applications.prune(
         _input(reduced_id), experiment._entry(reduced_id), "last_measured_first", 0
@@ -1523,6 +1544,10 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         applications.circuit_text(_input(reduced_id))
     )
     checks = {"final_certified_cc": True}
+    final_keys = ("parent_counts", "final_counts", "final_certified_cc", "acceptance")
+    final_checks = {key: reduced[key] for key in (*final_keys, "final_circuit", "final_sha256")}
+    searched = [{"m": m, "violation": False} for m in (2, 3)]
+    killed = [parent, *reduced["steps"], {"final_checks": final_checks}, *searched]
     arms = {
         reduced_id: [run("ok", reduced, reduced["steps"])],
         "aft.steane.heuristic_opt": [run("ok", reduced | {"final_sha256": "0" * 64})],
@@ -1532,6 +1557,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
         "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
         "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
+        "aft.steane.heuristic_heuristic": [run("timeout", None, killed)],
     }
     per_circuit = {
         circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
@@ -1559,9 +1585,15 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         reduced_id: "True",
         "aft.steane.heuristic_opt": "False",
         "aft.shor.heuristic_opt": "",
+        "aft.steane.heuristic_heuristic": "",
         "dsynth190.bb72.naive": "",
     }
     assert table == expected_table, table
+    # the task killed during the search of its final m* gives m* > 3
+    (row,) = [row for row in table_rows if row["status"] == "timeout"]
+    killed_row = (row["id"], row["final_margin"], row["final_margin_lower_bound"], row["attempted"])
+    expected_row = ("aft.steane.heuristic_heuristic", "", "3", str(len(reduced["steps"])))
+    assert killed_row == expected_row, row
     with open(out / "deletion_tasks.csv") as file:
         tasks = {row["id"]: row["disagreement"] for row in csv.DictReader(file)}
     assert tasks == dict.fromkeys(table, "False") | {"aft.steane.opt_opt": "True"}, tasks

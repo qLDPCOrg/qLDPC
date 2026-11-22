@@ -28,16 +28,17 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
 * ``margin_violations.csv``: each circuit with m* <= t, with the residual weights of the X and Z
   parts of its counterexample and the parts that exceed its fault weight.
 * ``deletion.csv``: every step of every deletion task, with its outcome.
-* ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every finished deletion task
-  whose parent is certified at K = t, with whether its circuit is a disagreement.
-* ``deletion_table.csv``: one row per finished deletion task whose parent is certified at K = t, on
-  a circuit without a disagreement, in the order of circuit ids: the family, with the MQT QECC
-  release of a synthesized circuit, gate counts (encoder and verification), measured qubits,
-  measurements, and acceptance probabilities of parent and final circuit, the final m*, and the
-  deletions attempted and accepted.
-* ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the tasks
-  that did not finish with their completed steps and any final checks, the disagreements, and the
-  final circuits whose rebuild does not match.
+* ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every deletion task that
+  reached its final checks, with whether its circuit is a disagreement.
+* ``deletion_table.csv``: one row per deletion task that reached its final checks, finished or
+  killed during the search of its final m*, on a circuit without a disagreement, in the order of
+  circuit ids: the task's status, the family, with the MQT QECC release of a synthesized circuit,
+  gate counts (encoder and verification), measured qubits, measurements, and acceptance
+  probabilities of parent and final circuit, the final m*, or else the lower bound m* > k of the
+  fault weights that its search completed, and the deletions attempted and accepted.
+* ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the other
+  tasks without a row of ``deletion_table.csv``, with their completed steps and any final checks,
+  the disagreements, and the final circuits whose rebuild does not match.
 * ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.  The analysis deletes
   ``pruned/`` with everything in it before it writes them, so that it holds only these circuits.
 """
@@ -123,12 +124,13 @@ def margin_claims(
         else:
             determine(f"{arm} parent", parent["parent_violation_weight"])
         steps = _steps(run)
-        final = (run.get("result") or {}).get("final_margin")
-        none_accepted = steps is not None and not any(
-            record["outcome"] == "accepted" for record in steps
-        )
-        if final is not None and none_accepted:
-            determine(f"{arm} final", final["margin"])
+        if steps is None or any(record["outcome"] == "accepted" for record in steps):
+            continue
+        margin, completed = _final_margin(run)
+        if margin is not None:
+            determine(f"{arm} final", margin)
+        elif completed is not None:
+            no_violation_up_to(f"{arm} final", completed)
     return claims
 
 
@@ -293,11 +295,9 @@ def final_contradictions(
             continue
         if checks["final_certified_cc"] is not True:
             contradictions.append(f"{arm} final: not certified by CC at t")
-        final = (run.get("result") or {}).get("final_margin")
-        if final is not None and final["margin"] != "all" and final["margin"] <= circuit["t"]:
-            contradictions.append(
-                f"{arm} final (m* = {final['margin']}) against its certification at t"
-            )
+        margin = _final_margin(run)[0]
+        if isinstance(margin, int) and margin <= circuit["t"]:
+            contradictions.append(f"{arm} final (m* = {margin}) against its certification at t")
     return contradictions
 
 
@@ -354,17 +354,18 @@ def write_applications(
             if not entry["arms"].get(arm):
                 continue
             run = entry["arms"][arm][0]
-            result = run["result"]
             records = [record for record in run.get("partial") or [] if "step" in record]
             status = _status([run])
             steps += [{"id": circuit_id, "arm": arm, "status": status} | r for r in records]
             parent = _parent_verdict(run)
             disagreement = verdicts[circuit_id] == "disagreement"
-            row = None
-            if run["status"] == "ok" and result.get("parent_certified"):
-                rebuilt = _rebuild_matches(circuit, result, inputs)
-                row = _table_row(circuit_id, circuit, arm, result, rebuilt)
+            row, final_circuit = None, ""
+            checks = _final_checks(run)
+            if checks is not None and "final_sha256" in checks:
+                rebuilt = _rebuild_matches(circuit, checks, _steps(run) or [], inputs)
+                row = {"status": status} | _table_row(circuit_id, circuit, arm, run, rebuilt)
                 tasks.append(row | {"disagreement": disagreement})
+                final_circuit = checks["final_circuit"]
             if disagreement:
                 notes["disagreements"].append({"id": circuit_id, "arm": arm})
             elif parent is not None and not parent["parent_certified"]:
@@ -382,7 +383,6 @@ def write_applications(
                     "status": status,
                     "steps": len(records),
                 }
-                checks = _final_checks(run)
                 if checks is not None:
                     unfinished["final_checks"] = checks
                 notes["unfinished"].append(unfinished)
@@ -390,7 +390,7 @@ def write_applications(
                 if row["rebuild_matches"] is False:
                     notes["rebuild_mismatches"].append({"id": circuit_id, "arm": arm})
                 pruned = out / "pruned" / f"{arm}.{circuit_id}.stim"
-                pruned.write_text(result["final_circuit"])
+                pruned.write_text(final_circuit)
                 paths.append(pruned)
                 table.append(row)
     table.sort(key=lambda row: row["id"])
@@ -425,33 +425,65 @@ def _parent_verdict(run: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _steps(run: dict[str, Any]) -> list[dict[str, Any]] | None:
-    """The steps of a finished deletion task, or None if its result has none."""
-    if run["status"] != "ok":
+    """The steps of a deletion task that reached its final checks, or None.
+
+    A task that sent its final checks had sent all its steps as partial results before them.
+    """
+    if run["status"] == "ok":
+        steps: list[dict[str, Any]] | None = run["result"].get("steps")
+        return steps
+    if _final_checks(run) is None:
         return None
-    steps: list[dict[str, Any]] | None = run["result"].get("steps")
-    return steps
+    return [record for record in run.get("partial") or [] if "step" in record]
+
+
+def _final_margin(run: dict[str, Any]) -> tuple[int | str | None, int | None]:
+    """The final m* of a deletion task, or else the largest fault weight that its search completed.
+
+    A task killed during the search of its final m* gives the fault weights that the search
+    reported after the final checks: a violation determines m*, as in ``margin_claims``.
+    """
+    if run["status"] == "ok":
+        final = run["result"].get("final_margin")
+        return (None if final is None else final["margin"]), None
+    partial = run.get("partial") or []
+    start = next((i for i, record in enumerate(partial) if "final_checks" in record), len(partial))
+    records = [record for record in partial[start:] if "m" in record and "violation" in record]
+    found = [record["m"] for record in records if record["violation"]]
+    if found:
+        return min(found), None
+    return None, max((record["m"] for record in records), default=None)
 
 
 def _table_row(
     circuit_id: str,
     circuit: dict[str, Any],
     arm: str,
-    result: dict[str, Any],
+    run: dict[str, Any],
     rebuilt: bool | None,
 ) -> dict[str, Any]:
-    """The row of deletion_table.csv of one finished deletion task."""
+    """The row of deletion_table.csv of one deletion task that reached its final checks.
+
+    Where the search of the final m* did not finish, ``final_margin_lower_bound`` is the largest
+    fault weight k that it completed, or else t, at which the final circuit is certified, meaning
+    m* > k.
+    """
+    from experiments.state_prep_certification.certification import applications
+
+    checks = _final_checks(run) or {}
+    steps = _steps(run) or []
     row: dict[str, Any] = {
         "id": circuit_id,
         "arm": arm,
-        "order": result["order"],
+        "order": applications.PRUNE_ORDERS[arm],
         "family": circuit["family"],
         "mqt_qecc_release": circuit.get("mqt_qecc_release"),
         "code": circuit.get("code"),
         "t": circuit["t"],
     }
     for which in ("parent", "final"):
-        counts = result[f"{which}_counts"]
-        acceptance = result["acceptance"][which]
+        counts = checks[f"{which}_counts"]
+        acceptance = checks["acceptance"][which]
         row |= {
             f"{which}_two_qubit_gates": counts["encoder_gates"] + counts["verification_gates"],
             f"{which}_encoder_gates": counts["encoder_gates"],
@@ -461,23 +493,29 @@ def _table_row(
             f"{which}_acceptance": acceptance["probability"],
             f"{which}_acceptance_se": acceptance["standard_error"],
         }
-    final_margin = result["final_margin"]
+    margin, completed = _final_margin(run)
     return row | {
-        "acceptance_p": result["acceptance"]["p"],
-        "final_margin": final_margin["margin"],
-        "final_violating_parts": final_margin.get("violating_parts"),
-        "attempted": len(result["steps"]),
-        "accepted": sum(record["outcome"] == "accepted" for record in result["steps"]),
-        "final_certified_cc": result["final_certified_cc"],
-        "final_sha256": result["final_sha256"],
+        "acceptance_p": checks["acceptance"]["p"],
+        "final_margin": margin,
+        "final_margin_lower_bound": (
+            None if margin is not None else max(completed or 0, circuit["t"])
+        ),
+        "final_violating_parts": (run["result"].get("final_margin") or {}).get("violating_parts"),
+        "attempted": len(steps),
+        "accepted": sum(record["outcome"] == "accepted" for record in steps),
+        "final_certified_cc": checks["final_certified_cc"],
+        "final_sha256": checks["final_sha256"],
         "rebuild_matches": rebuilt,
     }
 
 
 def _rebuild_matches(
-    circuit: dict[str, Any], result: dict[str, Any], inputs: pathlib.Path
+    circuit: dict[str, Any],
+    checks: dict[str, Any],
+    steps: list[dict[str, Any]],
+    inputs: pathlib.Path,
 ) -> bool | None:
-    """Whether the parent with the accepted deletions is the final circuit.
+    """Whether the parent with the accepted deletions is the final circuit of the final checks.
 
     None if the parent's input is missing, or is not the one that the label ran on, by its SHA-256
     in the label's ``circuits.json``.
@@ -493,8 +531,8 @@ def _rebuild_matches(
     ):
         return None
     parent = stim.Circuit(path.read_text())
-    for record in result["steps"]:
+    for record in steps:
         if record["outcome"] == "accepted":
             parent, _, _ = circuits._delete_qubit(parent, record["qubit"])
     text = applications.circuit_text(parent)
-    return hashlib.sha256(text.encode()).hexdigest() == result["final_sha256"]
+    return hashlib.sha256(text.encode()).hexdigest() == checks["final_sha256"]

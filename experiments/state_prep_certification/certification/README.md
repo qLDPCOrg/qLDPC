@@ -76,14 +76,15 @@ The margin m* of a circuit is the smallest fault weight of an accepted fault who
 It is "all" if no such fault exists at any fault weight, which the search proves once it completes fault weight r + 1, or earlier if no flagged mechanism is heavy.
 "All" does not mean that the state is protected against any number of faults: every accepted fault still has a residual weight up to its fault weight.
 `cert_bz` at K = t + 1 gives m* where it finds a violation or r <= t, and `margin` gives it for the other circuits.
-A `margin` run that reaches its limit gives only the largest fault weight k that it completed without a violation, so that m* > k.
+A `margin` run that reaches its limit gives the largest fault weight k that it completed without a violation, so that m* > k, or the weight at which it found a violation, which is m*.
 
 A `prune` task first certifies its circuit, the parent, at K = t with BZ, and stops if the parent violates.
 It then tries each measured qubit once, by decreasing index of the instruction of its last measurement, with qubits tied by one instruction in the order of their first measurement.
 For each, it deletes every instruction target group that involves the qubit, and keeps the deletion if and only if the circuit still prepares the parent's signed state on the parent's output qubits, qLDPC accepts its detectors, and BZ certifies it at K = t.
 The final circuit, which can equal the parent, is then certified at K = t by CC, the acceptance probabilities of parent and final circuit are estimated from 10^6 Stim shots each, and the final circuit gets its m*.
 `prune_sensitivity` does the same by increasing index of the instruction of the first measurement.
-`margin` and the deletion arms send each completed step, a fault weight or a tried qubit, to the runner as a partial result, so that a run killed at its limit keeps its steps; the circuit of a killed deletion run is not a result.
+`margin` and the deletion arms send each completed step, a fault weight or a tried qubit, to the runner as a partial result, so that a run killed at its limit keeps its steps.
+A deletion run sends its final circuit with its final checks, before the search of its final m*, which sends its completed fault weights too.
 
 The runner retries any run whose measured call compiled, as the [shared README](../README.md#runs) describes.
 No run warms up before timing, apart from `ground_truth`, whose task process first compiles galois's GF(2) arithmetic, untimed (`_compile_galois` in [`counting.py`](counting.py)).
@@ -139,8 +140,9 @@ The acceptance test AT8 runs the analysis on synthetic rows: a listing count tha
 `summary.csv` gives each circuit's combined margin: the column `margin` holds the m* or "all" that the claims listed above determine; if none determines it, the column `margin_lower_bound` holds the largest fault weight k up to which a run found no violation, meaning m* > k.
 `families.csv` gets the margin counts: per family, the circuits with m* <= t, m* = t + 1, m* >= t + 2, "all", m* > k, and no information on m*.
 `margin_violations.csv` lists the circuits with m* <= t, with the residual weights of the X and Z parts of their counterexamples, since the property certified here bounds both parts, whereas the verification of a circuit's source may target only one part.
-`deletion_table.csv` has one row per finished deletion task whose parent is certified at K = t, on a circuit without a disagreement, with the gate counts, measured qubits, measurements, and acceptance probabilities of parent and final circuit; it compares each final circuit only with its parent.
-`deletion_notes.json` lists the deletion orders, the parents not certified at K = t, the tasks that did not finish, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every finished task whose parent is certified at K = t, disagreements included, and `pruned/` holds the final circuits of `deletion_table.csv`, and nothing else: the analysis deletes it with everything in it first.
+`deletion_table.csv` has one row per deletion task that reached its final checks, on a circuit without a disagreement, with the gate counts, measured qubits, measurements, and acceptance probabilities of parent and final circuit, and the final m*; it compares each final circuit only with its parent.
+A task killed during the search of its final m* keeps its row, with the task's status and, in the column `final_margin_lower_bound`, the largest fault weight k that the search completed, or t, meaning m* > k.
+`deletion_notes.json` lists the deletion orders, the parents not certified at K = t, the other tasks that did not finish, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every task that reached its final checks, disagreements included, and `pruned/` holds the final circuits of `deletion_table.csv`, and nothing else: the analysis deletes it with everything in it first.
 
 ## Attributions and licenses
 
