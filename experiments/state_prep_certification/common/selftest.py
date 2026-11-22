@@ -385,6 +385,23 @@ def test_runner_missed_peak(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_child_peak(directory: pathlib.Path, node: bool) -> None:
+    """The peak of a process that the measured call waited for counts in the peak of its result.
+
+    The polls are blinded, so that only the peak that the child sends with its result, which
+    covers the processes that it waited for, can make the run a memout.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("child", [["child_flash", 0.6], ["post", 0.1]], mem_cap_gib=0.3, post_s=5.0)
+    tasks.write_pass1(directory, [task])
+    with _patched(runner._Watcher, "_poll_resources", lambda self: (0, None)):
+        assert runner.run_task(directory, task, local=not node) == 0
+    row = store.final_rows(directory)[0][task["key"]]
+    assert row["status"] == "memout" and row["peak_rss_gib"] > 0.5, row
+
+
+@test
 def test_runner_compile_retry(directory: pathlib.Path, node: bool) -> None:
     """A run whose measured call compiles is discarded; its retry, which loads the code, is kept."""
     with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
@@ -1558,7 +1575,10 @@ def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_label_suffixes(directory: pathlib.Path, node: bool) -> None:
-    """A label directory's suffixes: -dirty-<hash>, then -local, then -<subset>."""
+    """A label directory's suffixes: -dirty-<hash>, then -local, then -<subset>.
+
+    In a bundle, the label covers the commit and the requirements of ``bundle.json``.
+    """
     from experiments.state_prep_certification.common import manifest, plugin
 
     run_node = _run_node_module()
@@ -1577,6 +1597,14 @@ def test_label_suffixes(directory: pathlib.Path, node: bool) -> None:
                         label_dir = run_node.get_label_dir(module, directory, subset, local)
                         names[dirty, local, subset] = label_dir.name
     label = names[False, False, "main"]
+
+    # in a bundle, the label covers the commit and the requirements that bundle.json records
+    record = directory / "bundle.json"
+    record.write_text(json.dumps({"harness_commit": "c" * 40, "requirements_sha256": "aa"}))
+    with _patched(manifest, "BUNDLE_RECORD", record):
+        bundled = run_node.get_label_dir(module, directory, "main", False).name
+    files = manifest.label_files([])
+    assert bundled == manifest.compute_label(module.NAME, files, "c" * 40, "aa"), bundled
     assert names == {
         (False, False, "main"): label,
         (False, False, "smoke"): f"{label}-smoke",

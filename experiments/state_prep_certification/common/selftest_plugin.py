@@ -9,6 +9,8 @@ Each task's ``input`` is a list of steps that ``run`` performs in order:
 * ``["alloc", gib]``: the measured call holds gib GiB of touched memory for 5 seconds;
 * ``["flash", gib]``: the measured call touches gib GiB of memory and frees it at once, within a
   fraction of a second;
+* ``["child_flash", gib]``: the measured call starts a grandchild that touches gib GiB of memory
+  and exits at once, and waits for it;
 * ``["spawn", s]``: the measured call starts a grandchild that sleeps s seconds, and waits for it;
 * ``["orphan", s]``: the measured call starts a grandchild that sleeps s seconds, and does not wait;
 * ``["partial", n]``: the measured call sends n partial results;
@@ -129,6 +131,10 @@ def _measured(steps: list[tuple[Any, ...]]) -> Any:
             if step[0] == "alloc":
                 time.sleep(5)
             del block
+        elif step[0] == "child_flash":
+            size = int(step[1] * 2**30)
+            script = f"block = bytearray({size})\nfor i in range(0, {size}, 4096): block[i] = 1"
+            subprocess.run([sys.executable, "-c", script], check=True)
         elif step[0] in ("spawn", "orphan"):
             child = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({step[1]})"])
             if step[0] == "spawn":

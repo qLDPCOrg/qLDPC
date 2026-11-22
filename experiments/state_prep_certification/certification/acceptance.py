@@ -636,8 +636,12 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     assert analyze._agree_baseline(stopped, [brute], accepted_counts) is False
     assert analyze._agree_baseline(stopped, [], accepted_counts) is True
 
-    # the disagreements
+    # the disagreements, whose counterexamples are listed but are not the group's example
     assert [summary[e["id"]]["verdict"] for e in (second, third)] == ["disagreement"] * 2, summary
+    counterexamples = json.loads((out / "counterexamples.json").read_text())
+    assert counterexamples["examples"] == {"B-cat": first["id"]}, counterexamples["examples"]
+    listed = [(entry["id"], entry["disagreement"]) for entry in counterexamples["all"]]
+    assert listed == [(first["id"], False), (second["id"], True), (third["id"], True)], listed
     assert summary[second["id"]]["agree_ground_truth"] == "False", summary[second["id"]]
     assert summary[third["id"]]["agree_baseline"] == "False", summary[third["id"]]
 
@@ -1271,7 +1275,8 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
 
     # the deletion outputs: a reduced circuit rebuilt from its input, a wrong final SHA-256, an
     # input that is not the one the label ran on, a disagreement, a parent not certified at K = t,
-    # and a timeout with its final checks
+    # and a timeout with its final checks; deletion_table.csv is ordered by circuit id, so the
+    # finished task of BB [[72,12,6]], whose input is missing, comes last
     reduced_id = "aft.cc_4_8_8.heuristic_opt"
     reduced = applications.prune(
         _input(reduced_id), experiment._entry(reduced_id), "last_measured_first", 0
@@ -1290,6 +1295,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         "aft.steane.heuristic_opt": [run("ok", reduced | {"final_sha256": "0" * 64})],
         "aft.shor.heuristic_opt": [run("ok", reduced)],
         "aft.steane.opt_opt": [run("ok", reduced)],
+        "dsynth190.bb72.naive": [run("ok", reduced)],
         "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
         "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
         "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
@@ -1318,6 +1324,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         reduced_id: "True",
         "aft.steane.heuristic_opt": "False",
         "aft.shor.heuristic_opt": "",
+        "dsynth190.bb72.naive": "",
     }
     assert table == expected_table, table
     with open(out / "deletion_tasks.csv") as file:
