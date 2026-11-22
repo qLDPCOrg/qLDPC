@@ -1183,13 +1183,25 @@ def test_run_node_other_host(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_run_node_cpu_model(directory: pathlib.Path, node: bool) -> None:
-    """A start refuses a CPU model other than the one in the label's manifest."""
+    """A start refuses a CPU model other than the one in the label's manifest.
+
+    A dry run writes no manifest, so that the manifest is that of a start that runs tasks; it
+    records itself, with its CPU model, in ``starts.jsonl``.
+    """
+    from experiments.state_prep_certification.common import runner
+
     label_dir, command = _local_label(directory)
     label_dir.mkdir(parents=True)
     (label_dir / "manifest.json").write_text(json.dumps({"cpu_model": "Another CPU 9000"}))
     refused = subprocess.run(command, capture_output=True, text=True, check=False)
     assert refused.returncode != 0 and "Another CPU 9000" in refused.stderr, refused.stderr
     assert not (label_dir / tasks.TASKS_FILE).exists()
+
+    (label_dir / "manifest.json").unlink()
+    subprocess.run(command, check=True, capture_output=True)
+    assert not (label_dir / "manifest.json").exists()
+    (start,) = [json.loads(line) for line in (label_dir / "starts.jsonl").read_text().splitlines()]
+    assert start["dry_run"] and start["cpu_model"] == runner._cpu_model(), start
 
 
 @test
@@ -1765,7 +1777,8 @@ def _run_node_module() -> Any:
 def _local_label(directory: pathlib.Path) -> tuple[pathlib.Path, list[str]]:
     """The stand-in's label directory for local runs in ``directory/results``, and a start of it.
 
-    The start is a dry run, which stops after writing the task list and the manifest.
+    The start is a dry run, which stops after writing the task list and its line in
+    ``starts.jsonl``.
     """
     from experiments.state_prep_certification.common import plugin
 

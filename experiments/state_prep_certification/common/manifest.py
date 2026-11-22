@@ -133,18 +133,24 @@ def load_pins() -> dict[str, Any]:
 
 
 def write_manifest(
-    label_dir: pathlib.Path, results_dir: pathlib.Path, extra: dict[str, Any]
+    label_dir: pathlib.Path,
+    results_dir: pathlib.Path,
+    extra: dict[str, Any],
+    dry_run: bool = False,
 ) -> None:
     """Write ``manifest.json`` at a label's first start, and record every start in ``starts.jsonl``.
 
     ``manifest.json`` is written whole or not at all, and each start appends one line to
-    ``starts.jsonl`` in one write.
+    ``starts.jsonl`` in one write.  A dry run only appends its line, with ``"dry_run": true``, so
+    that ``manifest.json``, and the CPU model that later starts must match, describe the first start
+    that went on to run tasks.
 
     Args:
         label_dir: The label's directory.
         results_dir: The results directory, which may hold the record of ``node.sh``'s preflight,
             ``preflight-<bundle>.json``.
         extra: Further fields, such as the number of job slots.
+        dry_run: Whether the start stops before running any task.
     """
     bundle = bundle_record()
     preflight = _read_json(results_dir / f"preflight-{bundle['name']}.json") if bundle else None
@@ -160,10 +166,11 @@ def write_manifest(
         "packages": package_freeze(),
         "environment": recorded_environment(os.environ),
         "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "dry_run": dry_run,
         **extra,
     }
     path = label_dir / "manifest.json"
-    if not path.exists():
+    if not dry_run and not path.exists():
         store.write_atomic(path, json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     with open(label_dir / "starts.jsonl", "ab", buffering=0) as file:
         file.write((json.dumps(manifest, sort_keys=True) + "\n").encode())  # one write

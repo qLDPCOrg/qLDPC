@@ -36,24 +36,25 @@ with status 0, and the task runner skips tasks that already have a final row.  O
 it exits, and another refuses to begin.  The script refuses to start while GNU parallel or a run of
 an earlier start is still alive.  It also refuses to start, and ``--cleanup`` refuses to act, while
 the label's ``active/`` directory lists a run of another host, which this host can neither see nor
-stop.  A start refuses a machine whose CPU model differs from the one in the label's manifest, so
-that one label never mixes the times of two CPU models; another host with the same CPU model may
-resume, since a machine's hostname can change between its allocations, and ``starts.jsonl``
-records each start's host and number of job slots.  After a hard kill of this script or of GNU
-parallel, run it once with ``--cleanup``, which kills GNU parallel and every run still listed in the
-label's ``active/`` directory, if their processes are still the ones recorded; it names, and leaves
-alive, the processes of a run's group whose leader is gone (see ``cleanup``).  ``--status`` prints
-the label directory and its progress.  Both act on the label directory of ``--subset``,
-``--local``, and ``--results-dir``, so they need the values of the run.
+stop.  A start refuses a machine whose CPU model differs from the one in the label's manifest,
+which the label's first start that runs tasks writes, so that one label never mixes the times of
+two CPU models; another host with the same CPU model may resume, since a machine's hostname can
+change between its allocations, and ``starts.jsonl`` records each start's host and number of job
+slots.  After a hard kill of this script or of GNU parallel, run it once with ``--cleanup``, which
+kills GNU parallel and every run still listed in the label's ``active/`` directory, if their
+processes are still the ones recorded; it names, and leaves alive, the processes of a run's group
+whose leader is gone (see ``cleanup``).  ``--status`` prints the label directory and its progress.
+Both act on the label directory of ``--subset``, ``--local``, and ``--results-dir``, so they need
+the values of the run.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session,
 and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development
 on a workstation.  A local run has its own label directory, so ``--status`` and ``--cleanup`` of a
 local run need ``--local`` too, and the analyses refuse its rows unless given ``--allow-local``.
-``--dry-run`` stops after step 5 and prints the GNU parallel command.  ``--subset NAME`` selects a
-subset of the tasks, such as ``smoke``; a subset other than ``main`` or ``acceptance`` gets its own
-label directory (see ``common/manifest.py``).  ``--subset acceptance`` runs only the acceptance
-tests.
+``--dry-run`` stops after step 5, without writing ``manifest.json`` (``starts.jsonl`` records it as
+a dry run), and prints the GNU parallel command.  ``--subset NAME`` selects a subset of the tasks,
+such as ``smoke``; a subset other than ``main`` or ``acceptance`` gets its own label directory (see
+``common/manifest.py``).  ``--subset acceptance`` runs only the acceptance tests.
 """
 
 from __future__ import annotations
@@ -170,6 +171,7 @@ def main() -> None:
             "local": args.local,
             "allowed_environment": args.allow_env,
         },
+        dry_run=args.dry_run,
     )
     command = tasks.parallel_command(label_dir, pathlib.Path(sys.executable), "1", jobs)
     print("pass 1 command (from the qLDPC root):\n  " + shlex.join(command), flush=True)
@@ -516,7 +518,10 @@ def refuse_other_hosts(label_dir: pathlib.Path) -> None:
 
 
 def refuse_other_cpu(label_dir: pathlib.Path) -> None:
-    """Exit if this machine's CPU model differs from the one in the label's manifest."""
+    """Exit if this machine's CPU model differs from the one in the label's manifest.
+
+    The manifest is that of the label's first start that went on to run tasks, never a dry run's.
+    """
     path = label_dir / "manifest.json"
     recorded = json.loads(path.read_text()).get("cpu_model") if path.exists() else None
     if recorded is not None and recorded != runner._cpu_model():
