@@ -7,15 +7,18 @@ These counts describe the listing of irreducible accepted faults in ``fault_prop
 
 * ``reduce_signatures`` keeps one mechanism per distinct nonzero (flags, syndrome) signature of
   the DEM, in DEM order, as qLDPC does: N_0 mechanisms, z of them with zero flags.
-* ``listing_counts`` counts, for each weight, the visited prefixes Pi_l (increasing tuples of l
-  classes with independent flags whose first class is a start class), the class codewords E_m
-  whose first class is a start class, and the listed faults Phi_m.  Classes are the flagged
-  mechanisms with equal flags, numbered as qLDPC numbers them: heavy mechanisms first, then the
-  rest, each in DEM order, and classes in the order of their first members, so that start classes
-  (those with a heavy member) come first.  Phi_2 is a sum over start classes, and Phi_m for
-  m >= 3 a sum over class codewords of prod(s_c) - prod(s_c - h_c), with s_c members and h_c heavy
-  members in class c.  A compiled depth-first search emits the class codewords, and Python
-  integers hold the products and totals, which can exceed 64 bits.
+* ``listing_counts`` counts, for each weight, the class codewords E_m whose first class is a
+  start class, the listed faults Phi_m, and the prefixes Pi_l of the naive enumeration of these
+  class codewords: the increasing tuples of l classes with independent flags whose first class is
+  a start class.  ``fault_propagation.md`` contrasts this enumeration with qLDPC's walk by shared
+  flags, which visits far fewer sets of classes, so Pi_l counts the work of the naive enumeration,
+  not of qLDPC's listing.  Classes are the flagged mechanisms with equal flags, numbered as qLDPC
+  numbers them: heavy mechanisms first, then the rest, each in DEM order, and classes in the order
+  of their first members, so that start classes (those with a heavy member) come first.  Phi_2 is
+  a sum over start classes, and Phi_m for m >= 3 a sum over class codewords of
+  prod(s_c) - prod(s_c - h_c), with s_c members and h_c heavy members in class c.  The naive
+  enumeration, a compiled depth-first search, emits the class codewords, and Python integers hold
+  the products and totals, which can exceed 64 bits.
 * ``accepted_counts`` counts the accepted fault combinations A_m of weight m <= K (sets of
   reduced mechanisms whose flags sum to zero) by dynamic programming over classes, with C(N_0, m)
   beside them.  It counts up to K, not K', as the brute-force baseline (``baseline.py``)
@@ -32,22 +35,23 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-import numba
 import numpy as np
 import numpy.typing as npt
 import stim
 
+from qldpc._compilation import always_compiled
+
 # The number of class codewords that the compiled search returns at a time.
 _BUFFER = 4096
 
-# _cached_njit compiles with numba.njit(cache=True), which caches compiled code on disk, rather than
-# with qLDPC's private always_compiled, which code outside qLDPC does not use.  numba recompiles a
-# cached function only when the function's own source file changes, and it freezes the values of
-# the globals that the function reads.  So a function decorated with _cached_njit may call only
-# functions of this file and NumPy, and may read only NumPy and globals that this file's text fixes,
-# such as literal constants.  Otherwise, a change to another module, such as qLDPC's compiled code,
-# or to config.json would leave stale code or values in the cache.
-_cached_njit = numba.njit(cache=True)
+# The compiled functions of this file and of baseline.py are cached on disk by qLDPC's
+# always_compiled, in a directory named by a hash of qLDPC's source files.  numba loads a function's
+# cached code unless the function's own source file has changed, and freezes the values of the
+# globals that the function reads.  Neither the hash nor numba's check covers the experiment's other
+# files or config.json.  So each of these functions calls only functions of its own file and NumPy,
+# and reads only NumPy and globals that its file's text fixes, such as literal constants; otherwise,
+# a change elsewhere would leave stale code or values in the cache.  AT2 checks that they call by
+# name no compiled function of another file.
 
 
 ####################################################################################################
@@ -195,9 +199,10 @@ def listing_counts(
 ) -> dict[str, Any]:
     """Pi_l for l < K', and E_m and Phi_m for 2 <= m <= K', weight by weight.
 
-    The search for each weight m >= 3 visits the prefixes of length m - 1 from scratch, so that a
-    weight's counts are final once it is reported to ``progress``.  Counts are Python integers,
-    keyed by weight in JSON-friendly strings.
+    Pi_l counts the prefixes of the naive enumeration of class codewords (see the module docstring),
+    which this function runs.  The search for each weight m >= 3 visits the prefixes of length
+    m - 1 from scratch, so that a weight's counts are final once it is reported to ``progress``.
+    Counts are Python integers, keyed by weight in JSON-friendly strings.
 
     Args:
         classes: The flag classes of the flagged mechanisms.
@@ -275,7 +280,7 @@ def _new_state(prefix_length: int, num_words: int) -> tuple[npt.NDArray[Any], ..
     return depth, next_class, chosen, basis, pivot_word, pivot_bit, sums
 
 
-@_cached_njit
+@always_compiled
 def _search_codewords(
     words: npt.NDArray[np.uint64],
     sorted_words: npt.NDArray[np.uint64],
@@ -400,6 +405,8 @@ def accepted_counts(flags: Sequence[int], max_weight: int, max_entries: int) -> 
     binomials = {"C": {str(m): math.comb(total, m) for m in range(1, degree + 1)}}
 
     table: dict[int, list[int]] = {0: [1] + [0] * degree}
+    if len(table) > max_entries:
+        return {"A": None, **binomials, "dp_entries": len(table)}
     for flag, size in sizes.items():
         even = [math.comb(size, i) if i % 2 == 0 else 0 for i in range(degree + 1)]
         odd = [math.comb(size, i) if i % 2 == 1 else 0 for i in range(degree + 1)]
@@ -556,7 +563,7 @@ def brute_force_counts(
     return counts
 
 
-@_cached_njit
+@always_compiled
 def _next_combination(indices: npt.NDArray[np.int64], n: int) -> bool:
     """Advance an increasing index tuple to the next one; return False after the last."""
     k = indices.shape[0]
@@ -571,7 +578,7 @@ def _next_combination(indices: npt.NDArray[np.int64], n: int) -> bool:
     return True
 
 
-@_cached_njit
+@always_compiled
 def _rank64(vectors: npt.NDArray[np.uint64]) -> int:
     """The GF(2) rank of 64-bit vectors."""
     basis = np.zeros(64, dtype=np.uint64)
@@ -589,7 +596,7 @@ def _rank64(vectors: npt.NDArray[np.uint64]) -> int:
     return rank
 
 
-@_cached_njit
+@always_compiled
 def _enumerate_accepted(
     flags: npt.NDArray[np.uint64],
     syndromes: npt.NDArray[np.int64],
@@ -617,7 +624,7 @@ def _enumerate_accepted(
             return count, violated
 
 
-@_cached_njit
+@always_compiled
 def _count_independent(class_flags: npt.NDArray[np.uint64], num_start: int, length: int) -> int:
     """Increasing tuples of classes with independent flags whose first class is a start class."""
     n = class_flags.shape[0]
@@ -634,7 +641,7 @@ def _count_independent(class_flags: npt.NDArray[np.uint64], num_start: int, leng
             return count
 
 
-@_cached_njit
+@always_compiled
 def _count_circuits(class_flags: npt.NDArray[np.uint64], num_start: int, size: int) -> int:
     """Minimal sets of classes whose flags sum to zero, with a start class first."""
     n = class_flags.shape[0]
@@ -654,7 +661,7 @@ def _count_circuits(class_flags: npt.NDArray[np.uint64], num_start: int, size: i
             return count
 
 
-@_cached_njit
+@always_compiled
 def _count_heavy_circuits(
     flags: npt.NDArray[np.uint64], heavy: npt.NDArray[np.bool_], size: int
 ) -> int:

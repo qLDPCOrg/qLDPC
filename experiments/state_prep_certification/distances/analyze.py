@@ -2,38 +2,43 @@
 
 """Analyze a run of the distance experiment: summary.csv, families.csv, anchors.csv, distances.pdf.
 
-    python analyze.py (--archive PATH | --label-dir DIR) [--out DIR] [--allow-local]
+    python analyze.py (--archive PATH --out DIR | --label-dir DIR [--out DIR]) [--allow-local]
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
 first run and repeats on the code, with a repeat that timed out counted as the limit L.  If the
-first run did not finish, or a repeat ended in an error or memout, T is the first run's time.  An
-arm counts as finished if its first run finished, even if a repeat timed out; ``summary.csv``
-records the number of unfinished repeats in ``repeats_unfinished``, and a median that is L is in
-effect a bound.  A row with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A
-repeat with it is left out of the median, as a missing repeat is.  A first run with it leaves the
-arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
-``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats`` and
-``repeats_unfinished``.  The cases, in order:
+first run finished with complete timing, and a run that timed out determines the median, as the
+middle one of an odd number of runs or either middle one of an even number, the median timed out:
+the arm has no T, and its status in ``summary.csv`` and its T cell in ``anchors.csv`` are
+``median_timed_out``.  If the first run did not finish, or a repeat ended in an error or memout, T
+is the first run's time.  An arm counts as finished if its first run finished and its median did not
+time out; ``summary.csv`` records the number of unfinished repeats in ``repeats_unfinished``.  A row
+with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A repeat with it is left
+out of the median, as a missing repeat is.  A first run with it leaves the arm without T, and its T
+cell in ``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged
+runs in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The
+cases, in order:
 
 1. **disagreement:** the arms or their repeats report different distances, or a distance that
    differs from the code's reference distance; no ratio;
 2. **failure:** either arm's first run or one of its repeats ended in an error or memout, or its
-   first run has no final row although ``tasks.json`` lists it; no ratio.  A repeat without a final
-   row only leaves the median with fewer runs, which ``repeats`` in ``summary.csv`` records;
+   first run has no final row although ``tasks.json`` lists it or a repeat has one; no ratio.  A
+   repeat without a final row only leaves the median with fewer runs, which ``repeats`` in
+   ``summary.csv`` records;
 3. **incomplete timing:** the row of either arm's first run has ``compiled_in_timing`` set; no
    ratio;
-4. **both finished:** R_T = T_prior / T_on;
-5. **only on finished:** R_T >= L / T_on, a lower bound;
-6. **only prior finished:** R_T <= T_prior / L, an upper bound;
-7. **both timed out:** "both > L", no ratio.
+4. **median timed out:** the median of either arm timed out; no ratio;
+5. **both finished:** R_T = T_prior / T_on;
+6. **only on finished:** R_T >= L / T_on, a lower bound;
+7. **only prior finished:** R_T <= T_prior / L, an upper bound;
+8. **both timed out:** "both > L", no ratio.
 
 A value above 1.2 is *faster* (the arm with everything on is faster), below 1/1.2 *slower*, and
 otherwise *similar*; a lower bound is faster if it exceeds 1.2 and *inconclusive* otherwise, and an
 upper bound is slower if it is below 1/1.2 and inconclusive otherwise.
 
 For each family, ``families.csv`` gives the counts of each class of R_T and the median of R_T over
-the codes of cases 4-6, with each bound at its value: marked ">=" if lower bounds are the only
+the codes of cases 5-7, with each bound at its value: marked ">=" if lower bounds are the only
 bounds, "<=" if upper bounds are, and omitted if there are both.  It also gives the number of these
 ratios, and how many of them are lower bounds and how many upper bounds.  The anchors' row gives the
 counts of each class only; anchors are reported per code and never pooled with the families.
@@ -42,11 +47,12 @@ The analysis reads the sample from the label directory, where ``experiment.prepa
 ``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
 does not change the analysis of an earlier run.
 
-Outputs in ``--out`` (by default ``analysis/`` in the label directory, which is a temporary
-directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``families.csv``,
-``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on), and
-``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or for
-a disagreement, a failure, or an incomplete timing).
+The analysis extracts an archive into a temporary directory, which it removes when it ends, whether
+or not it succeeds.  So ``--archive`` requires ``--out``.  Outputs in ``--out`` (by default
+``analysis/`` in the label directory of ``--label-dir``): ``summary.csv`` (one row per code and
+arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on),
+and ``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or
+for a disagreement, a failure, or an incomplete timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
 ``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
@@ -82,14 +88,19 @@ ON, PRIOR = "q_bz_on", "q_bz_prior"
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or _unpack(args.archive)
-    out = args.out or label_dir / "analysis"
+    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
+        label_dir = args.label_dir or _unpack(args.archive, pathlib.Path(scratch, "label"))
+        analyze_label(label_dir, args.out or label_dir / "analysis", args.allow_local)
+
+
+def analyze_label(label_dir: pathlib.Path, out: pathlib.Path, allow_local: bool) -> None:
+    """Analyze a label directory, and write the outputs to ``out``."""
     out.mkdir(parents=True, exist_ok=True)
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {problem}")
     marks: dict[str, Any] = {}
-    local_rows = store.count_local_rows(final.values(), args.allow_local)
+    local_rows = store.count_local_rows(final.values(), allow_local)
     if local_rows:
         marks["local_rows"] = local_rows
     allowed = store.allowed_environment(label_dir)
@@ -125,15 +136,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-local", action="store_true", help="analyze rows of --local runs, and say so"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.archive and args.out is None:
+        parser.error("--archive requires --out, since the archive's extraction is removed")
+    return args
 
 
-def _unpack(archive: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a temporary directory, and return its label directory."""
-    target = pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
+def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
+    """Unpack an archive into a directory, and return its label directory."""
+    directory.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as tar:
-        tar.extractall(target, filter="data")
-    (label_dir,) = [path for path in target.iterdir() if path.is_dir()]
+        tar.extractall(directory, filter="data")
+    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
     return label_dir
 
 
@@ -218,6 +232,8 @@ def ratio(on: dict[str, Any], prior: dict[str, Any]) -> dict[str, Any]:
         return {"case": "failure", "value": None, "bound": None}
     if not (on["timing_complete"] and prior["timing_complete"]):
         return {"case": "incomplete timing", "value": None, "bound": None}
+    if "median_timed_out" in (on["status"], prior["status"]):
+        return {"case": "median timed out", "value": None, "bound": None}
     on_done, prior_done = on["status"] == "ok", prior["status"] == "ok"
     if on_done and prior_done:
         return {"case": "both", "value": prior["T"] / on["T"], "bound": None}
@@ -244,18 +260,24 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """The status, median T, and distance of an arm's runs on one code.
 
     The status is that of the first run, unless a repeat ended in an error or memout, whose status
-    it then takes.  A repeat that timed out counts as the limit, which is larger than every finished
-    value, and is counted in ``repeats_unfinished``.  A row with ``compiled_in_timing`` set enters
-    no T and is left out of ``repeats`` and ``repeats_unfinished``: a repeat with it is left out of
-    the median, and a first run with it makes T None and the timing incomplete.  Repeats that report
-    different distances make the arm's distance a list, which ``ratio`` treats as a disagreement.
+    it then takes.  An arm without a first run is missing, even if a repeat has a row, and keeps the
+    repeats' distances for the disagreement check.  A repeat that timed out counts as the limit in
+    the median, and is counted in ``repeats_unfinished``.  If the first run finished with complete
+    timing, and a run that timed out determines the median, as the middle one of an odd number of
+    runs or either middle one of an even number, the status is ``median_timed_out`` and T is None.
+    A row with ``compiled_in_timing`` set enters no T and is left out of ``repeats`` and
+    ``repeats_unfinished``: a repeat with it is left out of the median, and a first run with it
+    makes T None and the timing incomplete.  Repeats that report different distances make the arm's
+    distance a list, which ``ratio`` treats as a disagreement.
     """
-    if not rows:
+    distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
+    distance = distances[0] if len(distances) == 1 else (distances or None)
+    if not rows or rows[0]["repeat"] != 0:
         return {
             "status": "missing",
             "T": None,
             "timing_complete": False,
-            "distance": None,
+            "distance": distance,
             "limit_s": None,
         }
     first = rows[0]
@@ -263,20 +285,22 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     status = failed[0] if failed else first["status"]
     compiled = [row for row in rows if row.get("compiled_in_timing")]
     timing_complete = not first.get("compiled_in_timing")
-    times = [
-        row["T"] if row["status"] == "ok" else row["limit_s"]
+    counted = sorted(
+        (row["T"], False) if row["status"] == "ok" else (row["limit_s"], True)
         for row in rows
         if not row.get("compiled_in_timing")
-    ]
-    distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
+    )
+    middle = counted[(len(counted) - 1) // 2 : len(counted) // 2 + 1]
+    if status == "ok" and timing_complete and any(timed_out for _, timed_out in middle):
+        status = "median_timed_out"
     T = None
-    if timing_complete:
-        T = statistics.median(times) if status == "ok" else first["T"]
+    if timing_complete and status != "median_timed_out":
+        T = statistics.median(value for value, _ in counted) if status == "ok" else first["T"]
     return {
         "status": status,
         "T": T,
         "timing_complete": timing_complete,
-        "distance": distances[0] if len(distances) == 1 else (distances or None),
+        "distance": distance,
         "limit_s": first["limit_s"],
         "repeats": len(rows) - len(compiled),
         "repeats_unfinished": sum(
@@ -368,6 +392,7 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> pathlib.P
         "slower",
         "inconclusive",
         "both > L",
+        "median timed out",
         "incomplete timing",
         "failure",
         "disagreement",

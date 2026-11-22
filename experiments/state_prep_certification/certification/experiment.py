@@ -32,8 +32,9 @@ distinct nonzero signature (flags, syndrome); z of them with zero flags; p post-
 detectors, the bits of the flags; r the GF(2) rank of the flags; K' = min(K, r + 1), above which
 no flagged fault is accepted and irreducible; h heavy flagged mechanisms, whose syndrome has no
 error of weight 1; q flag classes, the flagged mechanisms grouped by equal flags; q_h start
-classes, those with a heavy member; Pi, E, and Phi by weight, as ``counting.py`` defines them; and
-U, the sum over 1 <= m <= K of C(N_0, m).
+classes, those with a heavy member; Pi (the prefixes of a naive enumeration of class codewords,
+not qLDPC's work), E, and Phi by weight, as ``counting.py`` defines them; and U, the sum over
+1 <= m <= K of C(N_0, m).
 
 The count and ground-truth arms take the DEM from an untimed certification with ``max_weight=1``,
 and their measured call is the counting itself, so that the runner's limit applies to it.  The

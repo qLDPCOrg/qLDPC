@@ -37,9 +37,10 @@ the Git tree of this checkout's ``src/`` at ``HEAD``.  That tree is the qLDPC so
 the sample only if the imported ``qldpc`` is this checkout's ``src/``, with no uncommitted or
 untracked changes.  It covers nothing outside ``src/``, such as this experiment's code,
 ``experiments/distance_tuning/``, or other packages.  ``--check`` regenerates the codes and
-compares their ``COMPARED_FIELDS`` with ``sample.json``.  These fields include the anchors'
-reference distances, which the analysis reads from the sample.  Git ignores ``code_data/``, which
-the offline bundle carries.
+compares the regenerated sample with ``sample.json`` in every field but ``qldpc_src_tree`` and the
+codes' ``constructor`` (see ``compare_with_sample``).  These fields include the anchors' reference
+distances and the codes' families, which the analysis reads from the sample.  Git ignores
+``code_data/``, which the offline bundle carries.
 """
 
 from __future__ import annotations
@@ -80,8 +81,6 @@ ENDPOINTS = CODE_DATA / "endpoints.json"
 SAMPLE = CODE_DATA / "sample.json"
 # part of every draw's seed: changing it redraws every code and invalidates sample.json
 SEED_TAG = "ftsp-distances-1"
-# the fields of each code that ``--check`` and the node's ``prepare`` compare with ``sample.json``
-COMPARED_FIELDS = ("code_hash", "n", "k", "css", "equal_distance_xz", "reference_d")
 CODES_PER_SIZE = 4
 MAX_DRAWS = 100
 NUM_SIZES = 4
@@ -738,9 +737,21 @@ def draw_seed(family: str, params: dict[str, Any], index: int) -> int:
 
 
 def compare_with_sample(sample: dict[str, Any]) -> list[str]:
-    """The differences between a regenerated sample and ``sample.json``, in ``COMPARED_FIELDS``."""
+    """The differences between a regenerated sample and ``sample.json``.
+
+    Every field is compared but two that record the software rather than the sample:
+    ``qldpc_src_tree``, which only ``--write-sample`` records, and each entry's ``constructor``, the
+    name of the class that built the code, which a refactoring can change without changing the
+    code.  Each anchor and code is compared by name and field, and the other fields, such as the
+    endpoints and the ladders, whole.  Floats, such as the ladders' target lengths, are compared to
+    a relative 1e-9, since another platform's math library may round them differently.
+    """
     frozen = json.loads(SAMPLE.read_text())
+    sample = json.loads(json.dumps(sample))
     problems = []
+    for field in sorted((set(sample) | set(frozen)) - {"anchors", "codes", "qldpc_src_tree"}):
+        if not _same(sample.get(field), frozen.get(field)):
+            problems.append(f"{field} differs")
     for kind in ("anchors", "codes"):
         new = {entry["name"]: entry for entry in sample[kind]}
         old = {entry["name"]: entry for entry in frozen[kind]}
@@ -750,10 +761,21 @@ def compare_with_sample(sample: dict[str, Any]) -> list[str]:
                     f"{kind}: {name} is only in the {'new' if name in new else 'frozen'} sample"
                 )
                 continue
-            for field in COMPARED_FIELDS:
-                if new[name].get(field) != old[name].get(field):
+            for field in sorted((set(new[name]) | set(old[name])) - {"constructor"}):
+                if not _same(new[name].get(field), old[name].get(field)):
                     problems.append(f"{kind}: {name} has another {field}")
     return problems
+
+
+def _same(new: Any, old: Any) -> bool:
+    """Whether two JSON values are equal, with floats compared to a relative 1e-9."""
+    if isinstance(new, float) and isinstance(old, float):
+        return math.isclose(new, old, rel_tol=1e-9)
+    if isinstance(new, dict) and isinstance(old, dict):
+        return new.keys() == old.keys() and all(_same(new[key], old[key]) for key in new)
+    if isinstance(new, list) and isinstance(old, list):
+        return len(new) == len(old) and all(map(_same, new, old))
+    return bool(new == old)
 
 
 def _params_label(params: dict[str, Any]) -> str:

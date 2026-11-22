@@ -40,7 +40,6 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
-import numba
 import numpy as np
 import numpy.typing as npt
 
@@ -48,6 +47,7 @@ from experiments.state_prep_certification.certification.counting import (
     pack_words,
     reduce_signatures,
 )
+from qldpc._compilation import always_compiled
 from qldpc.circuits.certification import _fault_search, fault_propagation
 from qldpc.circuits.certification._fault_search import Violation
 from qldpc.codes.distance import CosetMethod
@@ -66,11 +66,8 @@ _INITIAL_SLOTS = 2**12
 # An odd 64-bit constant, near 2**64 divided by the golden ratio, that mixes the words of a hash.
 _HASH_MULTIPLIER = np.uint64(0x9E3779B97F4A7C15)
 
-# A function decorated with _cached_njit may call only functions of this file and NumPy, and may
-# read only NumPy and globals that this file's text fixes, such as _HASH_MULTIPLIER.  It must never
-# read CONFIG, BATCH_SIZE, or MAX_DISTINCT, which come from config.json, for the reason that the
-# comment on counting._cached_njit gives.
-_cached_njit = numba.njit(cache=True)
+# The compiled functions of this file follow the rule that counting.py states for cached code.  In
+# particular, they never read CONFIG, BATCH_SIZE, or MAX_DISTINCT, which come from config.json.
 
 
 ####################################################################################################
@@ -293,7 +290,7 @@ def _new_state(m: int, num_flag_words: int, num_syndrome_words: int) -> tuple[An
     return counters, next_candidate, chosen, flag_sums, syndrome_sums
 
 
-@_cached_njit
+@always_compiled
 def _compare_key(
     sorted_flags: npt.NDArray[np.uint64],
     order: npt.NDArray[np.int64],
@@ -310,7 +307,7 @@ def _compare_key(
     return 0
 
 
-@_cached_njit
+@always_compiled
 def _enumerate_combinations(
     flag_words: npt.NDArray[np.uint64],
     syndrome_words: npt.NDArray[np.uint64],
@@ -344,8 +341,7 @@ def _enumerate_combinations(
     if prefix_length == 0 and closing < 0 and next_candidate[0] == 0:
         # weight 1: the closing scan of the empty prefix, from the first mechanism of zero flags
         next_candidate[0] = 1
-        # np.int64, not a literal 0, so that _lower_bound has one set of argument types: processes
-        # that compile different ones at once can mix up its cache files (numba/numba#10862)
+        # np.int64, not a literal 0, so that _lower_bound is compiled for one set of argument types
         closing = _lower_bound(sorted_flags, order, flag_sums[0], np.int64(0))
     while written < combinations.shape[0]:
         if closing >= 0:
@@ -401,7 +397,7 @@ def _enumerate_combinations(
     return written, bool(counters[2])
 
 
-@_cached_njit
+@always_compiled
 def _lower_bound(
     sorted_flags: npt.NDArray[np.uint64],
     order: npt.NDArray[np.int64],
@@ -459,7 +455,7 @@ class _DistinctSyndromes:
         _insert_rows(keys, self._keys, self._used, 0, used)
 
 
-@_cached_njit
+@always_compiled
 def _insert_rows(
     rows: npt.NDArray[np.uint64],
     keys: npt.NDArray[np.uint64],

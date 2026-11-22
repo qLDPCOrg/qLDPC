@@ -97,9 +97,9 @@ def parse_args() -> argparse.Namespace:
     commands.add_argument(
         "--check",
         action="store_true",
-        help="check the inputs' hashes, DEM parameters, states, output qubits, and code files, and "
-        "that the states are CSS; where circuit_data/mqt/ is present, also rebuild the inputs from "
-        "its sources",
+        help="check the inputs' hashes, DEM parameters, states, output qubits, K = t + 1, noise, "
+        "and code files, and that the states are CSS; where circuit_data/mqt/ is present, also "
+        "rebuild the inputs from its sources",
     )
     return parser.parse_args()
 
@@ -171,6 +171,9 @@ RESET_GATES = {"R", "RX"}
 
 # The families of verified circuits: each gets a weakened variant, a code file, and deletion tasks.
 VERIFIED_FAMILIES = ("A-ft", "C-goto", *SYNTHESES)
+
+# The families whose design t is (d - 1) // 2 for the distance d of their code (``_sources``).
+T_FROM_DISTANCE = ("A-ft", "A-unv", *SYNTHESES)
 
 
 def build_inputs() -> None:
@@ -579,9 +582,11 @@ def _check_input(entry: dict[str, Any]) -> list[str]:
     ``circuits.json``.  So must the input's prepared state and output qubits.  The input must
     prepare a CSS state: with ``css_weight`` None in its options, qLDPC sets ``css_weight`` true
     exactly for a CSS state, so the options must leave it None, and qLDPC's choice and the recorded
-    ``css_weight`` must both be true.  An input of
-    ``VERIFIED_FAMILIES`` must have a code file that passes ``code_files.check_code_file``, which
-    checks, among other things, that the input's state is the code's |0...0>.
+    ``css_weight`` must both be true.  The record's K must be t + 1, and its noise that of
+    ``config.json``.  An input of ``VERIFIED_FAMILIES`` must have a code file that passes
+    ``code_files.check_code_file``, which checks, among other things, that the input's state is the
+    code's |0...0>, that the record's n agrees with the code file, and that its t does where the
+    family takes t from the distance (``T_FROM_DISTANCE``) and the file gives the distance.
     """
     import stim
 
@@ -610,6 +615,10 @@ def _check_input(entry: dict[str, Any]) -> list[str]:
         problems.append(f"{name}: the input does not prepare a CSS state")
     if entry["css_weight"] is not True:
         problems.append(f"{name}: css_weight is {entry['css_weight']}, not True")
+    if entry["options"]["max_weight"] != entry["t"] + 1:
+        problems.append(f"{name}: max_weight is {entry['options']['max_weight']}, not t + 1")
+    if entry["options"]["noise"] != CONFIG["noise"]:
+        problems.append(f"{name}: its noise is not that of config.json")
     if "code_file" in entry:
         problems += code_files.check_code_file(entry)
     elif entry["family"] in VERIFIED_FAMILIES:
@@ -666,10 +675,11 @@ def _check_rebuilt(recorded: dict[str, Any]) -> list[str]:
 
 
 def _check_code_state(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
-    """The problems of an input whose recorded state is not the code's |0...0>, if any."""
-    qubits = entry["output_qubits"]
-    if len(qubits) != len(code["Hx"][0]):
-        return [f"{entry['id']}: {len(qubits)} output qubits, the code has {len(code['Hx'][0])}"]
+    """The problems of an input whose recorded state is not the code's |0...0>, if any.
+
+    Each row of the code must have one column per output qubit, as ``code_files.check_code`` checks
+    first.
+    """
     expected = []
     for rows, letter in ((code["Hx"], "X"), (code["Hz"], "Z"), (code["Lz"], "Z")):
         for row in rows:

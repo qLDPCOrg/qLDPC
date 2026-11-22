@@ -12,15 +12,17 @@
   are reported rather than checked.
 * **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
   left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
-* **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label
+* **AT5:** the regenerated sample matches ``sample.json``, and ``prepare`` copies it into the label
   directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
   the analysis of a run on golay a disagreement.  AT5's runs are local, so the analysis refuses
   their rows without ``--allow-local``; with it, every output gives the number of these rows, the
-  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for
-  a start under -O, which sets no variable, and the recorded variable that a resume changed,
-  ``distances.pdf`` in its metadata.  ``compare_with_sample`` reports a sample in which one
-  reference distance differs from that of ``sample.json``.  Each row's tuning is the shipped
-  default, with ``BZ_PRIOR`` for ``q_bz_prior``.
+  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for a
+  start under -O, which sets no variable, and the recorded variable that a resume changed,
+  ``distances.pdf`` in its metadata.  The analysis of the label's archive requires ``--out``, writes
+  its outputs there, and leaves no extraction of the archive behind, whether it succeeds or refuses
+  the rows.  ``compare_with_sample`` reports a sample in which one reference distance differs from
+  that of ``sample.json``, and one with another endpoint and another family of a code.  Each row's
+  tuning is the shipped default, with ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
   ``LOCAL_LIMIT_S``.
@@ -29,13 +31,14 @@
   the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
   first runs that finished in under 300 s.
 * **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree
-  or time out, arms that agree on a distance other than the reference, an arm without rows, a first
-  run that ends in an error, a repeat that ends in a memout, both finished, only one arm finished,
-  and both timed out), writes every output, classifies the codes, and marks the family medians as
-  ``analyze.py``'s docstring says, with the number of these ratios, and how many of them are lower
-  bounds and how many upper bounds.  Its rows with ``compiled_in_timing`` set are first runs and a
-  timed-out repeat, some of them on codes that disagree or fail.  ``load_sample`` refuses a label
-  directory without a copy of the sample.
+  or time out, medians of three and of two runs that a timed-out run determines, arms that agree on
+  a distance other than the reference, an arm without rows, an arm whose repeats have rows but whose
+  first run has none, which keeps their distance, a first run that ends in an error, a repeat that
+  ends in a memout, both finished, only one arm finished, and both timed out), writes every output,
+  classifies the codes, and marks the family medians as ``analyze.py``'s docstring says, with the
+  number of these ratios, and how many of them are lower bounds and how many upper bounds.  Its rows
+  with ``compiled_in_timing`` set are first runs and repeats, some of them on codes that disagree or
+  fail.  ``load_sample`` refuses a label directory without a copy of the sample.
 
 GNU parallel's stop and resume and its job-slot pinning are tested by ``common/selftest.py``:
 locally with stand-in CPU numbers, and in node mode on Linux before the node's acceptance tests.
@@ -50,11 +53,13 @@ import copy
 import csv
 import dataclasses
 import json
+import os
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -203,6 +208,14 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     changed = copy.deepcopy(_sample())
     next(entry for entry in changed["anchors"] if entry["name"] == "qr79")["reference_d"] = 13
     assert codes.compare_with_sample(changed) == ["anchors: qr79 has another reference_d"]
+    # the draws' metadata too: an endpoint, and a code's family
+    changed = copy.deepcopy(_sample())
+    changed["endpoints"]["lp"]["n_lo"] += 1
+    changed["codes"][0]["family"] = "gb"
+    assert codes.compare_with_sample(changed) == [
+        "endpoints differs",
+        f"codes: {changed['codes'][0]['name']} has another family",
+    ]
 
     defaults = dataclasses.asdict(_tuning.SearchTuning())
     prior = dict(defaults, **EXPECTED_BZ_PRIOR)
@@ -250,6 +263,29 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     assert [path.name for path in others] == ["distances.pdf"], others
     subject = "; ".join(f"{name}: {value}" for name, value in marks.items())
     assert f"/Subject ({subject})".encode() in (out / "distances.pdf").read_bytes()
+
+    # an archive needs --out, and its extraction is removed whether or not the analysis succeeds
+    archived = directory / "archived"
+    archived.mkdir()
+    archive = archived / "label.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        for path in label_dir.iterdir():
+            if path != archived:
+                tar.add(path, arcname=f"label/{path.name}")
+    scratch = archived / "tmp"
+    scratch.mkdir()
+    environment = dict(os.environ, TMPDIR=str(scratch))
+    command = [sys.executable, str(script), "--archive", str(archive)]
+    result = subprocess.run(command, capture_output=True, text=True, check=False, env=environment)
+    assert result.returncode != 0 and "--out" in result.stderr, result.stderr
+    command += ["--out", str(archived / "analysis")]
+    for allow_local in ([], ["--allow-local"]):
+        result = subprocess.run(
+            command + allow_local, capture_output=True, text=True, check=False, env=environment
+        )
+        assert (result.returncode == 0) == bool(allow_local), result.stderr
+        assert not any(scratch.iterdir()), list(scratch.iterdir())
+    assert (archived / "analysis" / "summary.csv").exists()
 
 
 @test
@@ -349,7 +385,9 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     golay, bb72, qr47, qr71, qr79, pp110, surface9 = _entries(
         ("golay", "bb72", "qr47", "qr71", "qr79", "pp110", "surface9")
     )
-    first, second, third, fourth, fifth = [e for e in sample["codes"] if e["family"] == "hgp"][:5]
+    first, second, third, fourth, fifth, sixth, seventh = [
+        e for e in sample["codes"] if e["family"] == "hgp"
+    ][:7]
     (gb,) = [e for e in sample["codes"] if e["family"] == "gb"][:1]
     lp_prior, lp_on = [e for e in sample["codes"] if e["family"] == "lp"][:2]
     rows = []
@@ -377,7 +415,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
             }
         )
 
-    # golay: the on arm's repeats disagree; bb72: the prior arm times out on its repeats
+    # golay: the on arm's repeats disagree; bb72: the prior arm times out on its repeats, so that
+    # its median of three runs timed out
     for repeat, d in enumerate((7, 7, 8)):
         add(golay, "q_bz_on", repeat, "ok", 1.0, d)
         add(golay, "q_bz_prior", repeat, "ok", 2.0, 7)
@@ -388,11 +427,15 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     for repeat in (1, 2):
         add(bb72, "q_bz_on", repeat, "ok", 10.0, 6)
     # rows with compiled_in_timing set (rows of retries that compiled too): pp110's first run of the
-    # on arm, and surface9's timed-out repeat of the on arm; qr79's and third's flagged rows are
-    # below
+    # on arm, and surface9's timed-out repeat of the on arm; qr79's, third's, and seventh's flagged
+    # rows are below.  pp110's prior arm times out on one repeat of three, which leaves its median a
+    # finished time.
     for repeat in (0, 1, 2):
         add(pp110, "q_bz_on", repeat, "ok", 10.0, 12, compiled=repeat == 0)
-        add(pp110, "q_bz_prior", repeat, "ok", 20.0, 12)
+        if repeat == 2:
+            add(pp110, "q_bz_prior", repeat, "timeout", 1800.0, None)
+        else:
+            add(pp110, "q_bz_prior", repeat, "ok", 20.0, 12)
         add(surface9, "q_bz_prior", repeat, "ok", 3.0, 9)
     add(surface9, "q_bz_on", 0, "ok", 1.0, 9)
     add(surface9, "q_bz_on", 1, "ok", 2.0, 9)
@@ -413,6 +456,15 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     add(fourth, "q_bz_on", 1, "memout", 40.0, None)
     add(fourth, "q_bz_on", 2, "ok", 30.0, 4)
     add(fourth, "q_bz_prior", 0, "ok", 400.0, 4)
+    # sixth's on arm has repeats but no first run
+    for repeat in (1, 2):
+        add(sixth, "q_bz_on", repeat, "ok", 10.0, 4)
+    add(sixth, "q_bz_prior", 0, "ok", 20.0, 4)
+    # seventh's on arm has two runs in its median, of which one timed out
+    add(seventh, "q_bz_on", 0, "ok", 100.0, 4)
+    add(seventh, "q_bz_on", 1, "timeout", 1800.0, None)
+    add(seventh, "q_bz_on", 2, "ok", 50.0, 4, compiled=True)
+    add(seventh, "q_bz_prior", 0, "ok", 100.0, 4)
     # three hgp codes: only the on arm finishes; both time out; and both finish equally fast
     add(first, "q_bz_on", 0, "ok", 600.0, 4)
     add(first, "q_bz_prior", 0, "timeout", 1800.0, None)
@@ -432,7 +484,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     expected = [
         experiment._task(arm, entry, repeat=0)
         for entry in (golay, bb72, qr47, qr71, qr79, pp110, surface9)
-        + (first, second, third, fourth, fifth, gb, lp_prior, lp_on)
+        + (first, second, third, fourth, fifth, sixth, seventh, gb, lp_prior, lp_on)
         for arm in ("q_bz_on", "q_bz_prior")
     ]
     records = analyze.summarize(rows, sample, expected)
@@ -446,9 +498,19 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         return analyze.ratio(by_name[(entry_name, "q_bz_on")], by_name[(entry_name, "q_bz_prior")])
 
     assert ratio("golay")["case"] == "disagreement"
-    prior = by_name[("bb72", "q_bz_prior")]
-    assert prior["T"] == 1800.0 and prior["repeats_unfinished"] == 2, prior
-    assert analyze.classify(ratio("bb72")) == "faster"
+    # a median that a timed-out run determines gives no T and no ratio: bb72's prior arm, with two
+    # of three runs timed out, and seventh's on arm, with one of two; one timeout of three, as in
+    # pp110's prior arm, leaves the median a finished time
+    for name, arm, unfinished in ((bb72["name"], "q_bz_prior", 2), (seventh["name"], "q_bz_on", 1)):
+        record = by_name[(name, arm)]
+        assert (record["status"], record["T"], record["repeats_unfinished"]) == (
+            "median_timed_out",
+            None,
+            unfinished,
+        ), record
+        assert ratio(name) == {"case": "median timed out", "value": None, "bound": None}
+    prior = by_name[("pp110", "q_bz_prior")]
+    assert (prior["status"], prior["T"]) == ("ok", 20.0), prior
     assert by_name[("qr47", "q_bz_prior")]["status"] == "missing"
     assert ratio("qr47")["case"] == "failure"
     only_prior = ratio("qr71")
@@ -463,8 +525,11 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     assert (only_on["case"], only_on["bound"], only_on["value"]) == ("only on", ">=", 3.0)
     assert analyze.classify(only_on) == "faster"
     assert ratio(second["name"])["case"] == "both > L"
-    for entry in (third, fourth):
+    for entry in (third, fourth, sixth):
         assert ratio(entry["name"])["case"] == "failure", entry["name"]
+    # sixth's on arm has no first run, and keeps its repeats' distance for the disagreement check
+    record = by_name[(sixth["name"], "q_bz_on")]
+    assert (record["status"], record["distance"]) == ("missing", 4), record
     # fourth's first run finished, but a repeat ended in a memout, so T is the first run's time
     assert by_name[(fourth["name"], "q_bz_on")]["T"] == 20.0
     assert analyze.classify(ratio(fifth["name"])) == "similar"
@@ -481,7 +546,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     assert (anchors["codes"], anchors["disagreement"], anchors["failure"]) == ("7", "2", "1")
     assert anchors["incomplete timing"] == "1", anchors
     hgp = families["hgp"]
-    assert (hgp["both > L"], hgp["failure"]) == ("1", "2"), hgp
+    assert (hgp["both > L"], hgp["failure"]) == ("1", "3"), hgp
+    assert anchors["median timed out"] == hgp["median timed out"] == "1", (anchors, hgp)
     # each family's median, the number of its ratios, and how many are lower bounds and how many
     # upper bounds; a family with both kinds of bound has no median, and the anchors have none
     medians = {
@@ -495,9 +561,9 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         "lp": ("-", "2", "1", "1"),
         "anchors": ("-", "-", "-", "-"),
     }, medians
-    # distances.pdf omits the disagreements, failures, and incomplete timings: golay, qr79, qr47,
-    # third, fourth, and pp110
-    assert json.loads((out / "figure_notes.json").read_text()) == {"T": 6}
+    # distances.pdf omits the codes without a T, and the disagreements, failures, and incomplete
+    # timings: bb72, seventh, golay, qr79, qr47, third, fourth, sixth, and pp110
+    assert json.loads((out / "figure_notes.json").read_text()) == {"T": 9}
 
     # pp110's flagged first run leaves R_T incomplete and its T cell "compiled"; surface9's flagged
     # timed-out repeat is left out of the median and of repeats_unfinished
@@ -511,6 +577,12 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     assert cells["pp110"]["q_bz_on_T"] == "compiled", cells["pp110"]
     # the T cell of a failed arm with a flagged first run shows the failure: qr79's memout repeat
     assert cells["qr79"]["q_bz_on_T"] == "memout", cells["qr79"]
+    assert cells["bb72"]["q_bz_prior_T"] == "median_timed_out", cells["bb72"]
+    with open(out / "summary.csv") as file:
+        (row,) = [
+            r for r in csv.DictReader(file) if r["name"] == "bb72" and r["arm"] == "q_bz_prior"
+        ]
+    assert (row["status"], row["T"]) == ("median_timed_out", ""), row
 
     # a label directory without a copy of the sample is refused
     try:

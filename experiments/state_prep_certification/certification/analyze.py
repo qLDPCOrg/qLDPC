@@ -2,13 +2,14 @@
 
 """Analyze a run of the certification experiment: its CSV files and counterexamples.
 
-    python analyze.py (--archive PATH | --label-dir DIR)
-        [--check-archive PATH | --check-label-dir DIR] [--out DIR] [--allow-local]
+    python analyze.py (--archive PATH --out DIR | --label-dir DIR [--out DIR])
+        [--check-archive PATH | --check-label-dir DIR] [--allow-local]
 
 The analysis is descriptive: counts and medians, with every timeout, memout, error, missing run,
 and disagreement in its CSV files.  The ground truth runs in the subset ``check``, which has its own
 label directory and archive; ``--check-label-dir`` or ``--check-archive`` adds its ``ground_truth``
-rows to those of the analyzed run, if any.
+rows to those of the analyzed run, if any.  The analysis extracts each archive into a temporary
+directory, which it removes when it ends, whether or not it succeeds.
 
 The circuits and their parameters come from the label's copy of the ``circuits.json`` that it ran
 with.  If the label does not match that ``circuits.json`` and the working tree's ``config.json``
@@ -32,16 +33,20 @@ An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
 because it compiled.  A circuit's verdict is that of ``cert_bz``, or of ``cert_cc`` where
 ``cert_bz`` did not finish.  Where neither finished, it is ``undecided``, or ``timeout_compiled`` if
-either arm's status is ``timeout_compiled``.  It is a disagreement where both finish with different
-verdicts, or where the baseline or the ground truth disagrees (``agree_baseline`` or
-``agree_ground_truth`` is false).  A disagreement enters no count of verdicts and no median,
-maximum, or ratio of ``families.csv``, nor ``listing_table.csv`` or the example counterexamples.
-The status counts and agreements count it.  T of a certification arm is the median of its first
-run and repeats.  Its timing is incomplete if the first run did not finish, if a repeat that the
-first run calls for did not finish or is missing, or if the row of any of its runs has
-``compiled_in_timing`` set; an incomplete timing enters no median or maximum.  The same holds for
-the brute-force baseline ``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its
-per-weight times are left empty.
+either arm's status is ``timeout_compiled``.  The verdicts, T, and ``counterexamples.json`` use only
+rows with status ``ok``, while the margins and the contradictions use every result that a row kept,
+so that ``margin`` can be exact where the verdict is ``undecided``.  A circuit is a disagreement
+where its exact results contradict each other, between two runs or within one, as
+``check_consistency`` lists: its verdicts, smallest violating weights, and margins from every run,
+repeats included, its counts, and its counterexamples.  The column ``contradictions`` of summary.csv
+names them.  A disagreement enters no count of verdicts or margins and no median, maximum, or ratio
+of ``families.csv``, nor ``listing_table.csv``, ``shadow.csv``, ``margin_violations.csv``,
+``deletion_table.csv``, or the example counterexamples.  The status counts and agreements count it.
+T of a certification arm is the median of its first run and repeats.  Its timing is incomplete if
+the first run did not finish, if a repeat that the first run calls for did not finish or is missing,
+or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete timing enters no
+median or maximum.  The same holds for the brute-force baseline ``brute_bz``.  If an arm's first run
+has ``compiled_in_timing`` set, its per-weight times are left empty.
 
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
@@ -49,7 +54,8 @@ whose enumeration size U exceeds the brute-force cap of ``config.json`` has no `
 and its status is "not run (U > cap)", never a timeout.  An agreement is "a/b", a of b compared
 circuits, or "not run" where no circuit of the family has rows of the arm compared.
 
-Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
+Outputs, in ``--out``, which ``--archive`` requires (by default ``analysis/`` in the label directory
+of ``--label-dir``):
 
 * ``families.csv``, one row per family:
 
@@ -76,51 +82,84 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
     (``distinct_seconds``; see ``baseline.py``), which raises the ratio in the certifier's favor;
   - ``max_rss_gib``: the largest peak memory of a run of ``cert_bz`` or ``cert_cc``, of any
     status, as each ``rss_*`` of summary.csv is (see ``summarize_certification``);
-  - ``agreement_bz_cc`` (verdicts), ``agreement_baseline`` (the verdict and smallest violating
-    weight of a finished ``brute_bz`` against those of each finished certification, and, finished
-    or not, its enumerated combinations on each weight that it completed against A_m of
-    ``count_accepted``), and
-    ``agreement_ground_truth`` (the smallest violating weight of ``ground_truth`` against that of
-    every finished certification, and its Pi, E, Phi, and A against those of ``count_listing`` and
-    ``count_accepted`` on the weights that both completed).
+  - ``agreement_bz_cc``, ``agreement_baseline``, and ``agreement_ground_truth``: the circuits whose
+    ``agree_bz_cc``, ``agree_baseline``, or ``agree_ground_truth`` of summary.csv is true, of those
+    where it is known.  These compare first runs, as summary.csv says.  ``disagreements`` counts the
+    circuits with a contradiction (``contradictions`` of summary.csv), between two runs or within
+    one.
 
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
-  the brute-force cap, the verdicts, T, timing completeness, and peak memory of both
-  certification arms and of ``brute_bz``, the status of each arm of ``REPORTED_ARMS``, the
-  post-processing status of each certification's first run, ``repeats_not_ok`` (the repeats that
-  did not finish or are missing, and the runs whose rows have ``compiled_in_timing`` set), the
-  oracle rows of ``cert_bz`` (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz``
-  (every row queried), and the agreements.  The counts of a ``count_listing`` run that did not
-  finish are those of its partial results: q, q_h, and h, and Pi, E, and Phi of the weights that it
-  completed.
-* ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m), Pi_(m-1),
-  E_m, Phi_m, Omega_m (marked partial on a weight that did not complete; at m = 1, the
-  threshold-1 checks of zero-flag mechanisms and classifications of flagged ones instead),
-  skipped = Phi_m - Omega_m (on completed weights only), T_m of BZ and CC, and the oracle time of
-  BZ; and the baseline's combinations enumerated, rows queried, oracle calls, distinct syndromes,
-  and oracle time, and whether it completed the weight.  For K' < m <= K, Phi_m = 0, and
-  Omega_m = 0 where ``cert_bz`` certified the circuit.
+  the brute-force cap, the verdicts, T, timing completeness, and peak memory of both certification
+  arms and of ``brute_bz``, the status of each arm of ``REPORTED_ARMS``, the post-processing status
+  of each certification's first run, ``repeats_not_ok`` (the repeats that did not finish or are
+  missing, and the runs whose rows have ``compiled_in_timing`` set), the oracle rows of ``cert_bz``
+  (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz`` (every row queried), the
+  agreements, and the ``contradictions`` that make the circuit a disagreement.  These agreements
+  compare first runs:
+
+  - ``agree_bz_cc``: the verdicts of the first runs of ``cert_bz`` and ``cert_cc``, where both
+    finished.
+  - ``baseline_counts_match``: the combinations that the first run of ``brute_bz`` recorded,
+    whether it finished or stopped, against A_m of ``count_accepted``, or else of the ground truth.
+    It is false where they differ on a completed weight, or exceed A_m on a weight where the run
+    found a violation; otherwise true where a completed weight has a known A_m, and empty where none
+    has.
+  - ``agree_baseline``: false where ``baseline_counts_match`` is, and equal to it where no
+    certification finished.  Otherwise it compares the verdict and smallest violating weight of
+    that first run, or, if it stopped, its recorded violations and completed weights, with those of
+    each certification whose first run finished.
+  - ``agree_ground_truth``: the smallest violating weight of the ground truth against that of each
+    certification whose first run finished, and its Pi, E, Phi, and A against those of
+    ``count_listing`` and ``count_accepted`` on the weights of both (``ground_truth_counts_match``).
+    It uses the first ground-truth result, which a ``timeout`` or ``memout`` row can keep.
+  - ``agree_prune``: the first run of each deletion task (``analyze_applications.agree_prune``).
+
+  ``agree_margin`` instead compares the claims on m* of every run that the runner kept, as
+  ``contradictions`` does: repeats, the results that ``timeout`` and ``memout`` rows kept, and the
+  ``shadow`` run.  The runner keeps no result of a run that it discarded because it compiled.  So a
+  circuit can agree on its first runs and still be a disagreement.  The counts of a
+  ``count_listing`` run that did not finish are those of its partial results: q, q_h, and h, and Pi,
+  E, and Phi of the weights that it completed.
+* ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m of ``count_accepted``,
+  C(N_0, m) (from N_0 of ``circuits.json`` where ``count_accepted`` did not finish),
+  ``naive_prefixes_m_minus_1`` (Pi_(m-1) of ``counting.py``: the prefixes of a naive enumeration of
+  class codewords, most of which qLDPC's walk by shared flags does not visit), E_m, Phi_m, Omega_m
+  (marked partial on a weight that did not complete; at m = 1, the threshold-1 checks of zero-flag
+  mechanisms and classifications of flagged ones instead), skipped = Phi_m - Omega_m (on completed
+  weights only), T_m of BZ and CC, and the oracle time of BZ; and the baseline's combinations
+  enumerated, rows queried, oracle calls, distinct syndromes, and oracle time, and whether it
+  completed the weight.  For K' < m <= K, Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the
+  circuit.
 * ``listing_table.csv``, the listing counts, one row per family and weight m >= 2: the median and
   maximum over circuits of Phi_m / A_m, and over the circuits that completed m with ``cert_bz``, of
-  Omega_m / A_m.  Where A_m was not computed, C(N_0, m) takes its place: ``C_in_place_of_A`` counts
-  these circuits, and ``ratio_is_lower_bound`` is true where there are any.  As A_m <= C(N_0, m),
-  their ratios are at most the true ones, and so are the medians and maxima, which are then lower
-  bounds on those of Phi_m / A_m and Omega_m / A_m.  Beside them are the medians, over the circuits
-  with Phi_m, of the parameters that the listing depends on: the heavy share h / N_0, the unflagged
-  share z / N_0, the start classes q_h, and the flag rank r.  ``listing_table.csv`` describes when
-  Phi_m is small against A_m; it fits nothing.
+  Omega_m / A_m.  Where ``count_accepted`` did not compute A_m, C(N_0, m) takes its place if z >= m,
+  which ensures A_m > 0: ``C_in_place_of_A`` counts these circuits, and ``ratio_is_lower_bound`` is
+  true where there are any.  As A_m <= C(N_0, m), their ratios are at most the true ones, and so are
+  the medians and maxima, which are then lower bounds on those of Phi_m / A_m and Omega_m / A_m.  A
+  circuit whose A_m is 0, or was not computed while z < m, has no ratio, and ``ratio_unknown``
+  counts it.  Beside them are the medians, over the circuits with a ratio, of the parameters that
+  the listing depends on: the heavy share h / N_0, the unflagged share z / N_0, the start classes
+  q_h, and the flag rank r.  ``listing_table.csv`` describes when Phi_m is small against A_m; it
+  fits nothing.
+* ``shadow.csv``, the cost of the two weight oracles on identical queries, one row per circuit and
+  threshold m of the queries of its ``shadow`` run: the calls, their rows, and the seconds of BZ and
+  CC on the queries themselves, without the time to build either oracle (``shadow_table``); BZ
+  answers each query first.  A run that did not finish gives the calls that it wrote to
+  ``oracle_calls/`` in the label directory, and no row if it wrote none; ``summary.csv`` gives its
+  status.  Runs with ``compiled_in_timing`` set and circuits with a disagreement are left out.
 * The margins and deletions (``analyze_applications.py``): the combined margin m* of each circuit
   and its agreement in ``summary.csv`` (``margin``, ``margin_lower_bound``, ``agree_margin``, and
-  the sector of its counterexample), with ``agree_prune`` for its deletion tasks; the margin counts
-  of ``families.csv``; and ``margin_violations.csv``, ``deletion.csv``, ``deletion_table.csv``,
-  ``deletion_tasks.csv``, ``deletion_notes.json``, and ``pruned/``.  A disagreement of the margins
-  or the deletions makes the circuit a disagreement.
-* ``counterexamples.json``: every counterexample (``all``), with ``disagreement`` true where its
-  circuit is a disagreement, and up to three example counterexamples (``examples``), one for each
-  group that has one, chosen by a fixed rule: in each of the groups A-unv with the weakened variants
-  of A-ft, B-cat, and D-synth with its weakened variants, the counterexample of ``cert_bz`` of
-  largest smallest-violation weight on a circuit without a disagreement, ties to the smallest N_0 of
-  ``circuits.json``.
+  the arm and sector of one counterexample, ``counterexample_*``), with ``agree_prune`` for its
+  deletion tasks; the margin counts of ``families.csv``; and ``margin_violations.csv``,
+  ``deletion.csv``, ``deletion_table.csv``, ``deletion_tasks.csv``, ``deletion_notes.json``, and
+  ``pruned/``.
+* ``counterexamples.json``: the counterexamples of the first runs of ``cert_bz`` and ``cert_cc``
+  that finished (``all``), with ``disagreement`` true where its circuit is a disagreement, and up to
+  three example counterexamples (``examples``), one for each group that has one, chosen by a fixed
+  rule.  The groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth
+  families with their W variants, so that every W variant of ``circuits.json`` is in a group.  In
+  each group, the example is the counterexample of ``cert_bz`` of largest smallest-violation weight
+  on a circuit without a disagreement, ties to the smallest N_0 of ``circuits.json``.
 """
 
 from __future__ import annotations
@@ -128,6 +167,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import pathlib
 import statistics
 import sys
@@ -172,26 +212,42 @@ COUNTED_STATUSES = ("timeout", "timeout_compiled", "memout", "error", "missing")
 # The fields of ``circuits.json`` that hold the parameters of ``summary.csv`` by another name.
 CIRCUIT_FIELDS = {"p": "num_post_selection_detectors", "N": "num_mechanisms"}
 
-# The groups of the example counterexamples, as sets of (family, family of a weakened variant's
-# parent).
+# The groups of the example counterexamples, as sets of (family, family of a W variant's parent).
 EXAMPLE_GROUPS: dict[str, set[tuple[str, str | None]]] = {
-    "A-unv/W": {("A-unv", None), ("W", "A-ft")},
+    "A-unv/W": {("A-unv", None), ("W", "A-ft"), ("W", "C-goto")},
     "B-cat": {("B-cat", None)},
-    "D-synth/W": {("D-synth", None), ("W", "D-synth")},
+    "D-synth/W": {
+        ("D-synth", None),
+        ("D-synth (MQT 1.9.0)", None),
+        ("W", "D-synth"),
+        ("W", "D-synth (MQT 1.9.0)"),
+    },
 }
 
 
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or _unpack(args.archive)
-    out = args.out or label_dir / "analysis"
+    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
+        label_dir = args.label_dir or _unpack(args.archive, pathlib.Path(scratch, "main"))
+        check_dir = args.check_label_dir or (
+            args.check_archive and _unpack(args.check_archive, pathlib.Path(scratch, "check"))
+        )
+        analyze_label(label_dir, check_dir, args.out or label_dir / "analysis", args.allow_local)
+
+
+def analyze_label(
+    label_dir: pathlib.Path,
+    check_dir: pathlib.Path | None,
+    out: pathlib.Path,
+    allow_local: bool,
+) -> None:
+    """Analyze a label, with the ``ground_truth`` rows of the label of ``check``, if any."""
     out.mkdir(parents=True, exist_ok=True)
     check_frozen_files(label_dir)
     rows = _final_rows(label_dir)
     expected = _expected_tasks(label_dir)
     circuits_text = (label_dir / "circuits.json").read_text()
-    check_dir = args.check_label_dir or (args.check_archive and _unpack(args.check_archive))
     if check_dir:
         check_frozen_files(check_dir)
         if (check_dir / "circuits.json").read_text() != circuits_text:
@@ -205,7 +261,7 @@ def main() -> None:
             if task["arm"] == "ground_truth"
         }
     marks: dict[str, Any] = {}
-    local_rows = store.count_local_rows(rows, args.allow_local)
+    local_rows = store.count_local_rows(rows, allow_local)
     if local_rows:
         marks["local_rows"] = local_rows
     allowed = sorted(
@@ -226,7 +282,9 @@ def main() -> None:
         print(f"note: the starts ran with different {', '.join(changed)}; every output says so")
         marks["environment_changed"] = " ".join(changed)
     circuits = {e["id"]: e for e in json.loads(circuits_text)["circuits"]}
-    write_outputs(collect(rows, circuits, expected), circuits, out, marks)
+    write_outputs(
+        collect(rows, circuits, expected), circuits, out, marks, label_dir / "oracle_calls"
+    )
     print(f"wrote {out}")
 
 
@@ -235,18 +293,21 @@ def write_outputs(
     circuits: dict[str, dict[str, Any]],
     out: pathlib.Path,
     marks: dict[str, Any] | None = None,
+    calls_dir: pathlib.Path | None = None,
 ) -> None:
     """Write every output of the circuits that ``collect`` gives, as the module docstring lists.
 
-    Every output takes each circuit's verdict from the rows of summary.csv.  Every output that this
-    call writes carries ``marks``, if any, such as the number of rows of ``--local`` runs
-    (``store.mark_outputs``).  The directory ``out/pruned/`` is deleted with everything in it and
-    written again, so that it holds only this call's circuits; other files in ``out`` are left as
-    they are.
+    ``calls_dir``, if given, holds the files of oracle calls of the ``shadow`` runs, as a label's
+    ``oracle_calls/`` does (see ``shadow_table``).  Every output takes each circuit's verdict from
+    the rows of summary.csv.  Every output that this call writes carries ``marks``, if any, such as
+    the number of rows of ``--local`` runs (``store.mark_outputs``).  The directory ``out/pruned/``
+    is deleted with everything in it and written again, so that it holds only this call's circuits;
+    other files in ``out`` are left as they are.
     """
     summary_rows, weight_rows = summarize(per_circuit)
     paths = write_tables(summary_rows, weight_rows, out)
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
+    paths.append(_write_csv(out / "shadow.csv", shadow_table(per_circuit, verdicts, calls_dir)))
     paths.append(write_counterexamples(per_circuit, verdicts, circuits, out))
     paths += analyze_applications.write_applications(per_circuit, summary_rows, out)
     if marks:
@@ -268,7 +329,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-local", action="store_true", help="analyze rows of --local runs, and say so"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.archive and args.out is None:
+        parser.error("--archive requires --out, since the archive's extraction is removed")
+    return args
 
 
 def check_frozen_files(label_dir: pathlib.Path) -> None:
@@ -321,12 +385,12 @@ def _expected_tasks(label_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
     return task_store.load_tasks(label_dir)
 
 
-def _unpack(archive: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a temporary directory, and return its label directory."""
-    target = pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
+def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
+    """Unpack an archive into a directory, and return its label directory."""
+    directory.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as tar:
-        tar.extractall(target, filter="data")
-    (label_dir,) = [path for path in target.iterdir() if path.is_dir()]
+        tar.extractall(directory, filter="data")
+    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
     return label_dir
 
 
@@ -474,15 +538,15 @@ def summarize(
         accepted = _first_result(arms.get("count_accepted"))
         finished = [run for run in (bz, cc) if run["status"] == "ok"]
         code = circuit.get("code") or [None, None, None]
-        agree_baseline = _agree_baseline(brute, finished, accepted)
+        counts = _accepted_counts(accepted, arms.get("ground_truth"))
+        agree_baseline = _agree_baseline(brute, finished, counts)
         agree_ground_truth = _agree_ground_truth(
             arms.get("ground_truth"), finished, listing, accepted
         )
-        margin = analyze_applications.margin_fields(circuit, bz, cc, arms.get("margin"))
-        agree_prune = analyze_applications.agree_prune(bz, arms)
-        circuit_verdict = _circuit_verdict(bz, cc)
-        if False in (agree_baseline, agree_ground_truth, margin["agree_margin"], agree_prune):
-            circuit_verdict = "disagreement"
+        claims, contradictions = check_consistency(circuit, arms, listing, accepted)
+        margin = analyze_applications.margin_fields(arms, claims)
+        agree_prune = analyze_applications.agree_prune(bz, cc, arms)
+        circuit_verdict = "disagreement" if contradictions else _circuit_verdict(bz, cc)
         summary_rows.append(
             {
                 "id": circuit_id,
@@ -529,13 +593,14 @@ def summarize(
                 "rows_brute_bz": brute["result"].get("rows") if brute["status"] == "ok" else None,
                 "agree_bz_cc": _agree(bz, cc),
                 "agree_baseline": agree_baseline,
-                "baseline_counts_match": _baseline_counts_match(brute, accepted),
+                "baseline_counts_match": _baseline_counts_match(brute["partial"], counts),
                 "agree_ground_truth": agree_ground_truth,
                 "ground_truth_counts_match": _ground_truth_counts_match(
                     arms.get("ground_truth"), listing, accepted
                 ),
                 **margin,
                 "agree_prune": agree_prune,
+                "contradictions": "; ".join(contradictions) or None,
             }
         )
         weight_rows += _per_weight(circuit_id, circuit, bz, cc, brute, listing, accepted)
@@ -568,10 +633,11 @@ def listing_table(
 ) -> list[dict[str, Any]]:
     """The listing counts against all accepted combinations, per family and weight m >= 2.
 
-    The ratios use A_m, or C(N_0, m) where A_m was not computed, which makes them lower bounds
-    (``ratio_is_lower_bound``); Omega_m / A_m uses only weights that ``cert_bz`` completed.  The
-    parameter medians are over the circuits with Phi_m.  Circuits with a disagreement are left
-    out.
+    The ratios use A_m of ``count_accepted``, or C(N_0, m) where it did not compute A_m and z >= m,
+    which makes them lower bounds (``ratio_is_lower_bound``); Omega_m / A_m uses only weights that
+    ``cert_bz`` completed.  A circuit whose A_m is 0, or was not computed while z < m, so that it
+    may be 0, has no ratio; ``ratio_unknown`` counts these circuits.  The parameter medians are over
+    the circuits with a ratio.  Circuits with a disagreement are left out.
     """
     circuits = {row["id"]: row for row in summary_rows}
     groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
@@ -582,10 +648,14 @@ def listing_table(
     table = []
     for (family, m), rows in sorted(groups.items()):
         phi, omega, parameters = [], [], []
-        substituted = 0
+        substituted = unknown = 0
         for row in rows:
-            denominator = row["A_m"] if row["A_m"] is not None else row["C_N0_m"]
+            # z >= m ensures A_m > 0: m distinct unflagged mechanisms are an accepted combination
+            denominator = row["A_m"]
+            if denominator is None and (circuits[row["id"]]["z"] or 0) >= m:
+                denominator = row["C_N0_m"]
             if not denominator:
+                unknown += 1
                 continue
             substituted += row["A_m"] is None
             phi.append(row["Phi_m"] / denominator)
@@ -597,6 +667,7 @@ def listing_table(
                 "family": family,
                 "m": m,
                 "circuits": len(phi),
+                "ratio_unknown": unknown,
                 "phi_over_A_median": statistics.median(phi) if phi else None,
                 "phi_over_A_max": max(phi, default=None),
                 "omega_circuits": len(omega),
@@ -654,10 +725,11 @@ def _run_verdict(run: dict[str, Any]) -> str:
 
 
 def _circuit_verdict(bz: dict[str, Any], cc: dict[str, Any]) -> str:
-    """BZ's verdict, or CC's where BZ did not finish; 'disagreement' or 'undecided' otherwise.
+    """BZ's verdict, or CC's where BZ did not finish; 'undecided' if neither finished.
 
     A circuit that neither arm finished is 'timeout_compiled', not 'undecided', if either arm's
-    status is ``timeout_compiled`` (see the module docstring).
+    status is ``timeout_compiled`` (see the module docstring).  Whether the verdicts contradict
+    each other is for ``check_consistency``.
     """
     verdicts = [verdict(run["result"]) for run in (bz, cc) if run["status"] == "ok"]
     if not verdicts:
@@ -666,7 +738,7 @@ def _circuit_verdict(bz: dict[str, Any], cc: dict[str, Any]) -> str:
             if "timeout_compiled" in (bz["status"], cc["status"])
             else "undecided"
         )
-    return "disagreement" if len(set(verdicts)) > 1 else verdicts[0]
+    return verdicts[0]
 
 
 def _agree(first: dict[str, Any], second: dict[str, Any]) -> bool | None:
@@ -677,25 +749,25 @@ def _agree(first: dict[str, Any], second: dict[str, Any]) -> bool | None:
 
 
 def _agree_baseline(
-    brute: dict[str, Any], finished: list[dict[str, Any]], accepted: dict[str, Any]
+    brute: dict[str, Any], finished: list[dict[str, Any]], counts: dict[str, int]
 ) -> bool | None:
     """Whether brute_bz agrees with A_m and with the verdict of each finished certification.
 
-    The counts are compared on the weights that brute_bz completed, where A_m was computed, and a
-    mismatch is a disagreement even if no certification finished.  Otherwise:
+    ``counts`` holds A_m by weight (``_accepted_counts``).  The result is False if the counts do not
+    match (``_baseline_counts_match``), even if no certification finished.  Otherwise:
 
     1. If brute_bz and a certification finished, the result is whether their verdicts agree.
     2. Otherwise, if brute_bz recorded a violation before it was stopped and a certification
        finished, the result is whether every finished certification's smallest violation has the
        weight of brute_bz's smallest recorded violation, which is its smallest violation, since
        brute_bz checks the weights in order.
-    3. Otherwise, a finished certification's violation at a weight that brute_bz completed without
-       a violation is a disagreement.
-    4. Otherwise, the result is that of the counts: True if they match, and None if none were
-       compared.
+    3. Otherwise, the result is False if a finished certification's violation is at a weight that
+       brute_bz completed without a violation.
+    4. Otherwise, the result is that of the counts: True if they match on a completed weight, and
+       None if no completed weight was compared.
     """
-    counts = _baseline_counts_match(brute, accepted)
-    if counts is False:
+    counts_match = _baseline_counts_match(brute["partial"], counts)
+    if counts_match is False:
         return False
     if brute["status"] == "ok" and finished:
         return all(verdict(brute["result"]) == verdict(run["result"]) for run in finished)
@@ -707,21 +779,39 @@ def _agree_baseline(
     completed = [record["m"] for record in records if not record["violation"]]
     if any(weight is not None and weight <= max(completed, default=0) for weight in violations):
         return False
-    return counts
+    return counts_match
 
 
-def _baseline_counts_match(brute: dict[str, Any], accepted: dict[str, Any]) -> bool | None:
-    """Whether brute_bz enumerated A_m combinations on each weight that it completed.
+def _baseline_counts_match(records: list[dict[str, Any]], counts: dict[str, int]) -> bool | None:
+    """Whether a run of brute_bz enumerated as many combinations as A_m allows on each weight.
 
-    None if no completed weight has a computed A_m.
+    ``records`` are the run's per-weight records, and ``counts`` holds A_m by weight
+    (``_accepted_counts``).  A completed weight must have exactly A_m combinations, and a weight
+    where the run found a violation, which stops its enumeration early, at most A_m; False if either
+    fails.  Otherwise True if a completed weight has a known A_m, and None if none has, since a
+    violating weight can only contradict A_m.
     """
-    computed = accepted.get("A") or {}
-    compared = [
-        record["combinations"] == computed[str(record["m"])]
-        for record in brute["partial"]
-        if "m" in record and not record["violation"] and str(record["m"]) in computed
+    known = [
+        (record, count)
+        for record in records
+        if "m" in record and (count := counts.get(str(record["m"]))) is not None
     ]
-    return all(compared) if compared else None
+    if any(record["combinations"] > count for record, count in known if record["violation"]):
+        return False
+    exact = [record["combinations"] == count for record, count in known if not record["violation"]]
+    return all(exact) if exact else None
+
+
+def _accepted_counts(
+    accepted: dict[str, Any], truth_rows: list[dict[str, Any]] | None
+) -> dict[str, int]:
+    """A_m by weight: of ``count_accepted``, or of the ground truth where that did not compute it.
+
+    ``accepted`` is the result of ``count_accepted`` (``_first_result``), and ``truth_rows`` the
+    rows of ``ground_truth``.
+    """
+    truth = (_ground_truth(truth_rows) or {}).get("A") or {}
+    return truth | (accepted.get("A") or {})
 
 
 def _agree_ground_truth(
@@ -752,7 +842,7 @@ def _ground_truth_counts_match(
 ) -> bool | None:
     """Whether the ground truth's Pi, E, Phi, and A equal the counters' on the weights of both.
 
-    None if the ground truth did not finish or no weight has both counts.
+    None if the ground truth has no result (``_ground_truth``) or no weight has both counts.
     """
     truth = _ground_truth(truth_rows)
     if truth is None:
@@ -765,8 +855,20 @@ def _ground_truth_counts_match(
 
 
 def _ground_truth(truth_rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
-    """The result of a finished ground-truth run, or None."""
-    return next((row["result"] for row in truth_rows or [] if row["status"] == "ok"), None)
+    """The result of the first ground-truth run that has one, whatever its status, or None.
+
+    A row of status ``timeout`` can keep the result of a call that returned at or after the limit.
+    A row of status ``memout`` can keep the result of a call whose memory exceeded the cap before
+    the result arrived, as found afterward (``common/runner.py``, and the shared README's Runs).
+    """
+    return next(
+        (
+            row["result"]
+            for row in truth_rows or []
+            if "smallest_violation" in (row.get("result") or {})
+        ),
+        None,
+    )
 
 
 def _per_weight(
@@ -811,8 +913,8 @@ def _per_weight(
                 "id": circuit_id,
                 "m": m,
                 "A_m": (accepted.get("A") or {}).get(str(m)),
-                "C_N0_m": (accepted.get("C") or {}).get(str(m)),
-                "Pi_m_minus_1": listing.get("Pi", {}).get(str(m - 1)),
+                "C_N0_m": (accepted.get("C") or {}).get(str(m), _binomial(circuit.get("N0"), m)),
+                "naive_prefixes_m_minus_1": listing.get("Pi", {}).get(str(m - 1)),
                 "E_m": listing.get("E", {}).get(str(m)),
                 "Phi_m": phi,
                 "Omega_m": omega,
@@ -832,6 +934,11 @@ def _per_weight(
             }
         )
     return rows
+
+
+def _binomial(n: int | None, m: int) -> int | None:
+    """C(n, m), or None if n is unknown."""
+    return None if n is None else math.comb(n, m)
 
 
 def _first_run_time(arm: dict[str, Any], seconds: float | None) -> float | None:
@@ -936,6 +1043,207 @@ def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> pathlib.Path:
 
 
 ####################################################################################################
+# shadow.csv
+
+
+def shadow_table(
+    per_circuit: dict[str, dict[str, Any]],
+    verdicts: dict[str, str],
+    calls_dir: pathlib.Path | None,
+) -> list[dict[str, Any]]:
+    """The rows of shadow.csv: both weight oracles on identical queries, by circuit and threshold.
+
+    Each first run of ``shadow`` gives one row per threshold m of the fault search's queries, m = 1
+    for the threshold-1 checks and classifications and m >= 2 for the batches: the calls, the rows
+    that they submit, and the seconds of the BZ and the CC oracle on them, without the time to build
+    either oracle; BZ answers each query first.  A finished run gives the totals of its result
+    (``instrument.py``), and a run that did not finish gives the sums of the calls that it wrote to
+    its file in ``calls_dir`` before it stopped; ``status`` is the run's.  The file's last line,
+    which a kill can cut off, is left out if it is not valid JSON, and any other such line raises a
+    ValueError.  A run that wrote no calls, such as one killed before its first, has no row;
+    ``summary.csv`` gives its status.  The runs whose rows have ``compiled_in_timing`` set, and the
+    circuits with a disagreement, are left out.
+    """
+    table = []
+    for circuit_id, entry in sorted(per_circuit.items()):
+        runs = entry["arms"].get("shadow")
+        if not runs or runs[0].get("compiled_in_timing") or verdicts[circuit_id] == "disagreement":
+            continue
+        run = runs[0]
+        totals: dict[int, dict[str, Any]] = {}
+        if run["status"] == "ok":
+            calls = [
+                {"m": int(key.split(":")[1])} | value
+                for key, value in run["result"]["shadow"]["by_threshold"].items()
+            ]
+        else:
+            calls = [
+                call | {"calls": 1, "bz_seconds": call["bz"], "cc_seconds": call["cc"]}
+                for call in _read_calls(calls_dir, run["task_key"])
+            ]
+        for call in calls:
+            total = totals.setdefault(
+                call["m"], {"calls": 0, "rows": 0, "bz_seconds": 0.0, "cc_seconds": 0.0}
+            )
+            for key in total:
+                total[key] += call[key]
+        table += [
+            {
+                "id": circuit_id,
+                "family": entry["circuit"]["family"],
+                "status": _status(runs),
+                "m": m,
+                **total,
+            }
+            for m, total in sorted(totals.items())
+        ]
+    return table
+
+
+def _read_calls(calls_dir: pathlib.Path | None, task_key: str) -> list[dict[str, Any]]:
+    """The oracle calls that a shadow run wrote, without a last line cut off by a kill.
+
+    Raises:
+        ValueError: If a line other than the last is not valid JSON.
+    """
+    path = calls_dir / f"{task_key}.jsonl" if calls_dir else None
+    if path is None or not path.exists():
+        return []
+    lines = path.read_text().splitlines()
+    calls = []
+    for number, line in enumerate(lines, start=1):
+        try:
+            calls.append(json.loads(line))
+        except json.JSONDecodeError as error:
+            if number < len(lines):
+                raise ValueError(f"{path}: line {number} is not valid JSON") from error
+    return calls
+
+
+####################################################################################################
+# consistency of exact results
+
+
+def check_consistency(
+    circuit: dict[str, Any],
+    arms: dict[str, list[dict[str, Any]]],
+    listing: dict[str, Any],
+    accepted: dict[str, Any],
+) -> tuple[dict[str, analyze_applications.Claim], list[str]]:
+    """Every exact claim of a circuit's runs, and every contradiction between them.
+
+    ``listing`` and ``accepted`` are the counts of ``count_listing`` and ``count_accepted``
+    (``listing_result``, ``_first_result``).  The claims on the circuit's m* are those of
+    ``analyze_applications.margin_claims``, which this returns: of every run of ``cert_bz``,
+    ``cert_cc``, ``shadow``, ``brute_bz``, ``margin``, and ``ground_truth``, by its result and the
+    fault weights that it completed or found a violation at, of each deletion task's parent at
+    K = t, and of the final circuit of a deletion task that accepted no deletion, which is the
+    parent.  These are the contradictions, each a disagreement:
+
+    * two claims on m* that conflict (``analyze_applications.combine_claims``), such as verdicts or
+      smallest violating weights that differ between runs, repeats included, or a violation at a
+      fault weight that another run completed;
+    * a ``shadow`` run that ended in ``ShadowDisagreement``, by its row's error, or by the error of
+      the run that the runner discarded because it compiled (``discarded_run``), whose timing
+      stays discarded;
+    * the combinations that each run of ``brute_bz``, repeats included, enumerated on a weight,
+      against A_m of ``count_accepted``, or of the ground truth where ``count_accepted`` did not
+      compute it (``_accepted_counts``), which they must equal on a completed weight and not exceed
+      on one where the run found a violation;
+    * the ground truth's Pi, E, Phi, and A against the counters' on the weights of both, and its
+      number of heavy mechanisms against h of ``count_listing``;
+    * Phi_m of ``count_listing`` or of the ground truth above A_m (``_accepted_counts``), since each
+      listed fault of weight m is an accepted combination, and Omega_m of a run of ``cert_bz``,
+      ``cert_cc``, ``shadow``, or ``margin`` above Phi_m, of ``count_listing`` or else of the
+      ground truth, since each row that the fault search submits is a listed fault, also on a
+      weight where the run found a violation;
+    * a counterexample whose exact residual weight does not exceed its fault weight, by its field
+      ``residual_exceeds_fault_weight`` or against the fault weight of its result;
+    * a counterexample whose exact residual weight is below the certifier's lower bound on it;
+    * for CSS weight, a counterexample whose exact residual weight is not the larger of those of its
+      X and Z parts (``applications.sector_fields``);
+    * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose claim
+      on its m* disagrees with itself, such as a final m* of at most t or one above a fault weight
+      at which its search found a violation, or with that of another deletion task that ends at
+      the same final circuit (``analyze_applications.final_contradictions``).
+    """
+    from experiments.state_prep_certification.certification import applications
+
+    claims = analyze_applications.margin_claims(circuit, arms)
+    _, _, contradictions = analyze_applications.combine_claims(claims)
+
+    # the shadow oracle's disagreements, which end their runs, also in a run that the runner
+    # discarded because it compiled
+    for row in arms.get("shadow") or []:
+        source = f"shadow.r{row['repeat']}"
+        runs = ((source, row), (f"{source} discarded run", row.get("discarded_run") or {}))
+        for name, run in runs:
+            if run.get("status") == "error" and "ShadowDisagreement" in (run.get("error") or ""):
+                contradictions.append(f"{name}: BZ and CC answered a query differently")
+
+    # the counts of every run of the baseline, and of the ground truth
+    counts = _accepted_counts(accepted, arms.get("ground_truth"))
+    for row in arms.get("brute_bz") or []:
+        if _baseline_counts_match(row.get("partial") or [], counts) is False:
+            contradictions.append(f"brute_bz.r{row['repeat']}: combinations against A_m")
+    if _ground_truth_counts_match(arms.get("ground_truth"), listing, accepted) is False:
+        contradictions.append("ground_truth: counts against count_listing or count_accepted")
+    truth = _ground_truth(arms.get("ground_truth")) or {}
+    heavy = truth.get("heavy")
+    if heavy is not None and listing.get("h") is not None and sum(heavy) != listing["h"]:
+        contradictions.append("ground_truth: heavy mechanisms against h of count_listing")
+
+    # the listed faults against the accepted combinations, and the rows that each run submitted to
+    # the oracle at a fault weight against the listed faults, also on a weight where it found a
+    # violation, which stops the search early
+    listed = {"count_listing": listing.get("Phi") or {}, "ground_truth": truth.get("Phi") or {}}
+    for source, counted in listed.items():
+        for m in sorted(counted.keys() & counts.keys(), key=int):
+            if counted[m] > counts[m]:
+                contradictions.append(f"{source}: Phi_{m} above A_{m}")
+    phi = listed["ground_truth"] | listed["count_listing"]
+    for arm in ("cert_bz", "cert_cc", "shadow", "margin"):
+        for row in arms.get(arm) or []:
+            for record in row.get("partial") or []:
+                m = str(record.get("m"))
+                if "rows" in record and m in phi and record["rows"] > phi[m]:
+                    contradictions.append(f"{arm}.r{row['repeat']}: Omega_{m} above Phi_{m}")
+
+    # each counterexample's exact residual weight, against its violating weight, its lower bound,
+    # and, for CSS weight, the larger residual weight of its X and Z parts
+    described = [
+        (f"{arm}.r{row['repeat']}", row.get("result") or {}, "violation_weight")
+        for arm in ("cert_bz", "cert_cc")
+        for row in arms.get(arm) or []
+    ]
+    described += [
+        (f"margin.r{row['repeat']}", row.get("result") or {}, "margin")
+        for row in arms.get("margin") or []
+    ]
+    described += [
+        (f"{arm} final", (row.get("result") or {}).get("final_margin") or {}, "margin")
+        for arm in applications.PRUNE_ORDERS
+        for row in arms.get(arm) or []
+    ]
+    for source, result, key in described:
+        exact, bound = result.get("residual_weight"), result.get("residual_weight_lower_bound")
+        weight = result.get(key)
+        if result.get("residual_exceeds_fault_weight") is False or (
+            exact is not None and isinstance(weight, int) and exact <= weight
+        ):
+            contradictions.append(f"{source}: residual weight does not exceed the fault weight")
+        elif exact is not None and bound is not None and exact < bound:
+            contradictions.append(f"{source}: residual weight below its lower bound")
+        sectors = [
+            result[name] for name in ("sector_weight_x", "sector_weight_z") if name in result
+        ]
+        if exact is not None and len(sectors) == 2 and exact != max(sectors):
+            contradictions.append(f"{source}: residual weight against those of its X and Z parts")
+
+    return claims, contradictions + analyze_applications.final_contradictions(circuit, arms)
+
+
+####################################################################################################
 # counterexamples
 
 
@@ -947,10 +1255,12 @@ def write_counterexamples(
 ) -> pathlib.Path:
     """Write counterexamples.json, and return its path.
 
-    It holds every counterexample, and up to three example counterexamples, one for each group
-    that has an eligible counterexample, by a fixed rule.  ``verdicts`` holds each circuit's
-    verdict, as in summary.csv.  A counterexample on a circuit with a disagreement is listed,
-    marked as such, but is never an example.
+    It holds the counterexample of each first run of ``cert_bz`` and ``cert_cc`` that finished and
+    found one, and up to three example counterexamples, one for each group that has an eligible
+    counterexample, by a fixed rule.  The counterexamples of the margins and of the deletions' final
+    circuits are described in ``summary.csv``, ``margin_violations.csv``, and ``deletion_table.csv``
+    instead.  ``verdicts`` holds each circuit's verdict, as in summary.csv.  A counterexample on a
+    circuit with a disagreement is listed, marked as such, but is never an example.
     """
     counterexamples = []
     for circuit_id, entry in sorted(per_circuit.items()):

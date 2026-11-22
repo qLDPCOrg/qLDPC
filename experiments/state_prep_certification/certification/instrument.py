@@ -3,16 +3,16 @@
 """Instrumentation of qLDPC's certification of bounded fault propagation, in this process only.
 
 ``Instrumentation`` replaces names in the modules of ``qldpc.circuits.certification`` that use
-them, without editing qLDPC, and restores them on exit:
+them, without editing qLDPC, and restores on exit the values that it found on entry:
 
 * ``fault_propagation.find_smallest_violation`` is timed, giving the search time T_search; the
   setup time is T_setup = T - T_search.
-* ``_fault_search.CosetLeaderSearch`` becomes a subclass whose ``get_min_weight_bound`` and
-  ``find_first_not_within_max_weight`` time and count the outermost calls only, the calls of the
-  fault search; a depth guard ignores calls that one query makes to another.  Calls are classified
-  by their place in the search: threshold-1 checks of single zero-flag mechanisms (made through
-  ``_check_fault``), threshold-1 classification of flagged mechanisms, and batches at threshold
-  m >= 2, whose submitted rows are counted.
+* ``_fault_search.CosetLeaderSearch`` becomes a subclass of the class that it names on entry,
+  whose ``get_min_weight_bound`` and ``find_first_not_within_max_weight`` time and count the
+  outermost calls only, the calls of the fault search; a depth guard ignores calls that one query
+  makes to another.  Calls are classified by their place in the search: threshold-1 checks of
+  single zero-flag mechanisms (made through ``_check_fault``), threshold-1 classification of
+  flagged mechanisms, and batches at threshold m >= 2, whose submitted rows are counted.
 * ``FaultLister.__init__`` records the room of the table of syndromes (``_max_syndromes``), and
   ``FaultLister.find_first`` times each fault weight and reports a progress record after it.
 
@@ -38,8 +38,6 @@ import numpy.typing as npt
 
 from qldpc.circuits.certification import _fault_search, fault_propagation
 from qldpc.codes.distance import CosetLeaderSearch, MinWeightBound, coset_leaders
-
-_ORIGINAL_SEARCH = CosetLeaderSearch
 
 
 class ShadowDisagreement(Exception):
@@ -116,6 +114,7 @@ class Instrumentation:
         original_check = _fault_search._check_fault
         original_init = _fault_search.FaultLister.__init__
         original_first = _fault_search.FaultLister.find_first
+        original_search = _fault_search.CosetLeaderSearch
 
         def find_smallest_violation(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
@@ -157,7 +156,9 @@ class Instrumentation:
         _fault_search._check_fault = check_fault
         _fault_search.FaultLister.__init__ = lister_init  # type: ignore[method-assign, assignment]
         _fault_search.FaultLister.find_first = find_first  # type: ignore[method-assign, assignment]
-        _fault_search.CosetLeaderSearch = _instrumented_search(self)  # type: ignore[misc]
+        _fault_search.CosetLeaderSearch = _instrumented_search(  # type: ignore[misc]
+            self, original_search
+        )
         try:
             yield self
         finally:
@@ -165,7 +166,7 @@ class Instrumentation:
             _fault_search._check_fault = original_check
             _fault_search.FaultLister.__init__ = original_init  # type: ignore[method-assign]
             _fault_search.FaultLister.find_first = original_first  # type: ignore[method-assign]
-            _fault_search.CosetLeaderSearch = _ORIGINAL_SEARCH  # type: ignore[misc]
+            _fault_search.CosetLeaderSearch = original_search  # type: ignore[misc]
 
     def _record_call(self, kind: str, threshold: int, rows: int, seconds: float) -> None:
         """Add one outermost oracle call to the counters."""
@@ -211,10 +212,12 @@ class Instrumentation:
                 )
 
 
-def _instrumented_search(instrumentation: Instrumentation) -> type[CosetLeaderSearch]:
-    """A subclass of ``CosetLeaderSearch`` that reports its outermost calls."""
+def _instrumented_search(
+    instrumentation: Instrumentation, base: type[CosetLeaderSearch]
+) -> type[CosetLeaderSearch]:
+    """A subclass of an oracle class that reports its outermost calls."""
 
-    class InstrumentedSearch(_ORIGINAL_SEARCH):
+    class InstrumentedSearch(base):  # type: ignore[valid-type, misc]
         def __init__(self, stabilizers: npt.ArrayLike, **kwargs: Any) -> None:
             start = time.perf_counter()
             super().__init__(stabilizers, **kwargs)

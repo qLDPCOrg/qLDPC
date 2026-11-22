@@ -37,7 +37,7 @@ The connected-cluster (CC) search is not compared here: the certification experi
 
 The data directory `code_data/` holds two files, which are not committed: the experiment reads them from that directory, which Git ignores, and the offline bundle carries it.
 `code_data/endpoints.json` records each family's endpoints with their source, as in the table below; it is an input that no script of the experiment makes, which the experiment takes as given.
-`code_data/sample.json` fixes the name, parameters, seed, and hashes of every code and anchor; `codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, and `codes.py --check` checks the codes against it.
+`code_data/sample.json` fixes the name, parameters, seed, and hashes of every code and anchor; `codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, and `codes.py --check` checks a regenerated sample against it.
 For each family, n_lo and n_hi are the smallest and largest lengths among the published instances of its source.
 For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at least 6, and n_hi the largest n <= 256 whose upper bound on d is at most 20, in Grassl's table of qubit stabilizer codes with k = 2.
 
@@ -52,7 +52,8 @@ For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at 
 | `css_walk`, `rstab` | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de, qubit stabilizer codes with k = 2 |
 
 `codes.py --write-sample` overwrites the frozen `sample.json`, so run it only to refreeze the sample; use `--check` otherwise.
-The node regenerates the codes and stops on any difference in the codes from the sample.
+The node regenerates the sample and stops on any difference from the frozen one, in the codes or in the metadata of their draws, such as the endpoints and each code's family, parameters, and seed (`codes.compare_with_sample`).
+It ignores the name of the class that built each code and the qLDPC source tree that `sample.json` records.
 Each size has 4 target codes and at most 100 draws.
 A size where fewer than 4 draws are kept (see the docstring of `codes.py`) keeps fewer codes and is reported as a shortfall, such as a bivariate bicycle size where every draw has k = 0.
 Sizes whose target lengths land on the same parameters merge (see the docstring of `codes.py`); in the sample's `ladders`, a target that repeats an earlier one has `merged` set to true.
@@ -70,7 +71,9 @@ The local run's label directory, which `run_node.py` prints, ends in `-local-smo
 
 On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes.
 `analyze.py --archive PATH --out DIR` reads the archive that comes back, and writes `summary.csv`, `families.csv`, `anchors.csv`, `distances.pdf`, and `figure_notes.json`.
-`analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
+It extracts the archive into a temporary directory, which it removes when it ends.
+So `--archive` requires `--out`: the default output directory, `analysis/` in the label directory, would be removed with the extraction.
+The docstring of [`analyze.py`](analyze.py) says how to read the timings and the outputs, including a median that a timed-out run determines, an arm without a first run, and a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
 ## Attributions
 
