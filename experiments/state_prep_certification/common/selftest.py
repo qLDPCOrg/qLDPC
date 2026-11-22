@@ -1837,22 +1837,30 @@ def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_manifest_optimize_level(directory: pathlib.Path, node: bool) -> None:
-    """``optimize_level`` reads the child's last line, and exits if the child fails.
+    """``optimize_level`` reads the child's last line, and exits with the child's error if it fails.
 
-    A ``sitecustomize`` that prints a line first leaves the level readable; a ``PYTHONHOME`` that
-    does not exist ends the start with the child's error.
+    A ``sitecustomize`` that prints a line first leaves the level readable.  One that prints a level
+    and then exits with an error, and one that silences the child's output, each end the start, the
+    first with the child's error.
     """
     from experiments.state_prep_certification.common import manifest
 
-    (directory / "sitecustomize.py").write_text('print("site")\n')
-    environ = {**os.environ, "PYTHONPATH": str(directory), "PYTHONOPTIMIZE": "1"}
-    assert manifest.optimize_level(environ) == max(sys.flags.optimize, 1)
-    try:
-        manifest.optimize_level({**os.environ, "PYTHONHOME": str(directory / "missing")})
-    except SystemExit as error:
-        assert "fails" in str(error.code), error.code
-    else:
-        raise AssertionError("no error")
+    def environ(name: str, site: str, **extra: str) -> dict[str, str]:
+        (directory / name).mkdir()
+        (directory / name / "sitecustomize.py").write_text(site)
+        return {**os.environ, "PYTHONPATH": str(directory / name), **extra}
+
+    chatty = environ("chatty", 'print("site")\n', PYTHONOPTIMIZE="1")
+    assert manifest.optimize_level(chatty) == max(sys.flags.optimize, 1)
+    failing = environ("failing", 'import sys\nprint(0)\nsys.exit("child marker")\n')
+    silent = environ("silent", "import os, sys\nsys.stdout = open(os.devnull, 'w')\n")
+    for child, expected in ((failing, "child marker"), (silent, "fails")):
+        try:
+            manifest.optimize_level(child)
+        except SystemExit as error:
+            assert expected in str(error.code), error.code
+        else:
+            raise AssertionError("no error")
 
 
 @test
