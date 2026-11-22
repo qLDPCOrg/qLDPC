@@ -807,15 +807,16 @@ def test_local_runs_interrupted(directory: pathlib.Path, node: bool) -> None:
 @test
 def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
     """On SIGTERM the runner kills its run, writes no row, and exits with status 2."""
-    tasks.write_pass1(directory, [_task("stop", [["spawn", 49.25]], limit_s=60.0)])
+    grandchild = directory / "grandchild"
+    task = _task("stop", [["spawn", 49.25, str(grandchild)]], limit_s=60.0)
+    tasks.write_pass1(directory, [task])
     process = subprocess.Popen(plugin.run_task_command(directory, "stop", local=not node))
-    _wait_for(lambda: (directory / "active" / "stop").exists())
-    time.sleep(2)
+    pid = _started(grandchild)
     process.send_signal(signal.SIGTERM)
     assert process.wait(timeout=40) == 2
     assert not (directory / "active" / "stop").exists()
     assert store.read_rows(directory) == ([], [])
-    assert not _processes_matching("time.sleep(49.25)")
+    _wait_for(lambda: not _running(pid), timeout=10)
 
 
 @test
@@ -1176,15 +1177,16 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
 
     ``--status`` says which records' runs are alive and which ended.
     """
-    tasks.write_pass1(directory, [_task("hard", [["spawn", 51.25]], limit_s=60.0)])
+    grandchild = directory / "grandchild"
+    task = _task("hard", [["spawn", 51.25, str(grandchild)]], limit_s=60.0)
+    tasks.write_pass1(directory, [task])
     process = subprocess.Popen(plugin.run_task_command(directory, "hard", local=not node))
-    _wait_for(lambda: (directory / "active" / "hard").exists())
+    pid = _started(grandchild)
     record = json.loads((directory / "active" / "hard").read_text())
     assert record["host"] == socket.gethostname(), record
-    time.sleep(2)
     process.kill()
     process.wait()
-    assert _processes_matching("time.sleep(51.25)")
+    assert _running(pid)
     assert run_node.live_runs(directory) == ["hard"]
     ended = record | {"pid_start": "another start", "runner_start": "another start"}
     (directory / "active" / "ended").write_text(json.dumps(ended))
@@ -1193,8 +1195,7 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
     assert "\n  ended: ended (--cleanup" in output.getvalue(), output.getvalue()
     assert "\n  hard: alive\n" in output.getvalue(), output.getvalue()
     run_node.cleanup(directory)
-    time.sleep(1)
-    assert not _processes_matching("time.sleep(51.25)"), "a run survived --cleanup"
+    _wait_for(lambda: not _running(pid), timeout=10)
     assert not list((directory / "active").iterdir())
     assert run_node.live_runs(directory) == []
 
@@ -1210,20 +1211,19 @@ def test_cleanup_acceptance(directory: pathlib.Path, node: bool) -> None:
     label_dir.mkdir(parents=True)
     attempt = run_node.acceptance_dir(label_dir, results) / "attempt" / "AT1"
     attempt.mkdir(parents=True)
-    tasks.write_pass1(attempt, [_task("hard", [["spawn", 50.75]], limit_s=60.0)])
+    grandchild = directory / "grandchild"
+    tasks.write_pass1(attempt, [_task("hard", [["spawn", 50.75, str(grandchild)]], limit_s=60.0)])
     process = subprocess.Popen(plugin.run_task_command(attempt, "hard", local=True))
     record = attempt / "active" / "hard"
-    _wait_for(lambda: record.exists())
-    time.sleep(2)
+    pid = _started(grandchild)
     process.kill()
     process.wait()
-    assert _processes_matching("time.sleep(50.75)")
+    assert _running(pid)
     assert run_node.live_runs(label_dir) == []
     assert run_node.live_runs(label_dir, results) == [str(record)]
     with contextlib.redirect_stdout(io.StringIO()):
         run_node.cleanup(label_dir, results)
-    time.sleep(1)
-    assert not _processes_matching("time.sleep(50.75)"), "a run survived --cleanup"
+    _wait_for(lambda: not _running(pid), timeout=10)
     assert not record.exists()
     assert run_node.live_runs(label_dir, results) == []
 
@@ -2189,6 +2189,20 @@ def _processes_matching(text: str) -> list[str]:
         ["ps", "-A", "-o", "command="], capture_output=True, text=True, check=True
     ).stdout
     return [line for line in output.splitlines() if text in line and "ps -A" not in line]
+
+
+def _started(path: pathlib.Path) -> int:
+    """The process id that a stand-in's ``spawn`` step writes once its grandchild has started."""
+    _wait_for(path.exists, timeout=120)
+    return int(path.read_text())
+
+
+def _running(pid: int) -> bool:
+    """Whether a process exists and has not ended, as a zombie has."""
+    state = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 def _kill(process: subprocess.Popen[bytes]) -> None:
