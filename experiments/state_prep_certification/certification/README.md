@@ -84,10 +84,12 @@ The ground truth (`counting.brute_force`) requires a CSS state.
 | `cert_bz`, `cert_cc` | `certify_bounded_fault_propagation` with the BZ or CC oracle, instrumented by `instrument.py` |
 | `brute_bz` | the same BZ certification with the fault search replaced by the brute-force baseline of `baseline.py`, only where U is within the cap of `config.json`, 10^9 |
 | `shadow` | BZ certification in which a CC oracle also answers every query, each timed |
-| `count_accepted`, `count_listing` | the accepted fault combinations A_m for m <= K, and the counts of the listing, by `counting.py`: the class codewords, the listed faults, and the prefixes of a naive enumeration of the class codewords (`naive_prefixes_m_minus_1` of `per_weight.csv`), most of which qLDPC's walk by shared flags does not visit |
+| `count_accepted`, `count_listing` | the accepted fault combinations A_m for m <= K, and the counts of the listing at each fault weight m, by `counting.py`: the class codewords E_m, the listed faults Phi_m, and the prefixes Pi_(m-1) of a naive enumeration of the class codewords (`naive_prefixes_m_minus_1` of `per_weight.csv`), most of which qLDPC's walk by shared flags does not visit |
 | `ground_truth` | brute force with residual weights from the whole stabilizer group, on the small circuits that `circuits.json` marks |
 | `margin` | BZ certification with no limit on the fault weight, on the circuits whose flag rank r exceeds t, by `applications.py` |
 | `prune`, `prune_sensitivity` | the deletion of the measured qubits of each A-ft, C-goto, and synthesized circuit under exact certification at K = t, by `applications.py`; `prune_sensitivity` tries another order, on the circuits of `prune.sensitivity_inputs` of `config.json` |
+
+`instrument.py` counts Omega_m, the rows that the fault search of a certification submits to the weight oracle at fault weight m.
 
 The baseline enumerates every accepted fault combination of weight at most K over the N_0 reduced mechanisms, and queries each with the certifier's own oracle, built from the same arguments; only the fault search differs from `cert_bz`.
 U bounds both the combinations and the rows that it queries, and is fixed by the circuit's parameters, so that a circuit over the cap gets no task and is reported as "not run (U > 1e9)", never as a timeout.
@@ -156,7 +158,7 @@ The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) exp
 On the workstation, run `analyze.py --archive PATH --check-archive PATH --out DIR`.
 It extracts each archive into a temporary directory, which it removes when it ends, so `--archive` requires `--out`.
 Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `listing_table.csv`.
-`listing_table.csv` compares the listed faults and oracle rows with all accepted combinations, per family and weight.
+`listing_table.csv` compares Phi_m and Omega_m with A_m, per family and weight.
 `shadow.csv` gives the cost of the two weight oracles on identical queries: for each circuit and threshold of the queries of its `shadow` run, the calls, the rows that they submit, and the seconds of BZ and of CC, from the run's result or, for a run that did not finish, from the calls that it wrote to `oracle_calls/` in the label directory; it leaves out runs with `compiled_in_timing` set and circuits with a disagreement.
 A run that wrote no calls has no row of `shadow.csv`; `summary.csv` gives its status.
 `counterexamples.json` holds the counterexamples of the first runs of `cert_bz` and `cert_cc` under `all`, and up to three examples under `examples`, one for each group of families that has one, by a rule that `analyze.py`'s docstring gives.
