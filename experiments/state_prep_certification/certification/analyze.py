@@ -86,30 +86,32 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
     ``count_accepted`` on the weights that both completed).
 
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
-  the brute-force cap, the verdicts, T, timing completeness, and peak memory of both
-  certification arms and of ``brute_bz``, the status of each arm of ``REPORTED_ARMS``, the
-  post-processing status of each certification's first run, ``repeats_not_ok`` (the repeats that
-  did not finish or are missing, and the runs whose rows have ``compiled_in_timing`` set), the
-  oracle rows of ``cert_bz`` (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz``
-  (every row queried), the agreements, and the ``contradictions`` that make the circuit a
-  disagreement.  The counts of a ``count_listing`` run that did not
-  finish are those of its partial results: q, q_h, and h, and Pi, E, and Phi of the weights that it
-  completed.
-* ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m), Pi_(m-1),
-  E_m, Phi_m, Omega_m (marked partial on a weight that did not complete; at m = 1, the
-  threshold-1 checks of zero-flag mechanisms and classifications of flagged ones instead),
-  skipped = Phi_m - Omega_m (on completed weights only), T_m of BZ and CC, and the oracle time of
-  BZ; and the baseline's combinations enumerated, rows queried, oracle calls, distinct syndromes,
-  and oracle time, and whether it completed the weight.  For K' < m <= K, Phi_m = 0, and
-  Omega_m = 0 where ``cert_bz`` certified the circuit.
+  the brute-force cap, the verdicts, T, timing completeness, and peak memory of both certification
+  arms and of ``brute_bz``, the status of each arm of ``REPORTED_ARMS``, the post-processing status
+  of each certification's first run, ``repeats_not_ok`` (the repeats that did not finish or are
+  missing, and the runs whose rows have ``compiled_in_timing`` set), the oracle rows of ``cert_bz``
+  (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz`` (every row queried), the
+  agreements, and the ``contradictions`` that make the circuit a disagreement.  The counts of a
+  ``count_listing`` run that did not finish are those of its partial results: q, q_h, and h, and Pi,
+  E, and Phi of the weights that it completed.
+* ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m) (from N_0 of
+  ``circuits.json`` where ``count_accepted`` did not finish), Pi_(m-1), E_m, Phi_m, Omega_m (marked
+  partial on a weight that did not complete; at m = 1, the threshold-1 checks of zero-flag
+  mechanisms and classifications of flagged ones instead), skipped = Phi_m - Omega_m (on completed
+  weights only), T_m of BZ and CC, and the oracle time of BZ; and the baseline's combinations
+  enumerated, rows queried, oracle calls, distinct syndromes, and oracle time, and whether it
+  completed the weight.  For K' < m <= K, Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the
+  circuit.
 * ``listing_table.csv``, the listing counts, one row per family and weight m >= 2: the median and
   maximum over circuits of Phi_m / A_m, and over the circuits that completed m with ``cert_bz``, of
-  Omega_m / A_m.  Where A_m was not computed, C(N_0, m) takes its place: ``C_in_place_of_A`` counts
-  these circuits, and ``ratio_is_lower_bound`` is true where there are any.  As A_m <= C(N_0, m),
-  their ratios are at most the true ones, and so are the medians and maxima, which are then lower
-  bounds on those of Phi_m / A_m and Omega_m / A_m.  Beside them are the medians, over the circuits
-  with Phi_m, of the parameters that the listing depends on: the heavy share h / N_0, the unflagged
-  share z / N_0, the start classes q_h, and the flag rank r.  ``listing_table.csv`` describes when
+  Omega_m / A_m.  Where A_m was not computed, C(N_0, m) takes its place if z >= m, which ensures
+  A_m > 0: ``C_in_place_of_A`` counts these circuits, and ``ratio_is_lower_bound`` is true where
+  there are any.  As A_m <= C(N_0, m), their ratios are at most the true ones, and so are the
+  medians and maxima, which are then lower bounds on those of Phi_m / A_m and Omega_m / A_m.  A
+  circuit whose A_m is 0, or was not computed while z < m, has no ratio, and ``ratio_unknown``
+  counts it.  Beside them are the medians, over the circuits with a ratio, of the parameters that
+  the listing depends on: the heavy share h / N_0, the unflagged share z / N_0, the start classes
+  q_h, and the flag rank r.  ``listing_table.csv`` describes when
   Phi_m is small against A_m; it fits nothing.
 * ``shadow.csv``, the cost of the two weight oracles on identical queries, one row per circuit and
   threshold m of the queries of its ``shadow`` run: the calls, their rows, and the seconds of BZ
@@ -135,6 +137,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import pathlib
 import statistics
 import sys
@@ -585,10 +588,11 @@ def listing_table(
 ) -> list[dict[str, Any]]:
     """The listing counts against all accepted combinations, per family and weight m >= 2.
 
-    The ratios use A_m, or C(N_0, m) where A_m was not computed, which makes them lower bounds
-    (``ratio_is_lower_bound``); Omega_m / A_m uses only weights that ``cert_bz`` completed.  The
-    parameter medians are over the circuits with Phi_m.  Circuits with a disagreement are left
-    out.
+    The ratios use A_m, or C(N_0, m) where A_m was not computed and z >= m, which makes them lower
+    bounds (``ratio_is_lower_bound``); Omega_m / A_m uses only weights that ``cert_bz`` completed.
+    A circuit whose A_m is 0, or was not computed while z < m, so that it may be 0, has no ratio;
+    ``ratio_unknown`` counts these circuits.  The parameter medians are over the circuits with a
+    ratio.  Circuits with a disagreement are left out.
     """
     circuits = {row["id"]: row for row in summary_rows}
     groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
@@ -599,10 +603,14 @@ def listing_table(
     table = []
     for (family, m), rows in sorted(groups.items()):
         phi, omega, parameters = [], [], []
-        substituted = 0
+        substituted = unknown = 0
         for row in rows:
-            denominator = row["A_m"] if row["A_m"] is not None else row["C_N0_m"]
+            # z >= m ensures A_m > 0: m distinct unflagged mechanisms are an accepted combination
+            denominator = row["A_m"]
+            if denominator is None and (circuits[row["id"]]["z"] or 0) >= m:
+                denominator = row["C_N0_m"]
             if not denominator:
+                unknown += 1
                 continue
             substituted += row["A_m"] is None
             phi.append(row["Phi_m"] / denominator)
@@ -614,6 +622,7 @@ def listing_table(
                 "family": family,
                 "m": m,
                 "circuits": len(phi),
+                "ratio_unknown": unknown,
                 "phi_over_A_median": statistics.median(phi) if phi else None,
                 "phi_over_A_max": max(phi, default=None),
                 "omega_circuits": len(omega),
@@ -829,7 +838,7 @@ def _per_weight(
                 "id": circuit_id,
                 "m": m,
                 "A_m": (accepted.get("A") or {}).get(str(m)),
-                "C_N0_m": (accepted.get("C") or {}).get(str(m)),
+                "C_N0_m": (accepted.get("C") or {}).get(str(m), _binomial(circuit.get("N0"), m)),
                 "Pi_m_minus_1": listing.get("Pi", {}).get(str(m - 1)),
                 "E_m": listing.get("E", {}).get(str(m)),
                 "Phi_m": phi,
@@ -850,6 +859,11 @@ def _per_weight(
             }
         )
     return rows
+
+
+def _binomial(n: int | None, m: int) -> int | None:
+    """C(n, m), or None if n is unknown."""
+    return None if n is None else math.comb(n, m)
 
 
 def _first_run_time(arm: dict[str, Any], seconds: float | None) -> float | None:

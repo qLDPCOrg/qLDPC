@@ -131,7 +131,8 @@ A circuit is a disagreement if any two of its exact results contradict each othe
 The analysis compares, as claims on the circuit's margin m* (see below), the result of every run of `cert_bz`, `cert_cc`, `shadow`, `brute_bz`, `margin`, and `ground_truth`, repeats included, each fault weight that a run completed or found a violation at, even if it did not finish, each deletion task's parent verdict at K = t, and the final m* of a deletion task that accepted no deletion.
 It also compares the baseline's enumerated combinations with A_m, and the ground truth's counts and heavy mechanisms with those of the counters.
 It treats as contradictions a `shadow` run that ended in `ShadowDisagreement`, a counterexample whose exact residual weight does not exceed its fault weight or is below the certifier's lower bound on it, and a deletion task's final circuit that CC does not certify at K = t or whose final m* is at most t.
-Where A_m was not computed, `listing_table.csv` divides by C(N_0, m) instead, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
+Where A_m was not computed, `listing_table.csv` divides by C(N_0, m) instead, if z >= m, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
+Where z < m, A_m may be 0, and the column `ratio_unknown` counts the circuit instead, as it does a circuit with A_m = 0.
 The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, each kind of contradiction, a task without a row, rows with `compiled_in_timing` set, and rows of `--local` runs, which the analysis refuses without `--allow-local`, as the [shared README](../README.md#workflow) says.
 
 `analyze_applications.py` adds the margins and the deletions.
