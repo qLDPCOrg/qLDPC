@@ -155,6 +155,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import functools
 import hashlib
 import io
 import json
@@ -408,13 +409,11 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
     assert instrumentation.shadow["auto"] in ("brouwer_zimmermann", "connected_cluster")
 
     # a shadow oracle that shifts its answer to each batch is caught
-    try:
+    def certify_shifted() -> None:
         with _ShiftedShadow(shadow=True).install():
             _certify("echen", "brouwer_zimmermann")
-    except instrument.ShadowDisagreement:
-        pass
-    else:
-        raise AssertionError("a shifted shadow oracle raised no ShadowDisagreement")
+
+    acceptance.raises(instrument.ShadowDisagreement, certify_shifted)
     print(f"  echen: the shadow answered {sum(shadowed.values())} queries, {shadowed}")
 
 
@@ -1931,13 +1930,14 @@ def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps:
         assert _prepares(child, entry), record
         noisy = experiment.noisy_circuit(child, noise)
         if outcome == "detectors rejected":
-            try:
-                qldpc_circuits.certify_bounded_fault_propagation(
-                    noisy, method="brouwer_zimmermann", **options
-                )
-            except ValueError:
-                continue
-            raise AssertionError(f"qLDPC accepts the detectors of {record}")
+            certify = functools.partial(
+                qldpc_circuits.certify_bounded_fault_propagation,
+                noisy,
+                method="brouwer_zimmermann",
+                **options,
+            )
+            acceptance.raises(ValueError, certify)
+            continue
         certificate = qldpc_circuits.certify_bounded_fault_propagation(
             noisy, method="brouwer_zimmermann", **options
         )

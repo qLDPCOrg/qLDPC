@@ -585,12 +585,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     assert (row["status"], row["T"]) == ("median_timed_out", ""), row
 
     # a label directory without a copy of the sample is refused
-    try:
-        analyze.load_sample(directory)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("load_sample accepted a label directory without sample.json")
+    acceptance.raises(ValueError, lambda: analyze.load_sample(directory))
 
 
 if __name__ == "__main__":
