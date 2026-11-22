@@ -1244,7 +1244,9 @@ def test_run_node_cpu_model(directory: pathlib.Path, node: bool) -> None:
 def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
     """A node start refuses a misleading environment unless ``--allow-env`` accepts it.
 
-    The manifest records the environment variables that can change a run.
+    ``PYTHONOPTIMIZE`` is refused when Python runs with -O, as Python reads the variable, and
+    ``NUMBA_DISABLE_JIT`` when ``int`` reads a nonzero value, as numba does.  The manifest records
+    the environment variables that can change a run.
     """
     from experiments.state_prep_certification.common import manifest
 
@@ -1258,20 +1260,49 @@ def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
         "HOME": "/home",
     }
     try:
-        run_node.check_environment(environ, [])
+        run_node.check_environment(environ, [], optimize=1)
     except SystemExit as error:
         assert "unset PYTHONOPTIMIZE" in str(error.code), error.code
     else:
         raise AssertionError("PYTHONOPTIMIZE was accepted")
-    run_node.check_environment(environ, ["PYTHONOPTIMIZE"])
-    run_node.check_environment({"PYTHONOPTIMIZE": "0", "NUMBA_DISABLE_JIT": "00"}, [])
+    run_node.check_environment(environ, ["PYTHONOPTIMIZE"], optimize=1)
+
+    # PYTHONOPTIMIZE as Python reads it, in a fresh interpreter
+    for value, on in (
+        ("0 ", True),
+        (" ", True),
+        ("\u0660", True),
+        (" 0", False),
+        ("+0", False),
+        ("-0", False),
+        ("00", False),
+    ):
+        optimize = subprocess.run(
+            [sys.executable, "-c", "import sys; print(sys.flags.optimize)"],
+            env=dict(os.environ, PYTHONOPTIMIZE=value),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        check = functools.partial(
+            run_node.check_environment, {"PYTHONOPTIMIZE": value}, [], int(optimize)
+        )
+        if on:
+            _expect_exit(check)
+        else:
+            check()
+    for value, on in (("1", True), (" 1 ", True), ("00", False), ("yes", False)):
+        check = functools.partial(run_node.check_environment, {"NUMBA_DISABLE_JIT": value}, [], 0)
+        if on:
+            _expect_exit(check)
+        else:
+            check()
     for refused in (
         {"QLDPC_DISABLE_COMPILATION": "1"},
-        {"NUMBA_DISABLE_JIT": "1"},
         {"PYTHONPATH": ""},
         {"PYTHONHOME": "/python"},
     ):
-        _expect_exit(functools.partial(run_node.check_environment, refused, []))
+        _expect_exit(functools.partial(run_node.check_environment, refused, [], 0))
     recorded = manifest.recorded_environment(environ)
     assert recorded == {name: environ[name] for name in environ if name != "HOME"}, recorded
 

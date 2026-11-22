@@ -91,11 +91,14 @@ DEFAULT_RESULTS = ROOT / "experiments" / "state_prep_certification" / "results"
 PARALLEL_RECORD = "_parallel"
 
 # The environment variables that a node start refuses, and when: plain-Python qLDPC or numba,
-# Python's -O, which strips the acceptance tests' asserts, and paths that can import other code.
+# Python's -O, which strips the asserts of the acceptance tests that this script runs, and paths
+# that can import other code.  numba reads NUMBA_DISABLE_JIT with int(), and a value that does not
+# parse leaves the JIT on.  PYTHONOPTIMIZE is refused when this interpreter runs with -O, as Python
+# reads the variable (see check_environment), not by its value.
 REFUSED_ENVIRONMENT: dict[str, Callable[[str], bool]] = {
     "QLDPC_DISABLE_COMPILATION": lambda value: value == "1",
-    "NUMBA_DISABLE_JIT": lambda value: _turned_on(value),
-    "PYTHONOPTIMIZE": lambda value: _turned_on(value),
+    "NUMBA_DISABLE_JIT": lambda value: _nonzero_integer(value),
+    "PYTHONOPTIMIZE": lambda value: True,
     "PYTHONPATH": lambda value: True,
     "PYTHONHOME": lambda value: True,
 }
@@ -353,18 +356,32 @@ def run_acceptance(
 # refusals of a start
 
 
-def check_environment(environ: Mapping[str, str], allowed: Sequence[str]) -> None:
+def check_environment(
+    environ: Mapping[str, str], allowed: Sequence[str], optimize: int | None = None
+) -> None:
     """Exit if a variable of ``REFUSED_ENVIRONMENT`` is set to a value that it refuses.
+
+    ``PYTHONOPTIMIZE`` is refused when the interpreter runs with -O, whatever sets it, since this
+    script runs the acceptance tests in its own process and its children inherit the environment.
 
     Args:
         environ: The environment, such as ``os.environ``.
         allowed: The names that ``--allow-env`` accepts.
+        optimize: The interpreter's optimization level, by default this one's
+            (``sys.flags.optimize``), which Python sets from ``PYTHONOPTIMIZE`` or -O.
     """
+    optimize = sys.flags.optimize if optimize is None else optimize
     for name, refused in REFUSED_ENVIRONMENT.items():
-        if name in environ and refused(environ[name]) and name not in allowed:
+        if name == "PYTHONOPTIMIZE":
+            on = optimize > 0
+            setting = f"Python runs with -O ({name}={environ.get(name)!r})"
+        else:
+            on = name in environ and refused(environ[name])
+            setting = f"{name}={environ.get(name)!r} is set"
+        if on and name not in allowed:
             sys.exit(
-                f"{name}={environ[name]!r} is set, which would make a node run misleading; run "
-                f"`unset {name}` and start again, or pass --allow-env {name} to accept it."
+                f"{setting}, which would make a node run misleading; run `unset {name}` and start "
+                f"again, or pass --allow-env {name} to accept it."
             )
 
 
@@ -692,9 +709,12 @@ def _kill_if_same(pid: int, start: str | None, group: bool) -> bool:
     return True
 
 
-def _turned_on(value: str) -> bool:
-    """Whether a switch variable is on: set, and not a number equal to 0 (as Python and numba)."""
-    return value.strip() != "" and not (value.strip().isdigit() and int(value) == 0)
+def _nonzero_integer(value: str) -> bool:
+    """Whether ``int(value)`` parses and is nonzero, as numba reads its switch variables."""
+    try:
+        return int(value) != 0
+    except ValueError:
+        return False
 
 
 if __name__ == "__main__":
