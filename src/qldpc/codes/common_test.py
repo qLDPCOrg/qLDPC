@@ -1191,13 +1191,13 @@ def test_known_permutation_automorphism_group(monkeypatch: pytest.MonkeyPatch) -
 def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
     """Exact distances use the qudit automorphisms of a code only after verifying them.
 
-    The search reproduces the distance 6 of the [[72, 12, 6]] bivariate bicycle code in Table 3 of
-    arXiv:2308.07915.  Hadamards on the second block of a [[14, 2, 3]] bicycle code make a code
-    that is not CSS, which the translations of both blocks still preserve.  The [[9, 1, 3]]
+    The test reproduces the distance 6 of the [[72, 12, 6]] bivariate bicycle code in Table 3 of
+    arXiv:2308.07915.  Hadamards on the second block of a [[14, 2, 3]] bicycle code make it a code
+    that is not CSS.  The translations of both blocks still preserve that code.  The [[9, 1, 3]]
     Bacon-Shor subsystem code of quant-ph/0506023 has its qubits in rows and columns, and its gauge
-    group holds X on any two qubits of a column.  So swapping two rows preserves it, also after
-    Hadamards on its first and last columns, which make a subsystem code that is not CSS.  A
-    transposition of two neighboring qubits preserves none of these codes.
+    group holds X on any two qubits of a column, so swapping two rows preserves it.  Hadamards on
+    its first and last columns make a subsystem code that is not CSS, which swapping two rows still
+    preserves.  A transposition of two neighboring qubits preserves none of these codes.
     """
 
     class CSSCodeWithAutomorphisms(codes.CSSCode):
@@ -1370,7 +1370,7 @@ def test_classical_distances_use_automorphisms(
     shuffle = np.random.default_rng(0).permutation(21)
     cyclic_code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
     code_builders: list[Callable[[], codes.ClassicalCode]] = [
-        # the class supplies generators (classical_test.py checks those of each class)
+        # CyclicCode supplies generators, as classical_test.py checks for each class that does
         lambda: codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6),
         # with bliss, the generic code with shuffled bits finds the symmetries of its checks
         lambda: codes.ClassicalCode(cyclic_code.matrix[:, shuffle]),

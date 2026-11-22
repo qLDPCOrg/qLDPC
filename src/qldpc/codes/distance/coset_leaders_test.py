@@ -573,8 +573,8 @@ def test_min_weights_match_exhaustive_minima(
             methods.append("connected_cluster")
         for method in methods:
             search = CosetLeaderSearch(matrix, css_weight=css_weight, method=method)
-            # Every class is within reach from the greatest minimum on, and the maximum weights
-            # stop one above it.
+            # Every class is within reach from the greatest minimum on, so the loop ends with one
+            # maximum weight above it.
             for max_weight in range(int(minima.max()) + 2):
                 weights = search.get_min_weights(packed_syndromes, max_weight)
                 assert np.array_equal(weights, np.minimum(minima[syndromes], max_weight + 1))

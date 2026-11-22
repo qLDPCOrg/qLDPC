@@ -1599,10 +1599,10 @@ def get_threaded_cases() -> Iterator[ThreadedCase]:
     at which the items start.  Other limits have no witness.  The syndromes of every problem fit
     one word.
     """
-    # The sums of pairs of checks of "capped-scale" make its syndromes two words wide.  The
-    # frontiers of "reed-muller-X" and "eight-qubit" grow to their targets of items from many roots,
-    # as those of "bacon-shor-hadamards" do, so those two problems add no kind of frontier that the
-    # others lack.
+    # The sums of pairs of checks of "capped-scale" make its syndromes two words wide.  The searches
+    # of "reed-muller-X" and "eight-qubit" deepen their frontiers from many roots until they reach
+    # their targets of items, as the search of "bacon-shor-hadamards" does, so these two problems
+    # add no kind of frontier that the others lack.
     for name, problem in PROBLEMS.items():
         if name not in ("capped-scale", "reed-muller-X"):
             yield ThreadedCase(problem)
@@ -1613,8 +1613,8 @@ def get_threaded_cases() -> Iterator[ThreadedCase]:
     # last of many roots, does not depend on the switches.  With the switches on, a search runs
     # every part of the search that it runs with them off, so these cases run only with them on.
     # The dual of the cyclic [15, 11, 3] Hamming code with generator polynomial 1 + x + x^4 is in
-    # that code, and gives checks and excluded rows that have one root under their cyclic shifts,
-    # so the frontier deepens from that root.
+    # that code, and gives both the checks and the excluded rows.  Cyclic shifts map every bit to
+    # every other, so the search has one root, and its frontier deepens from that root.
     generator = np.zeros(15, dtype=np.uint8)
     generator[[0, 1, 4]] = 1
     hamming_checks = get_kernel(np.array([np.roll(generator, shift) for shift in range(11)]))
