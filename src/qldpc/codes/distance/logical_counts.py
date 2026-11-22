@@ -680,7 +680,7 @@ def count_logical_ops_css(
 
 
 def compile_search_setup() -> None:
-    """Compile, in memory, the code that sets up Brouwer-Zimmermann searches and drives counts.
+    """Compile the code that sets up Brouwer-Zimmermann searches and drives counts.
 
     Numba compiles the inner loops of exact searches when they are first used, and caches them on
     disk.  This function also compiles two parts that otherwise run as plain Python: the loop that
@@ -689,8 +689,10 @@ def compile_search_setup() -> None:
     MacWilliams and connected-cluster methods.
 
     Call it once, at the start of a program that makes very many counts of similar codes, such as a
-    search over many deformed codes.  Every process that calls this function compiles again, so it
-    does not pay off for a few counts.  Counters may be created before or after the call.
+    search over many deformed codes.  The compiled code is cached on disk, so a later process that
+    calls this function loads it rather than compiling it again, unless qLDPC's source files have
+    changed.  The first compilation takes long, so it does not pay off for a few counts.  Counters
+    may be created before or after the call.
     """
     set_on_request_functions_compiled(True)
     try:

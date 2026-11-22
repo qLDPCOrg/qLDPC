@@ -253,6 +253,7 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
   They are compiled on first use and cached on disk, in a directory named by a hash of qLDPC's source, so the first run after an edit anywhere in qLDPC compiles again.
   A small helper that hot loops call, such as `advance_support`, is marked `@always_compiled(inline=True)`, so that compiled callers include its code rather than pay for a call.
 - `@compiled_on_request` marks parts of the set-up of searches, which run as plain Python unless a program calls `compile_search_setup()`.
+  Their compiled code is cached in the same directory.
 
 An entry point that several threads run at once, such as `scan_set_items` in `_brouwer_zimmermann/affine_search.py` or `_search_supports` in `_connected_cluster/search.py`, is marked `@always_compiled(nogil=True)`, so that its compiled code, and every compiled function that it calls, runs without Python's global interpreter lock.
 The docstring of `src/qldpc/_compilation.py` states the rules for that code.
