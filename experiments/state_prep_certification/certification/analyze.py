@@ -74,7 +74,8 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
     T(``cert_bz``) over the circuits where both finished with complete timing, and their number.
     T(``brute_bz``) includes the time of the baseline's count of distinct syndromes
     (``distinct_seconds``; see ``baseline.py``), which raises the ratio in the certifier's favor;
-  - ``max_rss_gib``: the largest peak memory of a run of ``cert_bz`` or ``cert_cc``;
+  - ``max_rss_gib``: the largest peak memory of a run of ``cert_bz`` or ``cert_cc``, of any
+    status, as each ``rss_*`` of summary.csv is (see ``summarize_certification``);
   - ``agreement_bz_cc`` (verdicts), ``agreement_baseline`` (the verdict and smallest violating
     weight of a finished ``brute_bz`` against those of each finished certification, and, finished
     or not, its enumerated combinations on each weight that it completed against A_m of
@@ -386,7 +387,10 @@ def summarize_certification(arm_rows: list[dict[str, Any]] | None) -> dict[str, 
     the first run did not finish, if a repeat that it calls for did not finish or is missing, or if
     the row of any run has ``compiled_in_timing`` set.  ``repeats_not_ok`` lists the repeats that
     did not finish or are missing, and the runs whose rows have ``compiled_in_timing`` set, as in
-    ``r1:timeout``, ``r2:missing``, or ``r0:compiled``.
+    ``r1:timeout``, ``r2:missing``, or ``r0:compiled``.  The peak memory ``rss`` is the largest
+    ``peak_rss_gib`` of the arm's runs, of any status, memouts above the cap included; each is the
+    largest peak that the runner knows of its whole run, post-processing included (see
+    ``common/runner.py``).
     """
     if not arm_rows:
         return {

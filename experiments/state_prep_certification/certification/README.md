@@ -117,7 +117,10 @@ On the node, `node.sh certification --approved-cpu-hours H` runs the subset `mai
 The ceiling of `main` follows from `circuits.json`: each run costs at most its start-up cap, its limit, its post-processing allowance, and the grace, and a fast run of `cert_bz`, `cert_cc`, or `brute_bz` gets two repeats.
 The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) explains.
 `run_node.py certification --dry-run` prints the tasks and the ceiling of the current `circuits.json`.
-On the workstation, `analyze.py --archive PATH --check-archive PATH` writes its outputs, which its docstring lists: among them `summary.csv`, `families.csv`, `listing_table.csv`, the listed faults and oracle rows against all accepted combinations per family and weight, and `counterexamples.json`, which holds every counterexample (`all`) and up to three examples (`examples`), one for each group of families that has one, which `analyze.py`'s docstring names with its rule.
+On the workstation, run `analyze.py --archive PATH --check-archive PATH`.
+Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `listing_table.csv`.
+`listing_table.csv` compares the listed faults and oracle rows with all accepted combinations, per family and weight.
+`counterexamples.json` holds every counterexample under `all`, and up to three examples under `examples`, one for each group of families that has one; `analyze.py`'s docstring names the groups and the rule.
 Without the archive of `check`, the outputs report the ground truth as not run.
 The analysis takes the circuits and their parameters from the label's copy of `circuits.json`, and stops if the label of `check` ran with another one.
 If a label does not match its `circuits.json` and the working tree's `config.json` and `pins.json`, it prints a warning and analyzes the label anyway.

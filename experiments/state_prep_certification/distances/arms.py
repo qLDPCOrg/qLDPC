@@ -2,9 +2,10 @@
 
 """The two arms of the distance experiment: qLDPC's BZ search with everything on, and the prior.
 
-The "on" arm calls the code's ``get_distance_exact`` at qLDPC's defaults, and the "prior" arm
-makes the same call with four extensions of the BZ search that qLDPC implements turned off at once,
-an ablation of them within qLDPC, whose name labels the ablation, not earlier or published tools:
+The "on" arm calls the code's ``get_distance_exact`` at qLDPC's defaults.  The "prior" arm makes
+the same call with four extensions of the BZ search that qLDPC implements turned off at once.  It
+is an ablation of them within qLDPC, and its name labels the ablation, not earlier or published
+tools:
 
 * ``q_bz_on``: ``code.get_distance_exact(method="brouwer_zimmermann")``.
 * ``q_bz_prior``: the same call inside ``use_tuning(**BZ_PRIOR)``, whose fields turn off

@@ -1,7 +1,11 @@
 # Exact code distances
 
 This experiment measures how much four extensions of the exact Brouwer-Zimmermann (BZ) distance search that qLDPC implements change the wall time of the search, together.
-It runs qLDPC's BZ search with everything on, at its defaults, against the same search with all four extensions turned off at once by qLDPC's tuning fields (the "prior" arm), on the same codes and with the same time limit, so that it measures their joint effect, not each one's:
+The "on" arm runs qLDPC's BZ search with everything on, at its defaults.
+The "prior" arm runs the same search with all four extensions turned off at once by qLDPC's tuning fields.
+Both arms search the same codes, with the same time limit.
+Since the extensions are turned off together, the experiment measures their joint effect, not each one's.
+The four extensions, and the fields that turn them off, are:
 
 - overlapping families of search bases and their coverage certificate, off by `overlapping_minimum_work` (Section 3.1 of qLDPC's guide [`brouwer_zimmermann.md`](../../../src/qldpc/codes/distance/brouwer_zimmermann.md));
 - matroid partitioning into families of coverage two or more, restricted to disjoint information sets by `partition_max_coverage = 1` (Section 3.1 of the guide, and Section 4.4 of [`brouwer_zimmermann_code.md`](../../../src/qldpc/codes/distance/brouwer_zimmermann_code.md));
