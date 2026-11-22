@@ -241,7 +241,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Refuse the options of the compiled runs while compilation is disabled."""
+    """Refuse the options of the compiled runs while compilation is disabled.
+
+    While compilation is disabled, as in the coverage check, later requests for the galois mode
+    "auto" get "python-calculate" instead (see ``_make_auto_galois_mode_compute_in_python``).
+    """
     options = [
         option
         for option in ("--compiled-module-tests", "--compile-search-setup")
@@ -252,6 +256,8 @@ def pytest_configure(config: pytest.Config) -> None:
             f"Compilation is disabled, but it is needed by {' and '.join(options)}.  Unset"
             " QLDPC_DISABLE_COMPILATION and NUMBA_DISABLE_JIT."
         )
+    if _compilation.is_compilation_disabled():
+        _make_auto_galois_mode_compute_in_python()
 
 
 def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) -> bool | None:
@@ -333,6 +339,22 @@ def _releases_the_lock(decorator: ast.expr) -> bool:
         keyword.arg == "nogil" and getattr(keyword.value, "value", False) is True
         for keyword in decorator.keywords
     )
+
+
+def _make_auto_galois_mode_compute_in_python() -> None:
+    """Make the galois mode "auto" compute in plain Python, in fields built or recompiled later.
+
+    In the mode "auto", which galois uses by default, galois compiles kernels with numba for each
+    field that a process builds, which costs tests more than computing in plain Python in their
+    small fields.  qLDPC's tests rely on galois being correct, not on how it computes.  So "auto",
+    whether by default or given explicitly, becomes "python-calculate"; other modes are kept.
+    """
+    compile_field = vars(galois.FieldArray)["compile"].__func__
+
+    def compile_in_python(cls: type[galois.FieldArray], mode: str) -> None:
+        compile_field(cls, "python-calculate" if mode == "auto" else mode)
+
+    pytest.MonkeyPatch().setattr(galois.FieldArray, "compile", classmethod(compile_in_python))
 
 
 @pytest.hookimpl(tryfirst=True)

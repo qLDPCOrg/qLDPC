@@ -1192,6 +1192,9 @@ def test_the_table_of_syndromes_has_room_for_at_most_2_to_the_31_syndromes(
         rooms.append(max_syndromes)
         return table_should_grow(num_syndromes, num_rows, max_syndromes)
 
+    # List once before wrapping, so that numba compiles the expansion, which also calls
+    # _table_should_grow, with the compiled function rather than the wrapper.
+    _check_faults(_listing_lister(2**50), 3, ())
     monkeypatch.setattr(_fault_search, "_table_should_grow", record_room)
     for memory_limit, room in (
         (40 * 2**31 - 1, 2**31 - 1),
