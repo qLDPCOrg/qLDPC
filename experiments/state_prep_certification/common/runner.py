@@ -195,10 +195,10 @@ def run_task(
         0 once it has appended the row, or 2, without a row, if SIGTERM or SIGINT stopped the task.
 
     A signal during or between the task's runs kills any current run and waits up to its grace for
-    the run's processes to go.  A signal that arrives after a run's process has ended, but before
-    the runner has built that run's row, also discards the finished run.  A signal that arrives
-    after the row of the task's last run is built is ignored: the runner appends the row and
-    returns 0.
+    the run's processes to go.  After a run's process has ended and the runner has kept the tail of
+    its log, the runner checks for a signal one last time: a signal before that check also
+    discards the finished run.  A signal after the last run's check is ignored: the runner builds
+    and appends the row and returns 0.
 
     If the runner itself fails, it kills the run before it exits.  If it cannot tell that the run's
     processes are gone, as when ``ps`` fails, it kills the run's own process, if it has not reaped

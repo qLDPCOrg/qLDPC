@@ -828,19 +828,23 @@ def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_runner_late_signal(directory: pathlib.Path, node: bool) -> None:
-    """A signal after a run's process has ended discards the run, unless the task's row is built.
+    """A signal after a run's process has ended discards the run until the runner's last check.
 
-    A SIGTERM after the process has ended, but before the runner has built the run's row, makes
-    ``run_task`` return 2 without a row.  One after the row of the task's last run is built is
-    ignored: the runner appends the row and returns 0.
+    A SIGTERM after the runner has kept the tail of the run's log, but before its last check for a
+    signal, makes ``run_task`` return 2 without a row.  One after that check, whether before the
+    runner builds the last run's row or after, is ignored: the runner appends the row and returns 0.
     """
-    late, last = _task("late", [["value", 1]]), _task("last", [["value", 1]])
-    tasks.write_pass1(directory, [late, last])
-    keep_tail, run = runner._keep_tail, runner._Watcher.run
+    late, unbuilt, built = (_task(key, [["value", 1]]) for key in ("late", "unbuilt", "built"))
+    tasks.write_pass1(directory, [late, unbuilt, built])
+    keep_tail, make_row, run = runner._keep_tail, runner._Watcher._row, runner._Watcher.run
 
     def signal_after_tail(path: pathlib.Path) -> None:
         keep_tail(path)
         signal.raise_signal(signal.SIGTERM)
+
+    def signal_before_row(watcher: Any, *args: Any) -> dict[str, Any]:
+        signal.raise_signal(signal.SIGTERM)
+        return make_row(watcher, *args)
 
     def signal_after_row(watcher: Any, command: list[str]) -> dict[str, Any] | None:
         row = run(watcher, command)
@@ -849,10 +853,12 @@ def test_runner_late_signal(directory: pathlib.Path, node: bool) -> None:
 
     with mock.patch.object(runner, "_keep_tail", signal_after_tail):
         assert runner.run_task(directory, late, local=not node) == 2
+    with mock.patch.object(runner._Watcher, "_row", signal_before_row):
+        assert runner.run_task(directory, unbuilt, local=not node) == 0
     with mock.patch.object(runner._Watcher, "run", signal_after_row):
-        assert runner.run_task(directory, last, local=not node) == 0
+        assert runner.run_task(directory, built, local=not node) == 0
     rows, problems = store.read_rows(directory)
-    assert [row["task_key"] for row in rows] == ["last"] and not problems, rows
+    assert [row["task_key"] for row in rows] == ["unbuilt", "built"] and not problems, rows
 
 
 @test
