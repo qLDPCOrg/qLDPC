@@ -69,7 +69,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from experiments.state_prep_certification.common import manifest, plugin, store
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMMANDS: list[list[str]] = []
 FALLBACKS: list[str] = []
 
@@ -96,7 +95,7 @@ def main() -> None:
     tree = staging / "qLDPC"
     tree.mkdir()
     archive = subprocess.run(
-        ["git", "-C", str(ROOT), "archive", "HEAD"], capture_output=True, check=True
+        ["git", "-C", str(plugin.ROOT), "archive", "HEAD"], capture_output=True, check=True
     )
     COMMANDS.append(["git", "archive", "HEAD"])
     with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r|") as tar:
@@ -248,7 +247,7 @@ def check_tree(pins: dict[str, Any], unfrozen: bool) -> str:
         FALLBACKS.append("trial: no qldpc_commit in pins.json, so not for the node")
         return head
     if subprocess.run(
-        ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", frozen, head], check=False
+        ["git", "-C", str(plugin.ROOT), "merge-base", "--is-ancestor", frozen, head], check=False
     ).returncode:
         sys.exit(f"HEAD does not descend from the pinned qLDPC commit {frozen}")
     if _git("diff", "--name-only", frozen, head, "--", "src", "pyproject.toml"):
@@ -474,7 +473,7 @@ def _run(command: list[str]) -> None:
 def _git(*args: str) -> str:
     """The output of a Git command in this worktree."""
     return subprocess.run(
-        ["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True
+        ["git", "-C", str(plugin.ROOT), *args], capture_output=True, text=True, check=True
     ).stdout.strip()
 
 

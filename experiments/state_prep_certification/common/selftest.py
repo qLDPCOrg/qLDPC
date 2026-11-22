@@ -53,11 +53,9 @@ from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from experiments.state_prep_certification.common import acceptance, store, tasks
+from experiments.state_prep_certification.common import acceptance, plugin, store, tasks
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
-RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_task.py"
-RUN_NODE = ROOT / "experiments" / "state_prep_certification" / "run_node.py"
+RUN_NODE = plugin.EXPERIMENTS_DIR / "run_node.py"
 TESTS: dict[str, Callable[[pathlib.Path, bool], None]] = {}
 WORKSTATION_ONLY: set[str] = set()
 
@@ -210,7 +208,7 @@ def test_runner_ok(directory: pathlib.Path, node: bool) -> None:
 
     # a task with a final row is not run again
     before = (directory / store.RUNS_FILE).read_bytes()
-    subprocess.run(_run_task_command(directory, "ok", node), check=True)
+    subprocess.run(plugin.run_task_command(directory, "ok", local=not node), check=True)
     assert (directory / store.RUNS_FILE).read_bytes() == before
 
 
@@ -529,7 +527,7 @@ def test_runner_compile_then_stopped(directory: pathlib.Path, node: bool) -> Non
     task = _task("stopped", [["compile", True], ["sleep", 3], ["value", 5]])
     tasks.write_pass1(directory, [task])
     with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
-        process = subprocess.Popen(_run_task_command(directory, "stopped", node))
+        process = subprocess.Popen(plugin.run_task_command(directory, "stopped", local=not node))
         try:
             # numba writes a function's compiled code, after its index, once it has compiled it
             _wait_for(lambda: any((directory / "numba").rglob("*.nbc")))
@@ -549,7 +547,7 @@ def test_runner_stop_during_retry(directory: pathlib.Path, node: bool) -> None:
     """On SIGTERM during the retry, the runner kills it, writes no row, and exits with status 2."""
     tasks.write_pass1(directory, [_task("retried", [["compile", False], ["sleep", 3]])])
     with _environment("NUMBA_CACHE_DIR", str(directory / "numba")):
-        process = subprocess.Popen(_run_task_command(directory, "retried", node))
+        process = subprocess.Popen(plugin.run_task_command(directory, "retried", local=not node))
         try:
             # the retry has started once it has a log of its own
             _wait_for(lambda: len(list((directory / "logs").glob("*"))) == 2)
@@ -788,7 +786,7 @@ def test_local_runs_interrupted(directory: pathlib.Path, node: bool) -> None:
 def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
     """On SIGTERM the runner kills its run, writes no row, and exits with status 2."""
     tasks.write_pass1(directory, [_task("stop", [["spawn", 49.25]], limit_s=60.0)])
-    process = subprocess.Popen(_run_task_command(directory, "stop", node))
+    process = subprocess.Popen(plugin.run_task_command(directory, "stop", local=not node))
     _wait_for(lambda: (directory / "active" / "stop").exists())
     time.sleep(2)
     process.send_signal(signal.SIGTERM)
@@ -803,7 +801,9 @@ def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
     """A runner that fails kills its run, removes its active file, and writes no row."""
     tasks.write_pass1(directory, [_task("broken", [["garbage", 52.25]], limit_s=60.0)])
     result = subprocess.run(
-        _run_task_command(directory, "broken", node), capture_output=True, check=False
+        plugin.run_task_command(directory, "broken", local=not node),
+        capture_output=True,
+        check=False,
     )
     assert result.returncode != 0
     assert not (directory / "active" / "broken").exists()
@@ -1154,7 +1154,7 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
     run_node = _run_node_module()
 
     tasks.write_pass1(directory, [_task("hard", [["spawn", 51.25]], limit_s=60.0)])
-    process = subprocess.Popen(_run_task_command(directory, "hard", node))
+    process = subprocess.Popen(plugin.run_task_command(directory, "hard", local=not node))
     _wait_for(lambda: (directory / "active" / "hard").exists())
     record = json.loads((directory / "active" / "hard").read_text())
     assert record["host"] == socket.gethostname(), record
@@ -1189,7 +1189,7 @@ def test_cleanup_acceptance(directory: pathlib.Path, node: bool) -> None:
     attempt = run_node.acceptance_dir(label_dir, results) / "attempt" / "AT1"
     attempt.mkdir(parents=True)
     tasks.write_pass1(attempt, [_task("hard", [["spawn", 50.75]], limit_s=60.0)])
-    process = subprocess.Popen(_run_task_command(attempt, "hard", node=False))
+    process = subprocess.Popen(plugin.run_task_command(attempt, "hard", local=True))
     record = attempt / "active" / "hard"
     _wait_for(lambda: record.exists())
     time.sleep(2)
@@ -1956,7 +1956,7 @@ def test_manifest_dirty_digest(directory: pathlib.Path, node: bool) -> None:
 
     def digest() -> str | None:
         with (
-            _patched(manifest, "REPOSITORY_ROOT", directory),
+            _patched(plugin, "ROOT", directory),
             _patched(manifest, "BUNDLE_RECORD", directory / "no-bundle.json"),
         ):
             name = run_node.get_label_dir(module, directory, "main", local=True).name
@@ -1999,7 +1999,7 @@ def test_node_sh(directory: pathlib.Path, node: bool) -> None:
     record is JSON where a value needs escaping.  Stand-ins of uv, GNU parallel, and the bundle's
     interpreter replace the real tools.
     """
-    shutil.copy(ROOT / "experiments" / "state_prep_certification" / "node.sh", directory)
+    shutil.copy(plugin.EXPERIMENTS_DIR / "node.sh", directory)
     pins = {"python": {"version": "3.12"}, "platform": {}, "gnu_parallel": {"version": "20240122"}}
     (directory / "pins.json").write_text(json.dumps(pins))
     for arguments, message in (
@@ -2156,8 +2156,8 @@ def test_bundle_check_tree(directory: pathlib.Path, node: bool) -> None:
     (directory / "experiments.txt").write_text("harness\n")
     git("add", ".")
     git("commit", "-q", "-m", "harness")
-    previous_root = bundle.ROOT
-    bundle.ROOT = directory
+    previous_root = plugin.ROOT
+    plugin.ROOT = directory
     try:
         assert bundle.check_tree({"qldpc_commit": base}, unfrozen=False) == git("rev-parse", "HEAD")
         (directory / "src" / "a.py").write_text("a = 2\n")
@@ -2169,7 +2169,7 @@ def test_bundle_check_tree(directory: pathlib.Path, node: bool) -> None:
         _expect_exit(lambda: bundle.check_tree({"qldpc_commit": None}, unfrozen=False))
         bundle.check_tree({"qldpc_commit": None}, unfrozen=True)
     finally:
-        bundle.ROOT = previous_root
+        plugin.ROOT = previous_root
 
 
 ####################################################################################################
@@ -2199,16 +2199,12 @@ def _task(key: str, steps: list[list[Any]], **fields: Any) -> dict[str, Any]:
     return task
 
 
-def _run_task_command(directory: pathlib.Path, key: str, node: bool) -> list[str]:
-    """The command that runs one task, in local or node mode."""
-    command = [sys.executable, str(RUN_TASK), "--label-dir", str(directory), key]
-    return command if node else command + ["--local"]
-
-
 def _run(directory: pathlib.Path, task: dict[str, Any], node: bool) -> dict[str, Any]:
     """Run one task through ``run_task.py`` and return its final row."""
     tasks.write_pass1(directory, [task])
-    status = subprocess.run(_run_task_command(directory, task["key"], node), check=False)
+    status = subprocess.run(
+        plugin.run_task_command(directory, task["key"], local=not node), check=False
+    )
     assert status.returncode == 0, status.returncode
     final, problems = store.final_rows(directory)
     assert not problems, problems
@@ -2221,7 +2217,7 @@ def _parallel(directory: pathlib.Path, name: str, jobs: int, node: bool) -> subp
     command = tasks.parallel_command(
         directory, pathlib.Path(sys.executable), name, jobs, local=not node
     )
-    return subprocess.Popen(command, cwd=ROOT, stdout=subprocess.DEVNULL)
+    return subprocess.Popen(command, cwd=plugin.ROOT, stdout=subprocess.DEVNULL)
 
 
 def _processes_matching(text: str) -> list[str]:
@@ -2313,7 +2309,7 @@ def _node_sh_bundle(root: pathlib.Path, name: str) -> pathlib.Path:
     if experiments_dir.exists():
         return experiments_dir / "node.sh"
     experiments_dir.mkdir(parents=True)
-    shutil.copy(ROOT / "experiments" / "state_prep_certification" / "node.sh", experiments_dir)
+    shutil.copy(plugin.EXPERIMENTS_DIR / "node.sh", experiments_dir)
     pins = {
         "python": {"version": "3.12.7", "standalone_asset": "cpython.tar.gz"},
         "platform": {"min_glibc": "2.17"},

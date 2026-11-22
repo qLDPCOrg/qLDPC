@@ -116,7 +116,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any, NamedTuple, TypeVar
 
-from experiments.state_prep_certification.common import store
+from experiments.state_prep_certification.common import plugin, store
 
 THREAD_VARIABLES = (
     "OMP_NUM_THREADS",
@@ -209,7 +209,7 @@ def run_task(
     """
     command = [
         sys.executable,
-        str(pathlib.Path(__file__).with_name("run_task.py")),
+        str(plugin.RUN_TASK),
         "--child",
         "--label-dir",
         str(label_dir),

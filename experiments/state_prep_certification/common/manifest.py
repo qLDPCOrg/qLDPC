@@ -37,12 +37,10 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import store
+from experiments.state_prep_certification.common import plugin, store
 
-FT_STATE_PREP_DIR = pathlib.Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = FT_STATE_PREP_DIR.parents[1]
-PINS_FILE = FT_STATE_PREP_DIR / "pins.json"
-BUNDLE_RECORD = FT_STATE_PREP_DIR / "bundle.json"
+PINS_FILE = plugin.EXPERIMENTS_DIR / "pins.json"
+BUNDLE_RECORD = plugin.EXPERIMENTS_DIR / "bundle.json"
 
 # The environment variables that the manifest records, with their values: those that can change
 # what a run computes, how fast, or which code it imports.  The values enter manifest.json,
@@ -86,7 +84,7 @@ def harness_commit() -> dict[str, Any]:
             [
                 "git",
                 "-C",
-                str(REPOSITORY_ROOT),
+                str(plugin.ROOT),
                 "diff",
                 "HEAD",
                 "--binary",
@@ -275,7 +273,7 @@ def package_freeze() -> str:
 def _git(*args: str) -> str:
     """The output of a Git command in the repository."""
     return subprocess.run(
-        ["git", "-C", str(REPOSITORY_ROOT), *args], capture_output=True, text=True, check=True
+        ["git", "-C", str(plugin.ROOT), *args], capture_output=True, text=True, check=True
     ).stdout.strip()
 
 

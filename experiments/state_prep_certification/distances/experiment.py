@@ -25,7 +25,6 @@ NAME = "distances"
 EXTRA_WHEELS = ["matplotlib"]
 DATA = ["code_data"]
 FROZEN_FILES = ["config.json", "code_data/endpoints.json", "code_data/sample.json"]
-HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = arms.CONFIG
 JOB_MEM_GIB = float(CONFIG["mem_cap_gib"])
 

@@ -28,9 +28,14 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+import sys
 import types
 
+# The directory of the experiments, the root of the qLDPC tree that holds it, and the script that
+# runs one task
 EXPERIMENTS_DIR = pathlib.Path(__file__).resolve().parents[1]
+ROOT = EXPERIMENTS_DIR.parents[1]
+RUN_TASK = EXPERIMENTS_DIR / "common" / "run_task.py"
 
 # The experiments, by name, and the module of each plug-in.  ``selftest`` is the stand-in plug-in
 # with which ``common/selftest.py`` tests the shared code.
@@ -46,12 +51,21 @@ EXPERIMENTS = sorted(name for name in PLUGINS if name != "selftest")
 
 
 def load_experiment(name: str) -> types.ModuleType:
-    """Import the plug-in of an experiment."""
+    """Import the plug-in of an experiment, and check that its ``NAME`` is ``name``."""
     if name not in PLUGINS:
         raise ValueError(f"Unknown experiment {name!r}; choose one of {sorted(PLUGINS)}")
-    return importlib.import_module(PLUGINS[name])
+    module = importlib.import_module(PLUGINS[name])
+    if module.NAME != name:
+        raise ValueError(f"The plug-in of {name!r} is named {module.NAME!r}")
+    return module
 
 
 def experiment_dir(name: str) -> pathlib.Path:
     """The directory of an experiment."""
     return EXPERIMENTS_DIR / name
+
+
+def run_task_command(label_dir: pathlib.Path, key: str, local: bool) -> list[str]:
+    """The command that runs one task of a label, in local mode if ``local``."""
+    local_option = ["--local"] if local else []
+    return [sys.executable, str(RUN_TASK), "--label-dir", str(label_dir), *local_option, key]

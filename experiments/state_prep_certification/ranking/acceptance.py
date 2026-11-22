@@ -88,7 +88,13 @@ import numpy.typing as npt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from experiments.state_prep_certification.certification import circuits as certification_circuits
-from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
+from experiments.state_prep_certification.common import (
+    acceptance,
+    local_runs,
+    manifest,
+    plugin,
+    store,
+)
 from experiments.state_prep_certification.ranking import analyze, direct, experiment
 from experiments.state_prep_certification.ranking import consumer as ranking_consumer
 from qldpc import circuits
@@ -1139,7 +1145,7 @@ def synthetic_certification_archive(
     manifest.
     """
     commit = subprocess.run(
-        ["git", "-C", str(manifest.REPOSITORY_ROOT), "rev-parse", "HEAD"],
+        ["git", "-C", str(plugin.ROOT), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
         check=True,

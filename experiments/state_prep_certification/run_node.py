@@ -97,10 +97,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from experiments.state_prep_certification.common import manifest, plugin, runner, store, tasks
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_task.py"
-SELFTEST = ROOT / "experiments" / "state_prep_certification" / "common" / "selftest.py"
-DEFAULT_RESULTS = ROOT / "experiments" / "state_prep_certification" / "results"
+SELFTEST = plugin.EXPERIMENTS_DIR / "common" / "selftest.py"
+DEFAULT_RESULTS = plugin.EXPERIMENTS_DIR / "results"
 # GNU parallel's record in a label's active/ directory, beside the runs' records, which task keys
 # name (runner.check_task refuses a task key that starts with "_")
 PARALLEL_RECORD = "_parallel"
@@ -366,7 +364,7 @@ def run_acceptance(
     passed = True
     if node:
         selftest = [sys.executable, str(SELFTEST), "--node"]
-        passed = subprocess.run(selftest, cwd=ROOT, check=False).returncode == 0
+        passed = subprocess.run(selftest, cwd=plugin.ROOT, check=False).returncode == 0
     passed = passed and bool(module.acceptance(node, directory))
     store.write_atomic(
         record,
@@ -543,7 +541,7 @@ def run_parallel(label_dir: pathlib.Path, command: list[str]) -> int:
     it started, but not GNU parallel itself.
     """
     print("+ " + shlex.join(command), flush=True)
-    process = subprocess.Popen(command, cwd=ROOT)
+    process = subprocess.Popen(command, cwd=plugin.ROOT)
     record = label_dir / "active" / PARALLEL_RECORD
     try:
         record.parent.mkdir(exist_ok=True)
@@ -574,8 +572,8 @@ def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, lo
     """Run the tasks of a pass file: one at a time locally, or with GNU parallel."""
     if local:
         for key in keys:
-            command = [sys.executable, str(RUN_TASK), "--label-dir", str(label_dir), "--local", key]
-            if subprocess.run(command, cwd=ROOT, check=False).returncode:
+            command = plugin.run_task_command(label_dir, key, local=True)
+            if subprocess.run(command, cwd=plugin.ROOT, check=False).returncode:
                 sys.exit(f"Task {key} ended without a final row; rerun to resume")
         return
     command = tasks.parallel_command(label_dir, pathlib.Path(sys.executable), name, jobs)

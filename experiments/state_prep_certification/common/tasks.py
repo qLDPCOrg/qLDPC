@@ -38,7 +38,7 @@ import shlex
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import runner, store
+from experiments.state_prep_certification.common import plugin, runner, store
 
 TASKS_FILE = "tasks.json"
 PASS2_TASKS_FILE = "tasks-pass2.json"
@@ -285,8 +285,9 @@ def parallel_command(
     that affinity.  ``local`` serves local tests, whose runs stay in the caller's session.
     """
     label = shlex.quote(str(label_dir))
+    run_task = plugin.RUN_TASK.relative_to(plugin.ROOT).as_posix()
     task_command = (
-        f"{shlex.quote(str(python))} experiments/state_prep_certification/common/run_task.py "
+        f"{shlex.quote(str(python))} {run_task} "
         f'--label-dir {label} --job-slot {{%}} --cpu "$(sed -n {{%}}p {label}/{CORES_FILE})"'
         + (" --local" if local else "")
         + " {}"

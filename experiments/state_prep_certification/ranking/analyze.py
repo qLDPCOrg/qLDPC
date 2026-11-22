@@ -130,7 +130,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from experiments.state_prep_certification.certification import analyze as certification_analyze
 from experiments.state_prep_certification.certification import experiment as certification
-from experiments.state_prep_certification.common import manifest, store
+from experiments.state_prep_certification.common import manifest, plugin, store
 from experiments.state_prep_certification.common import tasks as task_store
 from experiments.state_prep_certification.ranking import direct, experiment
 from qldpc.experimental.circuits.benchmarking import (
@@ -1302,7 +1302,7 @@ def _flatten(candidate: dict[str, Any]) -> dict[str, Any]:
 def _git_show(commit: str, path: str) -> bytes:
     """A file of the repository at a commit; a provenance error if Git cannot show it."""
     shown = subprocess.run(
-        ["git", "-C", str(manifest.REPOSITORY_ROOT), "show", f"{commit}:{path}"],
+        ["git", "-C", str(plugin.ROOT), "show", f"{commit}:{path}"],
         capture_output=True,
         check=False,
     )

@@ -68,12 +68,17 @@ from typing import Any
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
-from experiments.state_prep_certification.common import acceptance, local_runs, store, tasks
+from experiments.state_prep_certification.common import (
+    acceptance,
+    local_runs,
+    plugin,
+    store,
+    tasks,
+)
 from experiments.state_prep_certification.distances import arms, codes, experiment
 from qldpc import codes as qldpc_codes
 from qldpc.codes.distance import _tuning
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
 AT1_CODES = ("bb72", "pp110", "golay", "qr47", "five_five", "surface9")
 EQUAL_SECTORS = ("golay", "qr47")
 LOCAL_LIMIT_S = 60.0
@@ -181,16 +186,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
     fast_task = experiment._task("q_bz_on", fast, 0)
     tasks.write_pass1(label_dir, [slow_task, fast_task])
     processes = [
-        subprocess.Popen(
-            [
-                sys.executable,
-                str(local_runs.RUN_TASK),
-                "--label-dir",
-                str(label_dir),
-                "--local",
-                task["key"],
-            ]
-        )
+        subprocess.Popen(plugin.run_task_command(label_dir, task["key"], local=True))
         for task in (slow_task, fast_task)
     ]
     assert [process.wait() for process in processes] == [0, 0]
@@ -329,7 +325,7 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     shutil.rmtree(directory, ignore_errors=True)
     command = [
         sys.executable,
-        str(ROOT / "experiments" / "state_prep_certification" / "run_node.py"),
+        str(plugin.EXPERIMENTS_DIR / "run_node.py"),
         "distances",
         "--local",
         "--dry-run",

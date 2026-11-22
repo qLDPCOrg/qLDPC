@@ -18,13 +18,10 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
-import sys
 from collections.abc import Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import runner, store, tasks
-
-RUN_TASK = pathlib.Path(__file__).resolve().with_name("run_task.py")
+from experiments.state_prep_certification.common import plugin, runner, store, tasks
 
 
 def run_locally(
@@ -39,14 +36,7 @@ def run_locally(
     label_dir.mkdir(parents=True, exist_ok=True)
     tasks.write_pass1(label_dir, task_list)
     for task in task_list:
-        command = [
-            sys.executable,
-            str(RUN_TASK),
-            "--label-dir",
-            str(label_dir),
-            "--local",
-            task["key"],
-        ]
+        command = plugin.run_task_command(label_dir, task["key"], local=True)
         with subprocess.Popen(command) as process:
             try:
                 returncode = process.wait()

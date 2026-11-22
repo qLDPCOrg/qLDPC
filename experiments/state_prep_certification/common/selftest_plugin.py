@@ -147,7 +147,7 @@ def _measured(steps: list[tuple[Any, ...]]) -> Any:
         elif step[0] == "value":
             value = step[1]
         elif step[0] == "garbage":
-            os.write(int(os.environ["FTSP_CHANNEL_FD"]), b"not a message\n")
+            os.write(int(os.environ[runner._CHANNEL_VARIABLE]), b"not a message\n")
             time.sleep(step[1])
         elif step[0] == "compile":
             _compile(step[1])
