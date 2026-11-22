@@ -60,8 +60,15 @@
   of these rows, and the name of the refused environment variable that a start, here a dry run,
   accepted with ``--allow-env``.  ``analyze.py`` warns of a label whose hash does not match its
   ``circuits.json``, the working tree's other frozen files, and the commit and requirements of its
-  manifest, and of no other.  Every case of the combined margin of ``analyze_applications.py`` gives
-  its value, its bound, or a disagreement, and a margin of at most t keeps its sector.  A margin or
+  manifest, and of no other.  Each kind of contradiction that ``analyze.check_consistency`` lists
+  makes its circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, a finished
+  shadow run, a repeat, a deletion parent, the final m* of a deletion task with no accepted
+  deletion, the ground truth, the baseline, or a violation recorded by an unfinished certification,
+  against another exact result; a final circuit whose m* is at most t; the ground truth's heavy
+  mechanisms against h; and a counterexample's residual weight against its fault weight or lower
+  bound.  A circuit whose claims of every kind agree gets their m*.  Every case of the combined
+  margin of ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin
+  of at most t keeps its sector.  A margin or
   a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
   makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
   so also when its verdict is only in the partial results of a killed task.  The margin counts of
@@ -741,6 +748,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     others = acceptance.check_marked(label_dir / "analysis", marks)
     assert not others, others  # no deletion run, so no circuit in pruned/
 
+    _check_consistency()
     _check_application_analysis(directory / "applications")
     print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")
 
@@ -1178,12 +1186,148 @@ class _ShiftedShadow(instrument.Instrumentation):
     shadow_search = _ShiftedSearch
 
 
+def _check_consistency() -> None:
+    """Each class of contradiction between exact results makes a disagreement (part of AT8)."""
+    calls = {"calls": 1}
+    certified: dict[str, Any] = {"certified": True, "violation_weight": None, "K": 3, "batches": {}}
+    certified |= {"zero_flag_checks": calls, "classification": calls}
+
+    def violating(weight: int, **description: Any) -> dict[str, Any]:
+        return certified | {"certified": False, "violation_weight": weight} | description
+
+    def parent(**final: Any) -> dict[str, Any]:
+        return {"parent_certified": True, "parent_violation_weight": None} | final
+
+    accepted_step = {"step": 0, "qubit": 1, "outcome": "accepted"}
+    rejected_step = {"step": 0, "qubit": 1, "outcome": "violation", "violation_weight": 1}
+    disagreement = "ShadowDisagreement: batch at threshold 2 of 30 rows: BZ first failing row 3"
+
+    # one circuit per class with t = 2, K = 3, and r + 1 > K, so that certification at K gives
+    # m* > K, as {arm: [(status, result, partial, error), one per run]}, and a consistent one last
+    cases: list[dict[str, list[tuple[str, Any, Any, Any]]]] = [
+        # a shadow run that ended in ShadowDisagreement
+        {"cert_bz": [("ok", certified, [], None)], "shadow": [("error", {}, [], disagreement)]},
+        # a finished shadow run against cert_bz
+        {"cert_bz": [("ok", violating(3), [], None)], "shadow": [("ok", certified, [], None)]},
+        # a repeat against its first run
+        {"cert_bz": [("ok", result, [], None) for result in (certified, violating(2), certified)]},
+        # a deletion parent's violation at K = t against cert_cc, where cert_bz did not finish
+        {
+            "cert_bz": [("timeout", {}, [], None)],
+            "cert_cc": [("ok", certified, [], None)],
+            "prune": [
+                ("timeout", {}, [parent(parent_certified=False, parent_violation_weight=2)], None)
+            ],
+        },
+        # a final circuit whose m* is at most t, which CC certifies at t
+        {
+            "cert_bz": [("ok", certified, [], None)],
+            "prune": [
+                (
+                    "ok",
+                    parent(
+                        steps=[accepted_step], final_certified_cc=True, final_margin={"margin": 2}
+                    ),
+                    [],
+                    None,
+                )
+            ],
+        },
+        # the final m* of a task that accepted no deletion, against the circuit's m*
+        {
+            "cert_bz": [("ok", violating(3), [], None)],
+            "prune": [
+                (
+                    "ok",
+                    parent(
+                        steps=[rejected_step], final_certified_cc=True, final_margin={"margin": 4}
+                    ),
+                    [],
+                    None,
+                )
+            ],
+        },
+        # the ground truth against a finished margin
+        {
+            "margin": [("ok", {"margin": 4}, [], None)],
+            "ground_truth": [("ok", {"smallest_violation": 3}, [], None)],
+        },
+        # the ground truth against the baseline, where no certification finished
+        {
+            "cert_bz": [("timeout", {}, [], None)],
+            "brute_bz": [("ok", certified, [], None)],
+            "ground_truth": [("ok", {"smallest_violation": 3}, [], None)],
+        },
+        # a violation that an unfinished certification recorded, against a finished one
+        {
+            "cert_bz": [("ok", certified, [], None)],
+            "cert_cc": [("timeout", {}, [{"m": 2, "violation": True}], None)],
+        },
+        # the ground truth's heavy mechanisms against h of the listing
+        {
+            "ground_truth": [("ok", {"smallest_violation": None, "heavy": [True, True]}, [], None)],
+            "count_listing": [("ok", {"h": 1}, [], None)],
+        },
+        # counterexamples whose residual weight does not exceed the fault weight, or is below
+        # the certifier's lower bound
+        {"cert_bz": [("ok", violating(3, residual_exceeds_fault_weight=False), [], None)]},
+        {
+            "cert_bz": [
+                ("ok", violating(3, residual_weight=4, residual_weight_lower_bound=5), [], None)
+            ]
+        },
+        # every kind of claim, consistent: m* = 4
+        {
+            "cert_bz": [("ok", certified, [], None)] * 3,
+            "cert_cc": [("timeout", {}, [{"m": 2, "violation": False}], None)],
+            "shadow": [("ok", certified, [], None)],
+            "brute_bz": [("ok", certified, [], None)],
+            "ground_truth": [
+                ("ok", {"smallest_violation": None, "heavy": [True, False]}, [], None)
+            ],
+            "count_listing": [("ok", {"h": 1}, [], None)],
+            "margin": [("ok", {"margin": 4}, [], None)],
+            "prune": [
+                (
+                    "ok",
+                    parent(
+                        steps=[rejected_step], final_certified_cc=True, final_margin={"margin": 4}
+                    ),
+                    [],
+                    None,
+                )
+            ],
+        },
+    ]
+    entries = {}
+    rows = []
+    for width, arms in enumerate(cases, start=10):
+        entry = experiment._entry(f"bcat.w{width}.t2")
+        assert entry["r"] + 1 > entry["options"]["max_weight"] == 3, entry
+        entries[entry["id"]] = entry
+        for arm, runs in arms.items():
+            for repeat, (status, result, partial, error) in enumerate(runs):
+                task = experiment._task(arm, entry, repeat, experiment._limit(arm))
+                rows.append(
+                    {"task_key": task["key"], "arm": arm, "repeat": repeat, "post_status": None}
+                    | {"status": status, "result": result, "partial": partial, "error": error}
+                    | {"T": 1.0, "peak_rss_gib": 0.5}
+                )
+    summary, _ = analyze.summarize(analyze.collect(rows, entries))
+    verdicts = {row["id"]: row["verdict"] for row in summary}
+    *contradicting, consistent = entries
+    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 12, verdicts
+    (row,) = [row for row in summary if row["id"] == consistent]
+    assert row["verdict"] == "certified" and row["margin"] == 4, row
+    assert row["contradictions"] is None, row
+
+
 def _check_application_analysis(directory: pathlib.Path) -> None:
     """The combined margin, and the deletion outputs, on synthetic rows (part of AT8)."""
     import stim
 
     def run(status: str, result: dict[str, Any] | None = None, partial: Any = None) -> Any:
-        return {"status": status, "result": result or {}, "partial": partial or []}
+        return {"status": status, "repeat": 0, "result": result or {}, "partial": partial or []}
 
     def bz(weight: int | None) -> dict[str, Any]:
         return run("ok", {"certified": weight is None, "violation_weight": weight, "K": 3})
@@ -1209,7 +1353,10 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     ]
     for bz_run, cc_run, margin_rows, r, expected in cases:
         circuit = {"t": 2, "r": r, "options": {"max_weight": 3}}
-        fields = analyze_applications.margin_fields(circuit, bz_run, cc_run, margin_rows)
+        arms = {"cert_bz": [bz_run], "cert_cc": [cc_run], "margin": margin_rows or []}
+        arms = {arm: rows for arm, rows in arms.items() if rows and rows[0] is not not_run}
+        claims = analyze_applications.margin_claims(circuit, arms)
+        fields = analyze_applications.margin_fields(arms, claims)
         if expected == "disagreement":
             assert fields["agree_margin"] is False and fields["margin"] is None, fields
         elif isinstance(expected, str) and expected.startswith(">"):

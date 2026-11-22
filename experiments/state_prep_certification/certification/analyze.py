@@ -32,16 +32,17 @@ An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
 because it compiled.  A circuit's verdict is that of ``cert_bz``, or of ``cert_cc`` where
 ``cert_bz`` did not finish.  Where neither finished, it is ``undecided``, or ``timeout_compiled`` if
-either arm's status is ``timeout_compiled``.  It is a disagreement where both finish with different
-verdicts, or where the baseline or the ground truth disagrees (``agree_baseline`` or
-``agree_ground_truth`` is false).  A disagreement enters no count of verdicts and no median,
-maximum, or ratio of ``families.csv``, nor ``listing_table.csv`` or the example counterexamples.
-The status counts and agreements count it.  T of a certification arm is the median of its first
-run and repeats.  Its timing is incomplete if the first run did not finish, if a repeat that the
-first run calls for did not finish or is missing, or if the row of any of its runs has
-``compiled_in_timing`` set; an incomplete timing enters no median or maximum.  The same holds for
-the brute-force baseline ``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its
-per-weight times are left empty.
+either arm's status is ``timeout_compiled``.  It is a disagreement where any two of its exact
+results contradict each other, as ``check_consistency`` lists: its verdicts, smallest violating
+weights, and margins from every run, repeats included, its counts, and its counterexamples.  The
+column ``contradictions`` of summary.csv names them.  A disagreement enters no count of verdicts
+or margins and no median, maximum, or ratio of ``families.csv``, nor ``listing_table.csv``,
+``deletion_table.csv``, or the example counterexamples.  The status counts and agreements count
+it.  T of a certification arm is the median of its first run and repeats.  Its timing is
+incomplete if the first run did not finish, if a repeat that the first run calls for did not finish
+or is missing, or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete
+timing enters no median or maximum.  The same holds for the brute-force baseline ``brute_bz``.  If
+an arm's first run has ``compiled_in_timing`` set, its per-weight times are left empty.
 
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
@@ -90,7 +91,8 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   post-processing status of each certification's first run, ``repeats_not_ok`` (the repeats that
   did not finish or are missing, and the runs whose rows have ``compiled_in_timing`` set), the
   oracle rows of ``cert_bz`` (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz``
-  (every row queried), and the agreements.  The counts of a ``count_listing`` run that did not
+  (every row queried), the agreements, and the ``contradictions`` that make the circuit a
+  disagreement.  The counts of a ``count_listing`` run that did not
   finish are those of its partial results: q, q_h, and h, and Pi, E, and Phi of the weights that it
   completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m), Pi_(m-1),
@@ -113,8 +115,7 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   and its agreement in ``summary.csv`` (``margin``, ``margin_lower_bound``, ``agree_margin``, and
   the sector of its counterexample), with ``agree_prune`` for its deletion tasks; the margin counts
   of ``families.csv``; and ``margin_violations.csv``, ``deletion.csv``, ``deletion_table.csv``,
-  ``deletion_tasks.csv``, ``deletion_notes.json``, and ``pruned/``.  A disagreement of the margins
-  or the deletions makes the circuit a disagreement.
+  ``deletion_tasks.csv``, ``deletion_notes.json``, and ``pruned/``.
 * ``counterexamples.json``: every counterexample (``all``), with ``disagreement`` true where its
   circuit is a disagreement, and up to three example counterexamples (``examples``), one for each
   group that has one, chosen by a fixed rule: in each of the groups A-unv with the weakened variants
@@ -478,11 +479,10 @@ def summarize(
         agree_ground_truth = _agree_ground_truth(
             arms.get("ground_truth"), finished, listing, accepted
         )
-        margin = analyze_applications.margin_fields(circuit, bz, cc, arms.get("margin"))
-        agree_prune = analyze_applications.agree_prune(bz, arms)
-        circuit_verdict = _circuit_verdict(bz, cc)
-        if False in (agree_baseline, agree_ground_truth, margin["agree_margin"], agree_prune):
-            circuit_verdict = "disagreement"
+        claims, contradictions = check_consistency(circuit, arms, listing, accepted)
+        margin = analyze_applications.margin_fields(arms, claims)
+        agree_prune = analyze_applications.agree_prune(bz, cc, arms)
+        circuit_verdict = "disagreement" if contradictions else _circuit_verdict(bz, cc)
         summary_rows.append(
             {
                 "id": circuit_id,
@@ -536,6 +536,7 @@ def summarize(
                 ),
                 **margin,
                 "agree_prune": agree_prune,
+                "contradictions": "; ".join(contradictions) or None,
             }
         )
         weight_rows += _per_weight(circuit_id, circuit, bz, cc, brute, listing, accepted)
@@ -654,10 +655,11 @@ def _run_verdict(run: dict[str, Any]) -> str:
 
 
 def _circuit_verdict(bz: dict[str, Any], cc: dict[str, Any]) -> str:
-    """BZ's verdict, or CC's where BZ did not finish; 'disagreement' or 'undecided' otherwise.
+    """BZ's verdict, or CC's where BZ did not finish; 'undecided' if neither finished.
 
     A circuit that neither arm finished is 'timeout_compiled', not 'undecided', if either arm's
-    status is ``timeout_compiled`` (see the module docstring).
+    status is ``timeout_compiled`` (see the module docstring).  Whether the verdicts contradict
+    each other is for ``check_consistency``.
     """
     verdicts = [verdict(run["result"]) for run in (bz, cc) if run["status"] == "ok"]
     if not verdicts:
@@ -666,7 +668,7 @@ def _circuit_verdict(bz: dict[str, Any], cc: dict[str, Any]) -> str:
             if "timeout_compiled" in (bz["status"], cc["status"])
             else "undecided"
         )
-    return "disagreement" if len(set(verdicts)) > 1 else verdicts[0]
+    return verdicts[0]
 
 
 def _agree(first: dict[str, Any], second: dict[str, Any]) -> bool | None:
@@ -933,6 +935,80 @@ def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> pathlib.Path:
         writer.writeheader()
         writer.writerows(rows)
     return path
+
+
+####################################################################################################
+# consistency of exact results
+
+
+def check_consistency(
+    circuit: dict[str, Any],
+    arms: dict[str, list[dict[str, Any]]],
+    listing: dict[str, Any],
+    accepted: dict[str, Any],
+) -> tuple[dict[str, analyze_applications.Claim], list[str]]:
+    """Every exact claim of a circuit's runs, and every contradiction between them.
+
+    ``listing`` and ``accepted`` are the counts of ``count_listing`` and ``count_accepted``
+    (``listing_result``, ``_first_result``).  The claims on the circuit's m* are those of
+    ``analyze_applications.margin_claims``, which this returns: of every run of ``cert_bz``,
+    ``cert_cc``, ``shadow``, ``brute_bz``, ``margin``, and ``ground_truth``, by its result and the
+    fault weights that it completed or found a violation at, of each deletion task's parent at
+    K = t, and of the final m* of a deletion task that accepted no deletion.  These are the
+    contradictions, each a disagreement:
+
+    * two claims on m* that conflict (``analyze_applications.combine_claims``), such as verdicts or
+      smallest violating weights that differ between runs, repeats included, or a violation at a
+      fault weight that another run completed;
+    * a ``shadow`` run that ended in ``ShadowDisagreement``, by its row's error;
+    * the combinations that ``brute_bz`` enumerated on a completed weight, against A_m;
+    * the ground truth's Pi, E, Phi, and A against the counters' on the weights of both, and its
+      number of heavy mechanisms against h of ``count_listing``;
+    * a counterexample whose exact residual weight does not exceed its fault weight, or is below
+      the certifier's lower bound on it;
+    * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose final
+      m* is at most t (``analyze_applications.final_contradictions``).
+    """
+    from experiments.state_prep_certification.certification import applications
+
+    claims = analyze_applications.margin_claims(circuit, arms)
+    contradictions = analyze_applications.combine_claims(claims)[2]
+
+    # the shadow oracle's disagreements, which end their runs
+    for row in arms.get("shadow") or []:
+        if row["status"] == "error" and "ShadowDisagreement" in (row.get("error") or ""):
+            contradictions.append(
+                f"shadow.r{row['repeat']}: BZ and CC answered a query differently"
+            )
+
+    # the counts of the baseline and the ground truth
+    if _baseline_counts_match(summarize_certification(arms.get("brute_bz")), accepted) is False:
+        contradictions.append("brute_bz: combinations against A_m")
+    if _ground_truth_counts_match(arms.get("ground_truth"), listing, accepted) is False:
+        contradictions.append("ground_truth: counts against count_listing or count_accepted")
+    heavy = (_ground_truth(arms.get("ground_truth")) or {}).get("heavy")
+    if heavy is not None and listing.get("h") is not None and sum(heavy) != listing["h"]:
+        contradictions.append("ground_truth: heavy mechanisms against h of count_listing")
+
+    # each counterexample's exact residual weight
+    described = [
+        (f"{arm}.r{row['repeat']}", row.get("result") or {})
+        for arm in ("cert_bz", "cert_cc", "margin")
+        for row in arms.get(arm) or []
+    ]
+    described += [
+        (f"{arm} final", (row.get("result") or {}).get("final_margin") or {})
+        for arm in applications.PRUNE_ORDERS
+        for row in arms.get(arm) or []
+    ]
+    for source, result in described:
+        exact, bound = result.get("residual_weight"), result.get("residual_weight_lower_bound")
+        if result.get("residual_exceeds_fault_weight") is False:
+            contradictions.append(f"{source}: residual weight does not exceed the fault weight")
+        elif exact is not None and bound is not None and exact < bound:
+            contradictions.append(f"{source}: residual weight below its lower bound")
+
+    return claims, contradictions + analyze_applications.final_contradictions(circuit, arms)
 
 
 ####################################################################################################
