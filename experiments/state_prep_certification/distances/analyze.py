@@ -175,7 +175,15 @@ def summarize(
         sample: The run's copy of the sample (``load_sample``).
         label_tasks: Every task of the label by key, as ``tasks.load_tasks`` gives them.  Each row's
             code is the input of its task, and an arm whose first run has no final row is missing.
+
+    Raises:
+        ValueError: If a row's key is not the key of a task, or a code is not in ``sample``.
     """
+    unknown_keys = sorted({row["task_key"] for row in rows} - label_tasks.keys())
+    if unknown_keys:
+        raise ValueError(
+            f"{len(unknown_keys)} rows have no task in tasks.json, such as {unknown_keys[0]}"
+        )
     grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = {}
     for task in label_tasks.values():
         code_hash = task["input"]["code_hash"][:12]

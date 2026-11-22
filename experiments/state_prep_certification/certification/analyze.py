@@ -390,8 +390,14 @@ def collect(
     ``tasks`` holds every task of the label by key, as ``tasks.load_tasks`` gives them, and each
     row's circuit is the input of its task.  Each task without a row gets a row of status
     ``missing``, with a printed note.
+
+    Raises:
+        ValueError: If a row's key is not the key of a task.
     """
     present = {row["task_key"] for row in rows}
+    unknown = sorted(present - tasks.keys())
+    if unknown:
+        raise ValueError(f"{len(unknown)} rows have no task in tasks.json, such as {unknown[0]}")
     missing = [task for key, task in sorted(tasks.items()) if key not in present]
     if missing:
         keys = [task["key"] for task in missing]

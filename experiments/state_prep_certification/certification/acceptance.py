@@ -532,8 +532,9 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     ``count_accepted`` or else of the ground truth.  So does a baseline stopped after a violation at
     weight m against a finished certification whose smallest violation is not at m.  With no
     finished certification, a baseline whose only record is a violation within A_m leaves
-    ``agree_baseline`` unknown.  An expected task without a row is reported as ``missing``.  The
-    task keys are opaque, so that each row's circuit comes from its task's input.
+    ``agree_baseline`` unknown.  An expected task without a row is reported as ``missing``, and a
+    row without a task is an error.  The task keys are opaque, so that each row's circuit comes from
+    its task's input.
 
     Rows with ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and
     times that ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of
@@ -801,8 +802,10 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     else:
         raise AssertionError("a calls file with a malformed line before its last was read")
 
-    # the missing task
+    # the missing task, and a row without a task
     assert summary[fourth["id"]]["status_cert_cc"] == "missing", summary[fourth["id"]]
+    unknown = dict(rows[0], task_key="unknown")
+    acceptance.raises(ValueError, lambda: analyze.collect([unknown], by_id, expected))
 
     # the fifth circuit's flagged timeouts and the sixth's plain ones (see analyze.py's docstring)
     row = summary[fifth["id"]]

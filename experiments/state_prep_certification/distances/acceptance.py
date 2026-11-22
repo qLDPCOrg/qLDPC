@@ -406,7 +406,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     with the number of these ratios, and how many of them are lower bounds and how many upper
     bounds.  Its rows with ``compiled_in_timing`` set are first runs and repeats, some of them on
     codes that disagree or fail.  The task keys are opaque, so that each row's code comes from
-    its task's input.  ``load_sample`` refuses a label directory without a copy of the sample.
+    its task's input, and a row without a task is an error.  ``load_sample`` refuses a label
+    directory without a copy of the sample.
     """
     from experiments.state_prep_certification.distances import analyze
 
@@ -622,7 +623,10 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         ]
     assert (row["status"], row["T"]) == ("median_timed_out", ""), row
 
-    # a label directory without a copy of the sample is refused
+    # a row without a task is an error, and a label directory without a copy of the sample is
+    # refused
+    unknown = dict(rows[0], task_key="unknown")
+    acceptance.raises(ValueError, lambda: analyze.summarize([unknown], sample, label_tasks))
     acceptance.raises(ValueError, lambda: analyze.load_sample(directory))
 
 
