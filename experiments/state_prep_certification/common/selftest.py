@@ -1392,6 +1392,68 @@ def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_acceptance_limit(directory: pathlib.Path, node: bool) -> None:
+    """A test past its suite's limit fails, the next test still runs, and no timer stays armed."""
+    suite = acceptance.Suite("spc-limit-", limit_s=0.5)
+    ran = []
+
+    @suite.test
+    def at1_slow(test_dir: pathlib.Path, node: bool) -> None:
+        time.sleep(10)
+        ran.append(test_dir.name)
+
+    @suite.test
+    def at2_quick(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+
+    previous = signal.getsignal(signal.SIGALRM)
+    start = time.monotonic()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            assert not suite.run_all(node=node, results_dir=directory)
+        assert time.monotonic() - start < 5, "the slow test was not stopped"
+        assert ran == ["AT2"], ran
+        assert "FAIL AT1" in output.getvalue() and "PASS AT2" in output.getvalue(), output
+        assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0), "a timer stayed armed"
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous if previous is not None else signal.SIG_DFL)
+
+
+@test
+def test_acceptance_selection(directory: pathlib.Path, node: bool) -> None:
+    """Each experiment's plug-in runs its suite's node tests on the node, and every test off it.
+
+    The suite's tests are replaced by stand-ins that record their IDs; the IDs, the plug-in's
+    ``acceptance``, and the shared runner's selection are the experiment's own.  ``--only`` runs
+    only the tests that it names.
+    """
+    import importlib
+
+    from experiments.state_prep_certification.common import plugin
+
+    ran: list[str] = []
+    for name in plugin.EXPERIMENTS:
+        module = plugin.load_experiment(name)
+        tests_module = importlib.import_module(module.__name__.rsplit(".", 1)[0] + ".acceptance")
+        suite = tests_module.SUITE
+        ids = list(suite.tests)
+        node_ids = [test_id for test_id in ids if test_id in (suite.node_tests or ids)]
+        assert node_ids and set(node_ids) == set(suite.node_tests or ids), (name, ids, node_ids)
+        stand_ins = {
+            test_id: lambda test_dir, node, test_id=test_id: ran.append(test_id) for test_id in ids
+        }
+        with _patched(suite, "tests", stand_ins), contextlib.redirect_stdout(io.StringIO()):
+            for on_node, expected in ((True, node_ids), (False, ids)):
+                ran.clear()
+                assert module.acceptance(on_node, directory / name / str(on_node))
+                assert ran == expected, (name, on_node, ran)
+            ran.clear()
+            assert suite.run_all(node=False, results_dir=directory / name, only=ids[-1:])
+            assert ran == ids[-1:], (name, ran)
+
+
+@test
 def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
     """Each start records its environment in ``starts.jsonl``; ``manifest.json`` keeps the first's.
 
