@@ -1135,25 +1135,36 @@ def test_run_node_missing_row(directory: pathlib.Path, node: bool) -> None:
     """A pass after which a task has no final row stops, names the rerun command, and reruns none.
 
     GNU parallel never reruns a task whose runner exited with status 0, as for a row damaged after
-    it was written.
+    it was written.  On the node, the command pins the runner to the reserved CPUs and the child to
+    the first slot's CPU, and keeps the numba cache.
     """
     run_node = _run_node_module()
     task_list = [_task("kept", []), _task("lost", [])]
     tasks.write_pass1(directory, task_list)
+    tasks.write_cores(directory, [5, 9])
     for task in task_list:
         store.append_row(directory, {"task_key": task["key"], "run_id": task["key"]})
     runs = directory / store.RUNS_FILE
     runs.write_text(runs.read_text().replace('"task_key":"lost"', '"task_key":lost'))
     passes: list[str] = []
-    with _patched(run_node, "_run_keys", lambda *args: passes.append(args[1])):
-        try:
-            run_node.run_pass(directory, "1", 1, local=True)
-        except SystemExit as error:
-            message = str(error.code)
-        else:
-            raise AssertionError("a pass with a lost row passed")
-    assert passes == ["1"], passes
-    assert "such as lost;" in message and "run_task.py" in message, message
+    messages = []
+    with (
+        _patched(run_node, "_run_keys", lambda *args: passes.append(args[1])),
+        _environment("NUMBA_CACHE_DIR", "/numba-cache"),
+    ):
+        for local in (True, False):
+            try:
+                run_node.run_pass(directory, "1", 1, local=local, runner_cpus=[0, 1])
+            except SystemExit as error:
+                messages.append(str(error.code))
+            else:
+                raise AssertionError("a pass with a lost row passed")
+    assert passes == ["1", "1"], passes
+    local_message, node_message = messages
+    assert "such as lost;" in local_message and "run_task.py" in local_message, local_message
+    assert "taskset" not in local_message, local_message
+    expected = "taskset -c 0,1 env NUMBA_CACHE_DIR=/numba-cache "
+    assert expected in node_message and "--cpu 5 lost" in node_message, node_message
 
 
 @test

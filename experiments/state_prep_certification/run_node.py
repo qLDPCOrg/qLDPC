@@ -27,7 +27,7 @@ experiment (``common/manifest.py``), it
 6. runs pass 1 with GNU parallel, one task per job slot, whose child process pins itself to its
    slot's CPU, then the repeats of pass 2; while GNU parallel runs, ``active/_parallel`` records
    it, and after each pass, the script stops if a task of the pass has no final row, and prints
-   the command that reruns it;
+   the command that reruns it, with its runner and child pinned as GNU parallel's are;
 7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz``: the one file to copy back.
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
@@ -177,10 +177,10 @@ def main() -> None:
         return
 
     # 6. the passes
-    run_pass(label_dir, "1", jobs, args.local)
+    run_pass(label_dir, "1", jobs, args.local, reserved)
     final, _ = store.final_rows(label_dir)
     tasks.write_pass2(label_dir, final, module.repeat_tasks)
-    run_pass(label_dir, "2", jobs, args.local)
+    run_pass(label_dir, "2", jobs, args.local, reserved)
     final, problems = store.final_rows(label_dir)
     if reserved:
         problems += [
@@ -355,12 +355,21 @@ def _unfrozen_bundle() -> bool:
 # passes
 
 
-def run_pass(label_dir: pathlib.Path, name: str, jobs: int, local: bool) -> None:
+def run_pass(
+    label_dir: pathlib.Path,
+    name: str,
+    jobs: int,
+    local: bool,
+    runner_cpus: Sequence[int] = (),
+) -> None:
     """Run one pass, and stop if a task of the pass has no final row after it.
 
     ``run_task.py`` exits with status 0 only once a task has a final row, and GNU parallel's
     ``--resume-failed`` never reruns a task that exited with status 0.  So a task without a row
     after the pass has lost it, such as to a damaged ``runs.jsonl``, and needs a rerun by hand.
+    The printed command runs it as GNU parallel would on the node: its runner on the reserved CPUs
+    ``runner_cpus`` (by ``taskset``), its child on the CPU of the first job slot, and with this
+    start's numba cache, if ``NUMBA_CACHE_DIR`` is set.
     """
     keys = tasks.pass_keys(label_dir, name)
     _run_keys(label_dir, name, keys, jobs, local)
@@ -372,11 +381,21 @@ def run_pass(label_dir: pathlib.Path, name: str, jobs: int, local: bool) -> None
             command.append("--local")
         else:
             command += ["--cpu", (label_dir / tasks.CORES_FILE).read_text().split()[0]]
+        if "NUMBA_CACHE_DIR" in os.environ:
+            command = ["env", f"NUMBA_CACHE_DIR={os.environ['NUMBA_CACHE_DIR']}"] + command
+        if runner_cpus and not local:
+            command = ["taskset", "-c", ",".join(str(cpu) for cpu in runner_cpus)] + command
+        pinned = (
+            ""
+            if local
+            else ", which pins the task's runner to the reserved CPUs and its child to the first "
+            "job slot's CPU, as GNU parallel's runs are pinned"
+        )
         sys.exit(
             f"{len(missing)} tasks of pass {name} ended without a readable final row, such as "
-            f"{', '.join(missing[:3])}; see the notes of --status.  Rerun each with\n  "
-            + shlex.join(command + [missing[0]])
-            + "\nthen run this command again."
+            f"{', '.join(missing[:3])}; see the notes of --status.  Rerun each with this "
+            f"command{pinned}:\n  " + shlex.join(command + [missing[0]]) + "\nthen run this "
+            "command again."
         )
 
 
