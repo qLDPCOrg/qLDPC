@@ -34,18 +34,20 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
   m* where the first run of ``cert_bz``, ``cert_cc``, or ``margin`` described one; an empty field
   says nothing about a counterexample, as where m* comes from a deletion parent or a stopped run.
 * ``deletion.csv``: every step of every deletion task, with its outcome.
-* ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every deletion task that
-  reached its final checks, with whether its circuit is a disagreement.
-* ``deletion_table.csv``: one row per deletion task that reached its final checks, finished or
-  killed during the search of its final m*, on a circuit without a disagreement, in the order of
-  circuit ids: the task's status, the family, with the MQT QECC release of a synthesized circuit,
-  gate counts (encoder and verification), measured qubits, measurements, and acceptance
-  probabilities of parent and final circuit, the final m*, or else the lower bound m* > k, for k
-  the largest of t and the fault weights that its search completed, and the deletions attempted
-  and accepted.
+* ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every deletion task whose final
+  checks record the final circuit and its SHA-256, with whether its circuit is a disagreement.
+* ``deletion_table.csv``: one row per deletion task whose final checks record the final circuit and
+  its SHA-256, finished or killed during the search of its final m*, on a circuit without a
+  disagreement, in the order of circuit ids: the task's status, the family, with the MQT QECC
+  release of a synthesized circuit, gate counts (encoder and verification), measured qubits,
+  measurements, and acceptance probabilities of parent and final circuit, the final m*, or else the
+  lower bound m* > k, for k the largest of t and the fault weights that its search completed, and
+  the deletions attempted and accepted.  A task killed during that search gives the final m* "all"
+  where it accepted no deletion and its search completed the parent's cutoff r + 1.
 * ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the other
-  tasks without a row of ``deletion_table.csv``, with the number of their completed steps and any
-  final checks, the disagreements, and the final circuits whose rebuild does not match.
+  tasks without a row of ``deletion_table.csv``, such as those whose final checks do not record the
+  final circuit, with the number of their completed steps and any final checks, the disagreements,
+  and the final circuits whose rebuild does not match.
 * ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.  The analysis deletes
   ``pruned/`` with everything in it before it writes them, so that it holds only these circuits.
 """
@@ -530,7 +532,7 @@ def _table_row(
     run: dict[str, Any],
     rebuilt: bool | None,
 ) -> dict[str, Any]:
-    """The row of deletion_table.csv of one deletion task that reached its final checks.
+    """The row of deletion_table.csv of a deletion task whose final checks record its final circuit.
 
     Where the claim on the final m* (``final_claim``) does not determine it, as when its search did
     not finish, ``final_margin_lower_bound`` is the largest fault weight k that the search
