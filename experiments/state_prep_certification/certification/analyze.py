@@ -82,14 +82,10 @@ of ``--label-dir``):
     (``distinct_seconds``; see ``baseline.py``), which raises the ratio in the certifier's favor;
   - ``max_rss_gib``: the largest peak memory of a run of ``cert_bz`` or ``cert_cc``, of any
     status, as each ``rss_*`` of summary.csv is (see ``summarize_certification``);
-  - ``agreement_bz_cc`` (verdicts), ``agreement_baseline`` (the verdict and smallest violating
-    weight of a finished ``brute_bz`` against those of each finished certification, and, finished or
-    not, its enumerated combinations against A_m of ``count_accepted``, or of the ground truth where
-    ``count_accepted`` did not compute it, which they must equal on each weight that it completed
-    and not exceed on one where it found a violation), and ``agreement_ground_truth`` (the smallest
-    violating weight of ``ground_truth`` against that of every finished certification, and its Pi,
-    E, Phi, and A against those of ``count_listing`` and ``count_accepted`` on the weights that both
-    completed).
+  - ``agreement_bz_cc``, ``agreement_baseline``, and ``agreement_ground_truth``: the circuits whose
+    ``agree_bz_cc``, ``agree_baseline``, or ``agree_ground_truth`` of summary.csv is true, of those
+    where it is known.  These compare first runs only, as summary.csv says; ``disagreements`` counts
+    the circuits with a contradiction between any of their runs.
 
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
   the brute-force cap, the verdicts, T, timing completeness, and peak memory of both certification
@@ -97,9 +93,25 @@ of ``--label-dir``):
   of each certification's first run, ``repeats_not_ok`` (the repeats that did not finish or are
   missing, and the runs whose rows have ``compiled_in_timing`` set), the oracle rows of ``cert_bz``
   (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz`` (every row queried), the
-  agreements, and the ``contradictions`` that make the circuit a disagreement.  The counts of a
-  ``count_listing`` run that did not finish are those of its partial results: q, q_h, and h, and Pi,
-  E, and Phi of the weights that it completed.
+  agreements, and the ``contradictions`` that make the circuit a disagreement.  The agreements
+  compare first runs only.  ``agree_bz_cc`` compares the verdicts of the first runs of ``cert_bz``
+  and ``cert_cc`` where both finished.  ``baseline_counts_match`` compares the combinations that the
+  first run of ``brute_bz`` enumerated, whether it finished or stopped, with A_m of
+  ``count_accepted``, or of the ground truth where ``count_accepted`` did not compute it: they must
+  be equal on each weight that it completed, and at most A_m on one where it found a violation.
+  ``agree_baseline`` is false where they do not match.  Otherwise it compares that first run, if it
+  finished, with each certification whose first run finished, by verdict and smallest violating
+  weight, or else the violations and completed weights that the first run recorded before it
+  stopped.  ``agree_ground_truth`` compares the smallest violating weight of the ground truth's
+  result, which a ``timeout`` or ``memout`` row can keep, with that of each certification whose
+  first run finished, and its Pi, E, Phi, and A with those of ``count_listing`` and
+  ``count_accepted`` on the weights of both.  ``agree_prune`` compares the first run of each
+  deletion task (``analyze_applications.agree_prune``).  The column ``contradictions`` and the
+  verdict ``disagreement`` cover every run instead: repeats, the results that ``timeout`` and
+  ``memout`` rows kept, and the ``shadow`` run; ``agree_margin`` covers the claims on m* of every
+  run.  So a circuit can agree on its first runs and still be a disagreement, and ``contradictions``
+  says why.  The counts of a ``count_listing`` run that did not finish are those of its partial
+  results: q, q_h, and h, and Pi, E, and Phi of the weights that it completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m of ``count_accepted``,
   C(N_0, m) (from N_0 of ``circuits.json`` where ``count_accepted`` did not finish),
   ``naive_prefixes_m_minus_1`` (Pi_(m-1) of ``counting.py``: the prefixes of a naive enumeration of
