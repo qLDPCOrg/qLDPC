@@ -30,7 +30,7 @@ These are the terms of qLDPC's guide [`fault_propagation.md`](../../../src/qldpc
   The **listing** is the certifier's enumeration, at each fault weight from 2 to the cutoff K' (below), of the irreducible accepted faults that contain a heavy mechanism, the **listed faults**; at fault weight 1, the certifier checks each mechanism with zero flags.
 - A **weight oracle** decides whether a syndrome has a Pauli error of weight at most a threshold: qLDPC has a BZ and a CC oracle.
   The certifier's **fault search** submits the syndromes of listed faults to the oracle in batches, whose entries are **oracle rows**.
-- A circuit's **design t** is the number of faults that its source designed it to tolerate; it sets the K of each run (see [Circuits](#circuits)).
+- A circuit's **design t** is the number of faults that its source designed it to tolerate; it sets the fault weight K at which certification and the deletions run (see [Circuits](#circuits)).
 - The **margin** m* of a circuit is the smallest fault weight of a counterexample, or "all" if none exists (see [Arms](#arms)).
 
 The outputs use the following symbols for counts of a circuit's DEM.
@@ -117,7 +117,8 @@ Each A-ft, C-goto, and synthesized entry of `circuits.json` also names its code 
 A code file `<code>_code.json` holds the code's `distance` and its matrices: the X- and Z-type checks `Hx` and `Hz`, and the X- and Z-type logical operators `Lx` and `Lz`, with one column per output qubit, in output-qubit order.
 `circuits.py --check` checks each input's state against these matrices.
 They split the state's Z-type stabilizers into checks Hz and logical operators Lz, as the code's definition in MQT QECC does.
-The state alone does not determine that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz, so `--check` checks the state, not the split, on which the code file's `distance` depends.
+The Z-type stabilizers of |0...0>_L span both Hz and Lz, so the state alone does not determine that split.
+`--check` checks the state, not the split on which the code file's `distance` depends.
 The code files of the A-ft codes, in `codes/`, follow MQT QECC's definitions of the codes at the commit that `config.json` pins, and those of the synthesized codes lie beside their circuits; C-goto uses the Steane code's file.
 MQT's `RotatedSurfaceCode(5)` at that commit has its X checks where the shipped d = 5 circuits have their Z checks, so its file exchanges Hx with Hz and Lx with Lz.
 
