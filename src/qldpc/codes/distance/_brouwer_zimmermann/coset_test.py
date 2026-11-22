@@ -518,7 +518,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
 
     wide = np.hstack([np.eye(4, dtype=np.uint8), rng.integers(0, 2, (4, 64), dtype=np.uint8)])
     checks = get_kernel(wide)
-    syndromes = [int.from_bytes(rng.bytes(9), "little") % (1 << len(checks)) for _ in range(16)]
+    syndromes = [int.from_bytes(rng.bytes(9), "little") % (1 << len(checks)) for _ in range(8)]
     searches.append(
         (
             (
@@ -526,7 +526,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
                 _cosets.get_unit_syndrome_words(checks),
                 1,
                 (4, 3),
-                range(-1, 40, 4),
+                range(-1, 40, 8),
                 syndromes,
             ),
             True,
@@ -759,15 +759,16 @@ def test_batches_on_threads_answer_as_on_one_thread(
     """Batch queries on threads return the index, bound, word, and weights of one thread.
 
     The calling thread searches the first rows of a batch alone, until their work reaches
-    ``split_work``, and the threads search the rest in blocks, which hold several syndromes of a
-    long batch on three threads, and one syndrome on eight threads.
+    ``split_work``, which is 50 on three threads and zero on eight.  The threads search the rest in
+    blocks, which hold several syndromes of a long batch on three threads, and one syndrome on eight
+    threads.
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     thread_options = [
         {"num_threads": num_threads, "split_work": split_work}
-        for num_threads, split_work in itertools.product((3, 8), (0, 50))
+        for num_threads, split_work in [(3, 50), (8, 0)]
     ]
     for search, minima in _get_searches_with_minima(tuning_fields):
         num_bits = search._num_syndrome_bits

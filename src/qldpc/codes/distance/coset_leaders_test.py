@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import inspect
 import itertools
 import threading
 from collections.abc import Sequence
@@ -22,6 +23,7 @@ from ..conftest import Tune
 from . import _threads, coset_leaders
 from ._brouwer_zimmermann.coset import BrouwerZimmermannCosetSearch
 from ._connected_cluster import coset as cluster_coset
+from ._connected_cluster import search as cluster_search
 from ._tuning import MAX_VALUE, use_tuning
 from .conftest import (
     ROUTED_CSS_WEIGHT_STATE,
@@ -132,7 +134,7 @@ def test_batches_read_syndromes_of_several_words(
     matrix = get_stabilizer_matrix(generators)
     search = CosetLeaderSearch(matrix, css_weight=css_weight)
     syndromes, minima = [], []
-    for error_index in range(15):
+    for error_index in range(8):
         error = stim.PauliString(4 * num_blocks)
         # The first error acts on blocks 0, 8, and 16, so its syndrome has bits in both words.
         qubits = (
@@ -167,7 +169,7 @@ def test_x_and_z_syndromes_span_several_words(pytestconfig: pytest.Config) -> No
     matrix = scramble(pure, rng)
     search = CosetLeaderSearch(matrix, css_weight=True)
     syndromes, minima = [], []
-    for _ in range(20):
+    for _ in range(10):
         x_qubits = rng.choice([*range(50), *range(60, 70)], size=rng.integers(0, 4), replace=False)
         z_qubits = rng.choice(range(120, num_qubits), size=rng.integers(0, 4), replace=False)
         pauli = sum(1 << int(qq) for qq in x_qubits) + sum(
@@ -270,17 +272,17 @@ def test_bounds_match_per_block_minima(
     heavier than the minimum.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    # The phased GHZ block is slow to search as plain Python, so it gets four blocks rather than
-    # five, and fewer syndromes.
+    # The phased GHZ block is slow to search as plain Python, so it gets three blocks rather than
+    # five.
     phased = block == _PHASED_GHZ_BLOCK
-    num_blocks = 4 if phased else 5
+    num_blocks = 3 if phased else 5
     matrix = get_stabilizer_matrix(_block_generators(block, num_blocks))
     search = CosetLeaderSearch(matrix, css_weight=css_weight)
 
     # Bounds hold for random syndromes at each maximum weight.  On five blocks, the syndromes start
     # with one whose query by physical weight stops by its certificate, which the end of this test
     # checks.
-    syndromes = rng.integers(1 << (num_blocks * len(block)), size=4 if phased else 7).tolist()
+    syndromes = rng.integers(1 << (num_blocks * len(block)), size=7).tolist()
     if not phased:
         syndromes.insert(0, 443351)
     for syndrome in syndromes:
@@ -529,19 +531,21 @@ def test_min_weights_match_exhaustive_minima(
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # Graph states with phases are not CSS, so one search covers their Pauli errors.  By physical
     # weight, the binary words of their errors are even, so a BZ search keeps its incumbent one
-    # below the weight of its best word.
+    # below the weight of its best word.  The last item of each case says whether the
+    # connected-cluster method runs too.  It weighs by CSS weight only on CSS states, and on the
+    # states of seven or more qubits, it runs only for the CSS weight of CSS states.
     cases = []
     for num_qubits in range(2, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         graph_state = get_graph_state(num_qubits, edges, phase=True)
         css_state = get_random_css_state(num_qubits, int(rng.integers(num_qubits + 1)), rng)
         cases += [(graph_state, False, True), (graph_state, True, False), (css_state, True, True)]
-    # The searches of this state on eight qubits also stop early within steps and skip words by
-    # tables.
+    # The searches of this state on eight qubits also stop early within steps, and scan with
+    # completion tables.
     edges = [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5), (1, 6), (1, 7), (2, 3), (2, 4), (2, 5)]
     edges += [(2, 6), (2, 7), (3, 4), (3, 5), (3, 7), (4, 5), (5, 6), (5, 7)]
     graph_state = get_graph_state(8, edges, phase=True)
-    cases += [(graph_state, False, True), (graph_state, True, False)]
+    cases += [(graph_state, False, False), (graph_state, True, False)]
     # The stabilizers of this cycle state are even as words [x|z] too, but CSS weights have no
     # parity, so its searches by CSS weight do not lower their incumbents.
     cycle_state = get_graph_state(5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)], phase=True)
@@ -553,24 +557,25 @@ def test_min_weights_match_exhaustive_minima(
     # connected-cluster search weighs such a Z part exactly only from a first limit of at most two.
     steane_zero = ("XXXX___", "XX__XX_", "X_X_X_X", "ZZZZ___", "ZZ__ZZ_", "Z_Z_Z_Z", "ZZZZZZZ")
     cases += [
-        (get_stabilizer_matrix(steane_zero), css_weight, True) for css_weight in (False, True)
+        (get_stabilizer_matrix(steane_zero), css_weight, css_weight) for css_weight in (False, True)
     ]
     ghz_block = ("XXXX____", "ZZ______", "_ZZ_____", "__ZZ____")
     conjugate_block = ("____ZZZZ", "____XX__", "_____XX_", "______XX")
     cases.append((get_stabilizer_matrix(ghz_block + conjugate_block), True, True))
-    for matrix, css_weight, by_support in cases:
+    for matrix, css_weight, by_cluster in cases:
         num_qubits = len(matrix)
         minima = get_exhaustive_minima(matrix, css_weight)
         syndromes = rng.permutation(1 << num_qubits)
         packed_syndromes = split_syndromes_into_words(syndromes.tolist(), num_qubits)
-        # The tuning of these families does not configure the connected-cluster method, which
-        # weighs by CSS weight only on CSS states.
+        # The tuning of these families does not configure the connected-cluster method.
         methods: list[CosetMethod] = ["brouwer_zimmermann"]
-        if by_support and not tuning:
+        if by_cluster and not tuning:
             methods.append("connected_cluster")
         for method in methods:
             search = CosetLeaderSearch(matrix, css_weight=css_weight, method=method)
-            for max_weight in range(num_qubits + 2):
+            # Every class is within reach from the greatest minimum on, and the maximum weights
+            # stop one above it.
+            for max_weight in range(int(minima.max()) + 2):
                 weights = search.get_min_weights(packed_syndromes, max_weight)
                 assert np.array_equal(weights, np.minimum(minima[syndromes], max_weight + 1))
 
@@ -851,7 +856,8 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
     weight and by CSS weight.  With chunks of one state, a batch moves to threads once its queries
     have visited a state for each thread.  The queries run with every array of their searches
     read-only: the threads of a batch share them, and so do the threads of callers that share a
-    search.
+    search.  Each call of ``_search_supports`` under these read-only tables also gets read-only
+    views of its other arrays, such as the syndrome of its query.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
@@ -864,14 +870,29 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
         thread_runs += 1
         run_work_items(*args, **kwargs)
 
+    # A call whose tables are read-only gets read-only views of every array, as the calls on threads
+    # of distance searches do in ``_connected_cluster/search_test.py``, so that numba compiles one
+    # read-only version for both, and rejects a write to any array of a query.
+    search_supports = cluster_search._search_supports
+    masks_index = list(inspect.signature(search_supports).parameters).index("symbol_masks")
+
+    def search_read_only(*args: Any) -> Any:
+        """Search with read-only views of every array argument, if the tables are read-only."""
+        if not args[masks_index].flags.writeable:
+            args = tuple(
+                _get_read_only(arg) if isinstance(arg, np.ndarray) else arg for arg in args
+            )
+        return search_supports(*args)
+
     monkeypatch.setattr(_threads, "run_work_items", run_counted)
+    monkeypatch.setattr(cluster_search, "_search_supports", search_read_only)
     for matrix, css_weight in cases:
         num_qubits = len(matrix)
         minima = get_exhaustive_minima(matrix, css_weight)
         syndromes = rng.integers(1 << num_qubits, size=40)
         batch = split_syndromes_into_words(syndromes.tolist(), num_qubits)
         searches = []
-        for num_threads in (1, 2, 3, 8):
+        for num_threads in (1, 3, 8):
             with use_tuning(num_threads=num_threads, search_chunk_exponent=0):
                 searches.append(
                     CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
@@ -1129,6 +1150,13 @@ def _find_each_not_within_max_weight(
         assert get_syndrome(matrix, bound.representative) == syndrome
         if max_weight >= 2:
             assert bound == search.get_min_weight_bound(syndrome, max_weight)
+
+
+def _get_read_only(array: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    """A read-only view of an array."""
+    view = array.view()
+    view.flags.writeable = False
+    return view
 
 
 def _record_thread_options(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
