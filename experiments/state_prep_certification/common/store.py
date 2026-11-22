@@ -294,7 +294,8 @@ def open_archive(archive: pathlib.Path) -> Iterator[pathlib.Path]:
     temporary directory, which is removed when the block ends, whether or not it succeeds.
 
     Raises:
-        SystemExit: If the ``.sha256`` file is missing, or a checksum or the list of files differs.
+        SystemExit: If the ``.sha256`` file or the inner ``SHA256SUMS`` is missing, or a checksum
+            or the list of files differs.
     """
     sums_file = archive.with_name(archive.name + ".sha256")
     if not sums_file.exists():
@@ -303,6 +304,8 @@ def open_archive(archive: pathlib.Path) -> Iterator[pathlib.Path]:
         raise SystemExit(f"{archive.name} does not match {sums_file.name}")
     with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
         label_dir = unpack_archive(archive, pathlib.Path(scratch))
+        if not (label_dir / "SHA256SUMS").exists():
+            raise SystemExit(f"{archive.name} has no inner SHA256SUMS")
         listed = {}
         for line in (label_dir / "SHA256SUMS").read_text().splitlines():
             digest, name = line.split("  ", 1)

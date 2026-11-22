@@ -218,8 +218,9 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
     assert not unpacked.exists()
 
     # it refuses an archive with a file that its inner SHA256SUMS does not list, here a nested
-    # SHA256SUMS, or with a file that does not match its digest there, even if the archive matches
-    # its .sha256; and an archive whose .sha256 does not match it or is missing
+    # SHA256SUMS, with a file that does not match its digest there, or without an inner SHA256SUMS,
+    # even if the archive matches its .sha256; and an archive whose .sha256 does not match it or is
+    # missing
     with tarfile.open(archive) as tar:
         contents = {}
         for member in tar.getmembers():
@@ -227,16 +228,22 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
             assert file is not None
             contents[member.name] = file.read()
     outer_sums = archive.parent / (archive.name + ".sha256")
-    for changed in ("label-host-utc/extra/SHA256SUMS", "label-host-utc/logs/a.txt"):
+    inner_sums = "label-host-utc/SHA256SUMS"
+    changes = (
+        (contents | {"label-host-utc/extra/SHA256SUMS": b""}, "does not match its inner"),
+        (contents | {"label-host-utc/logs/a.txt": b"changed"}, "does not match its inner"),
+        ({name: contents[name] for name in contents if name != inner_sums}, "has no inner"),
+    )
+    for changed, message in changes:
         with tarfile.open(archive, "w:gz") as tar:
-            for name, data in (contents | {changed: b"changed"}).items():
+            for name, data in changed.items():
                 info = tarfile.TarInfo(name)
                 info.size = len(data)
                 tar.addfile(info, io.BytesIO(data))
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         outer_sums.write_text(f"{digest}  {archive.name}\n")
         error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
-        assert "does not match its inner SHA256SUMS" in str(error.code), (changed, error.code)
+        assert f"{message} SHA256SUMS" in str(error.code), (message, error.code)
     outer_sums.write_text(f"{'0' * 64}  {archive.name}\n")
     error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
     assert f"does not match {outer_sums.name}" in str(error.code), error.code
