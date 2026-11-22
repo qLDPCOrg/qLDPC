@@ -67,16 +67,19 @@ and ``--cleanup`` (``_Watcher.run``), and watches the child:
 A row keeps the result that arrived, whatever its status: a ``timeout`` whose call returned at or
 after the limit, or a ``memout`` whose peak was found after the run, keeps its result.
 
-``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT,
-returns 2 without a row; ``run_task.py`` exits with that status.  The docstring of ``run_task``
-says when a signal or a failure of the runner itself leaves a run's processes or record behind.
+``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
+before its last check for a signal, returns 2 without a row; ``run_task.py`` exits with that status.
+The docstring of ``run_task`` says when that check comes, and when a signal or a failure of the
+runner itself leaves a run's processes or record behind.
 
 The child side is ``child_main``.  The experiment's ``run(task, label_dir)`` calls ``timed`` once
 around the measured call, may call ``send_partial`` with partial results as they arrive and
 ``send_result`` with the measured result before it starts post-processing, and returns the rest of
 the row's ``result``: all of it, or, after ``send_result``, the fields of its post-processing.
 These results hold only values that JSON encodes, NumPy scalars and arrays, and sets, which the
-child sends as sorted lists; any other object raises TypeError, which ends the child with an error.
+child sends as sorted lists.  JSON turns tuples into lists and dictionary keys into strings.  Any
+other object, or a set whose elements do not compare, raises TypeError, which ends the child with
+an error.
 
 On the node, the child runs in a new session, so that its process group holds the whole run, and
 the runner watches and kills that group.  In local mode (``local=True``, ``run_node.py --local``),
