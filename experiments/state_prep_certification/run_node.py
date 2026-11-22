@@ -11,9 +11,9 @@ experiment (``common/manifest.py``), it
 1. refuses a bundle built without a pinned qLDPC commit, unless ``--allow-unfrozen`` is given,
    and an environment variable of ``REFUSED_ENVIRONMENT``, such as ``PYTHONPATH``, unless
    ``--allow-env NAME`` accepts it (``NUMBA_CACHE_DIR``, which ``node.sh`` sets, is allowed),
-   and then records the start, with its host, CPU model, and environment, in ``starts.jsonl``
-   (``manifest.record_start``), so that the analyses see every environment in which the acceptance
-   tests ran, even that of a start that stops at a later step;
+   and then records the start, with its host, CPU model, environment, and Python's optimization
+   level, in ``starts.jsonl`` (``manifest.record_start``), so that the analyses see every
+   environment in which the acceptance tests ran, even that of a start that stops at a later step;
 2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
    label directory, and stops if they fail; each attempt runs the acceptance tests in a fresh
    directory under ``acceptance/<label directory>/`` of the results directory, which
@@ -405,16 +405,18 @@ def check_environment(
     """
     optimize = sys.flags.optimize if optimize is None else optimize
     for name, refused in REFUSED_ENVIRONMENT.items():
+        remedy = f"run `unset {name}`"
         if name == "PYTHONOPTIMIZE":
             on = optimize > 0
             setting = f"Python runs with -O ({name}={environ.get(name)!r})"
+            remedy = f"run Python without -O and `unset {name}`"
         else:
             on = name in environ and refused(environ[name])
             setting = f"{name}={environ.get(name)!r} is set"
         if on and name not in allowed:
             sys.exit(
-                f"{setting}, which would make a node run misleading; run `unset {name}` and start "
-                f"again, or pass --allow-env {name} to accept it."
+                f"{setting}, which would make a node run misleading; {remedy}, and start again, or "
+                f"pass --allow-env {name} to accept it."
             )
 
 

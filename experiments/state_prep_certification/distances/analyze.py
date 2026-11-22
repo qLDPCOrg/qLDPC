@@ -51,12 +51,12 @@ a disagreement, a failure, or an incomplete timing).
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
 ``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
 ``local_rows``.  If a start of the label accepted a refused environment variable with
-``--allow-env`` (see ``run_node.py``), it marks every output with the names of these variables,
-``allowed_environment``.  If the recorded environment variables of the label's starts differ, such
-as those of a resume in another shell, it marks every output with the names of the variables that
-differ, ``environment_changed``.  Each mark is a column in each CSV file, a key in
-``figure_notes.json``, and part of the title and of the Subject in the metadata of
-``distances.pdf``.
+``--allow-env`` (see ``run_node.py``), or ran Python with -O, it marks every output with the names
+of these variables, ``PYTHONOPTIMIZE`` for -O, ``allowed_environment``.  If the recorded environment
+variables of the label's starts differ, such as those of a resume in another shell, it marks every
+output with the names of the variables that differ, ``environment_changed``.  Each mark is a column
+in each CSV file, a key in ``figure_notes.json``, and part of the title and of the Subject in the
+metadata of ``distances.pdf``.
 """
 
 from __future__ import annotations

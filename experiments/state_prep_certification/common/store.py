@@ -19,7 +19,8 @@ The rows of ``--local`` runs (``"local": true``) were not timed under the node's
 analysis that refuses them, as those of certification and distances do, counts them with
 ``count_local_rows``, which exits unless the analysis is given ``--allow-local``.  Such an analysis
 also reads, with ``allowed_environment``, the refused environment variables that a start accepted
-with ``--allow-env`` (see ``run_node.py``), and, with ``changed_environment``, the recorded
+with ``--allow-env`` (see ``run_node.py``), and ``PYTHONOPTIMIZE`` if a start ran Python with -O,
+and, with ``changed_environment``, the recorded
 environment variables whose values differ among the label's starts.  It marks each of its outputs
 with these, and with the number of rows of local runs, whichever are nonempty, with
 ``mark_outputs``.
@@ -172,14 +173,18 @@ def allowed_environment(label_dir: pathlib.Path) -> list[str]:
     """The refused environment variables that a start of the label accepted and that were set.
 
     A node start refuses some environment variables unless ``--allow-env`` accepts them (see
-    ``run_node.py``); ``starts.jsonl`` records, for each start, the names that it accepted and the
-    environment.  Every start counts, dry runs too, since each records itself before it runs the
-    acceptance tests, whose pass later starts reuse.
+    ``run_node.py``); ``starts.jsonl`` records, for each start, the names that it accepted, the
+    environment, and the interpreter's optimization level.  ``PYTHONOPTIMIZE`` counts whenever a
+    start ran with an optimization level above 0, whatever set it, such as -O.  Every start counts,
+    dry runs too, since each records itself before it runs the acceptance tests, whose pass later
+    starts reuse.
     """
     names: set[str] = set()
     for start in _starts(label_dir):
         environment = start.get("environment", {})
         names |= {name for name in start.get("allowed_environment") or [] if name in environment}
+        if start.get("python_optimize", 0) > 0:
+            names.add("PYTHONOPTIMIZE")
     return sorted(names)
 
 

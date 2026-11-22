@@ -153,7 +153,8 @@ def record_start(
     Every start that passes the refusals of its first step records itself, whether it is a dry run,
     runs only the acceptance tests, or stops at a later check, so that the analyses see every
     environment in which the label's acceptance tests ran (see ``store.allowed_environment``).  The
-    line holds the machine, the software, the recorded environment, and ``fields``, such as the
+    line holds the machine, the software, the recorded environment, the interpreter's optimization
+    level (``python_optimize``, which -O or ``PYTHONOPTIMIZE`` sets), and ``fields``, such as the
     start's host, CPU model, subset, the names that ``--allow-env`` accepted, and whether it is a
     dry run (``dry_run``).  It is appended in one write.
 
@@ -174,6 +175,7 @@ def record_start(
         "machine": machine_info(),
         "python": sys.version,
         "executable": sys.executable,
+        "python_optimize": sys.flags.optimize,
         "packages": package_freeze(),
         "environment": recorded_environment(os.environ),
         "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

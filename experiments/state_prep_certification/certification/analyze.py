@@ -21,12 +21,12 @@ is reported as ``missing``, with a printed note.
 The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.
 With ``--allow-local``, it marks every output with the number of these rows, ``local_rows``.  If a
 start of either label accepted a refused environment variable with ``--allow-env`` (see
-``run_node.py``), it marks every output with the names of these variables,
-``allowed_environment``.  If the recorded environment variables of a label's starts differ, such
-as those of a resume in another shell, it marks every output with the names of the variables that
-differ, ``environment_changed``.  Each mark is a column in each CSV file, a key in each JSON file,
-and a first comment line in each circuit of ``pruned/``; the ``final_sha256`` of
-``deletion_table.csv`` is that of the circuit without these lines.
+``run_node.py``), or ran Python with -O, it marks every output with the names of these variables,
+``PYTHONOPTIMIZE`` for -O, ``allowed_environment``.  If the recorded environment variables of a
+label's starts differ, such as those of a resume in another shell, it marks every output with the
+names of the variables that differ, ``environment_changed``.  Each mark is a column in each CSV
+file, a key in each JSON file, and a first comment line in each circuit of ``pruned/``; the
+``final_sha256`` of ``deletion_table.csv`` is that of the circuit without these lines.
 
 An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/runner.py``) has the
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only

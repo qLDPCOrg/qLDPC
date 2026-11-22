@@ -1689,9 +1689,10 @@ def test_acceptance_selection(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
-    """Each start records its environment in ``starts.jsonl``; ``manifest.json`` keeps the first's.
+    """Each start records its environment and Python's optimization level in ``starts.jsonl``.
 
-    So a resume under a changed environment is recorded.  Each start's line gets its job slots.
+    So a resume under a changed environment is recorded.  ``manifest.json`` keeps the first start's
+    line.  Each start's line gets its job slots.
     """
     from experiments.state_prep_certification.common import manifest
 
@@ -1705,6 +1706,7 @@ def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
     starts = [json.loads(line) for line in (directory / "starts.jsonl").read_text().splitlines()]
     assert [start["environment"]["NUMBA_OPT"] for start in starts] == ["1", "2"], starts
     assert [start["jobs"] for start in starts] == [1, 2], starts
+    assert [start["python_optimize"] for start in starts] == [sys.flags.optimize] * 2, starts
 
 
 @test

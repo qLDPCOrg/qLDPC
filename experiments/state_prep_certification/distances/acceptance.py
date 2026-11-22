@@ -15,7 +15,9 @@
 * **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label
   directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
   the analysis of a run on golay a disagreement.  AT5's runs are local, so the analysis refuses
-  their rows without ``--allow-local``; with it, every output gives the number of these rows,
+  their rows without ``--allow-local``; with it, every output gives the number of these rows, the
+  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for
+  a start under -O, which sets no variable, and the recorded variable that a resume changed,
   ``distances.pdf`` in its metadata.  ``compare_with_sample`` reports a sample in which one
   reference distance differs from that of ``sample.json``.  Each row's tuning is the shipped
   default, with ``BZ_PRIOR`` for ``q_bz_prior``.
@@ -214,8 +216,9 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     copy_of_sample = copy.deepcopy(_sample())
     next(e for e in copy_of_sample["anchors"] if e["name"] == "golay")["reference_d"] = 8
     (label_dir / "sample.json").write_text(json.dumps(copy_of_sample))
+    # a start that accepted PYTHONPATH, and a resume under -O, which sets no variable
     start = {"allowed_environment": ["PYTHONPATH"], "environment": {"PYTHONPATH": "/elsewhere"}}
-    resume = {"environment": {"PYTHONPATH": "/elsewhere", "NUMBA_OPT": "0"}}
+    resume = {"environment": {"PYTHONPATH": "/elsewhere", "NUMBA_OPT": "0"}, "python_optimize": 1}
     (label_dir / store.STARTS_FILE).write_text(json.dumps(start) + "\n" + json.dumps(resume) + "\n")
     out = label_dir / "analysis"
     script = pathlib.Path(__file__).with_name("analyze.py")
@@ -227,18 +230,18 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
         command + ["--allow-local"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
-    assert "accepted PYTHONPATH with --allow-env" in result.stdout, result.stdout
+    assert "accepted PYTHONOPTIMIZE, PYTHONPATH with --allow-env" in result.stdout, result.stdout
     assert "different NUMBA_OPT" in result.stdout, result.stdout
     with open(out / "families.csv") as file:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
     assert (anchors["codes"], anchors["disagreement"]) == ("1", "1"), anchors
 
-    # every output gives the number of rows of local runs, the refused environment variable that a
-    # start accepted with --allow-env, and the recorded variable that a resume changed,
+    # every output gives the number of rows of local runs, the refused environment variables that a
+    # start accepted with --allow-env or ran under, and the recorded variable that a resume changed,
     # distances.pdf in its metadata too
     marks = {
         "local_rows": 2,
-        "allowed_environment": "PYTHONPATH",
+        "allowed_environment": "PYTHONOPTIMIZE PYTHONPATH",
         "environment_changed": "NUMBA_OPT",
     }
     others = acceptance.check_marked(out, marks)
