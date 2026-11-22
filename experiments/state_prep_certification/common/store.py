@@ -182,7 +182,8 @@ def write_atomic(path: pathlib.Path, text: str, directory: pathlib.Path | None =
 def make_archive(label_dir: pathlib.Path, name: str) -> pathlib.Path:
     """Pack a label's directory into ``archive/<name>.tar.gz``, with a ``.sha256`` file beside it.
 
-    The archive holds every file of the label except earlier archives, and an inner ``SHA256SUMS``.
+    The archive holds the label's regular files, except earlier archives, the label's ``lock``, and
+    the temporary files of ``write_atomic`` (see ``_archived_files``), and an inner ``SHA256SUMS``.
     """
     archive_dir = label_dir / "archive"
     archive_dir.mkdir(exist_ok=True)

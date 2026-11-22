@@ -49,14 +49,15 @@ Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``,
 uncommitted changes name a dirty label's directory: run them with the run's options and before any
 change to the tree, and check that the label directory that they print is the run's.
 
-``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session,
-and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development
-on a workstation.  A local run has its own label directory, so ``--status`` and ``--cleanup`` of a
-local run need ``--local`` too, and the analyses refuse its rows unless given ``--allow-local``.
-``--dry-run`` stops after step 5, without writing ``manifest.json`` (``starts.jsonl`` records it as
-a dry run), and prints the GNU parallel command.  ``--subset NAME`` selects a subset of the tasks,
-such as ``smoke``; a subset other than ``main`` or ``acceptance`` gets its own label directory (see
-``common/manifest.py``).  ``--subset acceptance`` runs only the acceptance tests.
+``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session, and
+skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development on a
+workstation.  A local run has its own label directory, so ``--status`` and ``--cleanup`` of a local
+run need ``--local`` too, and the analyses of certification and distances refuse its rows unless
+given ``--allow-local``.  ``--dry-run`` stops after step 5, without writing ``manifest.json``
+(``starts.jsonl`` records it as a dry run), and prints the GNU parallel command.  ``--subset NAME``
+selects a subset of the tasks, such as ``smoke``; a subset other than ``main`` or ``acceptance``
+gets its own label directory (see ``common/manifest.py``).  ``--subset acceptance`` runs only the
+acceptance tests.
 """
 
 from __future__ import annotations

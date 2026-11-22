@@ -11,7 +11,7 @@ Each experiment is a subdirectory that plugs into shared code at this level:
 
 The experiments run only qLDPC and its Python dependencies, so that they can run on a Linux node without practical network access.
 The shared workflow builds everything that the node needs into one offline bundle on a workstation, runs each experiment on the node with GNU parallel, and brings one archive back for analysis on the workstation.
-Times measured on a workstation are never used as results.
+Times measured on a workstation are never results: the analyses of certification and distances refuse them unless given `--allow-local`, and then mark every output.
 
 ## Shared code
 
@@ -69,7 +69,7 @@ Then build the bundle, which carries the data, and note its checksum:
 python experiments/state_prep_certification/bundle.py EXPERIMENT --out /path/to/bundles
 ```
 
-A bundle names every experiment whose directory holds a frozen file of a named experiment; `bundle.py` refuses a bundle without an experiment's frozen files.
+Name in a bundle every experiment whose directory holds a frozen file of an experiment that it names; `bundle.py` refuses a bundle that lacks a named experiment's frozen file, and says which experiment to add.
 
 The bundle needs a pinned qLDPC commit in `pins.json`; `--unfrozen` builds a trial bundle without one, which `run_node.py` refuses on the node unless `--allow-unfrozen` is given.
 

@@ -19,8 +19,8 @@ The harness commit is the Git commit of the qLDPC tree that holds the experiment
 whose tree is a ``git archive`` without history, ``bundle.py`` records it in
 ``experiments/state_prep_certification/bundle.json``, with the SHA-256 of the bundle's
 requirements; ``bundle_record`` reads that record.  ``compute_label`` reads no file: its callers
-pass the contents of the files and the requirements' SHA-256, such as an archive's own, from its
-manifest.
+pass the contents of the files and the requirements' SHA-256.  An analysis that checks the label of
+a results archive passes the requirements' SHA-256 that the archive's ``manifest.json`` records.
 """
 
 from __future__ import annotations
@@ -43,8 +43,9 @@ REPOSITORY_ROOT = FT_STATE_PREP_DIR.parents[1]
 PINS_FILE = FT_STATE_PREP_DIR / "pins.json"
 BUNDLE_RECORD = FT_STATE_PREP_DIR / "bundle.json"
 
-# The environment variables that the manifest records: those that can change what a run computes,
-# how fast, or which code it imports.  They hold no secrets.
+# The environment variables that the manifest records, with their values: those that can change
+# what a run computes, how fast, or which code it imports.  The values enter manifest.json,
+# starts.jsonl, and the archive as they are, so check them before sharing an archive.
 RECORDED_PREFIXES = ("QLDPC_", "NUMBA_", "PYTHON", "OMP_", "MKL_", "OPENBLAS_", "VECLIB_")
 RECORDED_NAMES = ("LD_PRELOAD", "LD_LIBRARY_PATH")
 

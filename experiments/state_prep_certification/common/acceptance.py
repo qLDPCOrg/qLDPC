@@ -5,9 +5,10 @@
 An experiment's ``acceptance.py`` makes one ``Suite``, registers its tests with ``Suite.test``, and
 runs them with ``Suite.main`` from the command line, or with ``Suite.run_all`` from its plug-in's
 ``acceptance``.  A test takes its own directory, ``<results_dir>/<ID>``, and whether the tests run
-on the node.  Each test prints PASS or FAIL.  Any exception that a test raises, including
-``SystemExit``, fails that test, and the other tests still run.  ``--only`` refuses an ID that is
-not a test of the suite.  ``check_marked`` checks the marks that an analysis puts on its outputs
+on the node.  Each test prints PASS or FAIL.  An exception that a test raises fails that test, and
+the other tests still run, if it derives from ``Exception`` or is ``SystemExit`` (``FAILURES``);
+another, such as ``KeyboardInterrupt``, stops the suite.  ``--only`` refuses an ID that is not a
+test of the suite.  ``check_marked`` checks the marks that an analysis puts on its outputs
 (``store.mark_outputs``).
 """
 

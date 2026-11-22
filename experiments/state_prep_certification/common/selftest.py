@@ -8,15 +8,18 @@
 Each test writes into a fresh temporary directory and uses the stand-in experiment of
 ``selftest_plugin.py``.  By default, runs use local mode (``--local``), which keeps every run in
 this session.  With ``--node`` (Linux only), the tests of the runner, of GNU parallel, and of
-``--cleanup`` run in node mode instead: each run in a new session, killed by process group, with its
-child pinned to a CPU and its runner on other CPUs; ``run_node.py`` runs them before the node's
+``--cleanup`` run in node mode instead: each run in a new session, killed by process group.  The
+tests that run GNU parallel pin each run's child to its job slot's CPU, and only the test of GNU
+parallel's pinning also runs the runners on other CPUs and checks both affinities; the other tests
+run their runs on this process's CPUs.  ``run_node.py`` runs the node-mode tests before the node's
 acceptance tests.  The tests that need git, of ``bundle.check_tree`` and of a dirty tree's label,
 run only without ``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``, and the
 test of ``node.sh`` runs copies of it with ``bash``: through its install on Linux x86-64, with
 stand-ins of uv, GNU parallel, and a bundle's interpreter, and up to its preflight elsewhere.
 
-The script prints one line per test and exits with status 1 if any test failed.  Any exception
-that a test raises fails that test only, and ``--only`` refuses an unknown test name.
+The script prints one line per test and exits with status 1 if any test failed.  An exception that
+a test raises fails that test only, if it derives from ``Exception`` or is ``SystemExit``
+(``acceptance.FAILURES``), and ``--only`` refuses an unknown test name.
 """
 
 from __future__ import annotations
@@ -1361,7 +1364,7 @@ def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
-    """A test that raises any exception fails alone, and an unknown test ID is refused."""
+    """A test that raises an ``Exception`` fails alone, and an unknown test ID is refused."""
 
     class Unexpected(Exception):
         pass
