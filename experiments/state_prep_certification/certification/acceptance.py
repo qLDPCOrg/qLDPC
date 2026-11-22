@@ -67,14 +67,14 @@
   ``--local`` runs, ``analyze.py`` refuses the label without ``--allow-local``; with it, every
   output gives the number of these rows, and the name of the refused environment variable that a
   start, here a dry run, accepted with ``--allow-env``.  The analysis of the label's archive
-  requires ``--out``, and leaves no extraction of the archive, or of the archive of ``check``,
-  behind, whether it succeeds or refuses the rows.  ``analyze.py`` warns of a label whose hash does
-  not match its ``circuits.json``, the working tree's other frozen files, and the commit and
-  requirements of its manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0) circuit give
-  the example counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m) from the
-  circuit's N_0 in place of an A_m that was not computed where z >= m, and gives no ratio where
-  z < m.  ``shadow.csv`` gives the totals of a finished shadow run by threshold, and the calls that
-  a timed-out run wrote, without a last line cut off, and leaves out a run with
+  requires ``--out``, writes its outputs there, and leaves no extraction of the archive, or of the
+  archive of ``check``, behind, whether it succeeds or refuses the rows.  ``analyze.py`` warns of a
+  label whose hash does not match its ``circuits.json``, the working tree's other frozen files, and
+  the commit and requirements of its manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0)
+  circuit give the example counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m)
+  from the circuit's N_0 in place of an A_m that was not computed where z >= m, and gives no ratio
+  where z < m.  ``shadow.csv`` gives the totals of a finished shadow run by threshold, and the calls
+  that a timed-out run wrote, without a last line cut off, and leaves out a run with
   ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before its last
   is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes its
   circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, also one that the
@@ -904,6 +904,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         )
         assert (analysis.returncode == 0) == bool(allow_local), analysis.stderr
         assert not any(scratch.iterdir()), list(scratch.iterdir())
+    assert (directory / "from_archive" / "summary.csv").exists(), "no outputs in --out"
 
     _check_consistency()
     _check_application_analysis(directory / "applications")
