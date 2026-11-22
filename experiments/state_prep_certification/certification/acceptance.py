@@ -88,8 +88,13 @@
   Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
   that names it.
 
-The expected values of AT1 come from qLDPC's notebook and tests; a failure is investigated and
-reported, never fixed by changing a rule.  Each test prints PASS or FAIL; the script exits with
+The expected values of AT1 on C-goto and its weakened variant come from qLDPC: the notebook
+``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb`` certifies C-goto's circuit up
+to any fault weight when it post-selects on the flag, and finds a violation at fault weight 1 when
+it does not, and ``test_steane_preparation_meets_css_weight_but_not_physical_weight`` of
+``src/qldpc/circuits/certification/fault_propagation_test.py`` certifies the circuit with its flag.
+A failure of AT1 is a disagreement between the experiment and these results, whose cause a change
+of a rule of the experiment would hide.  Each test prints PASS or FAIL; the script exits with
 status 1 if any failed.  The tests are the same on the node and on a workstation: ``--local`` and
 the ``node`` argument of each test exist because the plug-in interface passes whether the tests
 run on the node.
@@ -337,9 +342,9 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     # a circuit with t = 2, so that weight 2 has no violation, and K = 3, so that the full run
     # reports two weights.  Each run sleeps after reporting each weight, and the limit falls in the
     # middle of the sleep after the next-to-last weight.  The runner checks the limit every 0.2 s or
-    # so, and its kill took effect 0.1-0.25 s after the limit in measured runs, well within the
-    # sleep.  The full run compiles nothing in its measured call, since run_locally fails if it
-    # does.
+    # so, a small part of the 1 s of sleep that remains after the limit, so that it kills the run
+    # before the run reports another weight.  The full run compiles nothing in its measured call,
+    # since run_locally fails if it does.
     circuit, delay = experiment._entry("bcat.w13.t2"), 2.0
     task = experiment._task("cert_bz", circuit, 0, experiment._limit("cert_bz"))
     task["weight_delay_s"] = delay

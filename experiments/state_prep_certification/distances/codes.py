@@ -221,7 +221,12 @@ def size_ladder(
 
 
 def draw_bb(params: dict[str, Any], rng: np.random.Generator) -> codes.CSSCode:
-    """Bivariate bicycle code with A = x^a + y^b + y^c and B = y^d + x^e + x^f (Bravyi et al.)."""
+    """Bivariate bicycle code with A = x^a + y^b + y^c and B = y^d + x^e + x^f.
+
+    The bivariate bicycle codes, with A and B of this form, are those of S. Bravyi, A. W. Cross,
+    J. M. Gambetta, D. Maslov, P. Rall, and T. J. Yoder, "High-threshold and low-overhead
+    fault-tolerant quantum memory", Nature 627, 778-782 (2024), arXiv:2308.07915.
+    """
     l, m = params["l"], params["m"]
     a, d = int(rng.integers(l)), int(rng.integers(m))
     b, c = (int(v) for v in rng.choice(m, 2, replace=False))
@@ -462,6 +467,13 @@ def color_666(distance: int) -> codes.CSSCode:
 # Anchors: name -> (constructor, reference distance or None, source).  The quantum distance of
 # CSS(Q, Q) for a quadratic-residue code Q of length p = -1 mod 8 is the minimum odd weight of Q.
 # Full references of the sources below:
+# - Lee et al. 2026: J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for
+#   ultra-high-rate quantum codes" (2026), arXiv:2609.30069;
+# - Okada and Kasai 2026: K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum
+#   LDPC codes" (2026), arXiv:2607.14091;
+# - Bravyi et al. 2024: S. Bravyi, A. W. Cross, J. M. Gambetta, D. Maslov, P. Rall, and T. J. Yoder,
+#   "High-threshold and low-overhead fault-tolerant quantum memory", Nature 627, 778-782 (2024),
+#   arXiv:2308.07915;
 # - Panteleev and Kalachev 2021: P. Panteleev and G. Kalachev, "Degenerate Quantum LDPC Codes With
 #   Good Finite Length Performance", Quantum 5, 585 (2021), arXiv:1904.02703;
 # - He, Reed, and Truong 2001: R. He, I. S. Reed, T.-K. Truong, and X. Chen, "Decoding the

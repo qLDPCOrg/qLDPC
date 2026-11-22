@@ -199,7 +199,7 @@ def analyze(
     agreement, gate = agree(pairs, candidates)
     group_rows = costs(candidates, groups)
 
-    # the tables, the checks, and the consumer circuits
+    # the CSV files, gate.json, checks.json, and the consumer circuits
     _write_csv(out / "admission.csv", admission)
     _write_csv(out / "candidates.csv", [_flatten(row) for row in candidates])
     _write_csv(out / "pairs.csv", pairs)

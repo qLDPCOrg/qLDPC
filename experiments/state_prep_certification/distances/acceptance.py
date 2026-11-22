@@ -34,9 +34,10 @@
   timed-out repeat, some of them on codes that disagree or fail.  ``load_sample`` refuses a label
   directory without a copy of the sample.
 
-GNU parallel's stop and resume (AT3) and job-slot pinning are tested locally by
-``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  The offline
-install (AT8) is rehearsed with ``bundle.py``.  Each test prints PASS or FAIL.
+GNU parallel's stop and resume and its job-slot pinning are tested locally by
+``common/selftest.py`` with a stand-in for ``taskset``, and on Linux at the node.  ``node.sh``'s
+offline install is rehearsed on a workstation with a bundle that ``bundle.py`` builds for the
+workstation's platform.  Each test prints PASS or FAIL.
 """
 
 from __future__ import annotations

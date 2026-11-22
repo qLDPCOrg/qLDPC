@@ -55,5 +55,5 @@ On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as 
 
 ## Attributions
 
-Pair-partition arrays and several anchors come from [`experiments/distance_tuning/workloads.py`](../../distance_tuning/workloads.py), whose instances come from Lee et al. and Okada and Kasai.
+Pair-partition arrays and several anchors come from [`experiments/distance_tuning/workloads.py`](../../distance_tuning/workloads.py), whose instances come from J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes" (2026), arXiv:2609.30069, and K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes" (2026), arXiv:2607.14091.
 `code_data/endpoints.json` cites the sources of the size endpoints, and `codes.py` cites those of the anchors.

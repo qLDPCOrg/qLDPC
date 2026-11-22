@@ -7,7 +7,7 @@ Each experiment is a subdirectory that plugs into shared code at this level:
 | --- | --- | --- |
 | [`certification/`](certification/) | Exact certification of bounded fault propagation in published state preparation circuits: feasibility, listed faults against all accepted fault combinations, smallest counterexamples, and the cost of the two weight oracles | MQT QECC's shipped and synthesized circuits, Goto's and Chen et al.'s circuits, and weakened variants |
 | [`distances/`](distances/) | Exact code distances by qLDPC's Brouwer-Zimmermann search with everything on, against the same search with four of its extensions turned off | Codes drawn by a fixed rule with fixed seeds, and named anchors |
-| [`ranking/`](ranking/) | Exploratory; its results stand apart from those of the other two experiments. Whether decoder-free scores of certified preparation circuits order them as stratified direct simulation of a fixed consumer does, and at what cost | The certified t = 1 circuits of the certification experiment, with its code files |
+| [`ranking/`](ranking/) | Exploratory; certification and distances do not use it. Whether decoder-free scores of certified preparation circuits order them as stratified direct simulation of a fixed consumer does, and at what cost | The certified t = 1 circuits of the certification experiment, with its code files |
 
 The experiments run only qLDPC and its Python dependencies, so that they can run on a Linux node without practical network access.
 The shared workflow builds everything that the node needs into one offline bundle on a workstation, runs each experiment on the node with GNU parallel, and brings one archive back for analysis on the workstation.
@@ -59,8 +59,8 @@ The ceiling of CPU-hours that an experiment needs approved allows for the runner
 
 ## Workflow
 
-Each experiment's data, such as its codes or circuits, are not committed: the experiment reads them from a directory that Git ignores and that may be a symlink, as the experiment's README says.
-On the workstation, make or link the experiment's data, and check it as its README says, such as with `circuits.py --check`.
+Each experiment's data, such as its codes or circuits, are not committed: the experiment reads them from its data directory, which Git ignores, as the experiment's README says.
+On the workstation, make the experiment's data, and check it as its README says, such as with `circuits.py --check`.
 Then build the bundle, which carries the data, and note its checksum:
 
 ```bash
