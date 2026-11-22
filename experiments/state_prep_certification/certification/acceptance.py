@@ -82,23 +82,24 @@
   recorded by an unfinished certification, or the result of a certification that exceeded its memory
   cap after it returned, against another exact result; a final circuit whose m* is at most t, above
   the weight of a violation that the search of its m* reported, or other than that of another
-  deletion task that ends at the same final circuit; Phi_m above A_m; Omega_m of a completed weight
-  above Phi_m; the ground truth's heavy mechanisms against h, also where the ground truth exceeded
-  its memory cap after it returned; and a counterexample's residual weight against its fault weight
-  or lower bound.  A circuit whose claims of every kind agree gets their m*.  Every case of the
-  combined margin of ``analyze_applications.py`` gives its value, its bound, or a disagreement, and
-  a margin of at most t keeps the arm and sector of its counterexample.  A margin or a deletion
-  parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify, makes its
-  circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does so also
-  when its verdict is only in the partial results of a killed task.  The margin counts of one family
-  are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.
-  The deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave
-  the rebuild unchecked for an input that is not the label's, exclude a disagreement from
-  ``deletion_table.csv`` but list its task, list an uncertified parent, give a timeout and a flagged
-  timeout their statuses, and keep the rows of two tasks killed during the search of their final m*:
-  with m* > k for the largest fault weight k that the search completed, and with m* where it found a
-  violation.  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's
-  marks head each circuit of ``pruned/``, which still parses.
+  deletion task that ends at the same final circuit; Phi_m of the listing or the ground truth above
+  A_m; Omega_m above Phi_m, of the listing or the ground truth, on a completed weight or one where
+  the run found a violation; the ground truth's heavy mechanisms against h, also where the ground
+  truth exceeded its memory cap after it returned; and a counterexample's residual weight against
+  its fault weight or lower bound.  A circuit whose claims of every kind agree gets their m*.  Every
+  case of the combined margin of ``analyze_applications.py`` gives its value, its bound, or a
+  disagreement, and a margin of at most t keeps the arm and sector of its counterexample.  A margin
+  or a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
+  makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
+  so also when its verdict is only in the partial results of a killed task.  The margin counts of
+  one family are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a
+  disagreement.  The deletion outputs rebuild a reduced circuit from its input, report a wrong final
+  SHA-256, leave the rebuild unchecked for an input that is not the label's, exclude a disagreement
+  from ``deletion_table.csv`` but list its task, list an uncertified parent, give a timeout and a
+  flagged timeout their statuses, and keep the rows of two tasks killed during the search of their
+  final m*: with m* > k for the largest fault weight k that the search completed, and with m* where
+  it found a violation.  ``deletion_table.csv`` lists its circuits in the order of their ids, and an
+  analysis's marks head each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -1497,10 +1498,21 @@ def _check_consistency() -> None:
             "count_listing": [("ok", {"Phi": {"2": 5}}, [], None)],
             "count_accepted": [("ok", {"A": {"2": 4}}, [], None)],
         },
-        # more rows submitted to the oracle on a completed weight than listed faults
+        # more listed faults of the ground truth than accepted combinations
+        {
+            "ground_truth": [
+                ("ok", {"smallest_violation": None, "Phi": {"2": 5}, "A": {"2": 4}}, [], None)
+            ]
+        },
+        # more rows submitted to the oracle on a completed weight than listed faults, and on a
+        # weight where cert_cc found a violation than listed faults of the ground truth
         {
             "cert_bz": [("ok", certified, [{"m": 2, "rows": 6, "violation": False}], None)],
             "count_listing": [("ok", {"Phi": {"2": 5}}, [], None)],
+        },
+        {
+            "cert_cc": [("ok", violating(2), [{"m": 2, "rows": 6, "violation": True}], None)],
+            "ground_truth": [("ok", {"smallest_violation": 2, "Phi": {"2": 5}}, [], None)],
         },
         # the ground truth against the baseline, where no certification finished
         {
@@ -1580,7 +1592,7 @@ def _check_consistency() -> None:
     summary, _ = analyze.summarize(analyze.collect(rows, entries))
     verdicts = {row["id"]: row["verdict"] for row in summary}
     *contradicting, consistent = entries
-    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 21, verdicts
+    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 23, verdicts
     (row,) = [row for row in summary if row["id"] == consistent]
     assert row["verdict"] == "certified" and row["margin"] == 4, row
     assert row["contradictions"] is None, row
