@@ -1114,6 +1114,9 @@ def check_consistency(
       not compute it (``_accepted_counts``);
     * the ground truth's Pi, E, Phi, and A against the counters' on the weights of both, and its
       number of heavy mechanisms against h of ``count_listing``;
+    * Phi_m of ``count_listing`` above A_m (``_accepted_counts``), since each listed fault of
+      weight m is an accepted combination, and Omega_m of a run of ``cert_bz`` on a weight that it
+      completed above Phi_m, since each row that the fault search submits is a listed fault;
     * a counterexample whose exact residual weight does not exceed its fault weight, or is below
       the certifier's lower bound on it;
     * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose claim
@@ -1142,6 +1145,19 @@ def check_consistency(
     heavy = (_ground_truth(arms.get("ground_truth")) or {}).get("heavy")
     if heavy is not None and listing.get("h") is not None and sum(heavy) != listing["h"]:
         contradictions.append("ground_truth: heavy mechanisms against h of count_listing")
+
+    # the listed faults against the accepted combinations, and the rows that each run of cert_bz
+    # submitted on a weight that it completed against the listed faults
+    phi = listing.get("Phi") or {}
+    for m in sorted(phi.keys() & counts.keys(), key=int):
+        if phi[m] > counts[m]:
+            contradictions.append(f"count_listing: Phi_{m} above A_{m}")
+    for row in arms.get("cert_bz") or []:
+        for record in row.get("partial") or []:
+            m = str(record.get("m"))
+            completed = "rows" in record and not record.get("violation")
+            if completed and m in phi and record["rows"] > phi[m]:
+                contradictions.append(f"cert_bz.r{row['repeat']}: Omega_{m} above Phi_{m}")
 
     # each counterexample's exact residual weight
     described = [
