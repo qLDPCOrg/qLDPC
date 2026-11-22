@@ -19,8 +19,9 @@ arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm fa
 1. **disagreement:** the arms or their repeats report different distances, or a distance that
    differs from the code's reference distance; no ratio;
 2. **failure:** either arm's first run or one of its repeats ended in an error or memout, or its
-   first run has no final row although ``tasks.json`` lists it; no ratio.  A repeat without a final
-   row only leaves the median with fewer runs, which ``repeats`` in ``summary.csv`` records;
+   first run has no final row although ``tasks.json`` lists it or a repeat has one; no ratio.  A
+   repeat without a final row only leaves the median with fewer runs, which ``repeats`` in
+   ``summary.csv`` records;
 3. **incomplete timing:** the row of either arm's first run has ``compiled_in_timing`` set; no
    ratio;
 4. **both finished:** R_T = T_prior / T_on;
@@ -244,18 +245,22 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """The status, median T, and distance of an arm's runs on one code.
 
     The status is that of the first run, unless a repeat ended in an error or memout, whose status
-    it then takes.  A repeat that timed out counts as the limit, which is larger than every finished
-    value, and is counted in ``repeats_unfinished``.  A row with ``compiled_in_timing`` set enters
-    no T and is left out of ``repeats`` and ``repeats_unfinished``: a repeat with it is left out of
-    the median, and a first run with it makes T None and the timing incomplete.  Repeats that report
-    different distances make the arm's distance a list, which ``ratio`` treats as a disagreement.
+    it then takes.  An arm without a first run is missing, even if a repeat has a row, and keeps the
+    repeats' distances for the disagreement check.  A repeat that timed out counts as the limit,
+    which is larger than every finished value, and is counted in ``repeats_unfinished``.  A row with
+    ``compiled_in_timing`` set enters no T and is left out of ``repeats`` and
+    ``repeats_unfinished``: a repeat with it is left out of the median, and a first run with it
+    makes T None and the timing incomplete.  Repeats that report different distances make the arm's
+    distance a list, which ``ratio`` treats as a disagreement.
     """
-    if not rows:
+    distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
+    distance = distances[0] if len(distances) == 1 else (distances or None)
+    if not rows or rows[0]["repeat"] != 0:
         return {
             "status": "missing",
             "T": None,
             "timing_complete": False,
-            "distance": None,
+            "distance": distance,
             "limit_s": None,
         }
     first = rows[0]
@@ -268,7 +273,6 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         for row in rows
         if not row.get("compiled_in_timing")
     ]
-    distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
     T = None
     if timing_complete:
         T = statistics.median(times) if status == "ok" else first["T"]
@@ -276,7 +280,7 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "status": status,
         "T": T,
         "timing_complete": timing_complete,
-        "distance": distances[0] if len(distances) == 1 else (distances or None),
+        "distance": distance,
         "limit_s": first["limit_s"],
         "repeats": len(rows) - len(compiled),
         "repeats_unfinished": sum(
