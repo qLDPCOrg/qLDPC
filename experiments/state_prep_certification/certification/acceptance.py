@@ -10,10 +10,11 @@
   brute force on the ground-truth circuits of the d = 3 A-ft codes and on 20 random DEMs
   (N_0 <= 25, p <= 8, K <= 4), including DEMs where a light class precedes a heavy one in DEM
   order; the listing counter gives the same counts when its compiled search returns one class
-  codeword at a time; and the rows submitted to the oracle never exceed the listed faults on
-  completed weights.  Through the task runner, ``count_listing`` on E-chen and ``ground_truth`` on
-  W(A-ft Shor) and C-goto finish without ``compiled_in_timing``.  The compiled functions of
-  ``counting.py`` and ``baseline.py`` call no compiled function of another file.
+  codeword at a time; the accepted-combination counter gives no A_m with a cap of no entries, even
+  without flagged mechanisms; and the rows submitted to the oracle never exceed the listed faults
+  on completed weights.  Through the task runner, ``count_listing`` on E-chen and
+  ``ground_truth`` on W(A-ft Shor) and C-goto finish without ``compiled_in_timing``.  The compiled
+  functions of ``counting.py`` and ``baseline.py`` call no compiled function of another file.
 * **AT3:** instrumented and uninstrumented certification give identical certificates on C-goto,
   its variant, and A-ft steane; every wrapped name exists; an instrumentation installed around
   another wrapper of the oracle class subclasses it and restores it; on a CSS circuit with a
@@ -222,6 +223,9 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
         light_first += bool(heavy and not heavy[0] and any(heavy))
         _compare_counts(flags, heavy, max_weight)
     assert light_first >= 3, light_first
+
+    # the accepted counter honors a cap that its initial map exceeds, without flagged mechanisms
+    assert counting.accepted_counts([0], 1, max_entries=0)["A"] is None
 
     # the ground-truth circuits of the d = 3 A-ft codes
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]

@@ -404,6 +404,8 @@ def accepted_counts(flags: Sequence[int], max_weight: int, max_entries: int) -> 
     binomials = {"C": {str(m): math.comb(total, m) for m in range(1, degree + 1)}}
 
     table: dict[int, list[int]] = {0: [1] + [0] * degree}
+    if len(table) > max_entries:
+        return {"A": None, **binomials, "dp_entries": len(table)}
     for flag, size in sizes.items():
         even = [math.comb(size, i) if i % 2 == 0 else 0 for i in range(degree + 1)]
         odd = [math.comb(size, i) if i % 2 == 1 else 0 for i in range(degree + 1)]
