@@ -128,7 +128,8 @@ None of them can detect an error in what they all share: the DEM, the flags and 
 - The ground truth (`ground_truth`) against the certifier, the baseline, and the counters: it takes the DEM from an untimed certification at fault weight 1, as the counters do, and reduces it by the same rule.
   Its residual weights come from an enumeration of every X error and every Z error on the output qubits (`counting.residual_weight_table`), independent of both oracles, and it enumerates every accepted fault, so its agreement tests the oracles, the fault search, and the counts on the circuits that it covers.
   Its counts and the counters' share the definition of the flag classes (`counting.get_classes`).
-- A counterexample's exact residual weight, which the analysis checks against its fault weight, the certifier's lower bound, and, for CSS weight, the residual weights of its X and Z parts, comes from a BZ oracle (`_describe` in `experiment.py`), as these parts' weights do, so this check does not test BZ itself.
+- The analysis checks a counterexample's exact residual weight against its fault weight, the certifier's lower bound, and, for CSS weight, the residual weights of its X and Z parts.
+  The residual weights of the counterexample and of its parts come from a BZ oracle (`_describe` in `experiment.py`), so this check does not test BZ itself.
 
 ## Workflow
 
@@ -156,27 +157,64 @@ The ceiling of `main` follows from `circuits.json`: each run costs at most its s
 The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) explains.
 `run_node.py certification --dry-run` prints the tasks and the ceiling of the current `circuits.json`.
 On the workstation, run `analyze.py --archive PATH --check-archive PATH --out DIR`.
-It extracts each archive into a temporary directory, which it removes when it ends, so `--archive` requires `--out`, since the default output directory, `analysis/` in the label directory, would be removed with the extraction.
+It extracts each archive into a temporary directory, which it removes when it ends.
+So `--archive` requires `--out`: the default output directory, `analysis/` in the label directory, would be removed with the extraction.
 Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `listing_table.csv`.
 `listing_table.csv` compares Phi_m and Omega_m with A_m, per family and weight.
 `shadow.csv` gives the cost of the two weight oracles on identical queries: for each circuit and threshold of the queries of its `shadow` run, the calls, the rows that they submit, and the seconds of BZ and of CC, from the run's result or, for a run that did not finish, from the calls that it wrote to `oracle_calls/` in the label directory; it leaves out runs with `compiled_in_timing` set and circuits with a disagreement.
 A run that wrote no calls has no row of `shadow.csv`; `summary.csv` gives its status.
-Its seconds are those of the queries themselves, not of building either oracle, and BZ answers each query first.
+The seconds of `shadow.csv` are those of the queries themselves, not of building either oracle, and BZ answers each query first.
 `counterexamples.json` holds under `all` the counterexamples of the first runs of `cert_bz` and `cert_cc` that finished, and up to three examples under `examples`, one for each group of families that has one, by a rule that `analyze.py`'s docstring gives.
 The groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth families with their W variants, so that every W variant of `circuits.json` is in a group.
 Without the archive of `check`, the outputs report the ground truth as not run.
 The analysis takes the circuits and their parameters from the label's copy of `circuits.json`, and stops if the label of `check` ran with another one.
 If a label does not match its `circuits.json` and the working tree's `config.json` and `pins.json`, it prints a warning and analyzes the label anyway.
 It reports every task without a row as missing, and leaves every circuit with a disagreement out of the counts of verdicts and margins, medians and maxima, `listing_table.csv`, `shadow.csv`, `margin_violations.csv`, `deletion_table.csv`, and the example counterexamples.
-A circuit is a disagreement if any two of its exact results contradict each other, and `summary.csv`'s column `contradictions` names them (`check_consistency` in `analyze.py`).
-The agreement columns of `summary.csv` and `families.csv` compare first runs only: `agree_bz_cc` and `agree_ground_truth` compare the certifications whose first runs finished, with each other or with the ground truth's result, and `agree_baseline` and `baseline_counts_match` compare the first run of the baseline, with the per-weight records of a first run that stopped.
-`contradictions` and the verdict `disagreement` cover every run, repeats, the results that `timeout` and `memout` rows kept, and the `shadow` run included, and `agree_margin` covers the claims on m* of every run, so a circuit can agree on its first runs and still be a disagreement; its `contradictions` say why.
-The analysis compares, as claims on the circuit's margin m* (see [Arms](#arms)), the result of every run of `cert_bz`, `cert_cc`, `shadow`, `brute_bz`, `margin`, and `ground_truth`, repeats included, that returned one, even if its status is `timeout` (its call returned at or after the limit) or `memout` (its memory exceeded the cap before its result, as found after the result arrived; see the shared README's [Runs](../README.md#runs)), each fault weight that a run completed or found a violation at, even if it did not finish, each deletion task's parent verdict at K = t, and the final m* of a deletion task that accepted no deletion, with the fault weights that its search reported.
-The verdicts, T, and `counterexamples.json` use only rows with status `ok`, while the margins and the contradictions use every result that a row kept, so that `margin` can be exact where the verdict is `undecided`.
-It also compares A_m, from `count_accepted` or else from the ground truth, with the combinations that each run of the baseline, repeats included, enumerated on each weight: they must be equal on a weight that the run completed, and at most A_m on one where it found a violation, which stops its enumeration early.
-It compares the ground truth's counts and heavy mechanisms with those of the counters.
-It checks that Phi_m <= A_m, for Phi_m of `count_listing` and of the ground truth, since each listed fault is an accepted combination, and that Omega_m <= Phi_m for every run of `cert_bz`, `cert_cc`, `shadow`, and `margin`, since each row that the fault search submits is a listed fault; a violation at m only stops the search early.
-It treats as contradictions a `shadow` run that ended in `ShadowDisagreement`, also one that the runner discarded because it compiled, a counterexample whose exact residual weight does not exceed its fault weight, by its flag or against the violating weight of its result, is below the certifier's lower bound on it, or, for CSS weight, is not the larger residual weight of its X and Z parts, and a deletion task's final circuit that CC does not certify at K = t, or whose final m*, the fault weights that its search reported, and its certification at K = t disagree, with each other or with those of another deletion task that ends at the same final circuit, by its SHA-256.
+A circuit is a disagreement if its exact results contradict each other, between two runs or within one, as where a counterexample's residual weight does not exceed its fault weight.
+The column `contradictions` of `summary.csv` names the contradictions (`check_consistency` in `analyze.py`), and the column `disagreements` of `families.csv` counts these circuits.
+The analysis compares, as claims on the circuit's margin m* (see [Arms](#arms)):
+
+- the result of every run of `cert_bz`, `cert_cc`, `shadow`, `brute_bz`, `margin`, and `ground_truth` that returned one, repeats included;
+- each fault weight that such a run completed or found a violation at, even if it did not finish;
+- each deletion task's parent verdict at K = t;
+- the final m* of a deletion task that accepted no deletion, with the fault weights that its search reported.
+
+A result counts whatever the status of its row.
+A `timeout` row can keep the result of a call that returned at or after the limit.
+A `memout` row can keep the result of a call whose memory exceeded the cap before the result arrived, as found afterward (see the shared README's [Runs](../README.md#runs)).
+The runner keeps no result of a run that it discarded because it compiled, only its status and error, so the analysis compares no claim of such a run.
+The verdicts, T, and `counterexamples.json` instead use only rows with status `ok`, so `margin` can be exact where the verdict is `undecided`.
+The analysis also compares A_m, from `count_accepted` or else from the ground truth, with the combinations that each run of the baseline, repeats included, enumerated on each weight.
+They must be equal on a weight that the run completed.
+On a weight where the run found a violation, which stops its enumeration early, they must be at most A_m.
+The analysis also compares the ground truth's counts and heavy mechanisms with those of the counters.
+It checks that Phi_m <= A_m, for Phi_m of `count_listing` and of the ground truth, since each listed fault is an accepted combination.
+It checks that Omega_m <= Phi_m for every run of `cert_bz`, `cert_cc`, `shadow`, and `margin`, since each row that the fault search submits is a listed fault.
+This holds also on a weight where the run found a violation, which only stops the search early.
+It also treats as contradictions:
+
+- a `shadow` run that ended in `ShadowDisagreement`, whether the runner kept it or discarded it because it compiled;
+- a counterexample whose exact residual weight does not exceed its fault weight, by its field `residual_exceeds_fault_weight` or against the fault weight of its result;
+- a counterexample whose exact residual weight is below the certifier's lower bound on it;
+- for CSS weight, a counterexample whose exact residual weight is not the larger of the residual weights of its X and Z parts;
+- a deletion task's final circuit that CC does not certify at K = t;
+- a deletion task whose final m*, the fault weights that its search reported, and its certification at K = t disagree with each other;
+- two deletion tasks that end at the same final circuit, by its SHA-256, whose final m*, fault weights, or certifications at K = t disagree.
+
+The agreement columns of `summary.csv` compare first runs:
+
+- `agree_bz_cc`: the verdicts of the first runs of `cert_bz` and `cert_cc`, where both finished.
+- `baseline_counts_match`: the combinations that the first run of the baseline recorded, whether it finished or stopped, against A_m as above: equal on each completed weight, and at most A_m on a weight where the run found a violation.
+  The column is empty where no completed weight has a known A_m.
+- `agree_baseline`: false where `baseline_counts_match` is, and equal to it where no certification finished.
+  Otherwise it compares the verdict and smallest violating weight of the baseline's first run, or, if that run stopped, its recorded violations and completed weights, with those of each certification whose first run finished.
+- `agree_ground_truth`: the smallest violating weight of the ground truth against that of each certification whose first run finished, and its counts against those of the counters (`ground_truth_counts_match`).
+  It uses the result of the first ground-truth run that kept one, whatever its status.
+- `agree_prune`: the first run of each deletion task, by its parent verdict at K = t against the first run of `cert_bz`, or of `cert_cc` where `cert_bz` did not finish, and by whether CC certifies its final circuit at K = t (`agree_prune` in `analyze_applications.py`).
+
+The columns `agreement_bz_cc`, `agreement_baseline`, and `agreement_ground_truth` of `families.csv` count the circuits where these agree.
+`agree_margin` instead compares the claims on m* of every run that the runner kept, as `contradictions` and the verdict `disagreement` do, so a circuit can agree on its first runs and still be a disagreement.
+
 Where `count_accepted` did not compute A_m, `listing_table.csv` divides by C(N_0, m) instead, if z >= m, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
 Where z < m, A_m may be 0, and the column `ratio_unknown` counts the circuit instead, as it does a circuit with A_m = 0.
 The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, each kind of contradiction, shadow runs, a task without a row, rows with `compiled_in_timing` set, and rows of `--local` runs, which the analysis refuses without `--allow-local`, as the [shared README](../README.md#workflow) says.
@@ -185,7 +223,7 @@ The acceptance test AT8 runs the analysis on synthetic rows: a listing count tha
 `summary.csv` gives each circuit's combined margin: the column `margin` holds the m* or "all" that the claims listed above determine; if none determines it, the column `margin_lower_bound` holds the largest fault weight k up to which a run found no violation, meaning m* > k.
 `families.csv` gets the margin counts: per family, the circuits with m* <= t, m* = t + 1, m* >= t + 2, "all", m* > k, and no information on m*.
 `margin_violations.csv` lists the circuits without a disagreement whose exact m* is at most t.
-Where the first run of `cert_bz`, `cert_cc`, or `margin` described a counterexample of weight m*, the columns `counterexample_*` describe one: the arm that described it (`counterexample_arm`), the residual weights of its X and Z parts (`counterexample_sector_x`, `counterexample_sector_z`), and the parts whose own residual weight exceeds the fault weight (`counterexample_violating_parts`).
+Where the first run of `cert_bz`, `cert_cc`, or `margin` described a counterexample of weight m*, the columns `counterexample_*` of `summary.csv` and `margin_violations.csv` describe one: the arm that described it (`counterexample_arm`), the residual weights of its X and Z parts (`counterexample_sector_x`, `counterexample_sector_z`), and the parts whose own residual weight exceeds the fault weight (`counterexample_violating_parts`).
 An empty cell says nothing about a counterexample, as where m* comes from a deletion parent or a run that was stopped.
 These columns describe that counterexample only: they do not show whether another fault of weight m* violates in the other part, so they do not tell whether the circuit meets a criterion on one part alone.
 `deletion_table.csv` has one row per deletion task whose final checks record the final circuit and its SHA-256, on a circuit without a disagreement, with the gate counts, measured qubits, measurements, and acceptance probabilities of parent and final circuit, and the final m*, with the parts of its counterexample whose residual weight exceeds the fault weight (`final_violating_parts`); it compares each final circuit only with its parent.

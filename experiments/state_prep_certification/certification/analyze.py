@@ -35,18 +35,18 @@ because it compiled.  A circuit's verdict is that of ``cert_bz``, or of ``cert_c
 ``cert_bz`` did not finish.  Where neither finished, it is ``undecided``, or ``timeout_compiled`` if
 either arm's status is ``timeout_compiled``.  The verdicts, T, and ``counterexamples.json`` use only
 rows with status ``ok``, while the margins and the contradictions use every result that a row kept,
-so that ``margin`` can be exact where the verdict is ``undecided``.  It is a disagreement where any
-two of its exact results contradict each other, as ``check_consistency`` lists: its verdicts,
-smallest violating weights, and margins from every run, repeats included, its counts, and its
-counterexamples.  The column ``contradictions`` of summary.csv names them.  A disagreement enters no
-count of verdicts or margins and no median, maximum, or ratio of ``families.csv``, nor
-``listing_table.csv``, ``shadow.csv``, ``margin_violations.csv``, ``deletion_table.csv``, or the
-example counterexamples.  The status counts and agreements count it.  T of a certification arm is
-the median of its first run and repeats.  Its timing is incomplete if the first run did not finish,
-if a repeat that the first run calls for did not finish or is missing, or if the row of any of its
-runs has ``compiled_in_timing`` set; an incomplete timing enters no median or maximum.  The same
-holds for the brute-force baseline ``brute_bz``.  If an arm's first run has ``compiled_in_timing``
-set, its per-weight times are left empty.
+so that ``margin`` can be exact where the verdict is ``undecided``.  A circuit is a disagreement
+where its exact results contradict each other, between two runs or within one, as
+``check_consistency`` lists: its verdicts, smallest violating weights, and margins from every run,
+repeats included, its counts, and its counterexamples.  The column ``contradictions`` of summary.csv
+names them.  A disagreement enters no count of verdicts or margins and no median, maximum, or ratio
+of ``families.csv``, nor ``listing_table.csv``, ``shadow.csv``, ``margin_violations.csv``,
+``deletion_table.csv``, or the example counterexamples.  The status counts and agreements count it.
+T of a certification arm is the median of its first run and repeats.  Its timing is incomplete if
+the first run did not finish, if a repeat that the first run calls for did not finish or is missing,
+or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete timing enters no
+median or maximum.  The same holds for the brute-force baseline ``brute_bz``.  If an arm's first run
+has ``compiled_in_timing`` set, its per-weight times are left empty.
 
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
@@ -84,8 +84,9 @@ of ``--label-dir``):
     status, as each ``rss_*`` of summary.csv is (see ``summarize_certification``);
   - ``agreement_bz_cc``, ``agreement_baseline``, and ``agreement_ground_truth``: the circuits whose
     ``agree_bz_cc``, ``agree_baseline``, or ``agree_ground_truth`` of summary.csv is true, of those
-    where it is known.  These compare first runs only, as summary.csv says; ``disagreements`` counts
-    the circuits with a contradiction between any of their runs.
+    where it is known.  These compare first runs, as summary.csv says.  ``disagreements`` counts the
+    circuits with a contradiction (``contradictions`` of summary.csv), between two runs or within
+    one.
 
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
   the brute-force cap, the verdicts, T, timing completeness, and peak memory of both certification
@@ -93,25 +94,30 @@ of ``--label-dir``):
   of each certification's first run, ``repeats_not_ok`` (the repeats that did not finish or are
   missing, and the runs whose rows have ``compiled_in_timing`` set), the oracle rows of ``cert_bz``
   (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz`` (every row queried), the
-  agreements, and the ``contradictions`` that make the circuit a disagreement.  The agreements
-  compare first runs only.  ``agree_bz_cc`` compares the verdicts of the first runs of ``cert_bz``
-  and ``cert_cc`` where both finished.  ``baseline_counts_match`` compares the combinations that the
-  first run of ``brute_bz`` enumerated, whether it finished or stopped, with A_m of
-  ``count_accepted``, or of the ground truth where ``count_accepted`` did not compute it: they must
-  be equal on each weight that it completed, and at most A_m on one where it found a violation.  It
-  is None where no completed weight has a known A_m.  ``agree_baseline`` is false where they do not
-  match.  Otherwise it compares that first run, if it finished, with each certification whose first
-  run finished, by verdict and smallest violating weight, or else the violations and completed
-  weights that the first run recorded before it stopped.  ``agree_ground_truth`` compares the
-  smallest violating weight of the ground truth's
-  result, which a ``timeout`` or ``memout`` row can keep, with that of each certification whose
-  first run finished, and its Pi, E, Phi, and A with those of ``count_listing`` and
-  ``count_accepted`` on the weights of both.  ``agree_prune`` compares the first run of each
-  deletion task (``analyze_applications.agree_prune``).  The column ``contradictions`` and the
-  verdict ``disagreement`` cover every run instead: repeats, the results that ``timeout`` and
-  ``memout`` rows kept, and the ``shadow`` run; ``agree_margin`` covers the claims on m* of every
-  run.  So a circuit can agree on its first runs and still be a disagreement, and ``contradictions``
-  says why.  The counts of a ``count_listing`` run that did not finish are those of its partial
+  agreements, and the ``contradictions`` that make the circuit a disagreement.  These agreements
+  compare first runs:
+
+  - ``agree_bz_cc``: the verdicts of the first runs of ``cert_bz`` and ``cert_cc``, where both
+    finished.
+  - ``baseline_counts_match``: the combinations that the first run of ``brute_bz`` recorded,
+    whether it finished or stopped, against A_m of ``count_accepted``, or else of the ground truth.
+    They must be equal on each completed weight, and at most A_m on a weight where the run found a
+    violation.  It is empty where no completed weight has a known A_m.
+  - ``agree_baseline``: false where ``baseline_counts_match`` is, and equal to it where no
+    certification finished.  Otherwise it compares the verdict and smallest violating weight of
+    that first run, or, if it stopped, its recorded violations and completed weights, with those of
+    each certification whose first run finished.
+  - ``agree_ground_truth``: the smallest violating weight of the ground truth against that of each
+    certification whose first run finished, and its Pi, E, Phi, and A against those of
+    ``count_listing`` and ``count_accepted`` on the weights of both (``ground_truth_counts_match``).
+    It uses the first ground-truth result, which a ``timeout`` or ``memout`` row can keep.
+  - ``agree_prune``: the first run of each deletion task (``analyze_applications.agree_prune``).
+
+  ``agree_margin`` instead compares the claims on m* of every run, as ``contradictions`` and the
+  verdict ``disagreement`` do: repeats, the results that ``timeout`` and ``memout`` rows kept, and
+  the ``shadow`` run.  These are the runs that the runner kept: it keeps no result of a run that it
+  discarded because it compiled.  So a circuit can agree on its first runs and still be a
+  disagreement.  The counts of a ``count_listing`` run that did not finish are those of its partial
   results: q, q_h, and h, and Pi, E, and Phi of the weights that it completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m of ``count_accepted``,
   C(N_0, m) (from N_0 of ``circuits.json`` where ``count_accepted`` did not finish),
@@ -850,9 +856,9 @@ def _ground_truth_counts_match(
 def _ground_truth(truth_rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     """The result of the first ground-truth run that has one, whatever its status, or None.
 
-    A row of status ``timeout`` keeps the result of a call that returned at or after the limit, and
-    a row of status ``memout`` that of a call whose memory exceeded the cap before its result, as
-    found after the result arrived (``common/runner.py``, and the shared README's Runs).
+    A row of status ``timeout`` can keep the result of a call that returned at or after the limit.
+    A row of status ``memout`` can keep the result of a call whose memory exceeded the cap before
+    the result arrived, as found afterward (``common/runner.py``, and the shared README's Runs).
     """
     return next(
         (
@@ -1150,10 +1156,11 @@ def check_consistency(
       ``cert_cc``, ``shadow``, or ``margin`` above Phi_m, of ``count_listing`` or else of the
       ground truth, since each row that the fault search submits is a listed fault, also on a
       weight where the run found a violation;
-    * a counterexample whose exact residual weight does not exceed its fault weight, by its flag
-      ``residual_exceeds_fault_weight`` or against the violating weight of its result, is below the
-      certifier's lower bound on it, or, for CSS weight, is not the larger residual weight of its X
-      and Z parts (``applications.sector_fields``);
+    * a counterexample whose exact residual weight does not exceed its fault weight, by its field
+      ``residual_exceeds_fault_weight`` or against the fault weight of its result;
+    * a counterexample whose exact residual weight is below the certifier's lower bound on it;
+    * for CSS weight, a counterexample whose exact residual weight is not the larger of those of its
+      X and Z parts (``applications.sector_fields``);
     * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose claim
       on its m* disagrees with itself, such as a final m* of at most t or one above a fault weight
       at which its search found a violation, or with that of another deletion task that ends at

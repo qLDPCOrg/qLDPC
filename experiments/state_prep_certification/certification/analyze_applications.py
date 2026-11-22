@@ -9,14 +9,14 @@ increasing order, and no violation up to fault weight k gives the lower bound m*
 "all" if the cutoff r + 1 is at most k.  The claims come from the result of each run of ``cert_bz``,
 ``cert_cc``, ``shadow``, ``brute_bz``, ``margin``, and ``ground_truth``, first runs and repeats,
 whatever their status, and from each fault weight that it reported as completed or violating.  A row
-of status ``timeout`` keeps the result of a call that returned at or after the limit, and a row of
-status ``memout`` that of a call whose memory exceeded the cap before its result, as found after the
-result arrived (``common/runner.py``, and the shared README's Runs).  The claims also come from the
-parent verdict of each deletion task at K = t, and from the claim on the final circuit of a deletion
-task that accepted no deletion, which is the parent (``final_claim``).  All values that determine m*
-must be equal and exceed every lower bound; otherwise the circuit is a disagreement.  The combined
-margin is the determined value, in the column ``margin``, or else the largest lower bound k, in the
-column ``margin_lower_bound``, meaning m* > k.
+of status ``timeout`` can keep the result of a call that returned at or after the limit.  A row of
+status ``memout`` can keep the result of a call whose memory exceeded the cap before the result
+arrived, as found afterward (``common/runner.py``, and the shared README's Runs).  The claims also
+come from the parent verdict of each deletion task at K = t, and from the claim on the final circuit
+of a deletion task that accepted no deletion, which is the parent (``final_claim``).  All values
+that determine m* must be equal and exceed every lower bound; otherwise the circuit is a
+disagreement.  The combined margin is the determined value, in the column ``margin``, or else the
+largest lower bound k, in the column ``margin_lower_bound``, meaning m* > k.
 
 **Deletions.**  Each final circuit must be certified at K = t by the connected-cluster oracle, by
 the task's result or, for a run killed during the search of its final m*, by the final checks that

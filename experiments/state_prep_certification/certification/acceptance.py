@@ -78,31 +78,39 @@
   threshold, and the calls that a timed-out run wrote, without a last line cut off, and leaves out a
   run with ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before
   its last is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes
-  its circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, also one that the
-  runner discarded because it compiled, a finished shadow run, a repeat, a deletion parent, the
-  final m* of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
-  recorded by an unfinished certification, or the result that a certification of status memout kept,
-  against another exact result; a final circuit whose m* is at most t, above the weight of a
-  violation that the search of its m* reported, or other than that of another deletion task that
-  ends at the same final circuit; Phi_m of the listing or the ground truth above A_m; Omega_m of
-  ``shadow`` or ``cert_cc`` above Phi_m, of the listing or the ground truth, on a completed weight
-  or one where the run found a violation; the ground truth's heavy mechanisms against h, also from a
-  ground truth of status memout that kept its result; and a counterexample's residual weight, of
-  ``cert_bz`` or ``margin``, against its fault weight, by its flag or its result's fault weight, its
-  lower bound, or its X and Z parts.  A circuit whose claims of every kind agree gets their m*.
-  Every case of the combined margin of ``analyze_applications.py`` gives its value, its bound, or a
-  disagreement, and a margin of at most t keeps the arm and sector of its counterexample.  A margin
-  or a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
-  makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
-  so also when its verdict is only in the partial results of a killed task.  The margin counts of
-  one family are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a
-  disagreement.  The deletion outputs rebuild a reduced circuit from its input, report a wrong final
-  SHA-256, leave the rebuild unchecked for an input that is not the label's, exclude a disagreement
-  from ``deletion_table.csv`` but list its task, list an uncertified parent, give a timeout and a
-  flagged timeout their statuses, and keep the rows of two tasks killed during the search of their
-  final m*: with m* > k for the largest fault weight k that the search completed, and with m* where
-  it found a violation.  ``deletion_table.csv`` lists its circuits in the order of their ids, and an
-  analysis's marks head each circuit of ``pruned/``, which still parses.
+  its circuit a disagreement:
+
+  - a shadow run, kept or discarded by the runner because it compiled, that ended in
+    ``ShadowDisagreement``;
+  - against another exact result: a finished shadow run, a repeat, a deletion parent, the final m*
+    of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
+    recorded by an unfinished certification, and the result that a certification of status memout
+    kept;
+  - a final circuit whose m* is at most t, above the weight of a violation that the search of its
+    m* reported, or other than that of another deletion task that ends at the same final circuit;
+  - Phi_m of the listing or the ground truth above A_m;
+  - Omega_m of ``shadow`` or ``cert_cc`` above Phi_m, of the listing or the ground truth, on a
+    completed weight or one where the run found a violation;
+  - the ground truth's heavy mechanisms against h, also from a ground truth of status memout that
+    kept its result;
+  - a counterexample's residual weight, of ``cert_bz`` or ``margin``: not above its fault weight, by
+    its field ``residual_exceeds_fault_weight`` or its result's fault weight; below its lower bound;
+    or other than the larger of those of its X and Z parts.
+
+  A circuit whose claims of every kind agree gets their m*.  Every case of the combined margin of
+  ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
+  t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
+  with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
+  and agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in
+  the partial results of a killed task.  The margin counts of one family are checked, and
+  ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
+  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
+  unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
+  but list its task, list an uncertified parent, give a timeout and a flagged timeout their
+  statuses, and keep the rows of two tasks killed during the search of their final m*: with m* > k
+  for the largest fault weight k that the search completed, and with m* where it found a violation.
+  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's marks head
+  each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -110,18 +118,19 @@
   measurement, are rejected for those reasons.  ``prune`` runs twice through the task runner on
   C-goto, steane, and ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial
   results, and then its final checks, with the final circuit, and the fault weights of the search of
-  its final m*: at least one, of which only that of the final m* violates.  Each step and each final
-  circuit, rebuilt, has its recorded outcome: by Stim's simulator, by certification, and, where
-  small enough, by the enumeration of the ground truth.  The final m* agrees with ``cert_bz`` at
-  K = t + 1, and the acceptance estimates of parent and final circuit agree with the exact
-  probabilities from their DEMs.  The enumeration also checks every step on the d = 3 A-ft circuits
-  that pass at K = t.  C-goto keeps its flag.  A run whose steps are delayed past its 5 s limit
-  (``step_delay_s``) is a timeout that keeps its steps.
+  its final m*: at least one.  Only the record at the final m* violates, and none where it is "all".
+  Each step and each final circuit, rebuilt, has its recorded outcome: by Stim's simulator, by
+  certification, and, where small enough, by the enumeration of the ground truth.  The final m*
+  agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final circuit
+  agree with the exact probabilities from their DEMs.  The enumeration also checks every step on the
+  d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are delayed
+  past its 5 s limit (``step_delay_s``) is a timeout that keeps its steps.
 * **AT10:** the margin gives "all" on C-goto and steane, 3 on E-chen, and 1 on W(C-goto).  On these
   and every ground-truth circuit with r > t, it agrees with ``cert_bz``, with the enumeration up to
   min(m*, r + 1) where small enough, and its sectors with an enumeration of the stabilizer group; of
-  its records of fault weights from 2 up, only that of m* violates.  A run on E-chen delayed past
-  its 5 s limit is a timeout that gives only a lower bound.
+  its records of fault weights from 2 up, only that of m* violates, and none where m* is "all" or 1,
+  since the threshold-1 checks leave no record.  A run on E-chen delayed past its 5 s limit is a
+  timeout that gives only a lower bound.
 * **AT11:** altered copies of code files (an Lx that anticommutes with a check, a check as Lz, no
   Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
   that names it, and the code file of a one-qubit |0>, which has no X checks, passes.
@@ -995,7 +1004,7 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
         (index,) = [i for i, record in enumerate(partial) if "final_checks" in record]
         assert partial[index] == {"final_checks": {k: first[k] for k in keys}}, circuit_id
         # each of these circuits makes the search of its final m* visit a fault weight, and only
-        # the weight of the final m* violates
+        # the record at the final m* violates, and none where it is "all"
         searched = partial[index + 1 :]
         weights = [record["m"] for record in searched]
         assert weights and weights == list(range(2, 2 + len(weights))), (circuit_id, weights)
