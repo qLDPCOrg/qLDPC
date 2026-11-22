@@ -387,12 +387,19 @@ def test_runner_missed_peak(directory: pathlib.Path, node: bool) -> None:
     """A measured call above its memory cap for a fraction of a second is a memout.
 
     The polls, a second apart, may miss the peak, but the peak that the child sends with its result,
-    or that the runner reads when the child exits, does not.
+    or that the runner reads when the child exits, does not.  The polls are blinded here, so that
+    only these peaks can make the run a memout.
     """
+    from experiments.state_prep_certification.common import runner
+
     for steps in ([["flash", 0.6]], [["flash", 0.6], ["post", 0.1]]):
         label_dir = directory / str(len(steps))
         label_dir.mkdir()
-        row = _run(label_dir, _task("flash", steps, mem_cap_gib=0.3, post_s=5.0), node)
+        task = _task("flash", steps, mem_cap_gib=0.3, post_s=5.0)
+        tasks.write_pass1(label_dir, [task])
+        with _patched(runner._Watcher, "_poll_resources", lambda self: (0, None)):
+            assert runner.run_task(label_dir, task, local=not node) == 0
+        row = store.final_rows(label_dir)[0][task["key"]]
         assert row["status"] == "memout" and row["peak_rss_gib"] > 0.3, (steps, row)
 
 
