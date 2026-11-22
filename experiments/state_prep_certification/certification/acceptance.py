@@ -72,12 +72,12 @@
   label whose hash does not match its ``circuits.json``, the working tree's other frozen files, and
   the commit and requirements of its manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0)
   circuit give the example counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m)
-  from the circuit's N_0 in place of an A_m that was not computed where z >= m, and gives no ratio
-  where z < m.  ``shadow.csv`` gives the totals of a finished shadow run by threshold, and the calls
-  that a timed-out run wrote, without a last line cut off, and leaves out a run with
-  ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before its last
-  is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes its
-  circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, also one that the
+  from the circuit's N_0 in place of an A_m that ``count_accepted`` did not compute where z >= m,
+  and gives no ratio where z < m.  ``shadow.csv`` gives the totals of a finished shadow run by
+  threshold, and the calls that a timed-out run wrote, without a last line cut off, and leaves out a
+  run with ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before
+  its last is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes
+  its circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, also one that the
   runner discarded because it compiled, a finished shadow run, a repeat, a deletion parent, the
   final m* of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
   recorded by an unfinished certification, or the result that a certification of status memout kept,

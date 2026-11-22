@@ -100,29 +100,31 @@ of ``--label-dir``):
   agreements, and the ``contradictions`` that make the circuit a disagreement.  The counts of a
   ``count_listing`` run that did not finish are those of its partial results: q, q_h, and h, and Pi,
   E, and Phi of the weights that it completed.
-* ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m) (from N_0 of
-  ``circuits.json`` where ``count_accepted`` did not finish), ``naive_prefixes_m_minus_1`` (Pi_(m-1)
-  of ``counting.py``: the prefixes of a naive enumeration of class codewords, most of which qLDPC's
-  walk by shared flags does not visit), E_m, Phi_m, Omega_m (marked partial on a weight that did not
-  complete; at m = 1, the threshold-1 checks of zero-flag mechanisms and classifications of flagged
-  ones instead), skipped = Phi_m - Omega_m (on completed weights only), T_m of BZ and CC, and the
-  oracle time of BZ; and the baseline's combinations enumerated, rows queried, oracle calls,
-  distinct syndromes, and oracle time, and whether it completed the weight.  For K' < m <= K,
-  Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the circuit.
+* ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m of ``count_accepted``,
+  C(N_0, m) (from N_0 of ``circuits.json`` where ``count_accepted`` did not finish),
+  ``naive_prefixes_m_minus_1`` (Pi_(m-1) of ``counting.py``: the prefixes of a naive enumeration of
+  class codewords, most of which qLDPC's walk by shared flags does not visit), E_m, Phi_m, Omega_m
+  (marked partial on a weight that did not complete; at m = 1, the threshold-1 checks of zero-flag
+  mechanisms and classifications of flagged ones instead), skipped = Phi_m - Omega_m (on completed
+  weights only), T_m of BZ and CC, and the oracle time of BZ; and the baseline's combinations
+  enumerated, rows queried, oracle calls, distinct syndromes, and oracle time, and whether it
+  completed the weight.  For K' < m <= K, Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the
+  circuit.
 * ``listing_table.csv``, the listing counts, one row per family and weight m >= 2: the median and
   maximum over circuits of Phi_m / A_m, and over the circuits that completed m with ``cert_bz``, of
-  Omega_m / A_m.  Where A_m was not computed, C(N_0, m) takes its place if z >= m, which ensures
-  A_m > 0: ``C_in_place_of_A`` counts these circuits, and ``ratio_is_lower_bound`` is true where
-  there are any.  As A_m <= C(N_0, m), their ratios are at most the true ones, and so are the
-  medians and maxima, which are then lower bounds on those of Phi_m / A_m and Omega_m / A_m.  A
+  Omega_m / A_m.  Where ``count_accepted`` did not compute A_m, C(N_0, m) takes its place if z >= m,
+  which ensures A_m > 0: ``C_in_place_of_A`` counts these circuits, and ``ratio_is_lower_bound`` is
+  true where there are any.  As A_m <= C(N_0, m), their ratios are at most the true ones, and so are
+  the medians and maxima, which are then lower bounds on those of Phi_m / A_m and Omega_m / A_m.  A
   circuit whose A_m is 0, or was not computed while z < m, has no ratio, and ``ratio_unknown``
   counts it.  Beside them are the medians, over the circuits with a ratio, of the parameters that
   the listing depends on: the heavy share h / N_0, the unflagged share z / N_0, the start classes
-  q_h, and the flag rank r.  ``listing_table.csv`` describes when
-  Phi_m is small against A_m; it fits nothing.
+  q_h, and the flag rank r.  ``listing_table.csv`` describes when Phi_m is small against A_m; it
+  fits nothing.
 * ``shadow.csv``, the cost of the two weight oracles on identical queries, one row per circuit and
-  threshold m of the queries of its ``shadow`` run: the calls, their rows, and the seconds of BZ
-  and CC (``shadow_table``).  A run that did not finish gives the calls that it wrote to
+  threshold m of the queries of its ``shadow`` run: the calls, their rows, and the seconds of BZ and
+  CC on the queries themselves, without the time to build either oracle (``shadow_table``); BZ
+  answers each query first.  A run that did not finish gives the calls that it wrote to
   ``oracle_calls/`` in the label directory, and no row if it wrote none; ``summary.csv`` gives its
   status.  Runs with ``compiled_in_timing`` set and circuits with a disagreement are left out.
 * The margins and deletions (``analyze_applications.py``): the combined margin m* of each circuit
@@ -132,12 +134,12 @@ of ``--label-dir``):
   ``deletion.csv``, ``deletion_table.csv``, ``deletion_tasks.csv``, ``deletion_notes.json``, and
   ``pruned/``.
 * ``counterexamples.json``: the counterexamples of the first runs of ``cert_bz`` and ``cert_cc``
-  (``all``), with ``disagreement`` true where its circuit is a disagreement, and up to three example
-  counterexamples (``examples``), one for each group that has one, chosen by a fixed rule.  The
-  groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth families with
-  their W variants, so that every W variant of ``circuits.json`` is in a group.  In each group, the
-  example is the counterexample of ``cert_bz`` of largest smallest-violation weight on a circuit
-  without a disagreement, ties to the smallest N_0 of ``circuits.json``.
+  that finished (``all``), with ``disagreement`` true where its circuit is a disagreement, and up to
+  three example counterexamples (``examples``), one for each group that has one, chosen by a fixed
+  rule.  The groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth
+  families with their W variants, so that every W variant of ``circuits.json`` is in a group.  In
+  each group, the example is the counterexample of ``cert_bz`` of largest smallest-violation weight
+  on a circuit without a disagreement, ties to the smallest N_0 of ``circuits.json``.
 """
 
 from __future__ import annotations
@@ -612,11 +614,11 @@ def listing_table(
 ) -> list[dict[str, Any]]:
     """The listing counts against all accepted combinations, per family and weight m >= 2.
 
-    The ratios use A_m, or C(N_0, m) where A_m was not computed and z >= m, which makes them lower
-    bounds (``ratio_is_lower_bound``); Omega_m / A_m uses only weights that ``cert_bz`` completed.
-    A circuit whose A_m is 0, or was not computed while z < m, so that it may be 0, has no ratio;
-    ``ratio_unknown`` counts these circuits.  The parameter medians are over the circuits with a
-    ratio.  Circuits with a disagreement are left out.
+    The ratios use A_m of ``count_accepted``, or C(N_0, m) where it did not compute A_m and z >= m,
+    which makes them lower bounds (``ratio_is_lower_bound``); Omega_m / A_m uses only weights that
+    ``cert_bz`` completed.  A circuit whose A_m is 0, or was not computed while z < m, so that it
+    may be 0, has no ratio; ``ratio_unknown`` counts these circuits.  The parameter medians are over
+    the circuits with a ratio.  Circuits with a disagreement are left out.
     """
     circuits = {row["id"]: row for row in summary_rows}
     groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
@@ -1031,13 +1033,14 @@ def shadow_table(
 
     Each first run of ``shadow`` gives one row per threshold m of the fault search's queries, m = 1
     for the threshold-1 checks and classifications and m >= 2 for the batches: the calls, the rows
-    that they submit, and the seconds of the BZ and the CC oracle on them.  A finished run
-    gives the totals of its result (``instrument.py``), and a run that did not finish gives the
-    sums of the calls that it wrote to its file in ``calls_dir`` before it stopped; ``status`` is
-    the run's.  The file's last line, which a kill can cut off, is left out if it is not valid
-    JSON, and any other such line raises a ValueError.  A run that wrote no calls, such as one
-    killed before its first, has no row; ``summary.csv`` gives its status.  The runs whose rows
-    have ``compiled_in_timing`` set, and the circuits with a disagreement, are left out.
+    that they submit, and the seconds of the BZ and the CC oracle on them, without the time to build
+    either oracle; BZ answers each query first.  A finished run gives the totals of its result
+    (``instrument.py``), and a run that did not finish gives the sums of the calls that it wrote to
+    its file in ``calls_dir`` before it stopped; ``status`` is the run's.  The file's last line,
+    which a kill can cut off, is left out if it is not valid JSON, and any other such line raises a
+    ValueError.  A run that wrote no calls, such as one killed before its first, has no row;
+    ``summary.csv`` gives its status.  The runs whose rows have ``compiled_in_timing`` set, and the
+    circuits with a disagreement, are left out.
     """
     table = []
     for circuit_id, entry in sorted(per_circuit.items()):
@@ -1225,12 +1228,12 @@ def write_counterexamples(
 ) -> pathlib.Path:
     """Write counterexamples.json, and return its path.
 
-    It holds the counterexample of each first run of ``cert_bz`` and ``cert_cc`` that found one, and
-    up to three example counterexamples, one for each group that has an eligible counterexample, by
-    a fixed rule.  The counterexamples of the margins and of the deletions' final circuits are
-    described in ``summary.csv``, ``margin_violations.csv``, and ``deletion_table.csv`` instead.
-    ``verdicts`` holds each circuit's verdict, as in summary.csv.  A counterexample on a circuit
-    with a disagreement is listed, marked as such, but is never an example.
+    It holds the counterexample of each first run of ``cert_bz`` and ``cert_cc`` that finished and
+    found one, and up to three example counterexamples, one for each group that has an eligible
+    counterexample, by a fixed rule.  The counterexamples of the margins and of the deletions' final
+    circuits are described in ``summary.csv``, ``margin_violations.csv``, and ``deletion_table.csv``
+    instead.  ``verdicts`` holds each circuit's verdict, as in summary.csv.  A counterexample on a
+    circuit with a disagreement is listed, marked as such, but is never an example.
     """
     counterexamples = []
     for circuit_id, entry in sorted(per_circuit.items()):
