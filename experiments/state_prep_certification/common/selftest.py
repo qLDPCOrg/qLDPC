@@ -1087,9 +1087,12 @@ def test_parallel_stop_and_resume(directory: pathlib.Path, node: bool) -> None:
 def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     """run_node.py refuses without approval, runs both passes, writes an archive, and reports.
 
-    The refused start records itself in ``starts.jsonl`` too.  ``--status`` and ``--cleanup`` name
-    the label directory that they read, and ``--cleanup`` says when it has nothing to clean up.
+    The refused start records itself in ``starts.jsonl`` too, as does a start whose acceptance tests
+    fail, before it runs them.  ``--status`` and ``--cleanup`` name the label directory that they
+    read, and ``--cleanup`` says when it has nothing to clean up.
     """
+    from experiments.state_prep_certification.common import plugin
+
     command = [
         sys.executable,
         str(RUN_NODE),
@@ -1116,6 +1119,27 @@ def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     cleanup = subprocess.run(command + ["--cleanup"], capture_output=True, text=True, check=True)
     assert f"label directory: {label_dir.resolve()}\n" in cleanup.stdout, cleanup.stdout
     assert "nothing to clean up" in cleanup.stdout, cleanup.stdout
+
+    # a start records itself before its acceptance tests, so even one whose tests fail does
+    run_node = _run_node_module()
+    module = plugin.load_experiment("selftest")
+    results = directory / "failed"
+    argv = ["run_node.py", "selftest", "--local", "--subset", "acceptance"]
+    with (
+        _patched(sys, "argv", argv + ["--results-dir", str(results)]),
+        _patched(module, "acceptance", lambda node, results_dir: False),
+        _patched(run_node, "lock_label", lambda label_dir: None),  # no lock left in this process
+        contextlib.redirect_stdout(io.StringIO()),
+    ):
+        try:
+            run_node.main()
+        except SystemExit as error:
+            assert "The acceptance tests failed" in str(error.code), error.code
+        else:
+            raise AssertionError("failed acceptance tests let the start go on")
+    (starts_file,) = results.rglob(store.STARTS_FILE)
+    (start,) = [json.loads(line) for line in starts_file.read_text().splitlines()]
+    assert start["subset"] == "acceptance", start
 
 
 @test
