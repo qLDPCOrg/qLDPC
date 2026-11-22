@@ -279,11 +279,10 @@ def write_outputs(
 
     ``calls_dir``, if given, holds the files of oracle calls of the ``shadow`` runs, as a label's
     ``oracle_calls/`` does (see ``shadow_table``).  Every output takes each circuit's verdict from
-    the rows of summary.csv.  Every output that this
-    call writes carries ``marks``, if any, such as the number of rows of ``--local`` runs
-    (``store.mark_outputs``).  The directory ``out/pruned/`` is deleted with everything in it and
-    written again, so that it holds only this call's circuits; other files in ``out`` are left as
-    they are.
+    the rows of summary.csv.  Every output that this call writes carries ``marks``, if any, such as
+    the number of rows of ``--local`` runs (``store.mark_outputs``).  The directory ``out/pruned/``
+    is deleted with everything in it and written again, so that it holds only this call's circuits;
+    other files in ``out`` are left as they are.
     """
     summary_rows, weight_rows = summarize(per_circuit)
     paths = write_tables(summary_rows, weight_rows, out)
@@ -734,17 +733,16 @@ def _agree_baseline(
 ) -> bool | None:
     """Whether brute_bz agrees with A_m and with the verdict of each finished certification.
 
-    ``counts`` holds A_m by weight (``_accepted_counts``).  The counts are compared on the weights
-    that brute_bz completed, where A_m is known, and a mismatch is a disagreement even if no
-    certification finished.  Otherwise:
+    ``counts`` holds A_m by weight (``_accepted_counts``).  The result is False if the counts do not
+    match (``_baseline_counts_match``), even if no certification finished.  Otherwise:
 
     1. If brute_bz and a certification finished, the result is whether their verdicts agree.
     2. Otherwise, if brute_bz recorded a violation before it was stopped and a certification
        finished, the result is whether every finished certification's smallest violation has the
        weight of brute_bz's smallest recorded violation, which is its smallest violation, since
        brute_bz checks the weights in order.
-    3. Otherwise, a finished certification's violation at a weight that brute_bz completed without
-       a violation is a disagreement.
+    3. Otherwise, the result is False if a finished certification's violation is at a weight that
+       brute_bz completed without a violation.
     4. Otherwise, the result is that of the counts: True if they match, and None if none were
        compared.
     """
@@ -1066,9 +1064,13 @@ def shadow_table(
             for key in total:
                 total[key] += call[key]
         table += [
-            {"id": circuit_id, "family": entry["circuit"]["family"], "status": _status(runs)}
-            | {"m": m}
-            | total
+            {
+                "id": circuit_id,
+                "family": entry["circuit"]["family"],
+                "status": _status(runs),
+                "m": m,
+                **total,
+            }
             for m, total in sorted(totals.items())
         ]
     return table
@@ -1143,7 +1145,7 @@ def check_consistency(
     from experiments.state_prep_certification.certification import applications
 
     claims = analyze_applications.margin_claims(circuit, arms)
-    contradictions = analyze_applications.combine_claims(claims)[2]
+    _, _, contradictions = analyze_applications.combine_claims(claims)
 
     # the shadow oracle's disagreements, which end their runs, also in a run that the runner
     # discarded because it compiled

@@ -182,9 +182,9 @@ def margin_fields(
     """The combined margin of a circuit, its agreement, and the sector of one counterexample.
 
     ``claims`` are those of ``margin_claims``.  ``margin`` is an integer m*, "all", or None if
-    unresolved or a disagreement, and ``margin_lower_bound`` is k where m* > k is all that is known.
-    ``agree_margin`` is whether the claims agree, and None if they come from fewer than two
-    sources and agree.  For an integer m*, the ``counterexample_*`` fields describe the
+    unresolved or if the claims on m* conflict, and ``margin_lower_bound`` is k where m* > k is all
+    that is known.  ``agree_margin`` is whether the claims agree, and None if they come from fewer
+    than two sources and agree.  For an integer m*, the ``counterexample_*`` fields describe the
     counterexample of the first of ``cert_bz``, ``cert_cc``, and ``margin`` that described one of
     weight m*, named by ``counterexample_arm``: the residual weights of its X and Z parts, and the
     parts whose own residual weight exceeds its fault weight.
@@ -423,8 +423,11 @@ def write_applications(
             row, final_circuit = None, ""
             checks = _final_checks(run)
             if checks is not None and "final_sha256" in checks:
-                rebuilt = _rebuild_matches(circuit, checks, _steps(run) or [], inputs)
-                row = {"status": status} | _table_row(circuit_id, circuit, arm, run, rebuilt)
+                task_steps = _steps(run) or []
+                rebuilt = _rebuild_matches(circuit, checks, task_steps, inputs)
+                row = {"status": status} | _table_row(
+                    circuit_id, circuit, arm, run, checks, task_steps, rebuilt
+                )
                 tasks.append(row | {"disagreement": disagreement})
                 final_circuit = checks["final_circuit"]
             if disagreement:
@@ -532,18 +535,19 @@ def _table_row(
     circuit: dict[str, Any],
     arm: str,
     run: dict[str, Any],
+    checks: dict[str, Any],
+    steps: list[dict[str, Any]],
     rebuilt: bool | None,
 ) -> dict[str, Any]:
     """The row of deletion_table.csv of a deletion task whose final checks record its final circuit.
 
+    ``checks`` and ``steps`` are the task's final checks and steps (``_final_checks``, ``_steps``).
     Where the claim on the final m* (``final_claim``) does not determine it, as when its search did
     not finish, ``final_margin_lower_bound`` is the largest fault weight k that the search
     completed, or else t, at which the final circuit is certified, meaning m* > k.
     """
     from experiments.state_prep_certification.certification import applications
 
-    checks = _final_checks(run) or {}
-    steps = _steps(run) or []
     row: dict[str, Any] = {
         "id": circuit_id,
         "arm": arm,
