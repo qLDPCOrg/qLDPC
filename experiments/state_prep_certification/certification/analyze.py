@@ -27,14 +27,12 @@ is reported as ``missing``, with a printed note.  The analysis refuses a label w
 ``tasks.json``, since that file gives each row's circuit.
 
 The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.
-With ``--allow-local``, it marks every output with the number of these rows, ``local_rows``.  If a
-start of either label accepted a refused environment variable with ``--allow-env`` (see
-``run_node.py``), or ran Python with -O, it marks every output with the names of these variables,
-``PYTHONOPTIMIZE`` for -O, ``allowed_environment``.  If the recorded environment variables of a
-label's starts differ, such as those of a resume in another shell, it marks every output with the
-names of the variables that differ, ``environment_changed``.  Each mark is a column in each CSV
-file, a key in each JSON file, and a first comment line in each circuit of ``pruned/``; the
-``final_sha256`` of ``deletion_table.csv`` is that of the circuit without these lines.
+Where they apply, it marks every output with ``local_rows``, the number of these rows;
+``allowed_environment``, the refused environment variables that a start of either label accepted,
+with ``PYTHONOPTIMIZE`` for -O; and ``environment_changed``, the environment variables that differ
+among a label's starts (see ``common/store.py``).  Each mark is a column in each CSV file, a key in
+each JSON file, and a first comment line in each circuit of ``pruned/``; the ``final_sha256`` of
+``deletion_table.csv`` is that of the circuit without these lines.
 
 An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/runner.py``) has the
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
@@ -46,7 +44,8 @@ so that ``margin`` can be exact where the verdict is ``undecided``.  A circuit i
 where its exact results contradict each other, between two runs or within one, as
 ``check_consistency`` lists: its verdicts, smallest violating weights, and margins from every run,
 repeats included, its counts, and its counterexamples.  The column ``contradictions`` of summary.csv
-names them.  A disagreement enters no count of verdicts or margins and no median, maximum, or ratio
+names them, and ``disagreements`` of ``families.csv`` counts these circuits.  A disagreement enters
+no count of verdicts or margins and no median, maximum, or ratio
 of ``families.csv``, nor ``listing_table.csv``, ``shadow.csv``, ``margin_violations.csv``,
 ``deletion_table.csv``, or the example counterexamples.  The status counts and agreements count it.
 T of a certification arm is the median of its first run and repeats.  Its timing is incomplete if
@@ -55,13 +54,12 @@ or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete t
 median or maximum.  The same holds for the brute-force baseline ``brute_bz``.  If an arm's first run
 has ``compiled_in_timing`` set, its per-weight times are left empty.
 
-The README's section Terms defines the symbols, such as Omega_m, and a weight is completed if a run
+The README's section Terms defines the symbols, such as Omega_m.  A weight is completed if a run
 finished it without a violation.  A circuit whose enumeration size U exceeds the brute-force cap of
 ``config.json`` has no ``brute_bz`` task, and its status is "not run (U > cap)", never a timeout.
 An agreement is "a/b", a of b compared circuits, or "not run" where no circuit of the family has
-rows of the arm compared.
-The outputs go to ``--out``, by default ``analysis/`` in the label directory of ``--label-dir``.
-They are:
+rows of the arm compared.  The outputs go to ``--out``, by default ``analysis/`` in the label
+directory of ``--label-dir``.  They are:
 
 * ``families.csv``, one row per family:
 
@@ -91,9 +89,7 @@ They are:
     status, as each ``rss_*`` of summary.csv is (see ``summarize_certification``);
   - ``agreement_bz_cc``, ``agreement_baseline``, and ``agreement_ground_truth``: the circuits whose
     ``agree_bz_cc``, ``agree_baseline``, or ``agree_ground_truth`` of summary.csv is true, of those
-    where it is known.  These compare first runs, as summary.csv says.  ``disagreements`` counts the
-    circuits with a contradiction (``contradictions`` of summary.csv), between two runs or within
-    one.
+    where it is known.  These compare first runs, as summary.csv says.
 
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
   the brute-force cap, the verdicts of both certification arms, the T, timing completeness, and peak
