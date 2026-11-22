@@ -37,8 +37,9 @@
 
 GNU parallel's stop and resume and its job-slot pinning are tested by ``common/selftest.py``:
 locally with stand-in CPU numbers, and in node mode on Linux before the node's acceptance tests.
-``node.sh``'s offline install is rehearsed on a workstation with a bundle that ``bundle.py`` builds
-for the workstation's platform.  Each test prints PASS or FAIL.
+``node.sh``'s offline install can be rehearsed on a workstation with a bundle that ``bundle.py``
+builds for the workstation's platform.  The IDs AT3, AT4, AT7, and AT8 are unused.  Each test prints
+PASS or FAIL.
 """
 
 from __future__ import annotations
@@ -125,8 +126,10 @@ def _run_arms(
 def at1_anchors(directory: pathlib.Path, node: bool) -> None:
     """Both arms return the reference distance on fast anchors, searching the same sectors.
 
-    Both arms make the same code-method call on a plain code, so they search one sector exactly
-    when the plain code has ``_equal_distance_xz``: on the codes with H_X = H_Z, and on no other.
+    Both arms make the same code-method call on a plain code, so they search the same sectors.  The
+    plain codes with H_X = H_Z, and only those, have ``_equal_distance_xz``, under which a search
+    covers only the X sector; with bliss, a sector map can also give a search of one sector of a
+    code whose check matrices differ.
     """
     label_dir = _prepared(directory)
     entries = _entries(AT1_CODES)

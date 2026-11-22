@@ -61,8 +61,9 @@ The ceiling of CPU-hours that an experiment needs approved allows for the runner
 
 ## Workflow
 
-Each experiment's data, such as its codes or circuits, are not committed: the experiment reads them from its data directory, which Git ignores, as the experiment's README says.
-On the workstation, make the experiment's data, and check it as its README says, such as with `circuits.py --check`.
+Each experiment's data, such as its codes or circuits, are not committed: the experiment reads them from its data directory, which Git ignores.
+Each experiment's README lists the files that its data directory must hold, says which of them the experiment's scripts make, and which are inputs that it takes as given.
+On the workstation, put those inputs in place, make the rest with the experiment's scripts, and check them as its README says, such as with `circuits.py --check`.
 Then build the bundle, which carries the data, and note its checksum:
 
 ```bash

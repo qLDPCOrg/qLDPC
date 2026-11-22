@@ -5,12 +5,13 @@
     python codes.py --out DIR [--write-sample] [--check]
 
 **Families and sizes.**  Each family has endpoints n_lo and n_hi from its published source,
-recorded in ``code_data/endpoints.json``; the README cites each source.  The four target lengths are
-n_j = n_lo (n_hi / n_lo)^(j / 3) for j = 0, ..., 3, and each target goes to the family's
-admissible parameters whose length is nearest in log n; ties go to the smaller n, then to the
-family's tie-break.  Targets that land on the same parameters merge; in the ``ladders`` of
-``code_data/sample.json``, a target that lands on the parameters of an earlier one has ``merged``
-set to true.  No timing of any kind enters this rule.
+recorded in ``code_data/endpoints.json``; the README cites each source and gives the rule by which
+the endpoints were read from it.  The four target lengths are n_j = n_lo (n_hi / n_lo)^(j / 3)
+for j = 0, ..., 3, and each target goes to the family's admissible parameters whose length is
+nearest in log n; ties go to the smaller n, then to the family's tie-break.  Targets that land on
+the same parameters merge; in the ``ladders`` of ``code_data/sample.json``, a target that lands on
+the parameters of an earlier one has ``merged`` set to true.  No timing of any kind enters this
+rule.
 
 **Draws.**  For each size, draws i = 0, 1, ... are made until 4 are kept or 100 are made.  Draw i
 of parameters ``params`` of family ``f`` uses ``numpy.random.default_rng(seed)`` with
@@ -473,12 +474,13 @@ def color_666(distance: int) -> codes.CSSCode:
 #   LDPC codes" (2026), arXiv:2607.14091;
 # - Bravyi et al. 2024: S. Bravyi, A. W. Cross, J. M. Gambetta, D. Maslov, P. Rall, and T. J. Yoder,
 #   "High-threshold and low-overhead fault-tolerant quantum memory", Nature 627, 778-782 (2024),
-#   arXiv:2308.07915;
+#   doi:10.1038/s41586-024-07107-7, arXiv:2308.07915, whose "Table 3" is that of arXiv:2308.07915v2;
 # - Panteleev and Kalachev 2021: P. Panteleev and G. Kalachev, "Degenerate Quantum LDPC Codes With
-#   Good Finite Length Performance", Quantum 5, 585 (2021), arXiv:1904.02703;
-# - He, Reed, and Truong 2001: R. He, I. S. Reed, T.-K. Truong, and X. Chen, "Decoding the
-#   (47,24,11) quadratic residue code", IEEE Trans. Inf. Theory 47(3), 1181-1186 (2001),
-#   doi:10.1109/18.915677;
+#   Good Finite Length Performance", Quantum 5, 585 (2021), doi:10.22331/q-2021-11-22-585,
+#   arXiv:1904.02703;
+# - He, Reed, and Truong 2001, a short key for four authors: R. He, I. S. Reed, T.-K. Truong, and
+#   X. Chen, "Decoding the (47,24,11) quadratic residue code", IEEE Trans. Inf. Theory 47(3),
+#   1181-1186 (2001), doi:10.1109/18.915677;
 # - Rains and Sloane 1998: E. M. Rains and N. J. A. Sloane, "Self-Dual Codes", in Handbook of
 #   Coding Theory, eds. V. S. Pless and W. C. Huffman (1998), pp. 177-294, arXiv:math/0208001;
 # - Knill and Laflamme 1996: E. Knill and R. Laflamme, "Concatenated Quantum Codes" (1996),
@@ -676,7 +678,7 @@ def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
             arrays["matrix_z"].astype(np.int_),
             is_subsystem_code=False,
         )
-        # whether the plain code searches only its X sector, which AT1 checks on two anchors
+        # whether the plain code has equal X and Z distances because H_X = H_Z, which AT1 checks
         equal_sectors = bool(plain_css._equal_distance_xz)
         plain: codes.QuditCode = plain_css
     else:

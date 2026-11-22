@@ -10,7 +10,7 @@ the harness commit, the experiments, the platforms, and the resolved requirement
 one directory of the same name, with:
 
 * ``qLDPC/``: ``git archive`` of this worktree's HEAD, with the experiments' ``DATA`` directories
-  (inputs built on the workstation and not committed) and
+  (their inputs that are not committed, as each experiment's README describes) and
   ``experiments/state_prep_certification/bundle.json``;
 * ``wheels/``: wheels for the pinned CPython and Linux platform of ``pins.json``.  They cover
   qLDPC's runtime requirements with the extras of ``qldpc_extras``, each experiment's
@@ -102,7 +102,10 @@ def main() -> None:
         for data in module.DATA:
             source = plugin.experiment_dir(module.NAME) / data
             if not source.is_dir():
-                sys.exit(f"{module.NAME}: its data directory {source} does not exist; build it")
+                sys.exit(
+                    f"{module.NAME}: its data directory {source} does not exist; make it, as "
+                    f"{module.NAME}'s README says"
+                )
             shutil.copytree(
                 source, tree / "experiments" / "state_prep_certification" / module.NAME / data
             )
@@ -211,18 +214,22 @@ def check_frozen_files(tree: pathlib.Path, modules: list[Any]) -> None:
     """Stop unless the staged tree holds every frozen file of the named experiments.
 
     A frozen file in another experiment's directory travels only in a bundle that names that
-    experiment too.
+    experiment too.  A missing file of a named experiment is reported as that experiment's.
     """
     experiments_dir = tree / "experiments" / "state_prep_certification"
+    named = {module.NAME for module in modules}
     for module in modules:
         for name in module.FROZEN_FILES:
             path = pathlib.Path(os.path.normpath(experiments_dir / module.NAME / name))
             if path.is_file():
                 continue
             owner = path.relative_to(experiments_dir).parts[0]
-            if owner != module.NAME:
+            if owner not in named:
                 sys.exit(f"{module.NAME} needs {owner}'s {path.name}: bundle {owner} too")
-            sys.exit(f"{module.NAME}: its frozen file {name} is not in the bundle; build it")
+            sys.exit(
+                f"{owner}: its frozen file {path.relative_to(experiments_dir / owner)} is not in "
+                f"the bundle; make it, as {owner}'s README says"
+            )
 
 
 def check_tree(pins: dict[str, Any], modules: list[Any], unfrozen: bool) -> str:

@@ -96,10 +96,10 @@ The expected values of AT1 on C-goto and its weakened variant come from qLDPC: t
 to any fault weight when it post-selects on the flag, and finds a violation at fault weight 1 when
 it does not, and ``test_steane_preparation_meets_css_weight_but_not_physical_weight`` of
 ``src/qldpc/circuits/certification/fault_propagation_test.py`` certifies the circuit with its flag.
-A failure of AT1 is a disagreement between the experiment and these results, whose cause a change
-of a rule of the experiment would hide.  Each test prints PASS or FAIL; the script exits with
-status 1 if any failed.  The tests are the same on the node and on a workstation: ``--local`` and
-the ``node`` argument of each test exist because the plug-in interface passes whether the tests
+A failure of AT1 means that the experiment disagrees with these results: find the cause, rather than
+change a rule of the experiment until AT1 passes.  Each test prints PASS or FAIL; the script exits
+with status 1 if any failed.  The tests are the same on the node and on a workstation: ``--local``
+and the ``node`` argument of each test exist because the plug-in interface passes whether the tests
 run on the node.
 """
 

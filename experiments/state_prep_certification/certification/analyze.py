@@ -5,10 +5,10 @@
     python analyze.py (--archive PATH | --label-dir DIR)
         [--check-archive PATH | --check-label-dir DIR] [--out DIR] [--allow-local]
 
-The analysis is descriptive: counts and medians, with every timeout, memout,
-error, missing run, and disagreement in its CSV files.  The ground truth runs in the subset
-``check``, which has its own label directory and archive; ``--check-label-dir`` or
-``--check-archive`` adds its ``ground_truth`` rows to those of the analyzed run, if any.
+The analysis is descriptive: counts and medians, with every timeout, memout, error, missing run,
+and disagreement in its CSV files.  The ground truth runs in the subset ``check``, which has its own
+label directory and archive; ``--check-label-dir`` or ``--check-archive`` adds its ``ground_truth``
+rows to those of the analyzed run, if any.
 
 The circuits and their parameters come from the label's copy of the ``circuits.json`` that it ran
 with.  If the label does not match that ``circuits.json`` and the working tree's ``config.json``
@@ -113,10 +113,10 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   ``deletion_tasks.csv``, ``deletion_notes.json``, and ``pruned/``.  A disagreement of the margins
   or the deletions makes the circuit a disagreement.
 * ``counterexamples.json``: every counterexample (``all``), with ``disagreement`` true where its
-  circuit is a disagreement, and three example counterexamples (``examples``), one per group,
-  chosen by a fixed rule: in each of the groups A-unv with the weakened variants of A-ft, B-cat,
-  and D-synth with its weakened variants, the counterexample of ``cert_bz`` of largest
-  smallest-violation weight on a circuit without a disagreement, ties to the smallest N_0 of
+  circuit is a disagreement, and up to three example counterexamples (``examples``), one for each
+  group that has one, chosen by a fixed rule: in each of the groups A-unv with the weakened variants
+  of A-ft, B-cat, and D-synth with its weakened variants, the counterexample of ``cert_bz`` of
+  largest smallest-violation weight on a circuit without a disagreement, ties to the smallest N_0 of
   ``circuits.json``.
 """
 
