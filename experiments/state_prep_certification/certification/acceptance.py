@@ -12,7 +12,8 @@
   order; the listing counter gives the same counts when its compiled search returns one class
   codeword at a time; and the rows submitted to the oracle never exceed the listed faults on
   completed weights.  Through the task runner, ``count_listing`` on E-chen and ``ground_truth`` on
-  W(A-ft Shor) and C-goto finish without ``compiled_in_timing``.
+  W(A-ft Shor) and C-goto finish without ``compiled_in_timing``.  The compiled functions of
+  ``counting.py`` and ``baseline.py`` call no compiled function of another file.
 * **AT3:** instrumented and uninstrumented certification give identical certificates on C-goto,
   its variant, and A-ft steane; every wrapped name exists; on a CSS circuit with a violation, each
   query of the fault search is counted once, against an independent spy of the calls that the
@@ -197,6 +198,20 @@ def at1_known_circuits(directory: pathlib.Path, node: bool) -> None:
 @test
 def at2_counters(directory: pathlib.Path, node: bool) -> None:
     """Counters equal brute force; two arms run through the runner without compiled_in_timing."""
+    # the compiled functions of counting.py and baseline.py call only compiled functions of their
+    # own file, as the cache of their compiled code requires (see counting.py)
+    for module in (counting, baseline):
+        compiled = [
+            value
+            for value in vars(module).values()
+            if getattr(getattr(value, "py_func", None), "__module__", None) == module.__name__
+        ]
+        assert compiled, module.__name__
+        for function in compiled:
+            for name in function.py_func.__code__.co_names:
+                called = getattr(function.py_func.__globals__.get(name), "py_func", None)
+                assert called is None or called.__module__ == module.__name__, (function, name)
+
     # random DEMs, some with a light class before a heavy one in DEM order
     light_first = 0
     for flags, heavy, max_weight in _random_dems():

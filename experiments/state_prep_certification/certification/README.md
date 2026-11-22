@@ -90,7 +90,7 @@ The runner retries any run whose measured call compiled, as the [shared README](
 No run warms up before timing, apart from `ground_truth`, whose task process first compiles galois's GF(2) arithmetic, untimed (`_compile_galois` in [`counting.py`](counting.py)).
 The count and ground-truth arms take their DEM from an untimed certification at fault weight 1.
 This certification is preparation, not a warm-up, but it also compiles, or loads from the cache, the code that their measured calls share with it.
-The experiment's own compiled code, in `counting.py` and `baseline.py`, is cached on disk.
+The experiment's own compiled code, in `counting.py` and `baseline.py`, is cached on disk by qLDPC's `always_compiled`, as qLDPC's is; a comment near the top of `counting.py` says what this code may call and read.
 
 `analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
