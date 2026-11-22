@@ -27,11 +27,12 @@ sleeps that many seconds after each step, so that a short limit ends the run bet
   completed fault weight as a partial result.  A parent that is not certified at K = t gets no step.
 
 Deleting a qubit removes every instruction target group that involves it, as for the weakened
-variants (``circuits._delete_qubit``).  The sector of a counterexample is the residual weight of the
-X part and of the Z part of its output error, each minimized modulo the stabilizers of the prepared
-state; for CSS weight, the larger of the two is the residual weight.  ``describe_certificate``
-describes a certificate, with the sector of its counterexample, for the margins and for the first
-runs of ``cert_bz`` and ``cert_cc`` (``experiment.py``).
+variants (``circuits._delete_qubit``).  The weakened variants also try qubits last measured first,
+but break ties otherwise (``measured_qubits``).  The sector of a counterexample is the residual
+weight of the X part and of the Z part of its output error, each minimized modulo the stabilizers of
+the prepared state; for CSS weight, the larger of the two is the residual weight.
+``describe_certificate`` describes a certificate, with the sector of its counterexample, for the
+margins and for the first runs of ``cert_bz`` and ``cert_cc`` (``experiment.py``).
 """
 
 from __future__ import annotations
@@ -280,6 +281,9 @@ def measured_qubits(circuit: stim.Circuit, order: str) -> list[int]:
     ``"last_measured_first"`` orders them by decreasing index of the instruction of their last
     measurement, and ``"first_measured_first"`` by increasing index of the instruction of their
     first measurement.  Qubits tied by one instruction keep the order of their first measurement.
+    The weakened variants of ``circuits.py`` try qubits last measured first too, but take the qubits
+    whose last measurements share an instruction in the reverse order of its targets
+    (``circuits._make_weakened``).
     """
     if order not in ("last_measured_first", "first_measured_first"):
         raise ValueError(f"Unknown deletion order {order!r}")

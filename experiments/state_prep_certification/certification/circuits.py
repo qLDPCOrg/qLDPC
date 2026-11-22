@@ -408,7 +408,10 @@ def _make_weakened(parent: dict[str, Any], inputs: pathlib.Path) -> dict[str, An
 
     The selected qubit is that of the last target of the last measurement, then the qubit measured
     just before it, and so on, until qLDPC accepts the variant with the parent's output qubits and
-    the variant prepares the parent's state, as ``_validate_and_write`` checks.
+    the variant prepares the parent's state, as ``_validate_and_write`` checks.  This is the order
+    "last measured first" of the deletion tasks (``applications.measured_qubits``) except in its
+    ties: qubits whose last measurements share an instruction come here in the reverse order of its
+    targets, and there in the order of their first measurements.
     """
     circuit = stim.Circuit((inputs / f"{parent['id']}.stim").read_text())
     options = dict(parent["options"], output_qubits=parent["output_qubits"])
