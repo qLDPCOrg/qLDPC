@@ -129,11 +129,11 @@ They are:
   E, and Phi of the weights that it completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m of ``count_accepted``,
   C(N_0, m) (from N_0 of ``circuits.json`` where ``count_accepted`` did not finish),
-  ``naive_prefixes_m_minus_1`` (Pi_(m-1) of ``counting.py``: the prefixes of a naive enumeration of
-  class codewords, most of which qLDPC's walk by shared flags does not visit), E_m, Phi_m, Omega_m
-  (marked partial on a weight that did not complete; at m = 1, the threshold-1 checks of zero-flag
-  mechanisms and classifications of flagged ones instead), skipped = Phi_m - Omega_m (on completed
-  weights only), T_m of BZ and CC, and the oracle time of BZ; and the baseline's combinations
+  ``naive_prefixes_m_minus_1`` (Pi_(m-1)), E_m, Phi_m, Omega_m of ``cert_bz`` for m >= 2 (marked
+  partial on a weight that did not complete), skipped = Phi_m - Omega_m (on completed weights
+  only), T_m of BZ and CC, and the oracle time of BZ; at m = 1, in place of Omega_m, the threshold-1
+  checks of zero-flag mechanisms (``threshold1_zero_flag``) and classifications of flagged ones
+  (``threshold1_flagged``) of a ``cert_bz`` that finished; and the baseline's combinations
   enumerated, rows queried, oracle calls, distinct syndromes, and oracle time, and whether it
   completed the weight.  For K' < m <= K, Phi_m = 0 where ``count_listing`` has counts, and
   Omega_m = 0 where ``cert_bz`` certified the circuit.

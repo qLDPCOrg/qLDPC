@@ -22,10 +22,11 @@ These are the terms of qLDPC's guide [`fault_propagation.md`](../../../src/qldpc
   For a CSS state, as here, the weight is the CSS weight max(|x|, |z|), with x and z the X and Z supports of the error; the residual weights of the X and Z parts of the error are its **sectors**.
 - A fault **violates** the bound if its residual weight exceeds its fault weight; a violating accepted fault is a **counterexample**.
   An error mechanism is **heavy** if it violates by itself: no Pauli error of weight at most 1 has its syndrome.
-- An accepted fault is **irreducible** if it contains no smaller nonzero accepted fault; if any accepted fault violates, an irreducible one of no larger fault weight does, so these suffice.
+- A nonzero accepted fault is **irreducible** if it contains no smaller nonzero accepted fault.
+  If any accepted fault violates, an irreducible one of no larger fault weight does, so the certifier need check only irreducible faults.
   The **listing** is the certifier's enumeration, at each fault weight from 2 to the cutoff K' (below), of the irreducible accepted faults that contain a heavy mechanism, the **listed faults**; at fault weight 1, the certifier checks each mechanism with zero flags.
 - A **weight oracle** decides whether a syndrome has a Pauli error of weight at most a threshold: qLDPC has a BZ and a CC oracle.
-  The fault search of a certification submits the syndromes of listed faults to the oracle in batches, whose entries are **rows**.
+  The fault search of a certification submits the syndromes of listed faults to the oracle in batches, whose entries are **oracle rows**.
 - A circuit's **design t** is the number of faults that its source designed it to tolerate, a trusted input (see [Circuits](#circuits)).
   Certification runs at K = t + 1, so that one run decides both K = t and the next fault weight; the deletions keep K = t.
 - The **margin** m* of a circuit is the smallest fault weight of a counterexample, or "all" if none exists (see [Arms](#arms)).
@@ -49,7 +50,7 @@ The outputs use these symbols for counts of a circuit's DEM, whose values `circu
 | E_m | the class codewords of m >= 3 classes whose first class is a start class (see [`counting.py`](counting.py)) |
 | Phi_m | the listed faults of fault weight m |
 | Pi_(m-1) | the prefixes of m - 1 classes of a naive enumeration of class codewords, most of which qLDPC's walk by shared flags does not visit (`naive_prefixes_m_minus_1` of `per_weight.csv`) |
-| Omega_m | the rows that the fault search submits to the oracle at fault weight m, each the syndrome of a listed fault ([`instrument.py`](instrument.py)) |
+| Omega_m | the oracle rows that the fault search submits in batches at fault weight m >= 2, each the syndrome of a listed fault ([`instrument.py`](instrument.py)); at m = 1, `per_weight.csv` counts the certifier's threshold-1 queries instead |
 
 ## Circuits
 
