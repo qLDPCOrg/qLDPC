@@ -511,7 +511,8 @@ def refuse_other_cpu(label_dir: pathlib.Path) -> None:
 def live_runs(label_dir: pathlib.Path) -> list[str]:
     """The records of ``active/`` whose GNU parallel, runner, or run is still the recorded process.
 
-    A run is also live if its process group's leader is gone but members of the group remain, which
+    A run is also live if a process that survived its grace (``survivors``) is still the same
+    process, or if its process group's leader is gone but members of the group remain, which
     ``cleanup`` reports without killing them.  An unreadable record counts as live, since nothing
     shows that its run ended; ``cleanup`` removes it.
     """
@@ -524,6 +525,7 @@ def live_runs(label_dir: pathlib.Path) -> list[str]:
         recorded = [(record["pid"], record["pid_start"])]
         if path.name != PARALLEL_RECORD:
             recorded.append((record["runner_pid"], record["runner_start"]))
+        recorded += [(pid, start) for pid, start in record.get("survivors", [])]
         same = any(
             start is not None and pid in table and table[pid].start == start
             for pid, start in recorded
@@ -542,7 +544,9 @@ def cleanup(label_dir: pathlib.Path) -> None:
     its leader is the recorded process, so that a process that has reused an id is never killed.
     If the leader is gone but members of its group remain, they may belong to a later group that
     reused the id, since nothing tells the two apart: ``cleanup`` lists them, kills none, and keeps
-    the record.  An unreadable record is removed, with a note.
+    the record.  A record that a runner kept for the processes left after a run's grace names them
+    with their start times (``survivors``), and ``cleanup`` kills exactly those that are still the
+    same processes.  An unreadable record is removed, with a note.
     """
     for path, record in _active_records(label_dir):
         if path.name == PARALLEL_RECORD and record is not None:
@@ -559,6 +563,18 @@ def cleanup(label_dir: pathlib.Path) -> None:
             path.unlink(missing_ok=True)
             continue
         _kill_if_same(record["runner_pid"], record["runner_start"], group=False)
+        if "survivors" in record:
+            ended = [
+                pid
+                for pid, start in record["survivors"]
+                if not _kill_if_same(pid, start, group=False)
+            ]
+            print(
+                f"{path.name}: killed the processes left after its grace that were still alive; "
+                f"of {[pid for pid, _ in record['survivors']]}, {ended or 'none'} had ended"
+            )
+            path.unlink(missing_ok=True)
+            continue
         members = _orphaned_members(runner.process_table(), record)
         if members:
             print(

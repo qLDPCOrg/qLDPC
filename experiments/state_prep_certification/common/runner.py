@@ -39,10 +39,11 @@ run until after its row is appended, and watches the child:
   partial results and the report of a compilation that the child wrote before the kill, waits up
   to ``grace_s`` for the processes to go, and accepts no other message.  The row's ``error`` lists
   each process left after the grace, with its command line, and the run's record stays in
-  ``active/``, as ``active/<run_id>``, so that ``run_node.py --cleanup`` finds it.  On the node, a
-  kill signals the run's process group, whose id cannot be reused while a member lives.  Locally, a
-  process is killed only if its start time is the one recorded when it was seen, so that a reused
-  process id is never killed.
+  ``active/``, as ``active/<run_id>``, with the id and start time of each such process, so that
+  ``run_node.py --cleanup`` kills exactly those that are still the same processes, even once the
+  run's own process and its runner have exited.  On the node, a kill signals the run's process
+  group, whose id cannot be reused while a member lives.  Locally, a process is killed only if its
+  start time is the one recorded when it was seen, so that a reused process id is never killed.
 * **Compilation:** while the measured call runs, the child listens to two of numba's documented
   events: ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and
   ``"numba:run_pass"``, which it sends for each compiler pass of any compilation, including those
@@ -375,11 +376,17 @@ class _Watcher:
     def _keep_record(self, active_file: pathlib.Path, stray: list[int]) -> None:
         """Keep the run's active record as ``active/<run_id>`` if processes of the run are left.
 
-        ``live_runs`` and ``--cleanup`` of ``run_node.py`` then find them, and the next run of the
-        task cannot overwrite the record.
+        The kept record adds ``survivors``, the id and start time of each process left, so that
+        ``live_runs`` and ``--cleanup`` of ``run_node.py`` find them after this runner has exited,
+        and the next run of the task cannot overwrite the record.
         """
         if stray:
-            active_file.rename(active_file.with_name(self.run_id))
+            record = json.loads(active_file.read_text())
+            record["survivors"] = [[pid, self.seen.get(pid) or process_start(pid)] for pid in stray]
+            store.write_atomic(
+                active_file.with_name(self.run_id), json.dumps(record), self.label_dir
+            )
+            active_file.unlink()
 
     def _watch(
         self, child: subprocess.Popen[bytes], read_fd: int, launch: float

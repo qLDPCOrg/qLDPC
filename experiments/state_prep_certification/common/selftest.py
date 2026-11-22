@@ -31,6 +31,7 @@ import os
 import pathlib
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tarfile
@@ -553,25 +554,62 @@ def test_runner_registration_failure(directory: pathlib.Path, node: bool) -> Non
 
 @test
 def test_runner_survivors(directory: pathlib.Path, node: bool) -> None:
-    """A process that survives the grace is listed with its command, and its record is kept."""
+    """A process that survives the grace is listed, and --cleanup kills it after its runner ends.
+
+    The kept record names the survivor, here a grandchild left after the run's own process was
+    killed, with its start time, so that --cleanup finds it once that process and the runner are
+    gone.
+    """
     from experiments.state_prep_certification.common import runner
 
-    task = _task("survives", [], startup_cap_s=1.0, grace_s=1.0)
+    run_node = _run_node_module()
+    task = _task("survives", [], startup_cap_s=3.0, grace_s=1.0)
     watcher = runner._Watcher(
         directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
     )
-    watcher._kill = lambda: None  # type: ignore[method-assign]  # as for a process in D state
+
+    def kill_root_only() -> None:  # as for a grandchild in D state
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(watcher.root, signal.SIGKILL)
+
+    watcher._kill = kill_root_only  # type: ignore[method-assign]
+    grandchild = "import time; time.sleep(57.75)"
+    script = (
+        f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {grandchild!r}]); "
+        "time.sleep(57.25)"
+    )
+    survivors: list[list[Any]] = []
     try:
-        row = watcher.run([sys.executable, "-c", "import time; time.sleep(57.25)"])
+        row = watcher.run([sys.executable, "-c", script])
         assert row is not None and row["status"] == "error", row
-        assert f"{watcher.root} (" in row["error"] and "time.sleep(57.25)" in row["error"], row
-        assert (directory / "active" / row["run_id"]).exists()
+        path = directory / "active" / row["run_id"]
+        record = json.loads(path.read_text())
+        survivors = record["survivors"]
+        ((survivor, _),) = survivors
+        assert survivor != watcher.root and f"{survivor} (" in row["error"], (record, row)
+        assert "time.sleep(57.75)" in row["error"], row
         assert not (directory / "active" / task["key"]).exists()
+
+        # once the runner has exited too, the survivor is still live, and --cleanup kills it
+        record |= {"runner_pid": record["pid"], "runner_start": record["pid_start"]}
+        path.write_text(json.dumps(record))
+        assert run_node.live_runs(directory) == [row["run_id"]]
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_node.cleanup(directory)
+        time.sleep(1)
+        assert not _processes_matching("time.sleep(57.75)"), "a survivor outlived --cleanup"
+        assert run_node.live_runs(directory) == []
     finally:
+        recorded = [(watcher.root, watcher.seen.get(watcher.root))] + [
+            (pid, start) for pid, start in survivors
+        ]
+        for pid, start in recorded:
+            if pid > 0 and start is not None and runner.process_start(pid) == start:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
         if watcher.root > 0:
-            with contextlib.suppress(ProcessLookupError, ChildProcessError):
-                os.kill(watcher.root, signal.SIGKILL)
-                os.waitpid(watcher.root, 0)
+            with contextlib.suppress(ChildProcessError):
+                os.waitpid(watcher.root, os.WNOHANG)
 
 
 @test
@@ -886,6 +924,8 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
     tasks.write_pass1(directory, [_task("hard", [["spawn", 51.25]], limit_s=60.0)])
     process = subprocess.Popen(_run_task_command(directory, "hard", node))
     _wait_for(lambda: (directory / "active" / "hard").exists())
+    record = json.loads((directory / "active" / "hard").read_text())
+    assert record["host"] == socket.gethostname(), record
     time.sleep(2)
     process.kill()
     process.wait()
