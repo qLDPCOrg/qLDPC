@@ -9,12 +9,12 @@ inputs, outputs, and documentation.
         [--check-archive PATH | --check-label-dir DIR] [--allow-local]
 
 The analysis is descriptive: counts and medians, with every timeout, memout, error, missing run,
-and disagreement in its CSV files.  The ground truth runs in the subset ``check``, which has its own
-label directory and archive; ``--check-label-dir`` or ``--check-archive`` adds its ``ground_truth``
-rows to those of the analyzed run, if any.  Without either, the outputs report the ground truth as
-not run.  The analysis checks each archive against its
-``.sha256`` file and its inner ``SHA256SUMS``, and extracts it into a temporary directory, which it
-removes when it ends, whether or not it succeeds (``store.open_archive``).  So ``--archive``
+and disagreement in its CSV files.  The ground truth of ``main`` runs in the subset ``check``,
+which has its own label directory and archive; ``--check-label-dir`` or ``--check-archive`` adds
+its ``ground_truth`` rows to those of the analyzed label.  Without either, the analysis uses the
+``ground_truth`` rows of the analyzed label, as of ``smoke``, and reports the ground truth as not
+run on a circuit without one.  The analysis checks and extracts each archive with
+``store.open_archive``, into a temporary directory that it removes when it ends, so ``--archive``
 requires ``--out``.
 
 The circuits and their parameters come from the label's copy of the ``circuits.json`` that it ran
