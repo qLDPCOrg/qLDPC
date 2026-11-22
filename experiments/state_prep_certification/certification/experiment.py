@@ -2,9 +2,9 @@
 
 """The plug-in of the certification experiment (see ``common/plugin.py`` for the interface).
 
-Each task is one arm on one circuit of ``circuits.json``, with K the circuit's ``max_weight``,
-t + 1 for design t.  The README's Arms table says what each arm does, and its Terms define the
-symbols.  Each arm times one call (``runner.timed``), whose wall time T includes:
+Each task is one arm on one circuit of ``circuits.json``, with K the circuit's ``max_weight``, t + 1
+for design t.  The Arms table of ``certification/README.md`` says what each arm does, and its Terms
+define the symbols.  Each arm times one call (``runner.timed``), whose wall time T includes:
 
 * ``cert_bz``, ``cert_cc``, ``shadow``, and ``brute_bz``: the certification, DEM construction
   included; for ``shadow``, with the CC oracle's answers, and for ``brute_bz``, with the
@@ -13,10 +13,11 @@ symbols.  Each arm times one call (``runner.timed``), whose wall time T includes
   (``applications.describe_certificate``): its text and, for a counterexample, its fault indices,
   output Pauli, lower bound, and exact residual weight.  Repeats, ``shadow``, and ``brute_bz``
   have no post-processing.
-* ``count_accepted``, ``count_listing``, and ``ground_truth``: the counting itself, so that the
-  runner's limit applies to it.  These arms take the DEM from an untimed certification with
-  ``max_weight=1``.  That certification is preparation, not a warm-up, but it also compiles, or
-  loads from the cache, the code that their measured calls share with it.
+* ``count_accepted``, ``count_listing``, and ``ground_truth``: the counting itself, and for
+  ``count_listing`` the BZ oracle's classification of the flagged mechanisms before it
+  (``_listing``), so that the runner's limit applies to it.  These arms take the DEM from an
+  untimed certification with ``max_weight=1``.  That certification is preparation, not a warm-up,
+  but it also compiles, or loads from the cache, the code that their measured calls share with it.
 * ``margin``: the whole margin search (``applications.find_margin``), DEM construction and the
   description of its counterexample included.
 * ``prune`` and ``prune_sensitivity``: the whole deletion task (``applications.prune``): the
@@ -131,10 +132,10 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
     ``main`` has certification, the brute-force baseline, the shadow run, the counts, the margins,
     and the deletions; ``check`` the ground truth; and ``smoke`` every arm that applies to C-goto,
     E-chen, and the A-ft circuits of the Steane code.  In every subset, ``brute_bz`` runs only where
-    ``circuits.json`` puts U within the cap, ``ground_truth`` only where its rule applies,
-    ``margin`` only where r > t, ``prune`` only on the families of ``settings.VERIFIED_FAMILIES``,
-    and ``prune_sensitivity`` only on the circuits of ``prune.sensitivity_inputs`` of
-    ``config.json``.
+    ``circuits.json`` puts U within the cap, ``ground_truth`` only where ``circuits.json`` marks the
+    circuit (``ground_truth``; see ``circuits.dem_parameters``), ``margin`` only where r > t,
+    ``prune`` only on the families of ``settings.VERIFIED_FAMILIES``, and ``prune_sensitivity`` only
+    on the circuits of ``prune.sensitivity_inputs`` of ``config.json``.
     """
     entries = [e for e in json.loads(CIRCUITS_JSON.read_text())["circuits"] if e["status"] == "ok"]
     if subset == "smoke":

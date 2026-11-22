@@ -27,12 +27,10 @@ is reported as ``missing``, with a printed note.  The analysis refuses a label w
 ``tasks.json``, since that file gives each row's circuit.
 
 The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.
-Where they apply, it marks every output with ``local_rows``, the number of these rows;
-``allowed_environment``, the refused environment variables that a start of either label accepted,
-with ``PYTHONOPTIMIZE`` for -O; and ``environment_changed``, the environment variables that differ
-among a label's starts (see ``common/store.py``).  Each mark is a column in each CSV file, a key in
-each JSON file, and a first comment line in each circuit of ``pruned/``; the ``final_sha256`` of
-``deletion_table.csv`` is that of the circuit without these lines.
+Where they apply, it marks every output with ``local_rows``, ``allowed_environment``, and
+``environment_changed`` of either label, which ``common/store.py`` defines.  Each mark is a column
+in each CSV file, a key in each JSON file, and a first comment line in each circuit of ``pruned/``;
+the ``final_sha256`` of ``deletion_table.csv`` is that of the circuit without these lines.
 
 An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/runner.py``) has the
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
@@ -42,24 +40,25 @@ either arm's status is ``timeout_compiled``.  The verdicts, T, and ``counterexam
 rows with status ``ok``, while the margins and the contradictions use every result that a row kept,
 so that ``margin`` can be exact where the verdict is ``undecided``.  A circuit is a disagreement
 where its exact results contradict each other, between two runs or within one, as
-``check_consistency`` lists: its verdicts, smallest violating weights, and margins from every run,
-repeats included, its counts, and its counterexamples.  The column ``contradictions`` of summary.csv
-names them, and ``disagreements`` of ``families.csv`` counts these circuits.  A disagreement enters
-no count of verdicts or margins and no median, maximum, or ratio
-of ``families.csv``, nor ``listing_table.csv``, ``shadow.csv``, ``margin_violations.csv``,
-``deletion_table.csv``, or the example counterexamples.  The status counts and agreements count it.
+``check_consistency`` lists, such as conflicting claims on m*, counts, counterexamples, or
+deletions.  The column ``contradictions`` of summary.csv names them, and ``disagreements`` of
+``families.csv`` counts these circuits.  A disagreement enters no count of verdicts or margins and
+no median, maximum, or ratio of ``families.csv``, nor ``listing_table.csv``, ``shadow.csv``,
+``margin_violations.csv``, ``deletion_table.csv``, or the example counterexamples.  The status
+counts and agreements count it.  ``per_weight.csv`` and ``deletion.csv`` keep every circuit: join
+them on the ``verdict`` of summary.csv to leave out the disagreements.
 T of a certification arm is the median of its first run and repeats.  Its timing is incomplete if
 the first run did not finish, if a repeat that the first run calls for did not finish or is missing,
 or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete timing enters no
 median or maximum.  The same holds for the brute-force baseline ``brute_bz``.  If an arm's first run
 has ``compiled_in_timing`` set, its per-weight times are left empty.
 
-The README's section Terms defines the symbols, such as Omega_m.  A weight is completed if a run
-finished it without a violation.  A circuit whose enumeration size U exceeds the brute-force cap of
-``config.json`` has no ``brute_bz`` task, and its status is "not run (U > cap)", never a timeout.
-An agreement is "a/b", a of b compared circuits, or "not run" where no circuit of the family has
-rows of the arm compared.  The outputs go to ``--out``, by default ``analysis/`` in the label
-directory of ``--label-dir``.  They are:
+The section Terms of ``certification/README.md`` defines the symbols, such as Omega_m.  A weight is
+completed if a run finished it without a violation.  A circuit whose enumeration size U exceeds the
+brute-force cap of ``config.json`` has no ``brute_bz`` task, and its status is "not run (U > cap)",
+never a timeout.  An agreement is "a/b", a of b compared circuits, or "not run" where no circuit of
+the family has rows of the arm compared.  The outputs go to ``--out``, by default ``analysis/`` in
+the label directory of ``--label-dir``.  They are:
 
 * ``families.csv``, one row per family:
 
@@ -142,8 +141,7 @@ directory of ``--label-dir``.  They are:
   circuit whose A_m is 0, or was not computed while z < m, has no ratio, and ``ratio_unknown``
   counts it.  Beside them are the medians, over the circuits with a ratio, of the parameters that
   the listing depends on: the heavy share h / N_0, the unflagged share z / N_0, the start classes
-  q_h, and the flag rank r.  ``listing_table.csv`` describes when Phi_m is small against A_m; it
-  fits nothing.
+  q_h, and the flag rank r.
 * ``shadow.csv``, the cost of the two weight oracles on identical queries, one row per circuit and
   threshold m of the queries of its ``shadow`` run: the calls, their rows, and the seconds of BZ and
   CC on the queries themselves, without the time to build either oracle (``shadow_table``); BZ

@@ -3,12 +3,13 @@
 """Deterministic counts of the certification experiment, and brute force for small circuits.
 
 These counts describe the listing of irreducible accepted faults in ``fault_propagation.md`` of
-``qldpc.circuits.certification``, independently of qLDPC's data structures; the README's section
-Terms says what each symbol means.  The flagged mechanisms with equal flags form a class.  Classes
-are numbered as qLDPC numbers them: heavy mechanisms first, then the rest, each in DEM order, and
-classes in the order of their first members, so that the start classes, those with a heavy member,
-come first.  A class codeword is a set of m >= 3 classes whose flags sum to zero and every proper
-nonempty subset of which has independent flags.  Let class c have s_c members, h_c of them heavy.
+``qldpc.circuits.certification``, independently of qLDPC's data structures; the section Terms of
+``certification/README.md`` says what each symbol means.  The flagged mechanisms with equal flags
+form a class.  Classes are numbered as qLDPC numbers them: heavy mechanisms first, then the rest,
+each in DEM order, and classes in the order of their first members, so that the start classes, those
+with a heavy member, come first.  A class codeword is a set of m >= 3 classes whose flags sum to
+zero and every proper nonempty subset of which has independent flags.  Let class c have s_c members,
+h_c of them heavy.
 
 * ``reduce_signatures`` keeps one mechanism per distinct nonzero (flags, syndrome) signature of
   the DEM, in DEM order, as qLDPC does: N_0 mechanisms, z of them with zero flags.

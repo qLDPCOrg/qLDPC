@@ -57,9 +57,9 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
   (``final_violating_parts``), and the deletions attempted and accepted.  It compares each final
   circuit only with its parent.
 * ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the other
-  tasks without a row of ``deletion_table.csv``, such as those whose final checks do not record the
-  final circuit, with the number of their completed steps and any final checks, the disagreements,
-  and the final circuits whose rebuild does not match.
+  tasks without a row of ``deletion_table.csv``, such as those killed before their final checks, or
+  whose final checks do not record the final circuit, with the number of their completed steps and
+  any final checks, the disagreements, and the final circuits whose rebuild does not match.
 * ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.  The analysis deletes
   ``pruned/`` with everything in it before it writes them, so that it holds only these circuits.
 """

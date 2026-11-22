@@ -3,9 +3,10 @@
 **Prototype.** Everything in `state_prep_certification/` is a prototype, subject to change: its code, interfaces, inputs, outputs, and documentation.
 
 A noisy circuit that prepares a stabilizer state has bounded fault propagation up to fault weight K if every accepted fault of fault weight at most K has a residual weight of at most its fault weight ([Terms](#terms) defines these words).
-qLDPC's `certify_bounded_fault_propagation` decides this exactly, as its guide [`fault_propagation.md`](../../../src/qldpc/circuits/certification/fault_propagation.md) explains.
+qLDPC's `certify_bounded_fault_propagation`, the **certifier**, decides this exactly, as its guide [`fault_propagation.md`](../../../src/qldpc/circuits/certification/fault_propagation.md) explains; a circuit **certifies** at K if the certifier decides that it has bounded fault propagation up to K.
 This experiment measures that exact certification on published state preparation circuits, and how its cost grows with the size of a circuit and its detector error model (DEM).
-It measures which circuits certify within the time limit, how many faults the certifier lists compared with all accepted fault combinations, the smallest counterexamples where violations exist, and the cost of the two weight oracles on identical queries: Brouwer-Zimmermann (BZ) and connected-cluster (CC), as qLDPC's [BZ guide](../../../src/qldpc/codes/distance/brouwer_zimmermann.md) and [CC guide](../../../src/qldpc/codes/distance/connected_cluster.md) describe them.
+It measures which circuits certify within the time limit, how many faults the certifier lists compared with all accepted fault combinations, the smallest counterexamples where violations exist, and the cost of the certifier's two weight oracles on identical queries.
+The two are Brouwer-Zimmermann (BZ) and connected-cluster (CC), as qLDPC's [BZ guide](../../../src/qldpc/codes/distance/brouwer_zimmermann.md) and [CC guide](../../../src/qldpc/codes/distance/connected_cluster.md) describe them.
 Its one baseline is internal: brute force with the certifier's own oracle (see [Arms](#arms)).
 It compares with no other tool.
 Its internal checks compare the two oracles, the certifier with the baseline, and both with a ground truth on small circuits ([Internal checks](#internal-checks)).
@@ -21,19 +22,19 @@ These are the terms of qLDPC's guide [`fault_propagation.md`](../../../src/qldpc
 - The **syndrome** of a fault is the syndrome, against the stabilizers of the prepared state, of the Pauli error that the fault leaves on the output qubits.
   Its **residual weight** is the smallest weight of a Pauli error with that syndrome.
   For a CSS state, as here, the weight is the CSS weight max(|x|, |z|), with x and z the X and Z supports of the error.
-  The outputs call the residual weights of the X and Z parts of a counterexample's error its **sector**.
+  The outputs record the residual weights of the X and Z parts of a counterexample's error as its **sector**, with one field for each part.
 - A fault **violates** the bound if its residual weight exceeds its fault weight; a violating accepted fault is a **counterexample**.
   An error mechanism is **heavy** if it violates by itself: no Pauli error of weight at most 1 has its syndrome.
 - A nonzero accepted fault is **irreducible** if it contains no smaller nonzero accepted fault.
   If any accepted fault violates, an irreducible one of no larger fault weight does, so the certifier need check only irreducible faults.
   The **listing** is the certifier's enumeration, at each fault weight from 2 to the cutoff K' (below), of the irreducible accepted faults that contain a heavy mechanism, the **listed faults**; at fault weight 1, the certifier checks each mechanism with zero flags.
 - A **weight oracle** decides whether a syndrome has a Pauli error of weight at most a threshold: qLDPC has a BZ and a CC oracle.
-  The fault search of a certification submits the syndromes of listed faults to the oracle in batches, whose entries are **oracle rows**.
-- A circuit's **design t** is the number of faults that its source designed it to tolerate, a trusted input (see [Circuits](#circuits)).
-  Certification runs at K = t + 1, so that one run decides both K = t and the next fault weight; the deletions keep K = t.
+  The certifier's **fault search** submits the syndromes of listed faults to the oracle in batches, whose entries are **oracle rows**.
+- A circuit's **design t** is the number of faults that its source designed it to tolerate; it sets the K of each run (see [Circuits](#circuits)).
 - The **margin** m* of a circuit is the smallest fault weight of a counterexample, or "all" if none exists (see [Arms](#arms)).
 
-The outputs use these symbols for counts of a circuit's DEM, whose values `circuits.json`, the count arms, and the certification runs give:
+The outputs use the following symbols for counts of a circuit's DEM.
+`circuits.json`, the count arms (see [Arms](#arms)), and the certification runs give their values:
 
 | Symbol | Meaning |
 | --- | --- |
@@ -49,9 +50,9 @@ The outputs use these symbols for counts of a circuit's DEM, whose values `circu
 | q_h | the start classes: the flag classes with a heavy member |
 | A_m | the accepted fault combinations of fault weight m: sets of m reduced mechanisms whose flags sum to zero |
 | C(N_0, m) | all sets of m reduced mechanisms, accepted or not |
-| E_m | the class codewords whose first class is a start class: sets of m >= 3 flag classes whose flags sum to zero, and every proper nonempty subset of which has independent flags (see [`counting.py`](counting.py)) |
+| E_m | the class codewords that contain a start class; a class codeword is a set of m >= 3 flag classes whose flags sum to zero, and every proper nonempty subset of which has independent flags (see [`counting.py`](counting.py)) |
 | Phi_m | the listed faults of fault weight m |
-| Pi_(m-1) | the work of the naive enumeration of class codewords, which `fault_propagation.md` contrasts with qLDPC's listing: its tuples of m - 1 classes (`naive_prefixes_m_minus_1` of `per_weight.csv`; see [`counting.py`](counting.py)) |
+| Pi_(m-1) | the number of prefixes of m - 1 classes in a naive enumeration of class codewords, the work of that enumeration, which `fault_propagation.md` contrasts with qLDPC's listing (`naive_prefixes_m_minus_1` of `per_weight.csv`; [`counting.py`](counting.py) says which tuples are prefixes) |
 | Omega_m | the oracle rows that the fault search submits in batches at fault weight m >= 2, each the syndrome of a listed fault ([`instrument.py`](instrument.py)); at m = 1, `per_weight.csv` counts the certifier's threshold-1 queries instead |
 
 ## Circuits
@@ -89,16 +90,19 @@ Every circuit lives in the experiment's data directory, `circuit_data/`, which G
 The experiment's scripts make `mqt/` (`circuits.py --fetch`) and `inputs/` (`circuits.py --build`).
 No script of the experiment makes `translated/`, `synthesized/`, `synthesized_mqt_1.9.0/`, or `codes/`: they are inputs that the experiment takes as given, and checks, as `circuits.py --check` does.
 `circuits.py --build` reads `mqt/`, `translated/`, both folders of synthesized circuits, and `codes/`, and writes `inputs/`.
-It takes every verified circuit that a folder's `provenance.json` records as synthesized, leaving out the unverified preparations of the step `prep`, and `circuits.json` labels each synthesized circuit with its MQT QECC release.
+It takes every verified circuit that a folder's `provenance.json` records as synthesized, leaving out the synthesis calls whose `step` is `prep`, which make unverified preparations.
+`circuits.json` labels each synthesized circuit with its MQT QECC release.
 The offline bundle carries `inputs/`, `synthesized/`, `synthesized_mqt_1.9.0/`, and `codes/`.
 The experiment runs with whatever `circuits.json` and inputs `--build` wrote: `circuits.json` enters the label of each run, and each label keeps a copy of it, from which the analysis reads the circuits.
 
-A W variant is its original circuit with every instruction target group that involves one measured qubit deleted.
-`circuits.py --build` tries the measured qubits from the last target of the last measurement backwards, and keeps the first variant that qLDPC's certifier accepts as input with the original's output qubits and that prepares the original's state (`circuits._make_weakened`).
+A W variant deletes one measured qubit from its original circuit: every instruction target group, such as a gate's pair of qubits, that involves that qubit.
+The original's id is the variant's `parent` in `circuits.json` and `summary.csv`.
+`circuits.py --build` tries the measured qubits from the last target of the last measurement backwards, and keeps the first variant that prepares the original's state on the original's output qubits and that qLDPC's certifier accepts as input (`circuits._make_weakened`).
 The variant keeps its original's code and t.
 It need not violate at K = t + 1, since the verification that remains may still bound fault propagation, so the W variants are not negative controls.
 
-Each circuit's design t sets K = t + 1, the deletions' K = t, and the margin counts of `families.csv`, which compare m* with t.
+Each circuit's design t sets K = t + 1, so that one run decides whether the circuit has bounded fault propagation up to t and up to t + 1.
+It also sets the deletions' K = t, and the margin counts of `families.csv`, which compare m* with t.
 It is a trusted input, which `circuits.py` takes from each family's source (`circuits._sources`):
 
 - A-ft, A-unv: (d - 1) // 2, with d from the [[n, k, d]] that `circuits.A_CODES` lists for each of MQT QECC's codes;
@@ -113,13 +117,13 @@ Each A-ft, C-goto, and synthesized entry of `circuits.json` also names its code 
 A code file `<code>_code.json` holds the code's `distance` and its matrices: the X- and Z-type checks `Hx` and `Hz`, and the X- and Z-type logical operators `Lx` and `Lz`, with one column per output qubit, in output-qubit order.
 `circuits.py --check` checks each input's state against these matrices.
 They split the state's Z-type stabilizers into checks Hz and logical operators Lz, as the code's definition in MQT QECC does.
-The state alone does not determine that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz.
+The state alone does not determine that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz, so `--check` checks the state, not the split, on which the code file's `distance` depends.
 The code files of the A-ft codes, in `codes/`, follow MQT QECC's definitions of the codes at the commit that `config.json` pins, and those of the synthesized codes lie beside their circuits; C-goto uses the Steane code's file.
 MQT's `RotatedSurfaceCode(5)` at that commit has its X checks where the shipped d = 5 circuits have their Z checks, so its file exchanges Hx with Hz and Lx with Lz.
 
 Each certification input prepends resets to qubits that start without one.
 Each B-cat circuit gets a detector for each pair of consecutive measurement results, on which it is post-selected; E-chen's verification measurements are flags, as in the other families.
-The node applies K = t + 1 and the noise model of `config.json` (`noise`), qLDPC's `DepolarizingNoiseModel` with the noise probability `noise.p`.
+The node applies the noise model of `config.json` (`noise`), qLDPC's `DepolarizingNoiseModel` with the noise probability `noise.p`.
 This noise model puts faults only on gates, resets, and measurements: one- or two-qubit depolarization after each gate, a reset to the orthogonal state, and a flipped measurement result, each with that probability.
 Idle qubits get no errors, so a verdict covers only these fault locations.
 For a fixed set of fault mechanisms, each with nonzero probability, the noise probability changes no verdict, count, or margin, which depend only on where the model puts faults; it enters only the acceptance probabilities that the deletion tasks estimate.
@@ -140,7 +144,7 @@ The ground truth (`counting.ground_truth`) requires a CSS state.
 | `margin` | BZ certification with no limit on the fault weight, on the circuits whose flag rank r exceeds t, by `applications.py` |
 | `prune`, `prune_sensitivity` | the deletion of the measured qubits of each A-ft, C-goto, and synthesized circuit under exact certification at K = t, by `applications.py`; `prune_sensitivity` tries another order, on the circuits of `prune.sensitivity_inputs` of `config.json` |
 
-[`experiment.py`](experiment.py) says what T includes for each arm, which runs warm up before timing, and which runs get repeats.
+[`experiment.py`](experiment.py) says what T, the time of the measured call (shared README's [Runs](../README.md#runs)), includes for each arm, which runs warm up before timing, and which runs get repeats.
 
 The baseline enumerates the accepted fault combinations over the N_0 reduced mechanisms, fault weight by fault weight up to K, and queries them in batches with the certifier's own oracle, built from the same arguments, until the first batch that holds a violation.
 Only the fault search differs from `cert_bz`.
@@ -198,12 +202,13 @@ The subset `smoke` runs every arm that applies to C-goto, E-chen, and the A-ft c
 Its runs take minutes, but its ceiling is about 78 CPU-hours at the current `circuits.json`, which the approval of 79 above covers.
 A dry run prints the ceiling of a subset, as the shared README's [Scheduling](../README.md#scheduling) describes; approve it rounded up.
 
-On the node, `node.sh certification --approved-cpu-hours H` runs the subset `main` (certification by both oracles, the brute-force baseline where U is within the cap, the shadow run, the counts, the margins, and the deletions), and `--subset check` the ground truth by brute force, in a label directory and archive of its own.
+On the node, `node.sh certification --approved-cpu-hours H`, run from the unpacked bundle as the shared README's [Workflow](../README.md#workflow) describes, runs the subset `main` (certification by both oracles, the brute-force baseline where U is within the cap, the shadow run, the counts, the margins, and the deletions), and `--subset check` the ground truth by brute force, in a label directory and archive of its own.
 
 ### Analysis
 
-On the workstation, run `analyze.py --archive PATH --check-archive PATH --out DIR`, with the archives of `main` and `check`; without the archive of `check`, the outputs report the ground truth of `main` as not run.
-[`analyze.py`](analyze.py)'s docstring says what the analysis reads and checks, and lists the outputs and their columns, and [`analyze_applications.py`](analyze_applications.py)'s those of the margins and the deletions:
+On the workstation, run `analyze.py --archive PATH --check-archive PATH --out DIR`, with the archives of `main` and `check`, each with its `.sha256` file (shared README's [Analysis](../README.md#analysis)); without the archive of `check`, the outputs report the ground truth of `main` as not run.
+[`analyze.py`](analyze.py)'s docstring says what the analysis reads and checks, and lists the outputs and their columns.
+[`analyze_applications.py`](analyze_applications.py)'s docstring does the same for the outputs of the margins and the deletions:
 
 - `summary.csv`: one row per circuit, with its parameters, verdicts, times, statuses, agreements, contradictions, margin, and counterexample;
 - `families.csv`: one row per family, with the counts of verdicts, statuses, agreements, disagreements, and margins, and the medians and maxima of T;
@@ -221,7 +226,7 @@ Some outputs are bounds:
 
 - `margin_lower_bound` and `final_margin_lower_bound` hold a fault weight k where only m* > k is known;
 - a counterexample's `residual_weight_lower_bound` is the certifier's lower bound on its residual weight, whose exact value `residual_weight` gives;
-- where A_m is unknown, `listing_table.csv` divides by C(N_0, m) instead, which gives lower bounds on the ratios over A_m; its column `ratio_is_lower_bound` marks these.
+- where A_m is unknown and z >= m, `listing_table.csv` divides by C(N_0, m) instead, which gives lower bounds on the ratios over A_m; its column `ratio_is_lower_bound` marks these, and `ratio_unknown` counts the circuits without a ratio, as where z < m.
 
 The acceptance probabilities of the deletions are estimates from Stim shots, with their standard errors (`parent_acceptance_se`, `final_acceptance_se`).
 Times are measurements of runs on the node (see the shared README's [Runs](../README.md#runs)).
@@ -229,8 +234,10 @@ Times are measurements of runs on the node (see the shared README's [Runs](../RE
 ### Disagreements
 
 A circuit is a disagreement if its exact results contradict each other, between two runs or within one, as where a counterexample's residual weight does not exceed its fault weight.
-The analysis compares every claim on the circuit's margin m* that a run kept, repeats included and whatever its row's status, and checks the counts, the counterexamples, and the deletions against themselves; `check_consistency` in `analyze.py` and `analyze_applications.py` list every contradiction.
-A disagreement enters no count of verdicts or margins, and no median, maximum, or ratio; `analyze.py`'s docstring says which results each column uses, such as the agreement columns, which compare first runs.
+The analysis compares every claim on the circuit's margin m* that a run kept, repeats included and whatever its row's status.
+It also checks the counts, the counterexamples, and the deletions for inconsistencies; `check_consistency` in `analyze.py` lists every contradiction.
+A disagreement enters no count of verdicts or margins, and no median, maximum, or ratio.
+`analyze.py`'s docstring lists the outputs that leave a disagreement out, and says which runs each column uses, such as the agreement columns, which compare first runs, except `agree_margin`.
 
 ## Attributions and licenses
 

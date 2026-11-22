@@ -225,7 +225,7 @@ def dem_parameters(circuit: Any, options: dict[str, Any]) -> tuple[Any, dict[str
     U = sum over 1 <= m <= K of C(N_0, m), whether U is within the brute-force cap of
     ``config.json`` (``brute_force``), and whether the ground truth applies (``ground_truth``):
     whether n and the sum over 0 <= m <= K of C(N_0, m) are within the limits of ``ground_truth``
-    of ``config.json``.  The README's section Terms defines each symbol.
+    of ``config.json``.  The section Terms of ``certification/README.md`` defines each symbol.
 
     Raises:
         ValueError: If qLDPC rejects the circuit, such as for a nondeterministic detector.
