@@ -175,7 +175,7 @@ def record_start(
         "machine": machine_info(),
         "python": sys.version,
         "executable": sys.executable,
-        "python_optimize": sys.flags.optimize,
+        "python_optimize": optimize_level(),
         "packages": package_freeze(),
         "environment": recorded_environment(os.environ),
         "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -202,6 +202,23 @@ def write_manifest(label_dir: pathlib.Path, extra: dict[str, Any]) -> None:
     manifest = label_dir / "manifest.json"
     if not start.get("dry_run") and not manifest.exists():
         store.write_atomic(manifest, json.dumps(start, indent=1, sort_keys=True) + "\n")
+
+
+def optimize_level(environ: Mapping[str, str] | None = None) -> int:
+    """The larger of this interpreter's optimization level and that of a Python that it starts.
+
+    A child started with ``environ`` (by default this process's) reads ``PYTHONOPTIMIZE`` even if
+    this interpreter ignored it, as under -E, so the child is asked for its level.
+    """
+    environ = os.environ if environ is None else environ
+    child = subprocess.run(
+        [sys.executable, "-c", "import sys; print(sys.flags.optimize)"],
+        env=dict(environ),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return max(sys.flags.optimize, int(child.stdout))
 
 
 def recorded_environment(environ: Mapping[str, str]) -> dict[str, str]:

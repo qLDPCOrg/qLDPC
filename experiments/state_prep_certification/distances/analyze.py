@@ -94,7 +94,10 @@ def main() -> None:
         marks["local_rows"] = local_rows
     allowed = store.allowed_environment(label_dir)
     if allowed:
-        print(f"note: a start accepted {', '.join(allowed)} with --allow-env; every output says so")
+        print(
+            f"note: a start ran with {', '.join(allowed)}, which a node start refuses; "
+            "every output says so"
+        )
         marks["allowed_environment"] = " ".join(allowed)
     changed = store.changed_environment(label_dir)
     if changed:

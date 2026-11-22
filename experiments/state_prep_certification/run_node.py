@@ -395,16 +395,17 @@ def check_environment(
 ) -> None:
     """Exit if a variable of ``REFUSED_ENVIRONMENT`` is set to a value that it refuses.
 
-    ``PYTHONOPTIMIZE`` is refused when the interpreter runs with -O, whatever sets it, since this
-    script runs the acceptance tests in its own process and its children inherit the environment.
+    ``PYTHONOPTIMIZE`` is refused when this interpreter, or a Python that it starts, runs with -O,
+    whatever sets it: this script runs the acceptance tests in its own process, and its children
+    inherit the environment, even when this interpreter ignores it (-E).
 
     Args:
         environ: The environment, such as ``os.environ``.
         allowed: The names that ``--allow-env`` accepts.
-        optimize: The interpreter's optimization level, by default this one's
-            (``sys.flags.optimize``), which Python sets from ``PYTHONOPTIMIZE`` or -O.
+        optimize: The optimization level, by default ``manifest.optimize_level(environ)``, the
+            larger of this interpreter's and that of a Python that it starts with ``environ``.
     """
-    optimize = sys.flags.optimize if optimize is None else optimize
+    optimize = manifest.optimize_level(environ) if optimize is None else optimize
     for name, refused in REFUSED_ENVIRONMENT.items():
         remedy = f"run `unset {name}`"
         if name == "PYTHONOPTIMIZE":

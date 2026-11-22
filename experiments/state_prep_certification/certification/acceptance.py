@@ -717,7 +717,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         assert ("does not match" in output.getvalue()) == warns, (name, output.getvalue())
     earlier = label_dir / "analysis" / "earlier"
     earlier.mkdir(parents=True)
-    (earlier / "main_table.csv").write_text("id\nx\n")
+    (earlier / "families.csv").write_text("id\nx\n")
     (earlier / "notes.json").write_text("[]\n")
     command = [sys.executable, analyze.__file__, "--label-dir", str(label_dir)]
     analysis = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -726,11 +726,11 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         command + ["--allow-local"], capture_output=True, text=True, check=False
     )
     assert analysis.returncode == 0, analysis.stderr
-    assert "accepted PYTHONPATH with --allow-env" in analysis.stdout, analysis.stdout
+    assert "ran with PYTHONPATH, which a node start refuses" in analysis.stdout, analysis.stdout
     assert "different NUMBA_OPT" in analysis.stdout, analysis.stdout
     assert "warning" not in analysis.stdout, analysis.stdout
     # the analysis marks only the files that it wrote, not those of an earlier analysis beside them
-    assert (earlier / "main_table.csv").read_text() == "id\nx\n"
+    assert (earlier / "families.csv").read_text() == "id\nx\n"
     assert (earlier / "notes.json").read_text() == "[]\n"
     shutil.rmtree(earlier)
     marks = {
@@ -1334,8 +1334,10 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         for circuit_id in arms
     ]
     out = directory / "analysis"
-    out.mkdir(parents=True, exist_ok=True)
+    (out / "pruned").mkdir(parents=True, exist_ok=True)
+    (out / "pruned" / "prune.stale.stim").write_text("H 0\n")  # of an earlier analysis
     paths = analyze_applications.write_applications(per_circuit, summary_rows, out, inputs)
+    assert not (out / "pruned" / "prune.stale.stim").exists(), "pruned/ was not written whole"
     with open(out / "deletion_table.csv") as file:
         table_rows = list(csv.DictReader(file))
     ids = [row["id"] for row in table_rows]

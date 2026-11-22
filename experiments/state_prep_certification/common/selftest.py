@@ -1530,9 +1530,9 @@ def test_run_node_cpu_model(directory: pathlib.Path, node: bool) -> None:
 def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
     """A node start refuses a misleading environment unless ``--allow-env`` accepts it.
 
-    ``PYTHONOPTIMIZE`` is refused when Python runs with -O, as Python reads the variable, and
-    ``NUMBA_DISABLE_JIT`` when ``int`` reads a nonzero value, as numba does.  The manifest records
-    the environment variables that can change a run.
+    ``PYTHONOPTIMIZE`` is refused when Python, or a Python that it starts, runs with -O, as Python
+    reads the variable (so also under -E), and ``NUMBA_DISABLE_JIT`` when ``int`` reads a nonzero
+    value, as numba does.  The manifest records the environment variables that can change a run.
     """
     from experiments.state_prep_certification.common import manifest
 
@@ -1552,6 +1552,13 @@ def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
     else:
         raise AssertionError("PYTHONOPTIMIZE was accepted")
     run_node.check_environment(environ, ["PYTHONOPTIMIZE"], optimize=1)
+
+    # PYTHONOPTIMIZE that this interpreter ignores, as under -E, still makes its children optimize
+    assert manifest.optimize_level({**os.environ, "PYTHONOPTIMIZE": "1"}) == 1
+    _expect_exit(functools.partial(run_node.check_environment, {"PYTHONOPTIMIZE": "1"}, []))
+    assert manifest.optimize_level(
+        {k: v for k, v in os.environ.items() if k != "PYTHONOPTIMIZE"}
+    ) == (sys.flags.optimize)
 
     # PYTHONOPTIMIZE as Python reads it, in a fresh interpreter
     for value, on in (

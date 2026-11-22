@@ -230,7 +230,9 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
         command + ["--allow-local"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
-    assert "accepted PYTHONOPTIMIZE, PYTHONPATH with --allow-env" in result.stdout, result.stdout
+    assert "ran with PYTHONOPTIMIZE, PYTHONPATH, which a node start refuses" in result.stdout, (
+        result.stdout
+    )
     assert "different NUMBA_OPT" in result.stdout, result.stdout
     with open(out / "families.csv") as file:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]

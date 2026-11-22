@@ -213,7 +213,10 @@ def main() -> None:
         | set(store.allowed_environment(check_dir) if check_dir else [])
     )
     if allowed:
-        print(f"note: a start accepted {', '.join(allowed)} with --allow-env; every output says so")
+        print(
+            f"note: a start ran with {', '.join(allowed)}, which a node start refuses; "
+            "every output says so"
+        )
         marks["allowed_environment"] = " ".join(allowed)
     changed = sorted(
         set(store.changed_environment(label_dir))
