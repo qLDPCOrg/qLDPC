@@ -1069,8 +1069,8 @@ def check_consistency(
     ``analyze_applications.margin_claims``, which this returns: of every run of ``cert_bz``,
     ``cert_cc``, ``shadow``, ``brute_bz``, ``margin``, and ``ground_truth``, by its result and the
     fault weights that it completed or found a violation at, of each deletion task's parent at
-    K = t, and of the final m* of a deletion task that accepted no deletion.  These are the
-    contradictions, each a disagreement:
+    K = t, and of the final circuit of a deletion task that accepted no deletion, which is the
+    parent.  These are the contradictions, each a disagreement:
 
     * two claims on m* that conflict (``analyze_applications.combine_claims``), such as verdicts or
       smallest violating weights that differ between runs, repeats included, or a violation at a
@@ -1081,8 +1081,9 @@ def check_consistency(
       number of heavy mechanisms against h of ``count_listing``;
     * a counterexample whose exact residual weight does not exceed its fault weight, or is below
       the certifier's lower bound on it;
-    * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose final
-      m* is at most t (``analyze_applications.final_contradictions``).
+    * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose claim
+      on its m* disagrees with itself, such as a final m* of at most t or one above a fault weight
+      at which its search found a violation (``analyze_applications.final_contradictions``).
     """
     from experiments.state_prep_certification.certification import applications
 

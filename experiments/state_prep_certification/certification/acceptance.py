@@ -77,8 +77,9 @@
   disagreement: a shadow run that ended in ``ShadowDisagreement``, a finished shadow run, a repeat,
   a deletion parent, the final m* of a deletion task with no accepted deletion, the ground truth,
   the baseline, or a violation recorded by an unfinished certification, against another exact
-  result; a final circuit whose m* is at most t; the ground truth's heavy mechanisms against h; and
-  a counterexample's residual weight against its fault weight or lower bound.  A circuit whose
+  result; a final circuit whose m* is at most t, or above the weight of a violation that the
+  search of its m* reported; the ground truth's heavy mechanisms against h; and a counterexample's
+  residual weight against its fault weight or lower bound.  A circuit whose
   claims of every kind agree gets their m*.  Every case of the combined margin of
   ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
   t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
@@ -89,8 +90,9 @@
   outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
   unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
   but list its task, list an uncertified parent, give a timeout and a flagged timeout their
-  statuses, and keep the row of a task killed during the search of its final m*, with m* > k for the
-  largest fault weight k that the search completed.  ``deletion_table.csv`` lists its circuits in
+  statuses, and keep the rows of two tasks killed during the search of their final m*: with m* > k
+  for the largest fault weight k that the search completed, and with m* where it found a
+  violation.  ``deletion_table.csv`` lists its circuits in
   the order of their ids, and an analysis's marks head each circuit of ``pruned/``, which still
   parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
@@ -1408,6 +1410,20 @@ def _check_consistency() -> None:
                 )
             ],
         },
+        # a final circuit's m* against a violation that the search of its m* reported
+        {
+            "cert_bz": [("ok", certified, [], None)],
+            "prune": [
+                (
+                    "ok",
+                    parent(
+                        steps=[accepted_step], final_certified_cc=True, final_margin={"margin": 5}
+                    ),
+                    [{"final_checks": {}}, {"m": 4, "violation": True}],
+                    None,
+                )
+            ],
+        },
         # the ground truth against a finished margin
         {
             "margin": [("ok", {"margin": 4}, [], None)],
@@ -1477,7 +1493,7 @@ def _check_consistency() -> None:
     summary, _ = analyze.summarize(analyze.collect(rows, entries))
     verdicts = {row["id"]: row["verdict"] for row in summary}
     *contradicting, consistent = entries
-    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 12, verdicts
+    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 13, verdicts
     (row,) = [row for row in summary if row["id"] == consistent]
     assert row["verdict"] == "certified" and row["margin"] == 4, row
     assert row["contradictions"] is None, row
@@ -1611,9 +1627,9 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
 
     # the deletion outputs: a reduced circuit rebuilt from its input, a wrong final SHA-256, an
     # input that is not the one the label ran on, a disagreement, a parent not certified at K = t,
-    # a timeout with final checks that do not hold the final circuit, and a timeout during the
-    # search of the final m*; deletion_table.csv is ordered by circuit id, so the finished task of
-    # BB [[72,12,6]], whose input is missing, comes last
+    # a timeout with final checks that do not hold the final circuit, and two timeouts during the
+    # search of the final m*, one after it found a violation; deletion_table.csv is ordered by
+    # circuit id, so the finished task of BB [[72,12,6]], whose input is missing, comes last
     reduced_id = "aft.cc_4_8_8.heuristic_opt"
     reduced = applications.prune(
         _input(reduced_id), experiment._entry(reduced_id), "last_measured_first", 0
@@ -1631,6 +1647,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     final_checks = {key: reduced[key] for key in (*final_keys, "final_circuit", "final_sha256")}
     searched = [{"m": m, "violation": False} for m in (2, 3)]
     killed = [parent, *reduced["steps"], {"final_checks": final_checks}, *searched]
+    found = [*killed[:-1], {"m": 3, "violation": True}]
     arms = {
         reduced_id: [run("ok", reduced, reduced["steps"])],
         "aft.steane.heuristic_opt": [run("ok", reduced | {"final_sha256": "0" * 64})],
@@ -1641,6 +1658,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
         "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
         "aft.steane.heuristic_heuristic": [run("timeout", None, killed)],
+        "aft.carbon.heuristic_opt": [run("timeout", None, found)],
     }
     per_circuit = {
         circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
@@ -1669,14 +1687,22 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         "aft.steane.heuristic_opt": "False",
         "aft.shor.heuristic_opt": "",
         "aft.steane.heuristic_heuristic": "",
+        "aft.carbon.heuristic_opt": "",
         "dsynth190.bb72.naive": "",
     }
     assert table == expected_table, table
-    # the task killed during the search of its final m* gives m* > 3
-    (row,) = [row for row in table_rows if row["status"] == "timeout"]
-    killed_row = (row["id"], row["final_margin"], row["final_margin_lower_bound"], row["attempted"])
-    expected_row = ("aft.steane.heuristic_heuristic", "", "3", str(len(reduced["steps"])))
-    assert killed_row == expected_row, row
+    # the tasks killed during the search of their final m* give m* > 3, and m* = 3 where the
+    # search found a violation at 3
+    killed_rows = {
+        row["id"]: (row["final_margin"], row["final_margin_lower_bound"], row["attempted"])
+        for row in table_rows
+        if row["status"] == "timeout"
+    }
+    attempted = str(len(reduced["steps"]))
+    assert killed_rows == {
+        "aft.steane.heuristic_heuristic": ("", "3", attempted),
+        "aft.carbon.heuristic_opt": ("3", "", attempted),
+    }, killed_rows
     with open(out / "deletion_tasks.csv") as file:
         tasks = {row["id"]: row["disagreement"] for row in csv.DictReader(file)}
     assert tasks == dict.fromkeys(table, "False") | {"aft.steane.opt_opt": "True"}, tasks

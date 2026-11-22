@@ -9,19 +9,21 @@ increasing order, and no violation up to fault weight k gives the lower bound m*
 "all" if the cutoff r + 1 is at most k.  The claims come from the result of each run of
 ``cert_bz``, ``cert_cc``, ``shadow``, ``brute_bz``, ``margin``, and ``ground_truth``, first runs and
 repeats, finished or not, and from each fault weight that it reported as completed or violating;
-from the parent verdict of each deletion task at K = t; and from the final m* of a deletion task
-that accepted no deletion, whose final circuit is the parent.  All values that determine m* must be
-equal and exceed every lower bound; otherwise the circuit is a disagreement.  The combined margin
-is the determined value, in the column ``margin``, or else the largest lower bound k, in the column
-``margin_lower_bound``, meaning m* > k.
+from the parent verdict of each deletion task at K = t; and from the claim on the final circuit of a
+deletion task that accepted no deletion, which is the parent (``final_claim``).  All values that
+determine m* must be equal and exceed every lower bound; otherwise the circuit is a disagreement.
+The combined margin is the determined value, in the column ``margin``, or else the largest lower
+bound k, in the column ``margin_lower_bound``, meaning m* > k.
 
 **Deletions.**  Each final circuit must be certified at K = t by the connected-cluster oracle, by
 the task's result or, for a run killed during the search of its final m*, by the final checks that
-it sent as a partial result.  Its final m* must exceed t, as that certification and BZ's of its last
-accepted deletion require.  A failure of either check makes the circuit a disagreement
-(``final_contradictions``).  The final circuit is rebuilt from the parent's input in
-``circuit_data/inputs/`` and the accepted deletions, and compared with its recorded SHA-256, if
-that input is the one that the label ran on.
+it sent as a partial result.  The claim on its m* (``final_claim``) holds m* > t, since BZ
+certified it at K = t, the m* of the task's result, and each fault weight that the search of its
+final m* reported, and its parts must agree.  A completed weight of a final circuit other than the
+parent gives only a lower bound, since its flag rank is not recorded.  A failure of either check
+makes the circuit a disagreement (``final_contradictions``).  The final circuit is rebuilt from the
+parent's input in ``circuit_data/inputs/`` and the accepted deletions, and compared with its
+recorded SHA-256, if that input is the one that the label ran on.
 
 Outputs, besides the margin fields of ``summary.csv`` and the margin counts of ``families.csv``:
 
@@ -34,8 +36,9 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
   killed during the search of its final m*, on a circuit without a disagreement, in the order of
   circuit ids: the task's status, the family, with the MQT QECC release of a synthesized circuit,
   gate counts (encoder and verification), measured qubits, measurements, and acceptance
-  probabilities of parent and final circuit, the final m*, or else the lower bound m* > k of the
-  fault weights that its search completed, and the deletions attempted and accepted.
+  probabilities of parent and final circuit, the final m*, or else the lower bound m* > k, for k
+  the largest of t and the fault weights that its search completed, and the deletions attempted
+  and accepted.
 * ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the other
   tasks without a row of ``deletion_table.csv``, with their completed steps and any final checks,
   the disagreements, and the final circuits whose rebuild does not match.
@@ -77,16 +80,7 @@ def margin_claims(
     from experiments.state_prep_certification.certification import applications
 
     claims: dict[str, Claim] = {}
-
-    def determine(source: str, value: int | str) -> None:
-        claims.setdefault(source, {"exact": set(), "bound": None})["exact"].add(value)
-
-    def no_violation_up_to(source: str, weight: int) -> None:
-        if circuit["r"] + 1 <= weight:
-            determine(source, "all")
-            return
-        claim = claims.setdefault(source, {"exact": set(), "bound": None})
-        claim["bound"] = max(weight, claim["bound"] or 0)
+    cutoff = circuit["r"] + 1
 
     # each run's result, and each fault weight that it reported
     max_weight = circuit["options"]["max_weight"]
@@ -96,22 +90,17 @@ def margin_claims(
             result = row.get("result") or {}
             if row["status"] == "ok":
                 if arm == "margin":
-                    determine(source, result["margin"])
+                    _determine(claims, source, result["margin"])
                 elif arm == "ground_truth" and result["smallest_violation"] is not None:
-                    determine(source, result["smallest_violation"])
+                    _determine(claims, source, result["smallest_violation"])
                 elif arm != "ground_truth" and not result.get("certified"):
-                    determine(source, result["violation_weight"])
+                    _determine(claims, source, result["violation_weight"])
                 else:
-                    no_violation_up_to(source, max_weight)
-            for record in row.get("partial") or []:
-                if "m" in record and "violation" in record:
-                    if record["violation"]:
-                        determine(source, record["m"])
-                    else:
-                        no_violation_up_to(source, record["m"])
+                    _no_violation_up_to(claims, source, max_weight, cutoff)
+            _weight_claims(claims, source, row.get("partial") or [], cutoff)
 
-    # each deletion task's parent verdict at K = t, and the final m* of a task that accepted no
-    # deletion, whose final circuit is the parent
+    # each deletion task's parent verdict at K = t, and the claim of the final circuit of a task
+    # that accepted no deletion, which is the parent
     for arm in applications.PRUNE_ORDERS:
         if not arms.get(arm):
             continue
@@ -120,18 +109,34 @@ def margin_claims(
         if parent is None:
             continue
         if parent["parent_certified"]:
-            no_violation_up_to(f"{arm} parent", circuit["t"])
+            _no_violation_up_to(claims, f"{arm} parent", circuit["t"], cutoff)
         else:
-            determine(f"{arm} parent", parent["parent_violation_weight"])
-        steps = _steps(run)
-        if steps is None or any(record["outcome"] == "accepted" for record in steps):
-            continue
-        margin, completed = _final_margin(run)
-        if margin is not None:
-            determine(f"{arm} final", margin)
-        elif completed is not None:
-            no_violation_up_to(f"{arm} final", completed)
+            _determine(claims, f"{arm} parent", parent["parent_violation_weight"])
+        final = final_claim(circuit, run)
+        if final is not None and not _accepted_deletion(run):
+            claims[f"{arm} final"] = final
     return claims
+
+
+def final_claim(circuit: dict[str, Any], run: dict[str, Any]) -> Claim | None:
+    """The claim on the m* of a deletion task's final circuit, or None if it has no final checks.
+
+    BZ certified the final circuit at K = t, as the parent or as its last accepted deletion, so
+    m* > t.  The m* of the task's result and each fault weight that the search of the final m*
+    reported after the final checks add to the claim, as in ``margin_claims``.  A completed weight
+    determines "all" by the cutoff r + 1 only where the task accepted no deletion, so that the
+    final circuit is the parent, whose flag rank r is known.
+    """
+    if _steps(run) is None:
+        return None
+    cutoff = None if _accepted_deletion(run) else circuit["r"] + 1
+    claims: dict[str, Claim] = {}
+    _no_violation_up_to(claims, "final", circuit["t"], cutoff)
+    final = (run.get("result") or {}).get("final_margin")
+    if final is not None:
+        _determine(claims, "final", final["margin"])
+    _weight_claims(claims, "final", _final_search(run), cutoff)
+    return claims["final"]
 
 
 def combine_claims(claims: dict[str, Claim]) -> tuple[int | str | None, int | None, list[str]]:
@@ -241,6 +246,38 @@ def _claim_text(claim: Claim) -> str:
     return ", ".join(parts)
 
 
+def _determine(claims: dict[str, Claim], source: str, value: int | str) -> None:
+    """Add to a source's claim that m* is this value."""
+    claims.setdefault(source, {"exact": set(), "bound": None})["exact"].add(value)
+
+
+def _no_violation_up_to(
+    claims: dict[str, Claim], source: str, weight: int, cutoff: int | None
+) -> None:
+    """Add to a source's claim that no fault weight up to this one violates.
+
+    That determines "all" if the weight reaches the cutoff r + 1, if known, and else gives m* > k
+    for k the weight.
+    """
+    if cutoff is not None and cutoff <= weight:
+        _determine(claims, source, "all")
+        return
+    claim = claims.setdefault(source, {"exact": set(), "bound": None})
+    claim["bound"] = max(weight, claim["bound"] or 0)
+
+
+def _weight_claims(
+    claims: dict[str, Claim], source: str, records: list[dict[str, Any]], cutoff: int | None
+) -> None:
+    """Add to a source's claim each fault weight that its records report completed or violating."""
+    for record in records:
+        if "m" in record and "violation" in record:
+            if record["violation"]:
+                _determine(claims, source, record["m"])
+            else:
+                _no_violation_up_to(claims, source, record["m"], cutoff)
+
+
 ####################################################################################################
 # deletions and outputs
 
@@ -284,8 +321,9 @@ def final_contradictions(
 ) -> list[str]:
     """The contradictions of the final circuits of a circuit's deletion tasks.
 
-    A final circuit must be certified at K = t by the CC oracle, and its final m* must exceed t, as
-    that certification and BZ's certification of its last accepted deletion require.
+    A final circuit must be certified at K = t by the CC oracle, and the parts of the claim on its
+    m* (``final_claim``) must agree.  The final circuit of a task that accepted no deletion is the
+    parent, whose claims ``margin_claims`` compares instead.
     """
     from experiments.state_prep_certification.certification import applications
 
@@ -299,9 +337,9 @@ def final_contradictions(
             continue
         if checks["final_certified_cc"] is not True:
             contradictions.append(f"{arm} final: not certified by CC at t")
-        margin = _final_margin(run)[0]
-        if isinstance(margin, int) and margin <= circuit["t"]:
-            contradictions.append(f"{arm} final (m* = {margin}) against its certification at t")
+        claim = final_claim(circuit, run)
+        if claim is not None and _accepted_deletion(run):
+            contradictions += combine_claims({f"{arm} final": claim})[2]
     return contradictions
 
 
@@ -442,22 +480,33 @@ def _steps(run: dict[str, Any]) -> list[dict[str, Any]] | None:
     return [record for record in run.get("partial") or [] if "step" in record]
 
 
-def _final_margin(run: dict[str, Any]) -> tuple[int | str | None, int | None]:
-    """The final m* of a deletion task, or else the largest fault weight that its search completed.
+def _accepted_deletion(run: dict[str, Any]) -> bool:
+    """Whether a deletion task that reached its final checks accepted a deletion."""
+    return any(record["outcome"] == "accepted" for record in _steps(run) or [])
 
-    A task killed during the search of its final m* gives the fault weights that the search
-    reported after the final checks: a violation determines m*, as in ``margin_claims``.
+
+def _final_search(run: dict[str, Any]) -> list[dict[str, Any]]:
+    """The records of a deletion task's partial results after its final checks.
+
+    These are the fault weights that the search of the final m* completed or found a violation at.
     """
-    if run["status"] == "ok":
-        final = run["result"].get("final_margin")
-        return (None if final is None else final["margin"]), None
     partial = run.get("partial") or []
     start = next((i for i, record in enumerate(partial) if "final_checks" in record), len(partial))
-    records = [record for record in partial[start:] if "m" in record and "violation" in record]
-    found = [record["m"] for record in records if record["violation"]]
-    if found:
-        return min(found), None
-    return None, max((record["m"] for record in records), default=None)
+    return partial[start + 1 :]
+
+
+def _final_margin(
+    circuit: dict[str, Any], run: dict[str, Any]
+) -> tuple[int | str | None, int | None]:
+    """The final m* of a deletion task, or else the lower bound k of m* > k, from ``final_claim``.
+
+    Both are None if the parts of the claim disagree, or if the task has no final checks.
+    """
+    claim = final_claim(circuit, run)
+    if claim is None:
+        return None, None
+    value, bound, _ = combine_claims({"final": claim})
+    return value, bound
 
 
 def _table_row(
@@ -469,9 +518,9 @@ def _table_row(
 ) -> dict[str, Any]:
     """The row of deletion_table.csv of one deletion task that reached its final checks.
 
-    Where the search of the final m* did not finish, ``final_margin_lower_bound`` is the largest
-    fault weight k that it completed, or else t, at which the final circuit is certified, meaning
-    m* > k.
+    Where the claim on the final m* (``final_claim``) does not determine it, as when its search did
+    not finish, ``final_margin_lower_bound`` is the largest fault weight k that the search
+    completed, or else t, at which the final circuit is certified, meaning m* > k.
     """
     from experiments.state_prep_certification.certification import applications
 
@@ -498,13 +547,11 @@ def _table_row(
             f"{which}_acceptance": acceptance["probability"],
             f"{which}_acceptance_se": acceptance["standard_error"],
         }
-    margin, completed = _final_margin(run)
+    margin, bound = _final_margin(circuit, run)
     return row | {
         "acceptance_p": checks["acceptance"]["p"],
         "final_margin": margin,
-        "final_margin_lower_bound": (
-            None if margin is not None else max(completed or 0, circuit["t"])
-        ),
+        "final_margin_lower_bound": bound,
         "final_violating_parts": (run["result"].get("final_margin") or {}).get("violating_parts"),
         "attempted": len(steps),
         "accepted": sum(record["outcome"] == "accepted" for record in steps),
