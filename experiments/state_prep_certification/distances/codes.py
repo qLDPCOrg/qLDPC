@@ -138,12 +138,10 @@ class Family:
     Attributes:
         draw: Draw a code of the given parameters with a random generator.
         admissible: The admissible parameters with lengths up to a bound, as (params, n, tie-break).
-        css: Whether the family's codes are CSS.
     """
 
     draw: Callable[[dict[str, Any], np.random.Generator], Any]
     admissible: Callable[[int], Iterator[tuple[dict[str, Any], int, Any]]]
-    css: bool
 
 
 def _bb_sizes(bound: int) -> Iterator[tuple[dict[str, Any], int, Any]]:
@@ -176,7 +174,7 @@ PP_ARRAYS = ("110", "232", "276")
 
 def _pp_sizes(bound: int) -> Iterator[tuple[dict[str, Any], int, Any]]:
     for array in PP_ARRAYS:
-        _, published_lift, columns = _cpm_shape(workloads.INSTANCES[array][1])
+        published_lift, columns = _cpm_shape(workloads.INSTANCES[array][1])
         for lift in range(published_lift, bound // columns + 1):
             if _is_prime(lift):
                 yield {"array": array, "P": lift}, columns * lift, array
@@ -411,14 +409,14 @@ def _regular_ldpc(
 
 
 FAMILIES = {
-    "bb": Family(draw_bb, _bb_sizes, css=True),
-    "gb": Family(draw_gb, _gb_sizes, css=True),
-    "hgp": Family(draw_hgp, _hgp_sizes, css=True),
-    "lp": Family(draw_lp, _lp_sizes, css=True),
-    "pp": Family(draw_pp, _pp_sizes, css=True),
-    "qt": Family(draw_qt, _qt_sizes, css=True),
-    "css_walk": Family(draw_css_walk, _dense_sizes(4), css=True),
-    "rstab": Family(draw_rstab, _dense_sizes(3), css=False),
+    "bb": Family(draw_bb, _bb_sizes),
+    "gb": Family(draw_gb, _gb_sizes),
+    "hgp": Family(draw_hgp, _hgp_sizes),
+    "lp": Family(draw_lp, _lp_sizes),
+    "pp": Family(draw_pp, _pp_sizes),
+    "qt": Family(draw_qt, _qt_sizes),
+    "css_walk": Family(draw_css_walk, _dense_sizes(4)),
+    "rstab": Family(draw_rstab, _dense_sizes(3)),
 }
 
 
@@ -671,7 +669,7 @@ def generate(out: pathlib.Path) -> dict[str, Any]:
 def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
     """Store a code's plain matrices, and return its record."""
     if isinstance(code, codes.CSSCode):
-        arrays = {
+        arrays: dict[str, Any] = {
             "matrix_x": np.asarray(code.matrix_x, dtype=np.uint8),
             "matrix_z": np.asarray(code.matrix_z, dtype=np.uint8),
         }
@@ -688,8 +686,7 @@ def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
         plain = codes.QuditCode(arrays["matrix"].astype(np.int_))
         equal_sectors = False
     code_hash = hash_arrays(arrays)
-    contents: dict[str, Any] = arrays
-    np.savez(out / "codes" / f"{code_hash}.npz", **contents)
+    np.savez(out / "codes" / f"{code_hash}.npz", **arrays)
     return {
         "code_hash": code_hash,
         "n": len(plain),
@@ -786,10 +783,10 @@ def _params_label(params: dict[str, Any]) -> str:
     return "".join(f"{key}{value}" for key, value in params.items())
 
 
-def _cpm_shape(text: str) -> tuple[str, int, int]:
-    """The name, lift size, and block columns of a ``.cpm`` instance."""
-    _magic, name, lift, columns, *_ = text.split()
-    return name, int(lift), int(columns)
+def _cpm_shape(text: str) -> tuple[int, int]:
+    """The lift size and block columns of a ``.cpm`` instance."""
+    _magic, _name, lift, columns, *_ = text.split()
+    return int(lift), int(columns)
 
 
 def _is_prime(number: int) -> bool:
