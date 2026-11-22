@@ -2,7 +2,7 @@
 
 **Prototype.** Everything in `state_prep_certification/` is a prototype, subject to change: its code, interfaces, inputs, outputs, and documentation.
 
-This experiment measures how much four extensions of the exact Brouwer-Zimmermann (BZ) distance search that qLDPC implements change the wall time of the search, together.
+This experiment measures how much four extensions of the exact Brouwer-Zimmermann (BZ) distance search that qLDPC implements together change the wall time of the search.
 The "on" arm runs qLDPC's BZ search with everything on, at its defaults.
 The "prior" arm runs the same search with all four extensions turned off at once by qLDPC's tuning fields.
 Both arms search the same codes, with the same time limit.
@@ -10,7 +10,7 @@ Since the extensions are turned off together, the experiment measures their join
 The four extensions, and the fields that turn them off, are:
 
 - overlapping families of search bases and their coverage certificate, off by `overlapping_minimum_work` (Section 3.1 of qLDPC's guide [`brouwer_zimmermann.md`](../../../src/qldpc/codes/distance/brouwer_zimmermann.md));
-- matroid partitioning into families of coverage two or more, restricted to disjoint information sets by `partition_max_coverage = 1` (Section 3.1 of the guide, and Section 4.4 of [`brouwer_zimmermann_code.md`](../../../src/qldpc/codes/distance/brouwer_zimmermann_code.md));
+- matroid partitioning into families of coverage two or more, off by `partition_max_coverage = 1`, which keeps only disjoint information sets (Section 3.1 of the guide, and Section 4.4 of [`brouwer_zimmermann_code.md`](../../../src/qldpc/codes/distance/brouwer_zimmermann_code.md));
 - completion tables, off by `completion_bound_minimum_layer_work` and `completion_bound_max_table_bytes` (Section 3.9 of the guide);
 - the images of an information set under automorphisms, off by `automorphism_minimum_layer_work` (Section 3.7 of the guide).
 
@@ -24,10 +24,11 @@ The prior arm is thus an ablation of the four extensions within qLDPC; its name 
 | `q_bz_on` | `code.get_distance_exact(method="brouwer_zimmermann")` | all |
 | `q_bz_prior` | the same call inside `use_tuning(**BZ_PRIOR)` | all |
 
-`config.json` holds the prior tuning (`bz_prior`, which [`arms.py`](arms.py) reads as `BZ_PRIOR` and says what each setting turns off), the time limit, the memory cap, and the repeat rule.
-Every arm builds a plain `CSSCode` or `QuditCode` from stored matrices inside its timer, so that no arm uses structure that the class of a code's construction can supply to the search, such as symmetries.
+`config.json` holds the prior tuning (`bz_prior`, which [`arms.py`](arms.py) reads as `BZ_PRIOR` and says what each setting turns off), the time limit, the memory cap, and the rule for repeats (`repeat_below_s` and `repeats`; see [`experiment.py`](experiment.py)).
+Every arm builds a plain `CSSCode` or `QuditCode` from stored matrices inside its timer, so that the search cannot use structure, such as symmetries, that the class of a code's construction, such as `BBCode`, could supply.
 Both arms make the same call, so they search the same sectors: one sector of a plain `CSSCode` whenever qLDPC finds a sector map, and both otherwise.
-qLDPC finds one for codes with equal check matrices and, with bliss, which the bundle installs (`qldpc_extras` of [`pins.json`](../pins.json)), also for some codes whose check matrices differ, such as the anchors `surface9` and `toric10`.
+qLDPC finds one for codes with equal check matrices.
+With its optional `bliss` extra for graph automorphisms, which the bundle installs (`qldpc_extras` of [`pins.json`](../pins.json)), it also finds one for some codes whose check matrices differ, such as the anchors (named codes; see [Codes](#codes)) `surface9` and `toric10`.
 The connected-cluster (CC) search is not compared here: the certification experiment measures it as an oracle of the certifier, on the certifier's own queries.
 
 ## Codes
@@ -45,7 +46,7 @@ The data directory `code_data/` holds two files, which are not committed: the ex
 `code_data/sample.json` fixes every code: a drawn code by its name, family, parameters, draw, seed, and hash, and an anchor by its name, source, hash, and reference distance, if any.
 `codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, overwriting the frozen sample, so run it only to refreeze the sample.
 `codes.py --check` compares a regenerated sample with it, as every start does before it runs any task (`codes.compare_with_sample`).
-For each family, n_lo and n_hi are the smallest and largest lengths among the published instances of its source.
+For each family but `css_walk` and `rstab`, n_lo and n_hi are the smallest and largest lengths among the published instances of its source.
 For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at least 6, and n_hi the largest n <= 256 whose upper bound on d is at most 20, in Grassl's table of qubit stabilizer codes with k = 2.
 
 | Family | Codes | n_lo, n_hi | Source |
@@ -70,19 +71,17 @@ python experiments/state_prep_certification/distances/analyze.py --label-dir exp
 
 `codes.py` writes the regenerated codes and `draws.jsonl` to `--out`, a scratch directory.
 The subset `smoke` runs both arms on four small anchors.
-Its runs take minutes, but its ceiling is about 24 CPU-hours, which the approval of 25 covers; `run_node.py distances --local --subset smoke --dry-run` without an approval prints the ceiling.
-The local run's label directory, which `run_node.py` prints, ends in `-local-smoke`, and its rows were not timed as on the node, so the analysis refuses them without `--allow-local`, and with it marks every output with their number.
+Its runs take minutes, but its ceiling is about 24 CPU-hours, which the approval of 25 covers.
+The local run's label directory, which `run_node.py` prints, ends in `-local-smoke`, and the analysis of its rows needs `--allow-local` (see the shared README's [Local runs](../README.md#local-runs)).
 
 On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes.
 `analyze.py --archive PATH --out DIR` reads the archive that comes back, and writes `summary.csv`, `families.csv`, `anchors.csv`, `distances.pdf`, and `figure_notes.json`.
-It checks the archive against its `.sha256` file and its inner `SHA256SUMS`, and extracts it into a temporary directory, which it removes when it ends.
-So `--archive` requires `--out`: the default output directory, `analysis/` in the label directory, would be removed with the extraction.
 The docstring of [`analyze.py`](analyze.py) says how to read the timings and the outputs, including a median that a timed-out run determines, an arm without a first run, and a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
 The distances that the arms report are exact, from qLDPC's exact BZ search.
 A code whose arms or repeats report different distances in their rows with status `ok`, or a distance other than its reference distance, is a disagreement, which `analyze.py` reports.
 The anchors' reference distances and the families' endpoints are trusted inputs, from the sources that this README and `codes.py` cite.
-The times are measurements of runs on the node; the docstring of `analyze.py` says how the analysis compares them.
+The times are measurements of runs on the node.
 
 ## Attributions
 

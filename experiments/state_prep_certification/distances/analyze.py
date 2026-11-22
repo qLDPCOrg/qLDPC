@@ -51,23 +51,20 @@ The analysis reads the sample from the label directory, where ``experiment.prepa
 ``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
 does not change the analysis of an earlier run.
 
-The analysis checks an archive against its ``.sha256`` file and its inner ``SHA256SUMS``, and
-extracts it into a temporary directory, which it removes when it ends, whether or not it succeeds
-(``store.open_archive``).  So ``--archive`` requires ``--out``.  The outputs go to ``--out``, by
+The analysis checks and extracts an archive with ``store.open_archive``, into a temporary directory
+that it removes when it ends, so ``--archive`` requires ``--out``.  The outputs go to ``--out``, by
 default ``analysis/`` in the label directory of ``--label-dir``.  They are ``summary.csv`` (one row
 per code and arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior
 against on), and ``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack
 of a value, or for a disagreement, a failure, or an incomplete timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
-``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
-``local_rows``.  If a start of the label accepted a refused environment variable with
-``--allow-env`` (see ``run_node.py``), or ran Python with -O, it marks every output with the names
-of these variables, ``PYTHONOPTIMIZE`` for -O, ``allowed_environment``.  If the recorded environment
-variables of the label's starts differ, such as those of a resume in another shell, it marks every
-output with the names of the variables that differ, ``environment_changed``.  Each mark is a column
-in each CSV file, a key in ``figure_notes.json``, and part of the title and of the Subject in the
-metadata of ``distances.pdf``.
+``--allow-local``.  Where they apply, it marks every output with ``local_rows``, the number of
+these rows; ``allowed_environment``, the refused environment variables that a start accepted, with
+``PYTHONOPTIMIZE`` for -O; and ``environment_changed``, the environment variables that differ among
+the label's starts (see ``common/store.py``).  Each mark is a column in each CSV file, a key in
+``figure_notes.json``, and part of the title and of the Subject in the metadata of
+``distances.pdf``.
 """
 
 from __future__ import annotations
