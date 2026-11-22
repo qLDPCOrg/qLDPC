@@ -152,7 +152,8 @@ On the node, `node.sh certification --approved-cpu-hours H` runs the subset `mai
 The ceiling of `main` follows from `circuits.json`: each run costs at most its start-up cap, its limit, its post-processing allowance, and the grace, and a fast run of `cert_bz`, `cert_cc`, or `brute_bz` gets two repeats.
 The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) explains.
 `run_node.py certification --dry-run` prints the tasks and the ceiling of the current `circuits.json`.
-On the workstation, run `analyze.py --archive PATH --check-archive PATH`.
+On the workstation, run `analyze.py --archive PATH --check-archive PATH --out DIR`.
+It extracts each archive into a temporary directory, which it removes when it ends, so `--archive` requires `--out`.
 Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `listing_table.csv`.
 `listing_table.csv` compares the listed faults and oracle rows with all accepted combinations, per family and weight.
 `shadow.csv` gives the cost of the two weight oracles on identical queries: for each circuit and threshold of the queries of its `shadow` run, the calls, the rows that they submit, and the seconds of BZ and of CC, from the run's result or, for a run that did not finish, from the calls that it wrote to `oracle_calls/` in the label directory; it leaves out runs with `compiled_in_timing` set and circuits with a disagreement.

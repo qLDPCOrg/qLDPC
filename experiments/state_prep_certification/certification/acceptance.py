@@ -64,7 +64,9 @@
   first run that finished.  With two of the synthetic rows marked as rows of ``--local`` runs,
   ``analyze.py`` refuses the label without ``--allow-local``; with it, every output gives the number
   of these rows, and the name of the refused environment variable that a start, here a dry run,
-  accepted with ``--allow-env``.  ``analyze.py`` warns of a label whose hash does not match its
+  accepted with ``--allow-env``.  The analysis of the label's archive requires ``--out``, and
+  leaves no extraction of the archive, or of the archive of ``check``, behind, whether it succeeds
+  or refuses the rows.  ``analyze.py`` warns of a label whose hash does not match its
   ``circuits.json``, the working tree's other frozen files, and the commit and requirements of its
   manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0) circuit give the example
   counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m) from ``circuits.json`` in
@@ -132,10 +134,12 @@ import hashlib
 import io
 import json
 import math
+import os
 import pathlib
 import shutil
 import subprocess
 import sys
+import tarfile
 from typing import Any
 
 import numpy as np
@@ -861,6 +865,25 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     }
     others = acceptance.check_marked(label_dir / "analysis", marks)
     assert not others, others  # no deletion run, so no circuit in pruned/
+
+    # an archive needs --out; its extraction, and that of the archive of check, is removed whether
+    # or not the analysis succeeds
+    archive = directory / "label.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(label_dir, arcname=label_dir.name)
+    scratch = directory / "tmp"
+    scratch.mkdir()
+    environment = dict(os.environ, TMPDIR=str(scratch))
+    command = [sys.executable, analyze.__file__, "--archive", str(archive)]
+    analysis = subprocess.run(command, capture_output=True, text=True, check=False, env=environment)
+    assert analysis.returncode != 0 and "--out" in analysis.stderr, analysis.stderr
+    command += ["--check-archive", str(archive), "--out", str(directory / "from_archive")]
+    for allow_local in ([], ["--allow-local"]):
+        analysis = subprocess.run(
+            command + allow_local, capture_output=True, text=True, check=False, env=environment
+        )
+        assert (analysis.returncode == 0) == bool(allow_local), analysis.stderr
+        assert not any(scratch.iterdir()), list(scratch.iterdir())
 
     _check_consistency()
     _check_application_analysis(directory / "applications")

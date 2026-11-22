@@ -116,6 +116,7 @@ import pathlib
 import statistics
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 import numpy as np
@@ -155,7 +156,9 @@ class ProvenanceError(SystemExit):
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or certification_analyze._unpack(args.archive)
+    label_dir = args.label_dir or certification_analyze._unpack(
+        args.archive, pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
+    )
     out = args.out or label_dir / "analysis"
     analyze(label_dir, args.certification_archive, out)
     print(f"wrote {out}")
@@ -239,7 +242,9 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
     if recorded[:2] != [store.sha256_file(archive), archive.name]:
         raise ProvenanceError(f"{archive.name} does not match {sums_file.name}")
     # the files of the archive against its inner SHA256SUMS
-    label_dir = certification_analyze._unpack(archive)
+    label_dir = certification_analyze._unpack(
+        archive, pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
+    )
     sums = (label_dir / "SHA256SUMS").read_text().splitlines()
     listed = {}
     for line in sums:

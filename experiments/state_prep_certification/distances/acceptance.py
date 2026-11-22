@@ -18,7 +18,9 @@
   their rows without ``--allow-local``; with it, every output gives the number of these rows, the
   refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for
   a start under -O, which sets no variable, and the recorded variable that a resume changed,
-  ``distances.pdf`` in its metadata.  ``compare_with_sample`` reports a sample in which one
+  ``distances.pdf`` in its metadata.  The analysis of the label's archive requires ``--out``, and
+  leaves no extraction of the archive behind, whether it succeeds or refuses the rows.
+  ``compare_with_sample`` reports a sample in which one
   reference distance differs from that of ``sample.json``, and one with another endpoint and another
   family of a code.  Each row's tuning is the shipped default, with ``BZ_PRIOR`` for
   ``q_bz_prior``.
@@ -52,11 +54,13 @@ import copy
 import csv
 import dataclasses
 import json
+import os
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -260,6 +264,28 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     assert [path.name for path in others] == ["distances.pdf"], others
     subject = "; ".join(f"{name}: {value}" for name, value in marks.items())
     assert f"/Subject ({subject})".encode() in (out / "distances.pdf").read_bytes()
+
+    # an archive needs --out, and its extraction is removed whether or not the analysis succeeds
+    archived = directory / "archived"
+    archived.mkdir()
+    archive = archived / "label.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        for path in label_dir.iterdir():
+            if path != archived:
+                tar.add(path, arcname=f"label/{path.name}")
+    scratch = archived / "tmp"
+    scratch.mkdir()
+    environment = dict(os.environ, TMPDIR=str(scratch))
+    command = [sys.executable, str(script), "--archive", str(archive)]
+    result = subprocess.run(command, capture_output=True, text=True, check=False, env=environment)
+    assert result.returncode != 0 and "--out" in result.stderr, result.stderr
+    command += ["--out", str(archived / "analysis")]
+    for allow_local in ([], ["--allow-local"]):
+        result = subprocess.run(
+            command + allow_local, capture_output=True, text=True, check=False, env=environment
+        )
+        assert (result.returncode == 0) == bool(allow_local), result.stderr
+        assert not any(scratch.iterdir()), list(scratch.iterdir())
 
 
 @test

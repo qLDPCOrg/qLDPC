@@ -2,7 +2,7 @@
 
 """Analyze a run of the distance experiment: summary.csv, families.csv, anchors.csv, distances.pdf.
 
-    python analyze.py (--archive PATH | --label-dir DIR) [--out DIR] [--allow-local]
+    python analyze.py (--archive PATH --out DIR | --label-dir DIR [--out DIR]) [--allow-local]
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
@@ -46,11 +46,12 @@ The analysis reads the sample from the label directory, where ``experiment.prepa
 ``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
 does not change the analysis of an earlier run.
 
-Outputs in ``--out`` (by default ``analysis/`` in the label directory, which is a temporary
-directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``families.csv``,
-``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on), and
-``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or for
-a disagreement, a failure, or an incomplete timing).
+The analysis extracts an archive into a temporary directory, which it removes when it ends, whether
+or not it succeeds.  So ``--archive`` requires ``--out``.  Outputs in ``--out`` (by default
+``analysis/`` in the label directory of ``--label-dir``): ``summary.csv`` (one row per code and
+arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on),
+and ``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or
+for a disagreement, a failure, or an incomplete timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
 ``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
@@ -86,14 +87,19 @@ ON, PRIOR = "q_bz_on", "q_bz_prior"
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or _unpack(args.archive)
-    out = args.out or label_dir / "analysis"
+    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
+        label_dir = args.label_dir or _unpack(args.archive, pathlib.Path(scratch, "label"))
+        analyze_label(label_dir, args.out or label_dir / "analysis", args.allow_local)
+
+
+def analyze_label(label_dir: pathlib.Path, out: pathlib.Path, allow_local: bool) -> None:
+    """Analyze a label directory, and write the outputs to ``out``."""
     out.mkdir(parents=True, exist_ok=True)
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {problem}")
     marks: dict[str, Any] = {}
-    local_rows = store.count_local_rows(final.values(), args.allow_local)
+    local_rows = store.count_local_rows(final.values(), allow_local)
     if local_rows:
         marks["local_rows"] = local_rows
     allowed = store.allowed_environment(label_dir)
@@ -129,15 +135,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-local", action="store_true", help="analyze rows of --local runs, and say so"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.archive and args.out is None:
+        parser.error("--archive requires --out, since the archive's extraction is removed")
+    return args
 
 
-def _unpack(archive: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a temporary directory, and return its label directory."""
-    target = pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
+def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
+    """Unpack an archive into a directory, and return its label directory."""
+    directory.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as tar:
-        tar.extractall(target, filter="data")
-    (label_dir,) = [path for path in target.iterdir() if path.is_dir()]
+        tar.extractall(directory, filter="data")
+    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
     return label_dir
 
 

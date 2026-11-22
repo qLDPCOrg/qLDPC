@@ -70,6 +70,7 @@ The local run's label directory, which `run_node.py` prints, ends in `-local-smo
 
 On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes.
 `analyze.py --archive PATH --out DIR` reads the archive that comes back, and writes `summary.csv`, `families.csv`, `anchors.csv`, `distances.pdf`, and `figure_notes.json`.
+It extracts the archive into a temporary directory, which it removes when it ends, so `--archive` requires `--out`.
 `analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
 ## Attributions

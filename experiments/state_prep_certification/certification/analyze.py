@@ -2,13 +2,14 @@
 
 """Analyze a run of the certification experiment: its CSV files and counterexamples.
 
-    python analyze.py (--archive PATH | --label-dir DIR)
-        [--check-archive PATH | --check-label-dir DIR] [--out DIR] [--allow-local]
+    python analyze.py (--archive PATH --out DIR | --label-dir DIR [--out DIR])
+        [--check-archive PATH | --check-label-dir DIR] [--allow-local]
 
 The analysis is descriptive: counts and medians, with every timeout, memout, error, missing run,
 and disagreement in its CSV files.  The ground truth runs in the subset ``check``, which has its own
 label directory and archive; ``--check-label-dir`` or ``--check-archive`` adds its ``ground_truth``
-rows to those of the analyzed run, if any.
+rows to those of the analyzed run, if any.  The analysis extracts each archive into a temporary
+directory, which it removes when it ends, whether or not it succeeds.
 
 The circuits and their parameters come from the label's copy of the ``circuits.json`` that it ran
 with.  If the label does not match that ``circuits.json`` and the working tree's ``config.json``
@@ -51,7 +52,8 @@ whose enumeration size U exceeds the brute-force cap of ``config.json`` has no `
 and its status is "not run (U > cap)", never a timeout.  An agreement is "a/b", a of b compared
 circuits, or "not run" where no circuit of the family has rows of the arm compared.
 
-Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
+Outputs, in ``--out``, which ``--archive`` requires (by default ``analysis/`` in the label directory
+of ``--label-dir``):
 
 * ``families.csv``, one row per family:
 
@@ -201,14 +203,26 @@ EXAMPLE_GROUPS: dict[str, set[tuple[str, str | None]]] = {
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or _unpack(args.archive)
-    out = args.out or label_dir / "analysis"
+    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
+        label_dir = args.label_dir or _unpack(args.archive, pathlib.Path(scratch, "main"))
+        check_dir = args.check_label_dir or (
+            args.check_archive and _unpack(args.check_archive, pathlib.Path(scratch, "check"))
+        )
+        analyze_label(label_dir, check_dir, args.out or label_dir / "analysis", args.allow_local)
+
+
+def analyze_label(
+    label_dir: pathlib.Path,
+    check_dir: pathlib.Path | None,
+    out: pathlib.Path,
+    allow_local: bool,
+) -> None:
+    """Analyze a label, with the ``ground_truth`` rows of the label of ``check``, if any."""
     out.mkdir(parents=True, exist_ok=True)
     check_frozen_files(label_dir)
     rows = _final_rows(label_dir)
     expected = _expected_tasks(label_dir)
     circuits_text = (label_dir / "circuits.json").read_text()
-    check_dir = args.check_label_dir or (args.check_archive and _unpack(args.check_archive))
     if check_dir:
         check_frozen_files(check_dir)
         if (check_dir / "circuits.json").read_text() != circuits_text:
@@ -222,7 +236,7 @@ def main() -> None:
             if task["arm"] == "ground_truth"
         }
     marks: dict[str, Any] = {}
-    local_rows = store.count_local_rows(rows, args.allow_local)
+    local_rows = store.count_local_rows(rows, allow_local)
     if local_rows:
         marks["local_rows"] = local_rows
     allowed = sorted(
@@ -291,7 +305,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-local", action="store_true", help="analyze rows of --local runs, and say so"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.archive and args.out is None:
+        parser.error("--archive requires --out, since the archive's extraction is removed")
+    return args
 
 
 def check_frozen_files(label_dir: pathlib.Path) -> None:
@@ -344,12 +361,12 @@ def _expected_tasks(label_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
     return task_store.load_tasks(label_dir)
 
 
-def _unpack(archive: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a temporary directory, and return its label directory."""
-    target = pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
+def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
+    """Unpack an archive into a directory, and return its label directory."""
+    directory.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as tar:
-        tar.extractall(target, filter="data")
-    (label_dir,) = [path for path in target.iterdir() if path.is_dir()]
+        tar.extractall(directory, filter="data")
+    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
     return label_dir
 
 
