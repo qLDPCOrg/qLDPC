@@ -100,20 +100,7 @@ inputs, outputs, and documentation.
     its field ``residual_exceeds_fault_weight`` or its result's fault weight; below its lower bound;
     or other than the larger of those of its X and Z parts.
 
-  A circuit whose claims of every kind agree gets their m*.  Every case of the combined margin of
-  ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
-  t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
-  with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
-  and agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in
-  the partial results of a killed task.  The margin counts of one family are checked, and
-  ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
-  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
-  unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
-  but list its task, list an uncertified parent, give a timeout and a flagged timeout their
-  statuses, and keep the rows of two tasks killed during the search of their final m*: with m* > k
-  for the largest fault weight k that the search completed, and with m* where it found a violation.
-  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's marks head
-  each circuit of ``pruned/``, which still parses.
+  A circuit whose claims of every kind agree gets their m*.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -137,6 +124,20 @@ inputs, outputs, and documentation.
 * **AT11:** altered copies of code files (an Lx that anticommutes with a check, a check as Lz, no
   Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
   that names it, and the code file of a one-qubit |0>, which has no X checks, passes.
+* **AT12:** the analysis of the applications (``analyze_applications.py``) on synthetic rows.  Every
+  case of the combined margin gives its value, its bound, or a disagreement, and a margin of at most
+  t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
+  with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
+  and agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in
+  the partial results of a killed task.  The margin counts of one family are checked, and
+  ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
+  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
+  unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
+  but list its task, list an uncertified parent, give a timeout and a flagged timeout their
+  statuses, and keep the rows of two tasks killed during the search of their final m*: with m* > k
+  for the largest fault weight k that the search completed, and with m* where it found a violation.
+  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's marks head
+  each circuit of ``pruned/``, which still parses.
 
 The expected values of AT1 on C-goto and its weakened variant come from qLDPC: the notebook
 ``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb`` certifies C-goto's circuit up
@@ -916,7 +917,6 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     assert (directory / "from_archive" / "summary.csv").exists(), "no outputs in --out"
 
     _check_consistency()
-    _check_application_analysis(directory / "applications")
     print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")
 
 
@@ -1144,6 +1144,12 @@ def at11_code_files(directory: pathlib.Path, node: bool) -> None:
     one_qubit = {"distance": 1, "Hx": [], "Hz": [], "Lx": [[1]], "Lz": [[1]]}
     assert code_files.check_code(zero, one_qubit) == []
     print(f"  {len(alterations)} altered code files fail, and a code without X checks passes")
+
+
+@test
+def at12_application_analysis(directory: pathlib.Path, node: bool) -> None:
+    """Analysis of synthetic rows of the margin and deletion arms."""
+    _check_application_analysis(directory)
 
 
 def _check_brute_bz(circuit_id: str) -> bool:
@@ -1643,7 +1649,7 @@ def _check_consistency() -> None:
 
 
 def _check_application_analysis(directory: pathlib.Path) -> None:
-    """The combined margin, and the deletion outputs, on synthetic rows (part of AT8)."""
+    """The combined margin, and the deletion outputs, on synthetic rows (AT12)."""
 
     def run(status: str, result: dict[str, Any] | None = None, partial: Any = None) -> Any:
         return {"status": status, "repeat": 0, "result": result or {}, "partial": partial or []}
