@@ -76,28 +76,28 @@
   the calls that a timed-out run wrote, without a last line cut off, and leaves out a run with
   ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before its last
   is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes its
-  circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, a finished shadow run,
-  a repeat, a deletion parent, the final m* of a deletion task with no accepted deletion, the ground
-  truth, the baseline, a violation recorded by an unfinished certification, or the result of a
-  certification that exceeded its memory cap after it returned, against another exact result; a
-  final circuit whose m* is at most t, or above the weight of a violation that the search of its m*
-  reported; Phi_m above A_m; Omega_m of a completed weight above Phi_m; the ground truth's heavy
-  mechanisms against h, also where the ground truth exceeded its memory cap after it returned; and a
-  counterexample's residual weight against its fault weight or lower bound.  A circuit whose claims
-  of every kind agree gets their m*.  Every case of the combined margin of
-  ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
-  t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
-  with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
-  and agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in
-  the partial results of a killed task.  The margin counts of one family are checked, and
-  ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
-  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
-  unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
-  but list its task, list an uncertified parent, give a timeout and a flagged timeout their
-  statuses, and keep the rows of two tasks killed during the search of their final m*: with m* > k
-  for the largest fault weight k that the search completed, and with m* where it found a violation.
-  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's marks head
-  each circuit of ``pruned/``, which still parses.
+  circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, also one that the
+  runner discarded because it compiled, a finished shadow run, a repeat, a deletion parent, the
+  final m* of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
+  recorded by an unfinished certification, or the result of a certification that exceeded its memory
+  cap after it returned, against another exact result; a final circuit whose m* is at most t, or
+  above the weight of a violation that the search of its m* reported; Phi_m above A_m; Omega_m of a
+  completed weight above Phi_m; the ground truth's heavy mechanisms against h, also where the ground
+  truth exceeded its memory cap after it returned; and a counterexample's residual weight against
+  its fault weight or lower bound.  A circuit whose claims of every kind agree gets their m*.  Every
+  case of the combined margin of ``analyze_applications.py`` gives its value, its bound, or a
+  disagreement, and a margin of at most t keeps the arm and sector of its counterexample.  A margin
+  or a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
+  makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
+  so also when its verdict is only in the partial results of a killed task.  The margin counts of
+  one family are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a
+  disagreement.  The deletion outputs rebuild a reduced circuit from its input, report a wrong final
+  SHA-256, leave the rebuild unchecked for an input that is not the label's, exclude a disagreement
+  from ``deletion_table.csv`` but list its task, list an uncertified parent, give a timeout and a
+  flagged timeout their statuses, and keep the rows of two tasks killed during the search of their
+  final m*: with m* > k for the largest fault weight k that the search completed, and with m* where
+  it found a violation.  ``deletion_table.csv`` lists its circuits in the order of their ids, and an
+  analysis's marks head each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -1376,10 +1376,26 @@ def _check_consistency() -> None:
     disagreement = "ShadowDisagreement: batch at threshold 2 of 30 rows: BZ first failing row 3"
 
     # one circuit per class with t = 2, K = 3, and r + 1 > K, so that certification at K gives
-    # m* > K, as {arm: [(status, result, partial, error), one per run]}, and a consistent one last
+    # m* > K, as {arm: [(status, result, partial, other fields of the row), one per run]}, and a
+    # consistent one last
     cases: list[dict[str, list[tuple[str, Any, Any, Any]]]] = [
-        # a shadow run that ended in ShadowDisagreement
-        {"cert_bz": [("ok", certified, [], None)], "shadow": [("error", {}, [], disagreement)]},
+        # a shadow run that ended in ShadowDisagreement, and a kept shadow run whose discarded run,
+        # which compiled, ended in it
+        {
+            "cert_bz": [("ok", certified, [], None)],
+            "shadow": [("error", {}, [], {"error": disagreement})],
+        },
+        {
+            "cert_bz": [("ok", certified, [], None)],
+            "shadow": [
+                (
+                    "ok",
+                    certified,
+                    [],
+                    {"discarded_run": {"status": "error", "error": disagreement}},
+                )
+            ],
+        },
         # a finished shadow run against cert_bz
         {"cert_bz": [("ok", violating(3), [], None)], "shadow": [("ok", certified, [], None)]},
         # a repeat against its first run
@@ -1532,17 +1548,18 @@ def _check_consistency() -> None:
         assert entry["r"] + 1 > entry["options"]["max_weight"] == 3, entry
         entries[entry["id"]] = entry
         for arm, runs in arms.items():
-            for repeat, (status, result, partial, error) in enumerate(runs):
+            for repeat, (status, result, partial, fields) in enumerate(runs):
                 task = experiment._task(arm, entry, repeat, experiment._limit(arm))
                 rows.append(
                     {"task_key": task["key"], "arm": arm, "repeat": repeat, "post_status": None}
-                    | {"status": status, "result": result, "partial": partial, "error": error}
+                    | {"status": status, "result": result, "partial": partial}
                     | {"T": 1.0, "peak_rss_gib": 0.5}
+                    | (fields or {})
                 )
     summary, _ = analyze.summarize(analyze.collect(rows, entries))
     verdicts = {row["id"]: row["verdict"] for row in summary}
     *contradicting, consistent = entries
-    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 19, verdicts
+    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 20, verdicts
     (row,) = [row for row in summary if row["id"] == consistent]
     assert row["verdict"] == "certified" and row["margin"] == 4, row
     assert row["contradictions"] is None, row

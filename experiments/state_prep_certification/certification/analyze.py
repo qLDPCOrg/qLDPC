@@ -1108,7 +1108,9 @@ def check_consistency(
     * two claims on m* that conflict (``analyze_applications.combine_claims``), such as verdicts or
       smallest violating weights that differ between runs, repeats included, or a violation at a
       fault weight that another run completed;
-    * a ``shadow`` run that ended in ``ShadowDisagreement``, by its row's error;
+    * a ``shadow`` run that ended in ``ShadowDisagreement``, by its row's error, or by the error of
+      the run that the runner discarded because it compiled (``discarded_run``), whose timing
+      stays discarded;
     * the combinations that each run of ``brute_bz``, repeats included, enumerated on a completed
       weight, against A_m of ``count_accepted``, or of the ground truth where ``count_accepted`` did
       not compute it (``_accepted_counts``);
@@ -1128,12 +1130,14 @@ def check_consistency(
     claims = analyze_applications.margin_claims(circuit, arms)
     contradictions = analyze_applications.combine_claims(claims)[2]
 
-    # the shadow oracle's disagreements, which end their runs
+    # the shadow oracle's disagreements, which end their runs, also in a run that the runner
+    # discarded because it compiled
     for row in arms.get("shadow") or []:
-        if row["status"] == "error" and "ShadowDisagreement" in (row.get("error") or ""):
-            contradictions.append(
-                f"shadow.r{row['repeat']}: BZ and CC answered a query differently"
-            )
+        source = f"shadow.r{row['repeat']}"
+        runs = ((source, row), (f"{source} discarded run", row.get("discarded_run") or {}))
+        for name, run in runs:
+            if run.get("status") == "error" and "ShadowDisagreement" in (run.get("error") or ""):
+                contradictions.append(f"{name}: BZ and CC answered a query differently")
 
     # the counts of every run of the baseline, and of the ground truth
     counts = _accepted_counts(accepted, arms.get("ground_truth"))
