@@ -23,7 +23,8 @@ and ``pins.json``, the analysis prints a warning and analyzes the label anyway. 
 is recomputed from these files and from the harness commit and bundle that the label's
 ``manifest.json`` records.  The ``circuits.json`` of the label of ``check`` must equal that of the
 analyzed label.  Every task of the label's ``tasks.json`` and ``tasks-pass2.json`` that has no row
-is reported as ``missing``, with a printed note.
+is reported as ``missing``, with a printed note.  The analysis refuses a label without
+``tasks.json``, since that file gives each row's circuit.
 
 The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.
 With ``--allow-local``, it marks every output with the number of these rows, ``local_rows``.  If a
@@ -242,10 +243,16 @@ def analyze_label(
     allow_local: bool,
 ) -> None:
     """Analyze a label, with the ``ground_truth`` rows of the label of ``check``, if any."""
+    expected = task_store.load_tasks(label_dir)
+    if check_dir:
+        expected |= {
+            key: task
+            for key, task in task_store.load_tasks(check_dir).items()
+            if task["arm"] == "ground_truth"
+        }
     out.mkdir(parents=True, exist_ok=True)
     check_frozen_files(label_dir)
     rows = _final_rows(label_dir)
-    expected = _expected_tasks(label_dir)
     circuits_text = (label_dir / "circuits.json").read_text()
     if check_dir:
         check_frozen_files(check_dir)
@@ -254,11 +261,6 @@ def analyze_label(
                 f"{check_dir.name} ran with another circuits.json than {label_dir.name}"
             )
         rows += [row for row in _final_rows(check_dir) if row["arm"] == "ground_truth"]
-        expected |= {
-            key: task
-            for key, task in _expected_tasks(check_dir).items()
-            if task["arm"] == "ground_truth"
-        }
     marks: dict[str, Any] = {}
     local_rows = store.count_local_rows(rows, allow_local)
     if local_rows:
@@ -372,14 +374,6 @@ def _final_rows(label_dir: pathlib.Path) -> list[dict[str, Any]]:
     for problem in problems:
         print(f"note: {label_dir.name}: {problem}")
     return list(final.values())
-
-
-def _expected_tasks(label_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
-    """Every task of a label, by key: pass 1 and, if written, pass 2."""
-    if not (label_dir / task_store.TASKS_FILE).exists():
-        print(f"note: {label_dir.name} has no {task_store.TASKS_FILE}; no task is missing")
-        return {}
-    return task_store.load_tasks(label_dir)
 
 
 ####################################################################################################

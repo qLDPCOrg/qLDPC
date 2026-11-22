@@ -119,7 +119,15 @@ def write_pass2(
 
 
 def load_tasks(label_dir: pathlib.Path, pass2: bool = True) -> dict[str, dict[str, Any]]:
-    """Every task of the label by key: pass 1, and pass 2 if it has been written."""
+    """Every task of the label by key: pass 1, and pass 2 if it has been written.
+
+    Raises:
+        SystemExit: If the label has no ``tasks.json``.
+    """
+    if not (label_dir / TASKS_FILE).exists():
+        raise SystemExit(
+            f"{label_dir.name} has no {TASKS_FILE}, which maps its rows to their tasks"
+        )
     tasks = json.loads((label_dir / TASKS_FILE).read_text())
     if pass2 and (label_dir / PASS2_TASKS_FILE).exists():
         tasks += json.loads((label_dir / PASS2_TASKS_FILE).read_text())

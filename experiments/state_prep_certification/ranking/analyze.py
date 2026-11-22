@@ -301,7 +301,7 @@ def admit(
         for e in json.loads((certification_dir / "circuits.json").read_text())["circuits"]
     }
     rows = certification_analyze._final_rows(certification_dir)
-    expected = certification_analyze._expected_tasks(certification_dir)
+    expected = task_store.load_tasks(certification_dir)
     summary, _ = certification_analyze.summarize(
         certification_analyze.collect(rows, circuits, expected)
     )

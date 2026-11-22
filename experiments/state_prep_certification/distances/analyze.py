@@ -98,6 +98,7 @@ def main() -> None:
 
 def analyze_label(label_dir: pathlib.Path, out: pathlib.Path, allow_local: bool) -> None:
     """Analyze a label directory, and write the outputs to ``out``."""
+    label_tasks = tasks.load_tasks(label_dir)
     out.mkdir(parents=True, exist_ok=True)
     final, problems = store.final_rows(label_dir)
     for problem in problems:
@@ -118,7 +119,6 @@ def analyze_label(label_dir: pathlib.Path, out: pathlib.Path, allow_local: bool)
         print(f"note: the starts ran with different {', '.join(changed)}; every output says so")
         marks["environment_changed"] = " ".join(changed)
     sample = load_sample(label_dir)
-    label_tasks = tasks.load_tasks(label_dir)
     missing = [key for key in label_tasks if key not in final]
     if missing:
         print(f"note: {len(missing)} tasks have no final row, such as {missing[0]}")

@@ -545,7 +545,8 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     archive requires ``--out``, writes its outputs there, and leaves no extraction of the archive,
     or of the archive of ``check``, behind, whether it succeeds or refuses the rows.  ``analyze.py``
     warns of a label whose hash does not match its ``circuits.json``, the working tree's other
-    frozen files, and the commit and requirements of its manifest, and of no other.
+    frozen files, and the commit and requirements of its manifest, and of no other.  It refuses a
+    label without ``tasks.json`` before any other output.
 
     ``w.cgoto`` and ``dsynth190.bb72.naive`` give the example counterexamples of their groups.
     ``listing_table.csv`` takes C(N_0, m) from the circuit's N_0 in place of an A_m that
@@ -920,6 +921,17 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         assert (analysis.returncode == 0) == bool(allow_local), analysis.stderr
         assert not any(scratch.iterdir()), list(scratch.iterdir())
     assert (directory / "from_archive" / "summary.csv").exists(), "no outputs in --out"
+
+    # without tasks.json, which gives each row's circuit, the analysis refuses the label before
+    # any other output
+    (label_dir / task_store.TASKS_FILE).unlink()
+    out = directory / "without_tasks"
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        refusal = acceptance.raises(
+            SystemExit, lambda: analyze.analyze_label(label_dir, None, out, True)
+        )
+    assert task_store.TASKS_FILE in str(refusal.code), refusal.code
+    assert not output.getvalue() and not out.exists(), output.getvalue()
 
     _check_consistency()
     print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")
