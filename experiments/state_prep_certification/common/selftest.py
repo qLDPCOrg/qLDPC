@@ -1345,7 +1345,9 @@ def test_run_node_missing_row(directory: pathlib.Path, node: bool) -> None:
     task_list = [_task("kept", []), _task("lost", [])]
     tasks.write_pass1(directory, task_list)
     for task in task_list:
-        store.append_row(directory, {"task_key": task["key"], "run_id": task["key"]})
+        store.append_row(
+            directory, {"task_key": task["key"], "run_id": task["key"], "status": "ok"}
+        )
     runs = directory / store.RUNS_FILE
     runs.write_text(runs.read_text().replace('"task_key":"lost"', '"task_key":lost'))
     passes: list[str] = []
