@@ -20,12 +20,12 @@ Times measured on a workstation are never results (see [Local runs](#local-runs)
 - The **label** of an experiment names its inputs and code (see [Labels and results](#labels-and-results)), and the **label directory** holds its results.
 - A **task** is one measurement that an experiment defines: one **arm**, a method being measured, on one input, with its limits and a unique `key`; [`common/tasks.py`](common/tasks.py) lists a task's fields.
 - A **run** is one execution of a task in a fresh process, which the task runner watches, and whose **measured call** it times (see [Runs](#runs)).
-  Each task gets one **row** in the label's `runs.jsonl`.
+  Each task gets one **row** in the label directory's `runs.jsonl`.
 - A **retry** is the runner's second run of a task whose first run compiled code during its measured call; it replaces the first run, and gives the task's row.
 - **Pass 1** runs each task of an experiment's task list, and **pass 2** the repeats that the experiment's repeat policy asks for after pass 1; the **task lists** are the files that name each pass's tasks ([`common/tasks.py`](common/tasks.py)).
 - A **repeat** is a task of pass 2 that measures the same arm on the same input as a task of pass 1, with its own key, `repeat` number, and row.
 - A **start** is one invocation of `run_node.py` for a label: on the node through `node.sh`, or on a workstation with `--local`.
-- The **ceiling** bounds the CPU-hours of the runs of a label's pass-1 tasks, with their retries and repeats; a start's `--approved-cpu-hours` must cover it (see [Scheduling](#scheduling)).
+- The **ceiling** bounds the CPU-hours of the runs of a label directory's pass-1 tasks, with their retries and repeats; a start's `--approved-cpu-hours` must cover it (see [Scheduling](#scheduling)).
 - In **node mode**, the node runs tasks with GNU parallel, each in a **job slot** with a CPU of its own; **local mode** (`--local`) is for development on a workstation (see [Local runs](#local-runs)).
 
 ## Shared code
@@ -84,7 +84,7 @@ There are as many slots as the free cores and memory allow, and at most N if `no
 Pass 1 runs its tasks in an order shuffled with a fixed seed, and pass 2 runs the repeats, such as two more measurements of a task whose first run was fast.
 
 The ceiling, as [`common/tasks.py`](common/tasks.py) derives it, leaves out some time, which that module lists, such as reruns after a hard kill, so an allocation of exactly the ceiling can run out.
-A start prints the number of tasks of pass 1 and the ceiling, which covers their retries and repeats too, and stops with exit status 1 unless `--approved-cpu-hours` covers the ceiling.
+A start prints the number of tasks of pass 1 and the ceiling, and stops with exit status 1 unless `--approved-cpu-hours` covers the ceiling.
 On a workstation, `run_node.py EXPERIMENT --local --subset S --dry-run` prints them without running the acceptance tests.
 
 ## Workflow
@@ -117,8 +117,8 @@ cd spc-bundle-<id>/qLDPC
 bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hours H
 ```
 
-Here `<id>` is the bundle's id, a hash of the pins, the harness commit, the names of the experiments, the platforms, and the resolved requirements (see `bundle.py`'s docstring); it is not a label.
-The experiments' data directories do not enter it, so a bundle built from the same commit with other data gets the same name, and its tar replaces the earlier one in `--out`.
+Here `<id>` is the bundle's id, a hash of the pins, HEAD of the qLDPC checkout, the names of the experiments, the platforms, and the resolved requirements (see `bundle.py`'s docstring); it is not a label.
+The experiments' data directories do not enter it, so two bundles that differ only in their data get the same name, and the later tar replaces the earlier one in `--out`.
 
 `node.sh --check` runs only the preflight, and needs only `node.sh` and `pins.json`, so it can run on the node before any bundle exists.
 `node.sh` keeps the results, each bundle's installs, and each bundle's preflight record in the results directory (see [Labels and results](#labels-and-results)), which bundles may share.
@@ -126,13 +126,16 @@ Before the experiment first runs for its label directory, `run_node.py`, which `
 Repeating the command resumes the run; a task with a row, whatever its status, never runs again.
 If a pass leaves tasks without a row, the start stops and says how to rerun them.
 After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming; `node.sh EXPERIMENT --status` prints the progress.
-Give `--status` and `--cleanup` the run's `--subset`, if it was not the default, `main`, and the same `FTSP_RESULTS`, and check that the label directory that they print is the run's.
+Use the same `FTSP_RESULTS` for `--status` and `--cleanup` as for the run.
+If the run used a subset other than `main`, pass its `--subset` too.
+Check that the label directory that they print is the run's.
 [`run_node.py`](run_node.py)'s docstring, which its `--help` prints, gives the rules for resuming on another host, the refusals of a start, and what `--cleanup` and `--status` do.
 
 ### Analysis
 
 The archive that the start prints at its end, with the `.sha256` file beside it, is what to copy back.
 A start writes the archive only once both passes leave every task with a row; for a run that cannot get there, copy back the label directory itself, which `analyze.py --label-dir` accepts.
+Its analysis reports each task without a row as missing; in distances, an arm's median then covers only the runs that have a row, which `repeats` in `summary.csv` counts.
 On the workstation, analyze the archive with the experiment's `analyze.py --archive PATH --out DIR`.
 The analyses of certification and distances check the archive against the `.sha256` file and extract it into a temporary directory, which they remove when they end, so with `--archive` they write their outputs only to `--out`, which they then require ([`common/store.py`](common/store.py)'s `open_archive`).
 The experiment's README gives the analysis's other options and its outputs.
