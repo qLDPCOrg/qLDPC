@@ -51,8 +51,8 @@ environment variable if that is set (see "Disk caches" in the :doc:`library map 
 If the cache cannot be used, qLDPC warns, and compiles again in every process; set
 ``NUMBA_CACHE_DIR`` to a writable directory, such as one that many jobs share, to avoid this.
 :func:`~qldpc.codes.distance.compile_search_setup` also compiles the code that sets those loops up,
-in the current process only, for programs that count the logical operators of very many similar
-codes.
+and caches it in the same way, for programs that count the logical operators of very many similar
+codes.  It switches to that code only in the process that calls it.
 
 Settings, whose defaults suit typical searches, control how exact searches choose their routes by
 cost models, and how they bound their batches, memory, and caches.  For very costly searches,

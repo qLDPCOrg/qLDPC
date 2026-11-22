@@ -35,8 +35,9 @@ lowest-energy code of a checkpoint or from the code of a record, written by any 
 Scoring.  ``--method`` is ``auto`` or an exact method of ``CSSLogicalCounter.count_logical_ops``.
 All give the same scores.  The default, this search's own ``auto``, unlike the library's, chooses
 between Brouwer--Zimmermann and MacWilliams at every epoch (see ``_select_method`` in
-``annealing.py``).  Every run but a dry run compiles the set-up of its counts, which pays off only
-in a long search.  ``--skip-compile`` skips it.
+``annealing.py``).  Every run but a dry run compiles the set-up of its counts.  The first run after
+a change to qLDPC's source files takes long to compile it, and later runs load it from disk.
+``--skip-compile`` skips the compilation.
 """
 
 from __future__ import annotations
@@ -235,8 +236,8 @@ def build_parser() -> argparse.ArgumentParser:
     files.add_argument(
         "--skip-compile",
         action="store_true",
-        help="do not compile the Python set-up of the exact counts,"
-        " which only pays off in a long search",
+        help="do not compile the Python set-up of the exact counts; compiling it takes long the"
+        " first time after a change to qLDPC's source files",
     )
     files.add_argument(
         "--stop-after-epochs",

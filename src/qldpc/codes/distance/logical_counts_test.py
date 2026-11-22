@@ -9,6 +9,7 @@ import functools
 import itertools
 import math
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 from unittest import mock
 
@@ -205,11 +206,13 @@ def test_methods_agree_on_random_codes(
 
 
 @pytest.mark.usefixtures("plain_search_setup")
-def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_compile_search_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Compiling the set-up code up front changes no count, and leaves nothing to compile later."""
-    # Start from functions that no other test has compiled.
+    # Start from functions that no other test has compiled, with an empty disk cache, since numba
+    # loads cached code without reporting a compilation.
     fresh = [replace(item, compiled=None) for item in _compilation._ON_REQUEST_FUNCTIONS]
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", fresh)
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     code = qldpc.codes.SurfaceCode(5)
 
     def get_results(

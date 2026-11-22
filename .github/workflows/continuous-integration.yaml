@@ -130,10 +130,21 @@ jobs:
           test "${{ matrix.shard }}" = "$(( ${{ strategy.job-index }} + 1 ))"
       - uses: actions/checkout@v6
       - name: Set up Python
+        id: setup-uv
         uses: astral-sh/setup-uv@v7
         with:
           python-version: 3.14
           enable-cache: true
+      - name: Cache the virtual environment
+        # Restoring the environment of an earlier run saves most of the install time, and the next
+        # step brings it up to date.  The compiled job installs the same packages, and uses this
+        # cache too.
+        uses: actions/cache@v6
+        with:
+          path: .venv
+          key: "test-venv-${{ runner.os }}-py${{ steps.setup-uv.outputs.python-version }}-\
+            ${{ hashFiles('uv.lock', 'pyproject.toml') }}"
+          restore-keys: test-venv-${{ runner.os }}-py${{ steps.setup-uv.outputs.python-version }}-
       - name: Install package and dependencies
         # Compile the dependencies to bytecode while installing them, in parallel, rather than in
         # the test workers, which start together and would each compile what they import.
@@ -166,10 +177,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
+        id: setup-uv
         uses: astral-sh/setup-uv@v7
         with:
           python-version: 3.14
           enable-cache: true
+      - name: Cache the virtual environment
+        # As in the coverage job, whose cache this shares.
+        uses: actions/cache@v6
+        with:
+          path: .venv
+          key: "test-venv-${{ runner.os }}-py${{ steps.setup-uv.outputs.python-version }}-\
+            ${{ hashFiles('uv.lock', 'pyproject.toml') }}"
+          restore-keys: test-venv-${{ runner.os }}-py${{ steps.setup-uv.outputs.python-version }}-
       - name: Install package and dependencies
         # Install the same extras as the coverage job, so that no test here is skipped for lack of
         # an optional package.

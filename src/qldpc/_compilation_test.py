@@ -37,10 +37,11 @@ def enable_compilation(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_registered_functions_switch_between_plain_and_compiled(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A registered function is plain by default, compiled on request, and restorable."""
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", [])
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     plain = _scaled_sum
     assert _compilation.compiled_on_request(plain) is plain
     values = np.arange(5, dtype=np.int64)
@@ -60,8 +61,9 @@ def test_registered_functions_switch_between_plain_and_compiled(
         _compilation.set_on_request_functions_compiled(False)
     assert globals()["_scaled_sum"] is plain
 
-    # Nothing is cached on disk, so that no outdated function can ever be loaded.
-    assert compiled.stats.cache_path is None
+    # The compiled code is cached in the directory that always-compiled functions use.
+    cache_path = compiled.stats.cache_path
+    assert cache_path is not None and Path(cache_path).is_relative_to(tmp_path / "cache")
 
 
 def test_always_compiled_functions_are_cached_in_the_chosen_directory(
@@ -510,7 +512,10 @@ def test_compiled_module_tests_are_those_of_modules_with_compiled_functions(
 
 
 def test_the_compile_search_setup_option_switches_on_before_each_test_and_compiles_on_first_call(
-    request: pytest.FixtureRequest, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+    request: pytest.FixtureRequest,
+    pytestconfig: pytest.Config,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With ``--compile-search-setup``, the set-up code of searches is compiled when first called.
 
@@ -521,6 +526,7 @@ def test_the_compile_search_setup_option_switches_on_before_each_test_and_compil
     calls: list[None] = []
     monkeypatch.setattr(qldpc.codes.distance, "compile_search_setup", lambda: calls.append(None))
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", [])
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     plain = _compilation.compiled_on_request(_scaled_sum)
 
     # Without the option, nothing is switched.
