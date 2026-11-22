@@ -1837,7 +1837,7 @@ def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
     assert [start["environment"]["NUMBA_OPT"] for start in starts] == ["1", "2"], starts
     assert [start["jobs"] for start in starts] == [1, 2], starts
     assert [start["python_optimize"] for start in starts] == [sys.flags.optimize] * 2, starts
-    with _environment("PYTHONOPTIMIZE", "1"):
+    with mock.patch.dict(os.environ, {"PYTHONOPTIMIZE": "1"}):
         manifest.record_start(directory, directory, {"start": "optimized", "dry_run": False})
     last = json.loads((directory / "starts.jsonl").read_text().splitlines()[-1])
     assert last["python_optimize"] == max(sys.flags.optimize, 1), last
