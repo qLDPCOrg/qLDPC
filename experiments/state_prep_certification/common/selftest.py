@@ -944,16 +944,17 @@ def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None
 @test
 def test_runner_channel_json(directory: pathlib.Path, node: bool) -> None:
     """The child sends a set as a sorted list, and refuses an object that JSON lacks."""
+    assert list({1, 8}) != [1, 8], "the set must not iterate in sorted order"
     read_fd, write_fd = os.pipe()
     channel = runner._Channel()
     channel.fd = write_fd
     try:
-        channel.send({"value": {2, 1}})
+        channel.send({"value": {1, 8}})
         acceptance.raises(TypeError, lambda: channel.send({"value": object()}))
     finally:
         os.close(write_fd)
     with os.fdopen(read_fd) as file:
-        assert file.read() == '{"value":[1,2]}\n'
+        assert file.read() == '{"value":[1,8]}\n'
 
 
 ####################################################################################################
