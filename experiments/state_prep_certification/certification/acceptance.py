@@ -165,13 +165,17 @@ import pathlib
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from typing import Any
+from unittest import mock
 
 import numpy as np
 import numpy.typing as npt
+import stim
 
 from qldpc import circuits as qldpc_circuits
 from qldpc._compilation import is_compilation_disabled
+from qldpc.circuits.certification import _fault_search, fault_propagation
 from qldpc.codes.distance import CosetLeaderSearch, CosetMethod, MinWeightBound
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -195,10 +199,14 @@ test = SUITE.test
 run_all = SUITE.run_all
 
 
+def _circuits() -> list[dict[str, Any]]:
+    """The records of ``circuits.json``."""
+    records: list[dict[str, Any]] = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    return records
+
+
 def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None) -> Any:
     """Certify a circuit of ``circuits.json`` with its options, at its K unless one is given."""
-    from qldpc import circuits as qldpc_circuits
-
     entry = experiment._entry(circuit_id)
     options = experiment.certify_options(entry)
     if max_weight is not None:
@@ -260,7 +268,7 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
     assert counting.accepted_counts([0], 1, max_entries=0)["A"] is None
 
     # the ground-truth circuits of the d = 3 A-ft codes
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    entries = _circuits()
     small = [
         e
         for e in entries
@@ -320,17 +328,13 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
 @test
 def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
     """Instrumentation changes no certificate, counts each query once, and shadows each query."""
-    from qldpc.circuits.certification import _fault_search, fault_propagation
-
     assert hasattr(fault_propagation, "find_smallest_violation")
     for name in ("CosetLeaderSearch", "FaultLister", "_check_fault"):
         assert hasattr(_fault_search, name), name
     assert "_max_syndromes" in _fault_search.FaultLister.__init__.__code__.co_names
 
     ids = ["cgoto", "w.cgoto"] + [
-        e["id"]
-        for e in json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
-        if e["id"].startswith("aft.steane.") and e["status"] == "ok"
+        e["id"] for e in _circuits() if e["id"].startswith("aft.steane.") and e["status"] == "ok"
     ]
     for circuit_id in ids:
         plain = _certify(circuit_id, "brouwer_zimmermann")
@@ -341,7 +345,7 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
         assert _fault_search.CosetLeaderSearch is CosetLeaderSearch
 
     # an instrumentation around another wrapper of the oracle keeps that wrapper, and restores it
-    with _OracleSpy():
+    with _oracle_spy():
         wrapper = _fault_search.CosetLeaderSearch
         with instrument.Instrumentation().install():
             assert issubclass(_fault_search.CosetLeaderSearch, wrapper)
@@ -349,7 +353,7 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 
     # a CSS circuit with a violation: the weakened A-ft circuit of largest smallest violation, so
     # that batches, and calls nested in them, occur
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    entries = _circuits()
     violating = []
     for entry in entries:
         if entry["family"] != "W" or entry["status"] != "ok" or "aft." not in entry["id"]:
@@ -482,11 +486,9 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
 @test
 def at5_circuit_data(directory: pathlib.Path, node: bool) -> None:
     """Inputs, their hashes, states, and noise."""
-    import stim
-
     circuits.check_inputs()
     allowed = {"DEPOLARIZE1", "DEPOLARIZE2", "X_ERROR", "Z_ERROR"}
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    entries = _circuits()
 
     # a record with one field changed fails that field's check alone; E-chen has no code file, whose
     # check would also fail on another state
@@ -540,7 +542,7 @@ def at6_node_imports(directory: pathlib.Path, node: bool) -> None:
 @test
 def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
     """The baseline agrees with the certifier, the counters, and the ground truth."""
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    entries = _circuits()
     ids = {e["id"] for e in entries if e["status"] == "ok" and e["ground_truth"]}
     ids |= {"cgoto", "w.cgoto", "echen"}
     violations = 0
@@ -695,7 +697,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     (calls_dir / f"{shadow_key}.jsonl").write_text(f"{call}\n{call}\n{call[:20]}")
 
     # analyze the rows, and read summary.csv, per_weight.csv, and families.csv
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    entries = _circuits()
     by_id = {entry["id"]: entry for entry in entries}
     out = directory / "analysis"
     out.mkdir(parents=True, exist_ok=True)
@@ -929,8 +931,6 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
 @test
 def at9_prune(directory: pathlib.Path, node: bool) -> None:
     """The deletion arm against hand counts, the DEM, and the enumeration, and its timeout."""
-    import stim
-
     # both orders and the counts of a circuit with a repeated and a two-target measurement, whose
     # tie is broken against target order, and one encoder and one verification gate, whose measured
     # qubit is its second target
@@ -1022,7 +1022,7 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
             assert step["outcome"] == "violation" and step["violation_weight"] == 1, step
 
     # every step of the d = 3 A-ft circuits that pass at K = t, against the enumeration
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    entries = _circuits()
     checked = 0
     for entry in entries:
         steane = entry["id"] == "aft.steane.heuristic_opt"
@@ -1056,7 +1056,7 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
         "echen": 3,
         "w.cgoto": 1,
     }
-    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    entries = _circuits()
     ids = list(expected) + [
         e["id"] for e in entries if e["status"] == "ok" and e["ground_truth"] and e["r"] > e["t"]
     ]
@@ -1161,8 +1161,6 @@ def _check_brute_bz(circuit_id: str) -> bool:
     The baseline receives the arguments of cert_bz's fault search, and builds one BZ oracle from
     them by the fault search's name.  Return whether the circuit has a violation.
     """
-    from qldpc.circuits.certification import fault_propagation
-
     entry = experiment._entry(circuit_id)
     max_weight = entry["options"]["max_weight"]
     recorded: dict[str, Any] = {}
@@ -1173,14 +1171,11 @@ def _check_brute_bz(circuit_id: str) -> bool:
         recorded.update(zip(names + ("memory_limit", "method"), args, strict=True), **kwargs)
         return original(*args, **kwargs)
 
-    fault_propagation.find_smallest_violation = recorder
-    try:
+    with mock.patch.object(fault_propagation, "find_smallest_violation", recorder):
         certified = _certify(circuit_id, "brouwer_zimmermann")
-    finally:
-        fault_propagation.find_smallest_violation = original
 
     brute = baseline.BruteForce()
-    with brute.install(), _OracleSpy() as constructions:
+    with brute.install(), _oracle_spy() as constructions:
         found = _certify(circuit_id, "brouwer_zimmermann")
     arguments = brute.arguments
     assert arguments is not None
@@ -1207,7 +1202,9 @@ def _check_brute_bz(circuit_id: str) -> bool:
         assert example.residual_weight_lower_bound > example.fault_weight, circuit_id
 
     # on each completed weight, every accepted combination is enumerated and queried
-    accepted = counting.accepted_counts(reduced.flags, max_weight, 2**22)["A"]
+    accepted = counting.accepted_counts(
+        reduced.flags, max_weight, experiment.CONFIG["accepted_dp_max_entries"]
+    )["A"]
     truth_accepted = truth["A"] if entry["ground_truth"] else accepted
     for record in brute.weights:
         assert record["distinct_syndromes"] <= record["rows"] == record["combinations"], record
@@ -1227,8 +1224,6 @@ def _check_random_dems() -> dict[str, int]:
     syndromes, which must find the same violation and enumerate the same completed weights.
     Return the number of DEMs certified and with a violation.
     """
-    from qldpc.circuits.certification import _fault_search
-
     reference = _certify("cgoto", "brouwer_zimmermann", max_weight=1)
     stabilizers = experiment.stabilizer_matrix(reference.state_stabilizers)
     table = counting.residual_weight_table(stabilizers)
@@ -1261,7 +1256,9 @@ def _check_random_dems() -> dict[str, int]:
             assert flag_sum == 0 and syndrome_sum == found.syndrome, found
             assert table[found.syndrome] > len(found.fault_indices) < found.bound.lower_bound
 
-        accepted = counting.accepted_counts(reduced.flags, max_weight, 2**22)["A"]
+        accepted = counting.accepted_counts(
+            reduced.flags, max_weight, experiment.CONFIG["accepted_dp_max_entries"]
+        )["A"]
         for record in brute.weights:
             if not record["violation"]:
                 assert record["combinations"] == record["rows"] == accepted[str(record["m"])]
@@ -1316,7 +1313,9 @@ def _compare_counts(
     classes = counting.get_classes(flagged, heavy)
     weight_limit = min(max_weight, counting.gf2_rank(flags) + 1)
     listing = counting.listing_counts(classes, weight_limit)
-    accepted = counting.accepted_counts(flags, max_weight, 2**22)
+    accepted = counting.accepted_counts(
+        flags, max_weight, experiment.CONFIG["accepted_dp_max_entries"]
+    )
     truth = truth or counting.brute_force_counts(flags, heavy, max_weight)
     for key in ("Pi", "E", "Phi"):
         assert listing[key] == truth[key], (key, listing[key], truth[key])
@@ -1327,12 +1326,9 @@ def _compare_counts(
 
 def _spy_calls(circuit_id: str) -> int:
     """The oracle calls made directly by the fault search, counted by inspecting the caller."""
-    from qldpc.circuits.certification import _fault_search
-
-    original = _fault_search.CosetLeaderSearch
     calls = [0]
 
-    class Spy(original):  # type: ignore[valid-type, misc]
+    class Spy(_fault_search.CosetLeaderSearch):
         def get_min_weight_bound(self, *args: Any, **kwargs: Any) -> Any:
             calls[0] += _called_from_search()
             return super().get_min_weight_bound(*args, **kwargs)
@@ -1341,11 +1337,8 @@ def _spy_calls(circuit_id: str) -> int:
             calls[0] += _called_from_search()
             return super().find_first_not_within_max_weight(*args, **kwargs)
 
-    _fault_search.CosetLeaderSearch = Spy  # type: ignore[misc]
-    try:
+    with mock.patch.object(_fault_search, "CosetLeaderSearch", Spy):
         _certify(circuit_id, "brouwer_zimmermann")
-    finally:
-        _fault_search.CosetLeaderSearch = original  # type: ignore[misc]
     return calls[0]
 
 
@@ -1355,27 +1348,18 @@ def _called_from_search() -> int:
     return int(frame.f_globals.get("__name__") == "qldpc.circuits.certification._fault_search")
 
 
-class _OracleSpy:
+@contextlib.contextmanager
+def _oracle_spy() -> Iterator[list[tuple[bool, str]]]:
     """Record (css_weight, method) of every oracle that the fault search's name constructs."""
+    constructions: list[tuple[bool, str]] = []
 
-    def __enter__(self) -> list[tuple[bool, str]]:
-        from qldpc.circuits.certification import _fault_search
+    class Spy(_fault_search.CosetLeaderSearch):
+        def __init__(self, stabilizers: Any, **kwargs: Any) -> None:
+            constructions.append((kwargs["css_weight"], kwargs["method"]))
+            super().__init__(stabilizers, **kwargs)
 
-        self.original = _fault_search.CosetLeaderSearch
-        constructions: list[tuple[bool, str]] = []
-
-        class Spy(self.original):  # type: ignore[name-defined]
-            def __init__(self, stabilizers: Any, **kwargs: Any) -> None:
-                constructions.append((kwargs["css_weight"], kwargs["method"]))
-                super().__init__(stabilizers, **kwargs)
-
-        _fault_search.CosetLeaderSearch = Spy  # type: ignore[misc]
-        return constructions
-
-    def __exit__(self, *args: object) -> None:
-        from qldpc.circuits.certification import _fault_search
-
-        _fault_search.CosetLeaderSearch = self.original  # type: ignore[misc]
+    with mock.patch.object(_fault_search, "CosetLeaderSearch", Spy):
+        yield constructions
 
 
 class _ShiftedSearch(CosetLeaderSearch):
@@ -1673,7 +1657,6 @@ def _check_consistency() -> None:
 
 def _check_application_analysis(directory: pathlib.Path) -> None:
     """The combined margin, and the deletion outputs, on synthetic rows (part of AT8)."""
-    import stim
 
     def run(status: str, result: dict[str, Any] | None = None, partial: Any = None) -> Any:
         return {"status": status, "repeat": 0, "result": result or {}, "partial": partial or []}
@@ -1911,8 +1894,6 @@ def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps:
     probabilities from their DEMs.  Return the number of accepted steps that the enumeration
     checked.
     """
-    import stim
-
     accepted_enumerated = 0
 
     noise = entry["options"]["noise"]
@@ -2009,8 +1990,6 @@ def _prepares(circuit: Any, entry: dict[str, Any]) -> bool:
     Stim's simulator runs the circuit with a fixed seed, and every stabilizer of the parent's state,
     placed on the output qubits, must then have expectation +1.
     """
-    import stim
-
     outputs = entry["output_qubits"]
     simulator = stim.TableauSimulator(seed=0)
     simulator.do(circuit)
@@ -2082,8 +2061,6 @@ def _enumerated_sectors(entry: dict[str, Any], output_pauli: str) -> tuple[int, 
     The X part is minimized over the X parts of the elements of the state's stabilizer group that
     have no Z part, and the Z part likewise, which enumerates the whole group.
     """
-    import stim
-
     stabilizers = experiment.stabilizer_matrix([stim.PauliString(s) for s in entry["stabilizers"]])
     n = len(entry["output_qubits"])
     x_part, z_part = (part.astype(np.uint8) for part in stim.PauliString(output_pauli).to_numpy())
@@ -2100,8 +2077,6 @@ def _enumerated_sectors(entry: dict[str, Any], output_pauli: str) -> tuple[int, 
 
 def _input(circuit_id: str) -> Any:
     """The noiseless certification input of a circuit."""
-    import stim
-
     return stim.Circuit((experiment.INPUTS / f"{circuit_id}.stim").read_text())
 
 
