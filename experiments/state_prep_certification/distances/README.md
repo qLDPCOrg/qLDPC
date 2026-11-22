@@ -37,7 +37,8 @@ It does not build a family's class, such as `BBCode`, which could give the searc
 - the anchors of `ANCHORS` in `codes.py`: named codes, most with a reference distance from an independent source.
 
 Four targets are spaced geometrically from a family's endpoint n_lo to its endpoint n_hi (below).
-Each size is the length, among those that the family's construction allows, nearest to a target, and can lie outside the endpoints.
+Each size is the length, among those that the family's construction allows, nearest to a target in log n, with ties going to the smaller n.
+A size can lie outside the endpoints.
 The docstring of `codes.py` gives the rule that draws the codes of the families: its sizes, draws, merges, and shortfalls.
 The analysis reports each anchor on its own, in `anchors.csv`, never pooled with the families.
 

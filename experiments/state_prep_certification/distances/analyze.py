@@ -447,9 +447,10 @@ def _write_anchors(
     a task nor a row of the arm on the anchor.  Otherwise it follows the arm's status
     (``_timed_summary``): "compiled" where the status is ``ok`` or ``timeout`` and the first run has
     ``compiled_in_timing`` set; else T to three significant digits for ``ok``, "> L" for
-    ``timeout``, and the status itself for any other, such as "missing" (no row of the arm's first
-    run), "median_timed_out", or "error" or "memout", which a failed repeat gives the arm even where
-    its first run was flagged.
+    ``timeout``, and the status itself for any other.  Such statuses include "missing", where the
+    arm's first run has no row, "median_timed_out", "error", and "memout".  A repeat ending in
+    ``error`` or ``memout`` gives the arm that status even if its first run has
+    ``compiled_in_timing`` set.
     """
     arms = [ON, PRIOR]
     path = out / "anchors.csv"
