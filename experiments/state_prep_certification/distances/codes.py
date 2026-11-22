@@ -52,7 +52,6 @@ import hashlib
 import json
 import math
 import pathlib
-import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any, TextIO
@@ -65,6 +64,7 @@ from sympy.abc import x, y
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
+from experiments.state_prep_certification.common import manifest
 from experiments.state_prep_certification.distances import arms
 from qldpc import abstract, codes
 
@@ -95,12 +95,7 @@ def main() -> None:
     args = parse_args()
     sample = generate(args.out)
     if args.write_sample:
-        sample["qldpc_src_tree"] = subprocess.run(
-            ["git", "-C", str(HERE), "rev-parse", "HEAD:src"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        sample["qldpc_src_tree"] = manifest.git("rev-parse", "HEAD:src")
         SAMPLE.write_text(json.dumps(sample, indent=1, sort_keys=True) + "\n")
         print(f"wrote {SAMPLE}")
     if args.check:
