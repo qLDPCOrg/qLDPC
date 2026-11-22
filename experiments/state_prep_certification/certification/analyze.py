@@ -46,8 +46,8 @@ deletions.  The column ``contradictions`` of summary.csv names them, and ``disag
 ``families.csv`` counts these circuits.  A disagreement enters no count of verdicts or margins and
 no median, maximum, or ratio of ``families.csv``, nor ``listing_table.csv``, ``shadow.csv``,
 ``margin_violations.csv``, ``deletion_table.csv``, or the example counterexamples.  The status
-counts and agreements count it.  ``per_weight.csv`` and ``deletion.csv`` keep every circuit: join
-them on the ``verdict`` of summary.csv to leave out the disagreements.
+counts and agreements count it.  ``per_weight.csv`` and ``deletion.csv`` keep every circuit.  Join
+each with ``summary.csv`` on ``id``, then leave out the rows whose ``verdict`` is ``disagreement``.
 T of a certification arm is the median of its first run and repeats.  Its timing is incomplete if
 the first run did not finish, if a repeat that the first run calls for did not finish or is missing,
 or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete timing enters no
