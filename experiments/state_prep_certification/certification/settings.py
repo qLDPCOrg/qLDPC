@@ -42,9 +42,12 @@ VERIFIED_FAMILIES = ("A-ft", "C-goto", *SYNTHESES)
 T_FROM_DISTANCE = ("A-ft", "A-unv", *SYNTHESES)
 
 
-def certify_options(entry: dict[str, Any]) -> dict[str, Any]:
-    """The keyword options of ``certify_bounded_fault_propagation`` for a circuit, K included."""
-    options = entry["options"]
+def certify_options(options: dict[str, Any]) -> dict[str, Any]:
+    """The keyword options of ``certify_bounded_fault_propagation`` in a circuit's options.
+
+    ``options`` are the ``options`` of the circuit's record in ``circuits.json``, with its noise;
+    the keyword options include K.
+    """
     keys = ("add_flags", "post_select", "output_qubits", "css_weight", "max_weight")
     return {key: options[key] for key in keys}
 

@@ -60,12 +60,12 @@ from experiments.state_prep_certification.certification.settings import (
     INPUTS,
     SYNTHESES,
     VERIFIED_FAMILIES,
+    certify_options,
     noisy_circuit,
 )
 from experiments.state_prep_certification.certification.states import same_state
 from experiments.state_prep_certification.common import store
 from qldpc import circuits as qldpc_circuits
-from qldpc.circuits.certification import fault_propagation
 
 MQT_DIR = DATA / "mqt"
 SOURCES = CONFIG["workstation_sources"]
@@ -246,20 +246,10 @@ def dem_parameters(circuit: Any, options: dict[str, Any]) -> tuple[Any, dict[str
         recorded["flags"], recorded["syndromes"] = list(flags), list(syndromes)
 
     noisy = noisy_circuit(circuit, options["noise"])
-    original = fault_propagation.find_smallest_violation
-    fault_propagation.find_smallest_violation = recorder
-    try:
+    with baseline.fault_search_replaced(recorder):
         certificate = qldpc_circuits.certify_bounded_fault_propagation(
-            noisy,
-            add_flags=options["add_flags"],
-            post_select=options["post_select"],
-            output_qubits=options["output_qubits"],
-            css_weight=options["css_weight"],
-            max_weight=options["max_weight"],
-            method="brouwer_zimmermann",
+            noisy, method="brouwer_zimmermann", **certify_options(options)
         )
-    finally:
-        fault_propagation.find_smallest_violation = original
     reduced = counting.reduce_signatures(recorded["flags"], recorded["syndromes"])
     max_weight = options["max_weight"]
     size = baseline.enumeration_size(reduced.num_reduced, max_weight)

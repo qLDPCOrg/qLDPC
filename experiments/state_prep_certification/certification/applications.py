@@ -75,7 +75,7 @@ def run(task: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
 
     if task["arm"] == "margin":
         noisy = noisy_input(entry)
-        options = certify_options(entry)
+        options = certify_options(entry["options"])
         result = runner.timed(find_margin, noisy, options, report)
         return fields | result | {"cutoff_reached": cutoff_reached(result, entry["r"])}
     circuit = stim.Circuit((INPUTS / f"{entry['id']}.stim").read_text())
@@ -211,7 +211,7 @@ def prune(
             directly as partial results, without the delay of a step.
     """
     report = report or (lambda record: None)
-    options = certify_options(entry) | {
+    options = certify_options(entry["options"]) | {
         "output_qubits": entry["output_qubits"],
         "max_weight": entry["t"],
     }

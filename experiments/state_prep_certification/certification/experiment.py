@@ -267,7 +267,7 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
         return applications.run(task, entry)
     noisy = noisy_input(entry)
     arm = task["arm"]
-    options = certify_options(entry)
+    options = certify_options(entry["options"])
     max_weight = options["max_weight"]
     fields: dict[str, Any] = {"id": entry["id"], "family": entry["family"], "K": max_weight}
 

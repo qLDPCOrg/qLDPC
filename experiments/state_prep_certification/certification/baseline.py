@@ -113,12 +113,8 @@ class BruteForce:
     @contextmanager
     def install(self) -> Iterator[BruteForce]:
         """Replace ``fault_propagation.find_smallest_violation`` for the duration of the block."""
-        original = fault_propagation.find_smallest_violation
-        fault_propagation.find_smallest_violation = self.find_smallest_violation
-        try:
+        with fault_search_replaced(self.find_smallest_violation):
             yield self
-        finally:
-            fault_propagation.find_smallest_violation = original
 
     def find_smallest_violation(
         self,
@@ -246,6 +242,21 @@ class BruteForce:
         if self.progress is not None:
             self.progress(record)
         return violation
+
+
+@contextmanager
+def fault_search_replaced(search: Callable[..., Violation | None]) -> Iterator[None]:
+    """Replace ``fault_propagation.find_smallest_violation`` by ``search`` within the block.
+
+    The certifier calls the replacement with the arguments of qLDPC's fault search, by the name
+    that ``certify_bounded_fault_propagation`` uses.  The original is restored on exit.
+    """
+    original = fault_propagation.find_smallest_violation
+    fault_propagation.find_smallest_violation = search
+    try:
+        yield
+    finally:
+        fault_propagation.find_smallest_violation = original
 
 
 def enumeration_size(num_reduced: int, max_weight: int) -> int:

@@ -213,7 +213,7 @@ def _circuits() -> list[dict[str, Any]]:
 def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None) -> Any:
     """Certify a circuit of ``circuits.json`` with its options, at its K unless one is given."""
     entry = experiment._entry(circuit_id)
-    options = settings.certify_options(entry)
+    options = settings.certify_options(entry["options"])
     if max_weight is not None:
         options["max_weight"] = max_weight
     return qldpc_circuits.certify_bounded_fault_propagation(
@@ -949,7 +949,7 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
 
     # a deletion that changes the prepared state, and one that adds a random measurement
     goto = experiment._entry("cgoto")
-    options = settings.certify_options(goto) | {
+    options = settings.certify_options(goto["options"]) | {
         "output_qubits": goto["output_qubits"],
         "max_weight": goto["t"],
     }
@@ -1060,7 +1060,7 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
     enumerated = sectors_enumerated = 0
     for circuit_id in dict.fromkeys(ids):
         entry = experiment._entry(circuit_id)
-        options = settings.certify_options(entry)
+        options = settings.certify_options(entry["options"])
         result = applications.find_margin(settings.noisy_input(entry), options)
         margin = result["margin"]
         assert margin == expected.get(circuit_id, margin), (circuit_id, margin)
@@ -1943,7 +1943,7 @@ def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps:
     accepted_enumerated = 0
 
     noise = entry["options"]["noise"]
-    options = settings.certify_options(entry) | {
+    options = settings.certify_options(entry["options"]) | {
         "output_qubits": entry["output_qubits"],
         "max_weight": entry["t"],
     }
