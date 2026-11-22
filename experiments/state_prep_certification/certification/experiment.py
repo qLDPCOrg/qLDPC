@@ -259,79 +259,91 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     The tasks of ``applications.ARMS`` run in ``applications.run``.
     """
     entry = _entry(task["input"]["id"])
-    if task["arm"] in applications.ARMS:
-        return applications.run(task, entry)
-    noisy = noisy_input(entry)
     arm = task["arm"]
+    if arm in applications.ARMS:
+        return applications.run(task, entry)
+    fields: dict[str, Any] = {
+        "id": entry["id"],
+        "family": entry["family"],
+        "K": entry["options"]["max_weight"],
+    }
+    if arm in METHODS or arm == "shadow":
+        return _run_certification(task, entry, fields, label_dir)
+    if arm == "brute_bz":
+        return fields | _run_baseline(entry)
+    return fields | _run_counts(arm, entry)
+
+
+def _run_certification(
+    task: dict[str, Any], entry: dict[str, Any], fields: dict[str, Any], label_dir: pathlib.Path
+) -> dict[str, Any]:
+    """Run ``cert_bz``, ``cert_cc``, or ``shadow``: the instrumented certification of a circuit.
+
+    The first run of ``cert_bz`` or ``cert_cc`` sends ``fields`` with its verdict as its result, and
+    returns the description of its certificate, within the post-processing allowance.
+    """
+    arm = task["arm"]
+    noisy = noisy_input(entry)
+    options = certify_options(entry["options"])
+    method: CosetMethod = METHODS.get(arm, "brouwer_zimmermann")
+    calls_file = None
+    if arm == "shadow":
+        (label_dir / "oracle_calls").mkdir(exist_ok=True)
+        calls_file = label_dir / "oracle_calls" / f"{task['key']}.jsonl"
+        calls_file.unlink(missing_ok=True)
+    instrumentation = instrument.Instrumentation(
+        shadow=arm == "shadow",
+        progress=applications.delayed_progress(float(task.get("weight_delay_s", 0.0))),
+        clock=runner.elapsed,
+        calls_file=calls_file,
+    )
+    with instrumentation.install():
+        certificate = runner.timed(
+            qldpc_circuits.certify_bounded_fault_propagation, noisy, method=method, **options
+        )
+    fields = {
+        **fields,
+        **_verdict(method, certificate),
+        "T_setup": _setup_seconds(instrumentation.search_seconds),
+        **instrumentation.summary(),
+    }
+    if arm == "shadow" or task["repeat"]:
+        return fields
+    runner.send_result(fields)
+    # AT4 delays the description, so that it overruns a short post-processing allowance however
+    # fast the description itself is
+    time.sleep(float(task.get("post_delay_s", 0.0)))
+    return applications.describe_certificate(certificate)
+
+
+def _run_baseline(entry: dict[str, Any]) -> dict[str, Any]:
+    """Run ``brute_bz``: the BZ certification of a circuit with the brute-force fault search."""
+    noisy = noisy_input(entry)
+    options = certify_options(entry["options"])
+    brute = baseline.BruteForce(progress=runner.send_partial, clock=runner.elapsed)
+    with brute.install():
+        certificate = runner.timed(
+            qldpc_circuits.certify_bounded_fault_propagation,
+            noisy,
+            method="brouwer_zimmermann",
+            **options,
+        )
+    return {
+        **_verdict("brouwer_zimmermann", certificate),
+        "U": entry["U"],
+        "T_setup": _setup_seconds(brute.search_seconds),
+        **brute.summary(),
+    }
+
+
+def _run_counts(arm: str, entry: dict[str, Any]) -> dict[str, Any]:
+    """Run ``count_accepted``, ``count_listing``, or ``ground_truth`` on a circuit.
+
+    The counts and the ground truth start from the DEM of an untimed certification at weight 1.
+    """
+    noisy = noisy_input(entry)
     options = certify_options(entry["options"])
     max_weight = options["max_weight"]
-    fields: dict[str, Any] = {"id": entry["id"], "family": entry["family"], "K": max_weight}
-
-    if arm in METHODS or arm == "shadow":
-        method: CosetMethod = METHODS.get(arm, "brouwer_zimmermann")
-        calls_file = None
-        if arm == "shadow":
-            (label_dir / "oracle_calls").mkdir(exist_ok=True)
-            calls_file = label_dir / "oracle_calls" / f"{task['key']}.jsonl"
-            calls_file.unlink(missing_ok=True)
-        instrumentation = instrument.Instrumentation(
-            shadow=arm == "shadow",
-            progress=applications.delayed_progress(float(task.get("weight_delay_s", 0.0))),
-            clock=runner.elapsed,
-            calls_file=calls_file,
-        )
-        with instrumentation.install():
-            certificate = runner.timed(
-                qldpc_circuits.certify_bounded_fault_propagation, noisy, method=method, **options
-            )
-        measured = runner.measured_seconds()
-        fields |= {
-            "method": method,
-            "css_weight": certificate.css_weight,
-            "certified": certificate.certified,
-            "violation_weight": (
-                None
-                if certificate.counterexample is None
-                else len(certificate.counterexample.fault_indices)
-            ),
-            "T_setup": None
-            if instrumentation.search_seconds is None
-            else (measured - instrumentation.search_seconds),
-            **instrumentation.summary(),
-        }
-        if arm == "shadow" or task["repeat"]:
-            return fields
-        runner.send_result(fields)
-        # AT4 delays the description, so that it overruns a short post-processing allowance however
-        # fast the description itself is
-        time.sleep(float(task.get("post_delay_s", 0.0)))
-        return applications.describe_certificate(certificate)
-
-    if arm == "brute_bz":
-        brute = baseline.BruteForce(progress=runner.send_partial, clock=runner.elapsed)
-        with brute.install():
-            certificate = runner.timed(
-                qldpc_circuits.certify_bounded_fault_propagation,
-                noisy,
-                method="brouwer_zimmermann",
-                **options,
-            )
-        measured = runner.measured_seconds()
-        return fields | {
-            "method": "brouwer_zimmermann",
-            "css_weight": certificate.css_weight,
-            "certified": certificate.certified,
-            "violation_weight": (
-                None
-                if certificate.counterexample is None
-                else len(certificate.counterexample.fault_indices)
-            ),
-            "U": entry["U"],
-            "T_setup": None if brute.search_seconds is None else measured - brute.search_seconds,
-            **brute.summary(),
-        }
-
-    # the counts and the ground truth start from the DEM of an untimed certification at weight 1
     reference = qldpc_circuits.certify_bounded_fault_propagation(
         noisy, method="brouwer_zimmermann", **(options | {"max_weight": 1})
     )
@@ -343,7 +355,7 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     reduced = counting.reduce_signatures(flags, syndromes)
     weight_limit = reduced.max_fault_weight(max_weight)
     stabilizers = stabilizer_matrix(reference.state_stabilizers)
-    fields |= {
+    fields = {
         "N": reduced.num_mechanisms,
         "N0": reduced.num_reduced,
         "z": reduced.num_zero_flag,
@@ -352,19 +364,35 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
         "K_prime": weight_limit,
     }
     if arm == "count_accepted":
-        fields |= runner.timed(
+        return fields | runner.timed(
             counting.accepted_counts,
             reduced.flags,
             max_weight,
             int(CONFIG["accepted_dp_max_entries"]),
         )
-    elif arm == "count_listing":
-        fields |= runner.timed(_listing, reduced, stabilizers, reference.css_weight, weight_limit)
-    else:
-        # the ground truth uses galois's GF(2) arithmetic, which this compiles first
-        counting._compile_galois()
-        fields |= runner.timed(counting.ground_truth, reduced, stabilizers, max_weight)
-    return fields
+    if arm == "count_listing":
+        return fields | runner.timed(
+            _listing, reduced, stabilizers, reference.css_weight, weight_limit
+        )
+    # the ground truth uses galois's GF(2) arithmetic, which this compiles first
+    counting._compile_galois()
+    return fields | runner.timed(counting.ground_truth, reduced, stabilizers, max_weight)
+
+
+def _verdict(method: CosetMethod, certificate: Any) -> dict[str, Any]:
+    """The oracle and the verdict of a certification, with the weight of its counterexample."""
+    example = certificate.counterexample
+    return {
+        "method": method,
+        "css_weight": certificate.css_weight,
+        "certified": certificate.certified,
+        "violation_weight": None if example is None else len(example.fault_indices),
+    }
+
+
+def _setup_seconds(search_seconds: float | None) -> float | None:
+    """T_setup = T - T_search of the measured certification, or None if it did not search."""
+    return None if search_seconds is None else runner.measured_seconds() - search_seconds
 
 
 def _listing(
