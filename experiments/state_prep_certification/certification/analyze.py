@@ -1003,7 +1003,8 @@ def shadow_table(
     that they submit, and the seconds of the BZ and the CC oracle on them.  A finished run
     gives the totals of its result (``instrument.py``), and a run that did not finish gives the
     sums of the calls that it wrote to its file in ``calls_dir`` before it stopped; ``status`` is
-    the run's.  The runs whose rows have ``compiled_in_timing`` set, and the circuits with a
+    the run's.  The file's last line, which a kill can cut off, is left out if it is not valid
+    JSON, and any other such line raises a ValueError.  The runs whose rows have ``compiled_in_timing`` set, and the circuits with a
     disagreement, are left out.
     """
     table = []
@@ -1039,16 +1040,22 @@ def shadow_table(
 
 
 def _read_calls(calls_dir: pathlib.Path | None, task_key: str) -> list[dict[str, Any]]:
-    """The oracle calls that a shadow run wrote, without a last line cut off by a kill."""
+    """The oracle calls that a shadow run wrote, without a last line cut off by a kill.
+
+    Raises:
+        ValueError: If a line other than the last is not valid JSON.
+    """
     path = calls_dir / f"{task_key}.jsonl" if calls_dir else None
     if path is None or not path.exists():
         return []
+    lines = path.read_text().splitlines()
     calls = []
-    for line in path.read_text().splitlines():
+    for number, line in enumerate(lines, start=1):
         try:
             calls.append(json.loads(line))
-        except json.JSONDecodeError:
-            break
+        except json.JSONDecodeError as error:
+            if number < len(lines):
+                raise ValueError(f"{path}: line {number} is not valid JSON") from error
     return calls
 
 

@@ -72,7 +72,9 @@
   counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m) from ``circuits.json`` in
   place of an A_m that was not computed where z >= m, and gives no ratio where z < m.
   ``shadow.csv`` gives the totals of a finished shadow run by threshold, and the calls that a
-  timed-out run wrote, and leaves out a run with ``compiled_in_timing`` set and a disagreement.
+  timed-out run wrote, without a last line cut off, and leaves out a run with
+  ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before its
+  last is an error.
   Each kind of contradiction that ``analyze.check_consistency`` lists makes its circuit a
   disagreement: a shadow run that ended in ``ShadowDisagreement``, a finished shadow run, a repeat,
   a deletion parent, the final m* of a deletion task with no accepted deletion, the ground truth,
@@ -760,6 +762,14 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         (first["id"], "ok", "2", "1", "30", "1.0", "2.0"),
         (fourth["id"], "timeout", "2", "2", "14", "1.0", "0.5"),
     ], shadow
+    # only the last line of a calls file may be cut off; a malformed line before it is an error
+    (calls_dir / "interior.jsonl").write_text(f"{call}\n{call[:20]}\n{call}\n")
+    try:
+        analyze._read_calls(calls_dir, "interior")
+    except ValueError as error:
+        assert "interior.jsonl" in str(error) and "line 2" in str(error), error
+    else:
+        raise AssertionError("a calls file with a malformed line before its last was read")
 
     # the missing task
     assert summary[fourth["id"]]["status_cert_cc"] == "missing", summary[fourth["id"]]
