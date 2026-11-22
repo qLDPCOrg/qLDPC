@@ -261,7 +261,7 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
         raise ProvenanceError(f"{archive.name} is of subset {record.get('subset')}, not main")
     if not record.get("bundle"):
         raise ProvenanceError(f"{archive.name} was not run from a bundle")
-    if record["harness"].get("dirty") or record["label"].endswith("-dirty"):
+    if record["harness"].get("dirty") or "-dirty-" in record["label"]:
         raise ProvenanceError(f"{archive.name} ran with uncommitted changes")
     commit = record["harness"]["commit"]
     files = [

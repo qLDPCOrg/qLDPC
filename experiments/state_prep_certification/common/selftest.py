@@ -167,13 +167,14 @@ def test_store_recovery(directory: pathlib.Path, node: bool) -> None:
 def test_store_archive(directory: pathlib.Path, node: bool) -> None:
     """The archive holds every file of the label with matching checksums, and its .sha256.
 
-    It leaves out the temporary file of an interrupted ``write_atomic``.
+    It leaves out the temporary file of an interrupted ``write_atomic``, and the label's lock.
     """
     label_dir = directory / "label"
     (label_dir / "logs").mkdir(parents=True)
     store.append_row(label_dir, {"task_key": "a"})
     (label_dir / "logs" / "a.txt").write_text("log")
     (label_dir / ".manifest.json.123.tmp").write_text("{")
+    (label_dir / store.LOCK_FILE).write_text("")
     archive = store.make_archive(label_dir, "label-host-utc")
     sha256 = (archive.parent / (archive.name + ".sha256")).read_text().split()[0]
     assert sha256 == store.sha256_file(archive)

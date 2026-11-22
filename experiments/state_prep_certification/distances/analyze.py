@@ -139,7 +139,10 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
     """
     path = label_dir / "sample.json"
     if not path.exists():
-        raise ValueError(f"{label_dir} has no sample.json")
+        raise ValueError(
+            f"{label_dir} has no sample.json, which experiment.prepare copies into each label "
+            "directory before its tasks run; analyze the run's archive, which holds it"
+        )
     sample: dict[str, Any] = json.loads(path.read_text())
     return sample
 

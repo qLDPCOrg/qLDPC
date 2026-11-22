@@ -66,7 +66,8 @@ def harness_commit() -> dict[str, Any]:
     """The commit of the harness, and whether the tree differs from it.
 
     ``dirty`` says whether tracked files have uncommitted changes, staged or not, and
-    ``diff_sha256`` is then the SHA-256 of ``git diff HEAD --binary``, which covers them.
+    ``diff_sha256`` is then the SHA-256 of ``git diff HEAD --binary``, which covers them, without
+    any external diff, textconv filter, or color that a user's Git configuration may set.
     """
     record = bundle_record()
     if record is not None:
@@ -81,7 +82,17 @@ def harness_commit() -> dict[str, Any]:
     diff = None
     if dirty:
         diff = subprocess.run(
-            ["git", "-C", str(REPOSITORY_ROOT), "diff", "HEAD", "--binary", "--no-ext-diff"],
+            [
+                "git",
+                "-C",
+                str(REPOSITORY_ROOT),
+                "diff",
+                "HEAD",
+                "--binary",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-color",
+            ],
             capture_output=True,
             check=True,
         ).stdout
