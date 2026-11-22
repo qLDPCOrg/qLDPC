@@ -60,26 +60,27 @@
   of these rows, and the name of the refused environment variable that a start, here a dry run,
   accepted with ``--allow-env``.  ``analyze.py`` warns of a label whose hash does not match its
   ``circuits.json``, the working tree's other frozen files, and the commit and requirements of its
-  manifest, and of no other.  ``shadow.csv`` gives the totals of a finished shadow run by threshold,
-  and the calls that a timed-out run wrote, and leaves out a run with ``compiled_in_timing`` set and
-  a disagreement.  Each kind of contradiction that ``analyze.check_consistency`` lists makes its
-  circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, a finished shadow run,
-  a repeat, a deletion parent, the final m* of a deletion task with no accepted deletion, the ground
-  truth, the baseline, or a violation recorded by an unfinished certification, against another exact
-  result; a final circuit whose m* is at most t; the ground truth's heavy mechanisms against h; and
-  a counterexample's residual weight against its fault weight or lower bound.  A circuit whose
-  claims of every kind agree gets their m*.  Every case of the combined margin of
-  ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
-  t keeps its sector.  A margin or a deletion parent that disagrees with ``cert_bz``, or a final
-  circuit that CC does not certify, makes its circuit a disagreement, and agreeing deletion tasks do
-  not.  A disagreeing parent does so also when its verdict is only in the partial results of a
-  killed task.  The margin counts of one family are checked, and ``margin_violations.csv`` lists m*
-  = t, but not m* = t + 1 or a disagreement.  The deletion outputs rebuild a reduced circuit from
-  its input, report a wrong final SHA-256, leave the rebuild unchecked for an input that is not the
-  label's, exclude a disagreement from ``deletion_table.csv`` but list its task, list an uncertified
-  parent, and give a timeout and a flagged timeout their statuses.  ``deletion_table.csv`` lists its
-  circuits in the order of their ids, and an analysis's marks head each circuit of ``pruned/``,
-  which still parses.
+  manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0) circuit give the example
+  counterexamples of their groups.  ``shadow.csv`` gives the totals of a finished shadow run by
+  threshold, and the calls that a timed-out run wrote, and leaves out a run with
+  ``compiled_in_timing`` set and a disagreement.  Each kind of contradiction that
+  ``analyze.check_consistency`` lists makes its circuit a disagreement: a shadow run that ended in
+  ``ShadowDisagreement``, a finished shadow run, a repeat, a deletion parent, the final m* of a
+  deletion task with no accepted deletion, the ground truth, the baseline, or a violation recorded
+  by an unfinished certification, against another exact result; a final circuit whose m* is at most
+  t; the ground truth's heavy mechanisms against h; and a counterexample's residual weight against
+  its fault weight or lower bound.  A circuit whose claims of every kind agree gets their m*.  Every
+  case of the combined margin of ``analyze_applications.py`` gives its value, its bound, or a
+  disagreement, and a margin of at most t keeps its sector.  A margin or a deletion parent that
+  disagrees with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a
+  disagreement, and agreeing deletion tasks do not.  A disagreeing parent does so also when its
+  verdict is only in the partial results of a killed task.  The margin counts of one family are
+  checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The
+  deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the
+  rebuild unchecked for an input that is not the label's, exclude a disagreement from
+  ``deletion_table.csv`` but list its task, list an uncertified parent, and give a timeout and a
+  flagged timeout their statuses.  ``deletion_table.csv`` lists its circuits in the order of their
+  ids, and an analysis's marks head each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -672,6 +673,24 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     assert counterexamples["examples"] == {"B-cat": first["id"]}, counterexamples["examples"]
     listed = [(entry["id"], entry["disagreement"]) for entry in counterexamples["all"]]
     assert listed == [(first["id"], False), (second["id"], True), (third["id"], True)], listed
+
+    # the example counterexamples of W(C-goto) and of a D-synth (MQT 1.9.0) circuit
+    violation = {"certified": False, "violation_weight": 1}
+    example_run = {"repeat": 0, "status": "ok", "post_status": "ok", "T": 1.0, "peak_rss_gib": 0.5}
+    examples = {
+        circuit_id: {
+            "circuit": by_id[circuit_id],
+            "arms": {"cert_bz": [example_run | {"partial": [], "result": violation}]},
+        }
+        for circuit_id in ("w.cgoto", "dsynth190.bb72.naive")
+    }
+    verdicts = dict.fromkeys(examples, "violation at 1")
+    (directory / "examples").mkdir()
+    path = analyze.write_counterexamples(examples, verdicts, by_id, directory / "examples")
+    assert json.loads(path.read_text())["examples"] == {
+        "A-unv/W": "w.cgoto",
+        "D-synth/W": "dsynth190.bb72.naive",
+    }
     assert summary[second["id"]]["agree_ground_truth"] == "False", summary[second["id"]]
     assert summary[third["id"]]["agree_baseline"] == "False", summary[third["id"]]
 

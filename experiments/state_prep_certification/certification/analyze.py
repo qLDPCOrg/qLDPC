@@ -123,9 +123,10 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   ``deletion_tasks.csv``, ``deletion_notes.json``, and ``pruned/``.
 * ``counterexamples.json``: every counterexample (``all``), with ``disagreement`` true where its
   circuit is a disagreement, and up to three example counterexamples (``examples``), one for each
-  group that has one, chosen by a fixed rule: in each of the groups A-unv with the weakened variants
-  of A-ft, B-cat, and D-synth with its weakened variants, the counterexample of ``cert_bz`` of
-  largest smallest-violation weight on a circuit without a disagreement, ties to the smallest N_0 of
+  group that has one, chosen by a fixed rule.  The groups are A-unv with the W variants of A-ft and
+  C-goto, B-cat, and both D-synth families with their W variants, so that every W variant is in a
+  group.  In each group, the example is the counterexample of ``cert_bz`` of largest
+  smallest-violation weight on a circuit without a disagreement, ties to the smallest N_0 of
   ``circuits.json``.
 """
 
@@ -178,12 +179,16 @@ COUNTED_STATUSES = ("timeout", "timeout_compiled", "memout", "error", "missing")
 # The fields of ``circuits.json`` that hold the parameters of ``summary.csv`` by another name.
 CIRCUIT_FIELDS = {"p": "num_post_selection_detectors", "N": "num_mechanisms"}
 
-# The groups of the example counterexamples, as sets of (family, family of a weakened variant's
-# parent).
+# The groups of the example counterexamples, as sets of (family, family of a W variant's parent).
 EXAMPLE_GROUPS: dict[str, set[tuple[str, str | None]]] = {
-    "A-unv/W": {("A-unv", None), ("W", "A-ft")},
+    "A-unv/W": {("A-unv", None), ("W", "A-ft"), ("W", "C-goto")},
     "B-cat": {("B-cat", None)},
-    "D-synth/W": {("D-synth", None), ("W", "D-synth")},
+    "D-synth/W": {
+        ("D-synth", None),
+        ("D-synth (MQT 1.9.0)", None),
+        ("W", "D-synth"),
+        ("W", "D-synth (MQT 1.9.0)"),
+    },
 }
 
 
