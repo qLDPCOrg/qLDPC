@@ -126,10 +126,12 @@ def at1_anchors(directory: pathlib.Path, node: bool) -> None:
     code.  Locally, runs are limited to ``LOCAL_LIMIT_S``, and arms that time out are reported
     rather than checked.
 
-    Both arms make the same code-method call on a plain code, so they search the same sectors.  The
-    plain codes with H_X = H_Z, those of Golay and qr47, and only those, have
-    ``_equal_distance_xz``, under which a search covers only the X sector; with bliss, a sector map
-    can also give a search of one sector of a code whose check matrices differ.
+    Each code object that the arms build (``arms.plain_code``) is exactly a ``CSSCode``, or a
+    ``QuditCode`` for a non-CSS code, never a family class.  Both arms make the same code-method
+    call on a plain code, so they search the same sectors.  The plain codes with H_X = H_Z, those of
+    Golay and qr47, and only those, have ``_equal_distance_xz``, under which a search covers only
+    the X sector; with bliss, a sector map can also give a search of one sector of a code whose
+    check matrices differ.
     """
     label_dir = _prepared(directory)
     entries = _entries(AT1_CODES)
@@ -138,10 +140,11 @@ def at1_anchors(directory: pathlib.Path, node: bool) -> None:
     entries.append({"name": "surface_3x5", "reference_d": 3, **stored})
     for entry in entries:
         arrays = codes.load_code(label_dir, entry["code_hash"])
-        if "matrix" in arrays:
-            continue
         plain = arms.plain_code(arrays)
-        assert isinstance(plain, qldpc_codes.CSSCode), entry["name"]
+        if "matrix" in arrays:
+            assert type(plain) is qldpc_codes.QuditCode, entry["name"]
+            continue
+        assert type(plain) is qldpc_codes.CSSCode, entry["name"]
         equal = entry["name"] in EQUAL_SECTORS
         assert bool(plain._equal_distance_xz) == equal, entry["name"]
         assert entry["equal_distance_xz"] == equal, entry["name"]
@@ -406,8 +409,9 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     with the number of these ratios, and how many of them are lower bounds and how many upper
     bounds.  Its rows with ``compiled_in_timing`` set are first runs and repeats, some of them on
     codes that disagree or fail.  The task keys are opaque, so that each row's code comes from
-    its task's input, and a row without a task is an error.  ``load_sample`` refuses a label
-    directory without a copy of the sample.
+    its task's input, and a row without a task is an error.  ``analyze_label`` on a label directory
+    of these rows, whose repeats are tasks of pass 2, writes the same ``summary.csv``.
+    ``load_sample`` refuses a label directory without a copy of the sample.
     """
     from experiments.state_prep_certification.distances import analyze
 
@@ -622,6 +626,20 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
             r for r in csv.DictReader(file) if r["name"] == "bb72" and r["arm"] == "q_bz_prior"
         ]
     assert (row["status"], row["T"]) == ("median_timed_out", ""), row
+
+    # the analysis of a label directory of these rows, whose repeats are tasks of pass 2
+    label_dir = directory / "label"
+    label_dir.mkdir()
+    (label_dir / "sample.json").write_text(json.dumps(sample))
+    tasks.write_pass1(label_dir, [task for task in label_tasks.values() if task["repeat"] == 0])
+    (label_dir / tasks.PASS2_TASKS_FILE).write_text(
+        json.dumps([task for task in label_tasks.values() if task["repeat"]])
+    )
+    for row in rows:
+        store.append_row(label_dir, row)
+    analyze.analyze_label(label_dir, label_dir / "analysis", allow_local=False)
+    summary = (label_dir / "analysis" / "summary.csv").read_text()
+    assert summary == (out / "summary.csv").read_text()
 
     # a row without a task is an error, and a label directory without a copy of the sample is
     # refused
