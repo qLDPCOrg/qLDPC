@@ -7,47 +7,18 @@ inputs, outputs, and documentation.
 
     python acceptance.py [--local] [--only AT1 AT5 ...] [--results-dir R]
 
-* **AT1:** both arms on fast anchors (bb72, pp110, the quantum Golay code, qr47, the five-qubit
-  code concatenated with itself, the rotated surface code of distance 9) and on
-  ``SurfaceCode(3, 5)`` as plain matrices return the reference distance (3 for the asymmetric
-  code); the plain codes of Golay and qr47, which have H_X = H_Z, have ``_equal_distance_xz``, and
-  the other CSS codes not.  Locally, runs are limited to ``LOCAL_LIMIT_S``, and arms that time out
-  are reported rather than checked.
-* **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
-  left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
-* **AT5:** the regenerated sample matches ``sample.json``, and ``prepare`` copies it into the label
-  directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
-  the analysis of a run on golay a disagreement.  AT5's runs are local, so the analysis refuses
-  their rows without ``--allow-local``; with it, every output gives the number of these rows, the
-  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for a
-  start under -O, which sets no variable, and the recorded variable that a resume changed,
-  ``distances.pdf`` in its metadata.  The analysis of the label's archive requires ``--out``, writes
-  its outputs there, and leaves no extraction of the archive behind, whether it succeeds or refuses
-  the rows.  ``compare_with_sample`` reports a sample in which one reference distance differs from
-  that of ``sample.json``, and one with another endpoint and another family of a code.  Each row's
-  tuning is the shipped default, with ``BZ_PRIOR`` for ``q_bz_prior``.
-* **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
-  fails; arms that time out are reported rather than compared.  Locally, runs are limited to
-  ``LOCAL_LIMIT_S``.
-* **AT9:** ``run_node.py --dry-run`` writes no task file without an approval that covers the
-  ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives with
-  the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
-  first runs that finished in under 300 s.
-* **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree
-  or time out, medians of three and of two runs that a timed-out run determines, arms that agree on
-  a distance other than the reference, an arm without rows, an arm whose repeats have rows but whose
-  first run has none, which keeps their distance, a first run that ends in an error, a repeat that
-  ends in a memout, both finished, only one arm finished, and both timed out), writes every output,
-  classifies the codes, and marks the family medians as ``analyze.py``'s docstring says, with the
-  number of these ratios, and how many of them are lower bounds and how many upper bounds.  Its rows
-  with ``compiled_in_timing`` set are first runs and repeats, some of them on codes that disagree or
-  fail.  ``load_sample`` refuses a label directory without a copy of the sample.
+* **AT1:** Both arms return the reference distance on fast anchors, searching the same sectors.
+* **AT2:** A run past 5 s is a timeout with no process left; a concurrent run is unaffected.
+* **AT5:** Codes match the sample, the analysis reads the run's copy, and rows hold shipped tunings.
+* **AT6:** Both arms agree on AT1's codes and a small code of each family.
+* **AT9:** Task files need a sufficient approval and are never rewritten; the ceiling and repeats.
+* **AT10:** The analysis classifies synthetic rows of every case, and needs the run's sample.json.
 
-GNU parallel's stop and resume and its job-slot pinning are tested by ``common/selftest.py``:
-locally with stand-in CPU numbers, and in node mode on Linux before the node's acceptance tests.
-``node.sh``'s offline install can be rehearsed on a workstation with a bundle that ``bundle.py``
-builds for the workstation's platform.  The IDs AT3, AT4, AT7, and AT8 are unused.  Each test prints
-PASS or FAIL.
+Each test's docstring gives its details.  GNU parallel's stop and resume and its job-slot pinning
+are tested by ``common/selftest.py``: locally with stand-in CPU numbers, and in node mode on Linux
+before the node's acceptance tests.  ``node.sh``'s offline install can be rehearsed on a workstation
+with a bundle that ``bundle.py`` builds for the workstation's platform.  The IDs AT3, AT4, AT7, and
+AT8 are unused.  Each test prints PASS or FAIL.
 """
 
 from __future__ import annotations
@@ -80,7 +51,7 @@ from qldpc.codes.distance import _tuning
 AT1_CODES = ("bb72", "pp110", "golay", "qr47", "five_five", "surface9")
 EQUAL_SECTORS = ("golay", "qr47")
 LOCAL_LIMIT_S = 60.0
-# the prior tuning, written out here independently of config.json, which AT5 checks
+# the prior tuning that config.json must give, written out independently of it
 EXPECTED_BZ_PRIOR = {
     "partition_max_coverage": 1,
     "overlapping_minimum_work": _tuning.MAX_VALUE,
@@ -88,8 +59,8 @@ EXPECTED_BZ_PRIOR = {
     "completion_bound_max_table_bytes": 0,
     "automorphism_minimum_layer_work": _tuning.MAX_VALUE,
 }
-# a task's limits, the runner's window for a result, and the repeat policy, written out here
-# independently of config.json and the runner, which AT9 checks
+# a task's limits, the runner's window for a result, and the repeat policy that config.json and the
+# runner must give, written out independently of them
 EXPECTED_LIMITS = {
     "startup_cap_s": 120.0,
     "limit_s": 1800.0,
@@ -149,10 +120,16 @@ def _run_arms(
 def at1_anchors(directory: pathlib.Path, node: bool) -> None:
     """Both arms return the reference distance on fast anchors, searching the same sectors.
 
+    Both arms run on the fast anchors of ``AT1_CODES`` (bb72, pp110, the quantum Golay code, qr47,
+    the five-qubit code concatenated with itself, and the rotated surface code of distance 9) and on
+    ``SurfaceCode(3, 5)`` as plain matrices, and return the reference distance, 3 for the asymmetric
+    code.  Locally, runs are limited to ``LOCAL_LIMIT_S``, and arms that time out are reported
+    rather than checked.
+
     Both arms make the same code-method call on a plain code, so they search the same sectors.  The
-    plain codes with H_X = H_Z, and only those, have ``_equal_distance_xz``, under which a search
-    covers only the X sector; with bliss, a sector map can also give a search of one sector of a
-    code whose check matrices differ.
+    plain codes with H_X = H_Z, those of Golay and qr47, and only those, have
+    ``_equal_distance_xz``, under which a search covers only the X sector; with bliss, a sector map
+    can also give a search of one sector of a code whose check matrices differ.
     """
     label_dir = _prepared(directory)
     entries = _entries(AT1_CODES)
@@ -187,7 +164,12 @@ def at1_anchors(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at2_timeout(directory: pathlib.Path, node: bool) -> None:
-    """A run past 5 s is a timeout with no process left; a concurrent run is unaffected."""
+    """A run past 5 s is a timeout with no process left; a concurrent run is unaffected.
+
+    ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process left,
+    while a concurrent run of ``q_bz_on`` on golay finishes unaffected, without
+    ``compiled_in_timing``.
+    """
     label_dir = _prepared(directory)
     (slow,) = _entries(("pp170",))
     (fast,) = _entries(("golay",))
@@ -209,7 +191,22 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
-    """Codes match the sample, the analysis reads the run's copy, and rows hold shipped tunings."""
+    """Codes match the sample, the analysis reads the run's copy, and rows hold shipped tunings.
+
+    The regenerated sample matches ``sample.json``, and ``prepare`` copies it into the label
+    directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
+    the analysis of a run on golay a disagreement.  ``compare_with_sample`` reports the difference
+    of a sample in which one reference distance differs from that of ``sample.json``, and those of a
+    sample with another endpoint and another family of a code.  Each row's tuning is the shipped
+    default, with ``BZ_PRIOR`` for ``q_bz_prior``.
+
+    The runs are local, so the analysis refuses their rows without ``--allow-local``.  With it,
+    every output gives the number of these rows, the refused environment variable that a start
+    accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for a start under -O, which sets no variable,
+    and the recorded variable that a resume changed; ``distances.pdf`` gives them in its metadata.
+    The analysis of the label's archive requires ``--out``, writes its outputs there, and leaves no
+    extraction of the archive behind, whether it succeeds or refuses the rows.
+    """
 
     label_dir = directory
     label_dir.mkdir(parents=True, exist_ok=True)
@@ -261,9 +258,7 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
     assert (anchors["codes"], anchors["disagreement"]) == ("1", "1"), anchors
 
-    # every output gives the number of rows of local runs, the refused environment variables that a
-    # start accepted with --allow-env or ran under, and the recorded variable that a resume changed,
-    # distances.pdf in its metadata too
+    # the marks of every output, and of distances.pdf's metadata
     marks = {
         "local_rows": 2,
         "allowed_environment": "PYTHONOPTIMIZE PYTHONPATH",
@@ -296,7 +291,12 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at6_agreement(directory: pathlib.Path, node: bool) -> None:
-    """Both arms agree on AT1's codes and a small code of each family."""
+    """Both arms agree on AT1's codes and a small code of each family.
+
+    Both arms agree on the AT1 codes and on the smallest drawn code of each family, and none fails;
+    arms that time out are reported rather than compared.  Locally, runs are limited to
+    ``LOCAL_LIMIT_S``.
+    """
     label_dir = _prepared(directory)
     sample = _sample()
     smallest: dict[str, dict[str, Any]] = {}
@@ -326,7 +326,14 @@ def at6_agreement(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
-    """Task files need a sufficient approval and are never rewritten; the ceiling and repeats."""
+    """Task files need a sufficient approval and are never rewritten; the ceiling and repeats.
+
+    ``run_node.py --dry-run`` writes no task file without an approval that covers the ceiling, and
+    never rewrites its task files.  It reports the ceiling that ``worst_case_s`` gives with the
+    runner's retries (``tasks.ceiling_hours``), which the test computes independently from
+    ``EXPECTED_LIMITS``.  The repeat policy gives two repeats exactly to first runs that finished in
+    under 300 s.
+    """
     shutil.rmtree(directory, ignore_errors=True)
     command = [
         sys.executable,
@@ -355,9 +362,8 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     subprocess.run(command + ["--approved-cpu-hours", "100"], check=True, capture_output=True)
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in task_files] == before
 
-    # the ceiling, by independent arithmetic: start-up cap, limit (or the repeat threshold for a
-    # repeated run's first run), result window, and grace, for each run; then, for the runner's
-    # retries, twice that and one more run at the first run's limit
+    # the ceiling, by independent arithmetic: S + 2 W per task (tasks.ceiling_hours), with S the
+    # cost of a run at the task's limit, and W that of a fast first run and its repeats
     startup, limit, below = (
         EXPECTED_LIMITS[key] for key in ("startup_cap_s", "limit_s", "repeat_below_s")
     )
@@ -389,7 +395,19 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at10_analysis(directory: pathlib.Path, node: bool) -> None:
-    """The analysis classifies synthetic rows of every case, and needs the run's sample.json."""
+    """The analysis classifies synthetic rows of every case, and needs the run's sample.json.
+
+    The analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree or time
+    out, medians of three and of two runs that a timed-out run determines, arms that agree on a
+    distance other than the reference, an arm without rows, an arm whose repeats have rows but whose
+    first run has none, which keeps their distance, a first run that ends in an error, a repeat that
+    ends in a memout, both finished, only one arm finished, and both timed out), writes every
+    output, classifies the codes, and marks the family medians as ``analyze.py``'s docstring says,
+    with the number of these ratios, and how many of them are lower bounds and how many upper
+    bounds.  Its rows with ``compiled_in_timing`` set are first runs and repeats, some of them on
+    codes that disagree or fail.  ``load_sample`` refuses a label directory without a copy of the
+    sample.
+    """
     from experiments.state_prep_certification.distances import analyze
 
     sample = _sample()
