@@ -208,16 +208,17 @@ On the node, `node.sh certification --approved-cpu-hours H`, run from the unpack
 
 On the workstation, run `analyze.py --archive PATH --check-archive PATH --out DIR`, with the archives of `main` and `check`, each with its `.sha256` file (shared README's [Analysis](../README.md#analysis)); without the archive of `check`, the outputs report the ground truth of `main` as not run.
 [`analyze.py`](analyze.py)'s docstring says what the analysis reads and checks, and lists the outputs and their columns.
-[`analyze_applications.py`](analyze_applications.py)'s docstring does the same for the outputs of the margins and the deletions:
+[`analyze_applications.py`](analyze_applications.py)'s docstring does the same for the outputs of the margins and the deletions.
+The outputs, each with the docstring that documents it, are:
 
-- `summary.csv`: one row per circuit, with its parameters, verdicts, times, statuses, agreements, contradictions, margin, and counterexample;
-- `families.csv`: one row per family, with the counts of verdicts, statuses, agreements, disagreements, and margins, and the medians and maxima of T;
-- `per_weight.csv`: one row per circuit and fault weight m, with A_m, C(N_0, m), Pi_(m-1), E_m, Phi_m, Omega_m, the times of each weight, and the work of the baseline;
-- `listing_table.csv`: Phi_m and Omega_m against A_m, per family and fault weight;
-- `shadow.csv`: the cost of the two weight oracles on identical queries, from the `shadow` runs;
-- `counterexamples.json`: the counterexamples of the first runs of `cert_bz` and `cert_cc` that finished, and up to three examples, one for each of the groups of families that `analyze.py`'s docstring lists;
-- `margin_violations.csv`: the circuits whose exact m* is at most t;
-- `deletion.csv`, `deletion_tasks.csv`, `deletion_table.csv`, `deletion_notes.json`, and `pruned/`: the steps, the tasks, and the final circuits of the deletions.
+- `summary.csv` (`analyze.py`): one row per circuit, with its parameters, verdicts, times, statuses, agreements, contradictions, margin, and counterexample;
+- `families.csv` (`analyze.py`): one row per family, with the counts of verdicts, statuses, agreements, disagreements, and margins, and the medians and maxima of T;
+- `per_weight.csv` (`analyze.py`): one row per circuit and fault weight m, with A_m, C(N_0, m), Pi_(m-1), E_m, Phi_m, Omega_m, the times of each weight, and the work of the baseline;
+- `listing_table.csv` (`analyze.py`): Phi_m and Omega_m against A_m, per family and fault weight;
+- `shadow.csv` (`analyze.py`): the cost of the two weight oracles on identical queries, from the `shadow` runs;
+- `counterexamples.json` (`analyze.py`): the counterexamples of the first runs of `cert_bz` and `cert_cc` that finished, and up to three examples, one for each of the groups of families that `analyze.py`'s docstring lists;
+- `margin_violations.csv` (`analyze_applications.py`): the circuits whose exact m* is at most t;
+- `deletion.csv`, `deletion_tasks.csv`, `deletion_table.csv`, `deletion_notes.json`, and `pruned/` (`analyze_applications.py`): the steps, the tasks, and the final circuits of the deletions.
 
 ### Exact results, bounds, and estimates
 
