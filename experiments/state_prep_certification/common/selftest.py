@@ -31,6 +31,7 @@ import argparse
 import contextlib
 import fcntl
 import functools
+import hashlib
 import io
 import json
 import multiprocessing
@@ -169,6 +170,8 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
     """The archive holds every file of the label with matching checksums, and its .sha256.
 
     It leaves out the temporary file of an interrupted ``write_atomic``, and the label's lock.
+    ``open_archive`` unpacks it, and refuses it once a file or the archive no longer matches its
+    checksum.
     """
     label_dir = directory / "label"
     (label_dir / "logs").mkdir(parents=True)
@@ -189,6 +192,33 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
     store.make_archive(label_dir, "second")  # earlier archives never enter a later one
     with tarfile.open(label_dir / "archive" / "second.tar.gz") as tar:
         assert not any("archive/" in name for name in tar.getnames())
+
+    # open_archive unpacks an archive that matches its checksums, and removes it after the block
+    with store.open_archive(archive) as unpacked:
+        assert (unpacked / "logs" / "a.txt").read_text() == "log"
+    assert not unpacked.exists()
+
+    # it refuses an archive whose inner SHA256SUMS does not match a file, and one whose .sha256
+    # does not match it
+    with tarfile.open(archive) as tar:
+        contents = {}
+        for member in tar.getmembers():
+            file = tar.extractfile(member)
+            assert file is not None
+            contents[member.name] = file.read()
+    contents["label-host-utc/logs/a.txt"] = b"changed"
+    with tarfile.open(archive, "w:gz") as tar:
+        for name, data in contents.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    outer_sums = archive.parent / (archive.name + ".sha256")
+    outer_sums.write_text(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+    error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
+    assert "does not match its inner SHA256SUMS" in str(error.code), error.code
+    outer_sums.write_text(f"{'0' * 64}  {archive.name}\n")
+    error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
+    assert f"does not match {outer_sums.name}" in str(error.code), error.code
 
 
 ####################################################################################################

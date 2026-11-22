@@ -164,7 +164,6 @@ import pathlib
 import shutil
 import subprocess
 import sys
-import tarfile
 from typing import Any
 
 import numpy as np
@@ -907,9 +906,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
 
     # an archive needs --out; its extraction, and that of the archive of check, is removed whether
     # or not the analysis succeeds
-    archive = directory / "label.tar.gz"
-    with tarfile.open(archive, "w:gz") as tar:
-        tar.add(label_dir, arcname=label_dir.name)
+    archive = store.make_archive(label_dir, label_dir.name)
     scratch = directory / "tmp"
     scratch.mkdir()
     environment = dict(os.environ, TMPDIR=str(scratch))

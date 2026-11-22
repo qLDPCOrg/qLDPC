@@ -11,8 +11,10 @@ inputs, outputs, and documentation.
 The analysis is descriptive: counts and medians, with every timeout, memout, error, missing run,
 and disagreement in its CSV files.  The ground truth runs in the subset ``check``, which has its own
 label directory and archive; ``--check-label-dir`` or ``--check-archive`` adds its ``ground_truth``
-rows to those of the analyzed run, if any.  The analysis extracts each archive into a temporary
-directory, which it removes when it ends, whether or not it succeeds.
+rows to those of the analyzed run, if any.  The analysis checks each archive against its
+``.sha256`` file and its inner ``SHA256SUMS``, and extracts it into a temporary directory, which it
+removes when it ends, whether or not it succeeds (``store.open_archive``).  So ``--archive``
+requires ``--out``.
 
 The circuits and their parameters come from the label's copy of the ``circuits.json`` that it ran
 with.  If the label does not match that ``circuits.json`` and the working tree's ``config.json``
@@ -57,8 +59,8 @@ whose enumeration size U exceeds the brute-force cap of ``config.json`` has no `
 and its status is "not run (U > cap)", never a timeout.  An agreement is "a/b", a of b compared
 circuits, or "not run" where no circuit of the family has rows of the arm compared.
 
-Outputs, in ``--out``, which ``--archive`` requires (by default ``analysis/`` in the label directory
-of ``--label-dir``):
+The outputs go to ``--out``, by default ``analysis/`` in the label directory of ``--label-dir``.
+They are:
 
 * ``families.csv``, one row per family:
 
@@ -168,14 +170,13 @@ of ``--label-dir``):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import json
 import math
 import pathlib
 import statistics
 import sys
-import tarfile
-import tempfile
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -231,10 +232,10 @@ EXAMPLE_GROUPS: dict[str, set[tuple[str, str | None]]] = {
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
-        label_dir = args.label_dir or _unpack(args.archive, pathlib.Path(scratch, "main"))
+    with contextlib.ExitStack() as archives:
+        label_dir = args.label_dir or archives.enter_context(store.open_archive(args.archive))
         check_dir = args.check_label_dir or (
-            args.check_archive and _unpack(args.check_archive, pathlib.Path(scratch, "check"))
+            args.check_archive and archives.enter_context(store.open_archive(args.check_archive))
         )
         analyze_label(label_dir, check_dir, args.out or label_dir / "analysis", args.allow_local)
 
@@ -386,15 +387,6 @@ def _expected_tasks(label_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
         print(f"note: {label_dir.name} has no {task_store.TASKS_FILE}; no task is missing")
         return {}
     return task_store.load_tasks(label_dir)
-
-
-def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a directory, and return its label directory."""
-    directory.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive) as tar:
-        tar.extractall(directory, filter="data")
-    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
-    return label_dir
 
 
 ####################################################################################################

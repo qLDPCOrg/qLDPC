@@ -159,7 +159,7 @@ The ceiling of `main` follows from `circuits.json`: each run costs at most its s
 The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) explains.
 `run_node.py certification --dry-run` prints the tasks and the ceiling of the current `circuits.json`.
 On the workstation, run `analyze.py --archive PATH --check-archive PATH --out DIR`.
-It extracts each archive into a temporary directory, which it removes when it ends.
+It checks each archive against its `.sha256` file and its inner `SHA256SUMS`, and extracts it into a temporary directory, which it removes when it ends.
 So `--archive` requires `--out`: the default output directory, `analysis/` in the label directory, would be removed with the extraction.
 Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `listing_table.csv`.
 `listing_table.csv` compares Phi_m and Omega_m with A_m, per family and weight.

@@ -103,7 +103,7 @@ It kills GNU parallel, the runs that the label's `active/` directory lists, and 
 The node self-tests' runs, in temporary directories, have no such records: after a hard kill during the self-tests, wait for `common/selftest.py` to end before resuming.
 `--status` prints the progress, and says of each recorded run whether its processes are alive, or that its record is unreadable or of another host, whose processes it cannot check.
 Both act on one label directory, which both print: give them the run's `--subset` if it was not `main`, and the same `FTSP_RESULTS`.
-The archive that the run prints at its end is the one file to copy back.
+The archive that the run prints at its end, with the `.sha256` file beside it, is what to copy back: the analyses check the archive against that file.
 
 For development on a workstation, `--local` runs the tasks one at a time, without GNU parallel or pinning, and `--subset` selects tasks, as in the commands below.
 A local run has its own label directory, with the suffix `-local`, and the analyses of certification and distances refuse its rows unless given `--allow-local`, with which every output says how many rows of local runs it includes.

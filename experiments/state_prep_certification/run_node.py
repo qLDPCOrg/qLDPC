@@ -38,7 +38,8 @@ experiment (``common/manifest.py``), it
    it, and after each pass, the script stops if a task of the pass has no final row, lists such
    tasks in ``missing-pass<N>.txt``, and says how to rerun them through a start (see
    ``run_pass``);
-7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz``: the one file to copy back.
+7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz`` and its ``.sha256`` file: the files
+   to copy back.
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
 with status 0, and the task runner skips tasks that already have a final row.  One start, or

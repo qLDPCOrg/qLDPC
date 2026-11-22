@@ -62,7 +62,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -266,13 +265,9 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     assert f"/Subject ({subject})".encode() in (out / "distances.pdf").read_bytes()
 
     # an archive needs --out, and its extraction is removed whether or not the analysis succeeds
+    archive = store.make_archive(label_dir, "label")
     archived = directory / "archived"
     archived.mkdir()
-    archive = archived / "label.tar.gz"
-    with tarfile.open(archive, "w:gz") as tar:
-        for path in label_dir.iterdir():
-            if path != archived:
-                tar.add(path, arcname=f"label/{path.name}")
     scratch = archived / "tmp"
     scratch.mkdir()
     environment = dict(os.environ, TMPDIR=str(scratch))

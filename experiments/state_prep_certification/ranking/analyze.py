@@ -159,7 +159,7 @@ class ProvenanceError(SystemExit):
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or certification_analyze._unpack(
+    label_dir = args.label_dir or store.unpack_archive(
         args.archive, pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
     )
     out = args.out or label_dir / "analysis"
@@ -245,7 +245,7 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
     if recorded[:2] != [store.sha256_file(archive), archive.name]:
         raise ProvenanceError(f"{archive.name} does not match {sums_file.name}")
     # the files of the archive against its inner SHA256SUMS
-    label_dir = certification_analyze._unpack(
+    label_dir = store.unpack_archive(
         archive, pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
     )
     sums = (label_dir / "SHA256SUMS").read_text().splitlines()

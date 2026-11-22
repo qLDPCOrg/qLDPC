@@ -50,12 +50,13 @@ The analysis reads the sample from the label directory, where ``experiment.prepa
 ``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
 does not change the analysis of an earlier run.
 
-The analysis extracts an archive into a temporary directory, which it removes when it ends, whether
-or not it succeeds.  So ``--archive`` requires ``--out``.  Outputs in ``--out`` (by default
-``analysis/`` in the label directory of ``--label-dir``): ``summary.csv`` (one row per code and
-arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on),
-and ``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or
-for a disagreement, a failure, or an incomplete timing).
+The analysis checks an archive against its ``.sha256`` file and its inner ``SHA256SUMS``, and
+extracts it into a temporary directory, which it removes when it ends, whether or not it succeeds
+(``store.open_archive``).  So ``--archive`` requires ``--out``.  The outputs go to ``--out``, by
+default ``analysis/`` in the label directory of ``--label-dir``.  They are ``summary.csv`` (one row
+per code and arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior
+against on), and ``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack
+of a value, or for a disagreement, a failure, or an incomplete timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
 ``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
@@ -71,13 +72,12 @@ metadata of ``distances.pdf``.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import json
 import pathlib
 import statistics
 import sys
-import tarfile
-import tempfile
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -91,8 +91,8 @@ ON, PRIOR = "q_bz_on", "q_bz_prior"
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
-        label_dir = args.label_dir or _unpack(args.archive, pathlib.Path(scratch, "label"))
+    with contextlib.ExitStack() as archives:
+        label_dir = args.label_dir or archives.enter_context(store.open_archive(args.archive))
         analyze_label(label_dir, args.out or label_dir / "analysis", args.allow_local)
 
 
@@ -143,15 +143,6 @@ def parse_args() -> argparse.Namespace:
     if args.archive and args.out is None:
         parser.error("--archive requires --out, since the archive's extraction is removed")
     return args
-
-
-def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a directory, and return its label directory."""
-    directory.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive) as tar:
-        tar.extractall(directory, filter="data")
-    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
-    return label_dir
 
 
 ####################################################################################################

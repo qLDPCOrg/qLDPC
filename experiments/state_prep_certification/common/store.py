@@ -13,7 +13,8 @@ such as a second row of a task that two runners ran at once.
 ``write_atomic`` writes the label's other records, such as ``acceptance.json``, ``manifest.json``,
 and the runner's ``active/`` files, whole or not at all, so that a kill during a write never
 leaves a partial record.  The temporary file that such a kill can leave, ``.<name>.<pid>.tmp``,
-never enters the archive.
+never enters the archive.  ``make_archive`` writes the archive with its checksums, and
+``open_archive`` checks them and unpacks the archive for an analysis.
 
 The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
 analysis that refuses them, as those of certification and distances do, counts them with
@@ -27,6 +28,7 @@ number of rows of local runs, whichever are nonempty, with ``mark_outputs``.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import fcntl
 import hashlib
@@ -36,7 +38,8 @@ import os
 import pathlib
 import sys
 import tarfile
-from collections.abc import Iterable
+import tempfile
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 RUNS_FILE = "runs.jsonl"
@@ -276,6 +279,49 @@ def make_archive(label_dir: pathlib.Path, name: str) -> pathlib.Path:
         f"{sha256_file(archive)}  {archive.name}\n"
     )
     return archive
+
+
+@contextlib.contextmanager
+def open_archive(archive: pathlib.Path) -> Iterator[pathlib.Path]:
+    """Check an archive of ``make_archive``, unpack it, and yield its label directory.
+
+    The archive must match the SHA-256 of the ``.sha256`` file beside it, and its files must be
+    those that its inner ``SHA256SUMS`` lists, with their SHA-256.  The archive is unpacked into a
+    temporary directory, which is removed when the block ends, whether or not it succeeds.
+
+    Raises:
+        SystemExit: If the ``.sha256`` file is missing, or a checksum or the list of files differs.
+    """
+    sums_file = archive.with_name(archive.name + ".sha256")
+    if not sums_file.exists():
+        raise SystemExit(f"{sums_file} is missing")
+    if sums_file.read_text().split()[:2] != [sha256_file(archive), archive.name]:
+        raise SystemExit(f"{archive.name} does not match {sums_file.name}")
+    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
+        label_dir = unpack_archive(archive, pathlib.Path(scratch))
+        listed = {}
+        for line in (label_dir / "SHA256SUMS").read_text().splitlines():
+            digest, name = line.split("  ", 1)
+            listed[name] = digest
+        present = {
+            path.relative_to(label_dir).as_posix()
+            for path in label_dir.rglob("*")
+            if path.is_file() and path.name != "SHA256SUMS"
+        }
+        if present != set(listed) or any(
+            sha256_file(label_dir / name) != digest for name, digest in listed.items()
+        ):
+            raise SystemExit(f"{archive.name} does not match its inner SHA256SUMS")
+        yield label_dir
+
+
+def unpack_archive(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
+    """Unpack an archive of ``make_archive`` into a directory, and return its label directory."""
+    directory.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive) as tar:
+        tar.extractall(directory, filter="data")
+    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
+    return label_dir
 
 
 def sha256_file(path: pathlib.Path) -> str:
