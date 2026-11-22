@@ -118,8 +118,9 @@
   (``step_delay_s``) is a timeout that keeps its steps.
 * **AT10:** the margin gives "all" on C-goto and steane, 3 on E-chen, and 1 on W(C-goto).  On these
   and every ground-truth circuit with r > t, it agrees with ``cert_bz``, with the enumeration up to
-  min(m*, r + 1) where small enough, and its sectors with an enumeration of the stabilizer group.
-  A run on E-chen delayed past its 5 s limit is a timeout that gives only a lower bound.
+  min(m*, r + 1) where small enough, and its sectors with an enumeration of the stabilizer group; of
+  its records of fault weights from 2 up, only that of m* violates.  A run on E-chen delayed past
+  its 5 s limit is a timeout that gives only a lower bound.
 * **AT11:** altered copies of code files (an Lx that anticommutes with a check, a check as Lz, no
   Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
   that names it, and the code file of a one-qubit |0>, which has no X checks, passes.
@@ -1048,6 +1049,11 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
         result = applications.find_margin(experiment._noisy_input(entry), options)
         margin = result["margin"]
         assert margin == expected.get(circuit_id, margin), (circuit_id, margin)
+
+        # the search's records of the fault weights from 2 up, of which only that of m* violates;
+        # the threshold-1 checks find a violation at weight 1 without such a record
+        found = [record["m"] for record in result["per_weight"] if record["violation"]]
+        assert found == ([] if margin in ("all", 1) else [margin]), (circuit_id, found, margin)
 
         # cert_bz at K = t + 1 gives the same m*, or "all" past the cutoff, or a smaller bound
         certificate = _certify(circuit_id, "brouwer_zimmermann")
