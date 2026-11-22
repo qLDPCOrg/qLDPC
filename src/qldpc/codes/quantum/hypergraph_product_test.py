@@ -94,6 +94,9 @@ def test_hypergraph_product_distance_by_sector(
 
     code = codes.HGPCode(seed_a, seed_b)
     plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+
+    # without logical operators, the dimension comes from the seed codes, and is that of the checks
+    assert codes.HGPCode(seed_a, seed_b, set_logicals=False).dimension == plain.dimension
     with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
         # the same distances that a code carrying no closed form of its own computes
         assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)
@@ -213,6 +216,10 @@ def test_subsystem_hypergraph_product(
 
     # verify that the canonical logicals are valid
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
+
+    # without logical operators, the dimension comes from the seed codes, and is that of the checks
+    code = codes.SHPCode(code_a, code_b, set_logicals=False)
+    assert code.dimension == codes.CSSCode(code.matrix_x, code.matrix_z).dimension
 
 
 def test_products_require_same_ring() -> None:

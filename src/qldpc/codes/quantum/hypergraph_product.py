@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import collections
+import functools
 import itertools
 from collections.abc import Collection, Iterable, Sequence
 from typing import Literal, TypeVar
@@ -168,17 +169,25 @@ class HGPCode(CSSCode):
             field,
         )
         self._is_subsystem_code = False  # known by construction
-
-        # take the dimension of this code from the seed codes (see the class docstring), rather than
-        # from the rank of its much larger parity check matrices
-        self._dimension = self.code_a.dimension * self.code_b.dimension + (
-            self.code_a.num_checks - self.code_a.rank
-        ) * (self.code_b.num_checks - self.code_b.rank)
         if set_logicals:
             logical_ops_xz = HGPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
             )
+            self._dimension = len(logical_ops_xz[0])  # one X-type operator per logical qudit
             self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
+
+    @functools.cached_property
+    def dimension(self) -> int:
+        """The number of logical qudits encoded by this code.
+
+        Unless known from logical operators, it is computed from the dimensions and parity check
+        ranks of the seed codes (see the class docstring).
+        """
+        if self._dimension is not None:
+            return self._dimension
+        return self.code_a.dimension * self.code_b.dimension + (
+            self.code_a.num_checks - self.code_a.rank
+        ) * (self.code_b.num_checks - self.code_b.rank)
 
     def get_syndrome_subgraphs(self, *, strategy: str = "smallest_last") -> tuple[nx.DiGraph, ...]:
         """Sequence of subgraphs of the Tanner graph that induces a syndrome extraction sequence.
@@ -530,15 +539,23 @@ class SHPCode(CSSCode):
         stab_ops_z = np.kron(-self.code_a.generator, self.code_b.matrix)
         self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(field)
 
-        # take the dimension of this code from the seed codes (see the class docstring), rather than
-        # from the ranks of its much larger checks and stabilizers
-        self._dimension = self.code_a.dimension * self.code_b.dimension
-
         if set_logicals:
             logical_ops_xz = SHPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
             )
+            self._dimension = len(logical_ops_xz[0])  # one X-type operator per logical qudit
             self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
+
+    @functools.cached_property
+    def dimension(self) -> int:
+        """The number of logical qudits encoded by this code.
+
+        Unless known from logical operators, it is the product of the dimensions of the seed codes
+        (see the class docstring).
+        """
+        if self._dimension is not None:
+            return self._dimension
+        return self.code_a.dimension * self.code_b.dimension
 
     @staticmethod
     def get_matrix_product(
