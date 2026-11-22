@@ -15,11 +15,13 @@
   W(A-ft Shor) and C-goto finish without ``compiled_in_timing``.  The compiled functions of
   ``counting.py`` and ``baseline.py`` call no compiled function of another file.
 * **AT3:** instrumented and uninstrumented certification give identical certificates on C-goto,
-  its variant, and A-ft steane; every wrapped name exists; on a CSS circuit with a violation, each
-  query of the fault search is counted once, against an independent spy of the calls that the
-  fault search makes.  On E-chen, the shadow oracle answers each query that the counters count,
-  with one threshold-1 query per reduced zero-flag mechanism and one per distinct syndrome of the
-  flagged ones, and an oracle whose answers are shifted raises ``ShadowDisagreement``.
+  its variant, and A-ft steane; every wrapped name exists; an instrumentation installed around
+  another wrapper of the oracle class subclasses it and restores it; on a CSS circuit with a
+  violation, each query of the fault search is counted once, against an independent spy of the
+  calls that the fault search makes.  On E-chen, the shadow oracle answers each query that the
+  counters count, with one threshold-1 query per reduced zero-flag mechanism and one per distinct
+  syndrome of the flagged ones, and an oracle whose answers are shifted raises
+  ``ShadowDisagreement``.
 * **AT4:** ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on a
   B-cat circuit with t = 2 and K = 3, and sleeps 2 s after it reports each completed weight
   (``weight_delay_s``).  The limit falls 1 s after the end of the next-to-last weight of a full run,
@@ -298,7 +300,14 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
         with instrumentation.install():
             measured = _certify(circuit_id, "brouwer_zimmermann")
         assert str(plain) == str(measured), circuit_id
-        assert _fault_search.CosetLeaderSearch is instrument._ORIGINAL_SEARCH
+        assert _fault_search.CosetLeaderSearch is CosetLeaderSearch
+
+    # an instrumentation around another wrapper of the oracle keeps that wrapper, and restores it
+    with _OracleSpy():
+        wrapper = _fault_search.CosetLeaderSearch
+        with instrument.Instrumentation().install():
+            assert issubclass(_fault_search.CosetLeaderSearch, wrapper)
+        assert _fault_search.CosetLeaderSearch is wrapper
 
     # a CSS circuit with a violation: the weakened A-ft circuit of largest smallest violation, so
     # that batches, and calls nested in them, occur
