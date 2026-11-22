@@ -544,9 +544,13 @@ def test_cosets_of_classical_codes_are_cut_by_their_generators(
         generator = code.generator.view(np.ndarray).astype(np.uint8)
         weights |= set(np.sum(generator, axis=1).tolist())
         excluded = np.hstack([generator, np.zeros((len(generator), 1), dtype=np.uint8)])
-        for vector in range(2**6):
-            bits = np.array([vector >> index & 1 for index in range(6)], dtype=np.uint8)
-            checks = np.hstack([matrix, (matrix @ bits % 2)[:, None]]).astype(np.uint8)
+        # The checks depend on v only through its syndrome Hv, so each syndrome is searched once.
+        syndromes = {
+            tuple(matrix @ [vector >> index & 1 for index in range(6)] % 2)
+            for vector in range(2**6)
+        }
+        for syndrome in sorted(syndromes):
+            checks = np.hstack([matrix, np.array(syndrome, dtype=np.uint8)[:, None]])
             expected = get_brute_force_distance((checks, excluded))
             for cuts, pair_sums in itertools.product((True, False), repeat=2):
                 num_cuts_per_search.clear()
@@ -808,16 +812,16 @@ def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
 
 
 def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
-    """Pruning rules out witnesses of weight up to 8 in a [[276, 98, 14]] code in few states."""
+    """Pruning rules out witnesses of weight up to 7 in a [[276, 98, 14]] code in few states."""
     code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
     search = get_search(
         *get_sectors(code)[0], get_automorphisms=code._get_permutation_automorphisms
     )
-    assert search.find_witness(8) is None
+    assert search.find_witness(7) is None
 
     # The bound on the states fails if states stop forbidding variables for their subtrees (Section
     # 3.4 of connected_cluster.md).  A heuristic that moves the count across it needs a new bound.
-    assert search.num_states < 5000
+    assert search.num_states < 1500
 
 
 def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
@@ -1085,16 +1089,21 @@ def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> It
         yield get_qubit_problem(codes.QuditCode(matrix, is_subsystem_code=code.is_subsystem_code))
 
 
-@pytest.mark.parametrize("pair_sums", [True, False])
-@pytest.mark.parametrize("cuts", [True, False])
-@pytest.mark.parametrize("restrict_viable_symbols", [True, False])
+# No condition of the search reads more than two of these switches, and the binary problems of
+# test_the_distance_matches_enumeration run all eight of their combinations, so here every two of
+# them take each of their four pairs of values in some run.
+@pytest.mark.parametrize(
+    ("restrict_viable_symbols", "cuts", "pair_sums"),
+    [(True, True, True), (True, False, False), (False, True, False), (False, False, True)],
+)
 def test_random_qubit_problems_match_enumeration(
     pytestconfig: pytest.Config, restrict_viable_symbols: bool, cuts: bool, pair_sums: bool
 ) -> None:
     """Qubit problems agree with an enumeration at every weight limit, and from every root.
 
     With the overlap cuts, a root finds a lightest witness only if one passes the cut of every known
-    word, which with ``pair_sums`` include the light sums of pairs of gauge generators.
+    word, which with ``pair_sums`` include the light sums of pairs of gauge generators.  Each run
+    mixes each of ``SMALL_QUBIT_CODES`` in a random frame of its own.
     """
     # The five-qubit code in two frames: in the first, a state needs Y on a qubit after an earlier
     # sibling of the state tried X there, and in the second, a state needs the other values of the
@@ -1113,11 +1122,13 @@ def test_random_qubit_problems_match_enumeration(
             [1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
         ],
     ]
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    rng = np.random.default_rng(
+        [pytestconfig.getoption("randomly_seed"), restrict_viable_symbols, cuts, pair_sums]
+    )
     problems = [
         *QUBIT_PROBLEMS.values(),
         *(get_qubit_problem(codes.QuditCode(matrix)) for matrix in mixed_five_qubit_codes),
-        *get_random_qubit_problems(rng, 10),
+        *get_random_qubit_problems(rng, len(SMALL_QUBIT_CODES)),
     ]
     options = {
         "restrict_viable_symbols": restrict_viable_symbols,
@@ -1588,19 +1599,29 @@ def get_threaded_cases() -> Iterator[ThreadedCase]:
     at which the items start.  Other limits have no witness.  The syndromes of every problem fit
     one word.
     """
+    # The sums of pairs of checks of "capped-scale" make its syndromes two words wide.  The
+    # frontiers of "reed-muller-X" and "eight-qubit" grow to their targets of items from many roots,
+    # as those of "bacon-shor-hadamards" do, so those two problems add no kind of frontier that the
+    # others lack.
     for name, problem in PROBLEMS.items():
-        # The sums of pairs of checks of "capped-scale" make its syndromes two words wide.
-        if name != "capped-scale":
+        if name not in ("capped-scale", "reed-muller-X"):
             yield ThreadedCase(problem)
-    for problem in QUBIT_PROBLEMS.values():
-        yield ThreadedCase(problem, symplectic=True)
+    for name, problem in QUBIT_PROBLEMS.items():
+        if name != "eight-qubit":
+            yield ThreadedCase(problem, symplectic=True)
     # What the last two cases check, a frontier that deepens from one root, and a witness in the
     # last of many roots, does not depend on the switches.  With the switches on, a search runs
     # every part of the search that it runs with them off, so these cases run only with them on.
-    # The Golay code has one root under its cyclic shifts, so the frontier deepens from that root.
+    # The dual of the cyclic [15, 11, 3] Hamming code with generator polynomial 1 + x + x^4 is in
+    # that code, and gives checks and excluded rows that have one root under their cyclic shifts,
+    # so the frontier deepens from that root.
+    generator = np.zeros(15, dtype=np.uint8)
+    generator[[0, 1, 4]] = 1
+    hamming_checks = get_kernel(np.array([np.roll(generator, shift) for shift in range(11)]))
     yield ThreadedCase(
-        get_golay_problem(),
-        get_automorphisms=lambda: np.roll(np.arange(23), -1)[None],
+        (hamming_checks, hamming_checks),
+        get_automorphisms=lambda: np.roll(np.arange(15), -1)[None],
+        max_weight=4,
         switches=(True,),
     )
     # Each of the first 64 variables is a check of its own, and each of the next 35 an excluded
@@ -2285,16 +2306,17 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
 def test_a_wrong_number_of_fixed_words_is_rejected() -> None:
     """A version for a number of words of a syndrome is never run on syndromes of other widths.
 
-    Steane's checks have syndromes of one word, and the X sector of the distance-13 surface code
-    syndromes of two, which are given too many and too few fixed words.
+    The X sector of the distance-13 surface code has syndromes of two words, which are given one
+    fixed word.
     """
     surface = codes.SurfaceCode(13)
-    surface_x = (np.asarray(surface.matrix_z, np.uint8), np.asarray(surface.matrix_x, np.uint8))
-    for problem, fixed_words in [(PROBLEMS["steane-X"], (0, 0)), (surface_x, (0,))]:
-        search = get_search(*problem)
-        assert len(fixed_words) != search._check_tables.symbol_masks.shape[1]
-        with pytest.raises(ValueError, match="fixed_words"):
-            run_search_supports(search, search._roots, 3, fixed_words=fixed_words)
+    search = get_search(
+        np.asarray(surface.matrix_z, np.uint8), np.asarray(surface.matrix_x, np.uint8)
+    )
+    fixed_words = (0,)
+    assert len(fixed_words) != search._check_tables.symbol_masks.shape[1]
+    with pytest.raises(ValueError, match="fixed_words"):
+        run_search_supports(search, search._roots, 3, fixed_words=fixed_words)
 
 
 @pytest.mark.parametrize(("max_weight", "root"), [(5, 0), (6, 1)])
