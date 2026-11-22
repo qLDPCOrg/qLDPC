@@ -136,7 +136,7 @@ The ground truth (`counting.ground_truth`) requires a CSS state.
 | `margin` | BZ certification with no limit on the fault weight, on the circuits whose flag rank r exceeds t, by `applications.py` |
 | `prune`, `prune_sensitivity` | the deletion of the measured qubits of each A-ft, C-goto, and synthesized circuit under exact certification at K = t, by `applications.py`; `prune_sensitivity` tries another order, on the circuits of `prune.sensitivity_inputs` of `config.json` |
 
-[`experiment.py`](experiment.py) says what T includes for each arm, which runs warm up before timing, and which runs get repeats: a run of `cert_bz`, `cert_cc`, or `brute_bz` that finishes in under `repeats.below_s` of `config.json`.
+[`experiment.py`](experiment.py) says what T includes for each arm, which runs warm up before timing, and which runs get repeats.
 
 The baseline enumerates the accepted fault combinations over the N_0 reduced mechanisms, fault weight by fault weight up to K, and queries them in batches with the certifier's own oracle, built from the same arguments, until the first batch that holds a violation; only the fault search differs from `cert_bz`.
 U bounds both the combinations and the rows that it queries, and is fixed by the circuit's parameters, so that a circuit over the cap gets no task and is reported with the cap's value, as in "not run (U > 1e9)", never as a timeout.

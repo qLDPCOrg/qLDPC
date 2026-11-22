@@ -2,42 +2,32 @@
 
 """The plug-in of the certification experiment (see ``common/plugin.py`` for the interface).
 
-Each task is one arm on one circuit of ``circuits.json``.  K is the circuit's ``max_weight``,
-t + 1 for design t:
+Each task is one arm on one circuit of ``circuits.json``, with K the circuit's ``max_weight``,
+t + 1 for design t.  The README's Arms table says what each arm does, and its Terms define the
+symbols.  Each arm times one call (``runner.timed``), whose wall time T includes:
 
-* ``cert_bz``, ``cert_cc``: ``certify_bounded_fault_propagation`` with the circuit's options, by
-  the Brouwer-Zimmermann or connected-cluster oracle, instrumented (``instrument.py``).  T is the
-  wall time of the call, DEM construction included.  After T, within the post-processing
-  allowance, the first run describes the certificate: its text and, for a counterexample, its
-  fault indices, output Pauli, lower bound, and exact residual weight.  Repeats skip this
-  description.
-* ``brute_bz``: the same BZ certification with qLDPC's fault search replaced by the brute-force
-  baseline (``baseline.py``), which queries the accepted fault combinations, weight by weight up to
-  K, with the certifier's own oracle until it finds a violation.  It runs only on the circuits whose
-  enumeration size U is within the cap of ``config.json``, as ``circuits.json`` records; it has no
-  post-processing.
-* ``shadow``: BZ certification in which every oracle query is also answered by a CC oracle.
-* ``count_listing``: the counts of the listing (``counting.py``) on the reduced DEM.
-* ``count_accepted``: A_m and C(N_0, m) for m <= K.
-* ``ground_truth``: brute force on the small circuits that ``circuits.json`` marks, in the subset
-  ``check``.
-* ``margin``: the smallest violating fault weight m* of a circuit whose flag rank r exceeds its
-  design t, by BZ certification with no limit on the fault weight (``applications.py``).
-* ``prune`` and ``prune_sensitivity``: deletion of the measured qubits of a circuit of
-  ``settings.VERIFIED_FAMILIES`` under exact certification at K = t, in two orders
-  (``applications.py``);
-  ``prune_sensitivity`` runs only on the circuits of ``prune.sensitivity_inputs``.
+* ``cert_bz``, ``cert_cc``, ``shadow``, and ``brute_bz``: the certification, DEM construction
+  included; for ``shadow``, with the CC oracle's answers, and for ``brute_bz``, with the
+  baseline's count of distinct syndromes (``baseline.py``).  After T, within the post-processing
+  allowance, the first run of ``cert_bz`` or ``cert_cc`` describes the certificate
+  (``applications.describe_certificate``): its text and, for a counterexample, its fault indices,
+  output Pauli, lower bound, and exact residual weight.  Repeats, ``shadow``, and ``brute_bz``
+  have no post-processing.
+* ``count_accepted``, ``count_listing``, and ``ground_truth``: the counting itself, so that the
+  runner's limit applies to it.  These arms take the DEM from an untimed certification with
+  ``max_weight=1``.  That certification is preparation, not a warm-up, but it also compiles, or
+  loads from the cache, the code that their measured calls share with it.
+* ``margin``: the whole margin search (``applications.find_margin``), DEM construction and the
+  description of its counterexample included.
+* ``prune`` and ``prune_sensitivity``: the whole deletion task (``applications.prune``): the
+  parent's certification, every trial deletion, the final circuit's CC certification and
+  acceptance estimates, and its margin search with the description of its counterexample.
 
-The README's section Terms defines the symbols of the counts, such as N_0, h, and Phi_m.
-
-The count and ground-truth arms take the DEM from an untimed certification with ``max_weight=1``,
-and their measured call is the counting itself, so that the runner's limit applies to it.  That
-certification is preparation, not a warm-up, but it also compiles, or loads from the cache, the code
-that their measured calls share with it.  The runner retries any run whose measured call compiled
-(``common/runner.py``).  No run warms up before timing, apart from ``ground_truth``, whose task
-process first compiles galois's GF(2) arithmetic, untimed (``counting._compile_galois``).  A run of
-``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in under ``repeats.below_s`` gets
-``repeats.count`` more runs (``repeat_tasks``).
+No run warms up before timing, apart from ``ground_truth``, whose task process first compiles
+galois's GF(2) arithmetic, untimed (``counting._compile_galois``).  The runner retries any run
+whose measured call compiled (``common/runner.py``).  A run of ``cert_bz``, ``cert_cc``, or
+``brute_bz`` that finishes in under ``repeats.below_s`` gets ``repeats.count`` more runs
+(``repeat_tasks``).
 """
 
 from __future__ import annotations

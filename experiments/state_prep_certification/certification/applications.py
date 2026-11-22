@@ -138,9 +138,11 @@ def cutoff_reached(result: dict[str, Any], flag_rank: int) -> bool:
 
 
 def describe_certificate(certificate: Any) -> dict[str, Any]:
-    """The untimed description of a certificate, with the exact residual of a counterexample.
+    """The description of a certificate, with the exact residual weight of a counterexample.
 
-    The description of a counterexample also gives its sector (``sector_fields``).
+    The description of a counterexample also gives its sector (``sector_fields``).  It is
+    post-processing, outside T, for ``cert_bz`` and ``cert_cc``, and part of T for ``margin`` and
+    the deletions (``experiment.py``).
     """
     fields: dict[str, Any] = {"certificate_text": str(certificate)}
     example = certificate.counterexample
