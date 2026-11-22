@@ -629,6 +629,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
 
     # the analysis of a label directory of these rows, whose repeats are tasks of pass 2
     label_dir = directory / "label"
+    shutil.rmtree(label_dir, ignore_errors=True)
     label_dir.mkdir()
     (label_dir / "sample.json").write_text(json.dumps(sample))
     tasks.write_pass1(label_dir, [task for task in label_tasks.values() if task["repeat"] == 0])

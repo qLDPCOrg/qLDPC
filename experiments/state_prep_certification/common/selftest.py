@@ -1778,7 +1778,8 @@ def test_acceptance_limit(directory: pathlib.Path, node: bool) -> None:
 def test_plugin_name(directory: pathlib.Path, node: bool) -> None:
     """``load_experiment`` refuses a plug-in whose ``NAME`` is not the name that loads it."""
     with mock.patch.dict(plugin.PLUGINS, {"other": plugin.PLUGINS["selftest"]}):
-        acceptance.raises(ValueError, lambda: plugin.load_experiment("other"))
+        error = acceptance.raises(ValueError, lambda: plugin.load_experiment("other"))
+    assert "is named 'selftest'" in str(error), error
 
 
 @test
