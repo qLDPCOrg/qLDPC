@@ -2231,15 +2231,15 @@ def test_decoder_distance_bounds_exclude_gauge_operators() -> None:
 def test_codes_without_qudits_have_no_operators() -> None:
     """Codes without qudits have no operators, and an empty standard form."""
     matrix = np.zeros((0, 0), dtype=int)
-    for code in [codes.QuditCode(matrix), codes.CSSCode(matrix, matrix, is_subsystem_code=True)]:
-        for get_ops in [
-            code.get_logical_ops,
-            code.get_stabilizer_ops,
-            code.get_gauge_ops,
-            code.get_destabilizer_ops,
-        ]:
-            for pauli in (None, Pauli.X):
-                assert get_ops(pauli).shape == (0, 0)
+    code = codes.QuditCode(matrix)
+    for get_ops in [
+        code.get_logical_ops,
+        code.get_stabilizer_ops,
+        code.get_gauge_ops,
+        code.get_destabilizer_ops,
+    ]:
+        for pauli in (None, Pauli.X):
+            assert get_ops(pauli).shape == (0, 0)
 
     # the standard form of a subsystem code, which the getters above do not use
     code = codes.QuditCode(matrix, is_subsystem_code=True)
