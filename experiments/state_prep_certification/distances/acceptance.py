@@ -16,14 +16,13 @@
   directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
   the analysis of a run on golay a disagreement.  AT5's runs are local, so the analysis refuses
   their rows without ``--allow-local``; with it, every output gives the number of these rows, the
-  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for
-  a start under -O, which sets no variable, and the recorded variable that a resume changed,
-  ``distances.pdf`` in its metadata.  The analysis of the label's archive requires ``--out``, and
-  leaves no extraction of the archive behind, whether it succeeds or refuses the rows.
-  ``compare_with_sample`` reports a sample in which one
-  reference distance differs from that of ``sample.json``, and one with another endpoint and another
-  family of a code.  Each row's tuning is the shipped default, with ``BZ_PRIOR`` for
-  ``q_bz_prior``.
+  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for a
+  start under -O, which sets no variable, and the recorded variable that a resume changed,
+  ``distances.pdf`` in its metadata.  The analysis of the label's archive requires ``--out``, writes
+  its outputs there, and leaves no extraction of the archive behind, whether it succeeds or refuses
+  the rows.  ``compare_with_sample`` reports a sample in which one reference distance differs from
+  that of ``sample.json``, and one with another endpoint and another family of a code.  Each row's
+  tuning is the shipped default, with ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
   ``LOCAL_LIMIT_S``.
@@ -34,11 +33,11 @@
 * **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree
   or time out, medians of three and of two runs that a timed-out run determines, arms that agree on
   a distance other than the reference, an arm without rows, an arm whose repeats have rows but whose
-  first run has none, a first run that ends in an error, a repeat that ends in a memout, both
-  finished, only one arm finished, and both timed out), writes every output, classifies the codes,
-  and marks the family medians as ``analyze.py``'s docstring says, with the number of these ratios,
-  and how many of them are lower bounds and how many upper bounds.  Its rows with
-  ``compiled_in_timing`` set are first runs and repeats, some of them on codes that disagree or
+  first run has none, which keeps their distance, a first run that ends in an error, a repeat that
+  ends in a memout, both finished, only one arm finished, and both timed out), writes every output,
+  classifies the codes, and marks the family medians as ``analyze.py``'s docstring says, with the
+  number of these ratios, and how many of them are lower bounds and how many upper bounds.  Its rows
+  with ``compiled_in_timing`` set are first runs and repeats, some of them on codes that disagree or
   fail.  ``load_sample`` refuses a label directory without a copy of the sample.
 
 GNU parallel's stop and resume and its job-slot pinning are tested by ``common/selftest.py``:
@@ -286,6 +285,7 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
         )
         assert (result.returncode == 0) == bool(allow_local), result.stderr
         assert not any(scratch.iterdir()), list(scratch.iterdir())
+    assert (archived / "analysis" / "summary.csv").exists()
 
 
 @test
@@ -527,7 +527,9 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     assert ratio(second["name"])["case"] == "both > L"
     for entry in (third, fourth, sixth):
         assert ratio(entry["name"])["case"] == "failure", entry["name"]
-    assert by_name[(sixth["name"], "q_bz_on")]["status"] == "missing"
+    # sixth's on arm has no first run, and keeps its repeats' distance for the disagreement check
+    record = by_name[(sixth["name"], "q_bz_on")]
+    assert (record["status"], record["distance"]) == ("missing", 4), record
     # fourth's first run finished, but a repeat ended in a memout, so T is the first run's time
     assert by_name[(fourth["name"], "q_bz_on")]["T"] == 20.0
     assert analyze.classify(ratio(fifth["name"])) == "similar"
