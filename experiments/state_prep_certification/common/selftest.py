@@ -1577,7 +1577,10 @@ def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
-    """A test that raises an ``Exception`` fails alone, and an unknown test ID is refused."""
+    """A test that raises an ``Exception``, or ``SystemExit``, fails alone.
+
+    An unknown test ID is refused.
+    """
 
     class Unexpected(Exception):
         pass
@@ -1591,15 +1594,20 @@ def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
         raise Unexpected
 
     @suite.test
-    def at2_passes(test_dir: pathlib.Path, node: bool) -> None:
+    def at2_exits(test_dir: pathlib.Path, node: bool) -> None:
+        ran.append(test_dir.name)
+        sys.exit("an analysis refused")
+
+    @suite.test
+    def at3_passes(test_dir: pathlib.Path, node: bool) -> None:
         ran.append(test_dir.name)
 
     with contextlib.redirect_stdout(io.StringIO()):
         assert not suite.run_all(node=node, results_dir=directory)
-    assert ran == ["AT1", "AT2"], ran
-    assert suite.parse_args("", ["--only", "AT2"]).only == ["AT2"]
+    assert ran == ["AT1", "AT2", "AT3"], ran
+    assert suite.parse_args("", ["--only", "AT3"]).only == ["AT3"]
     with contextlib.redirect_stderr(io.StringIO()):
-        _expect_exit(lambda: suite.parse_args("", ["--only", "AT3"]))
+        _expect_exit(lambda: suite.parse_args("", ["--only", "AT4"]))
 
     # the self-tests refuse an unknown test name too
     command = [sys.executable, __file__, "--only", "no_such_test"]
@@ -1861,7 +1869,10 @@ def test_node_sh(directory: pathlib.Path, node: bool) -> None:
 esac""",
     )
     _write_script(stubs / "parallel", "echo 'GNU parallel 20000101'")  # older than the pin
-    environment = {"PATH": f"{stubs}:/usr/bin:/bin", "FTSP_RESULTS": str(results), "HOME": "/"}
+    # the stubs come first on the PATH, so that they stand in for uv and GNU parallel, and the
+    # other tools of the preflight are found wherever this machine has them
+    path = os.pathsep.join([str(stubs), os.environ.get("PATH", "/usr/bin:/bin")])
+    environment = {"PATH": path, "FTSP_RESULTS": str(results), "HOME": "/"}
     for name in ("a", "b", "a"):
         script = _node_sh_bundle(directory / name, name)
         result = subprocess.run(
