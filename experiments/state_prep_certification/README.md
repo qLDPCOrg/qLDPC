@@ -29,8 +29,9 @@ The frozen files include the experiment's configuration and the data that fix it
 From a bundle, the label also covers the bundle's resolved requirements.
 Any change to these inputs gives a new label, and so a new directory `results/<experiment>/<label>/`, which Git ignores.
 `common/manifest.py` gives the suffixes that the directory's name can carry.
-That directory holds the manifest (`manifest.json`), one line per start (`starts.jsonl`, written as the start begins, before its acceptance tests), the record of the acceptance tests (`acceptance.json`), the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, the records of GNU parallel and of the live runs in `active/`, the lock of the start that owns the label (`lock`), and the archive.
-Each attempt of the acceptance tests writes its runs to a fresh directory, `results/acceptance/<label directory>/<UTC>-<random>/`, which `acceptance.json` records; failed attempts are kept.
+That directory holds the manifest (`manifest.json`), one line per start (`starts.jsonl`, written as the start begins, before its acceptance tests), the record of the acceptance tests (`acceptance.json`), the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, the records of GNU parallel and of the runs that are, or were, in progress in `active/`, the lock of the start that owns the label directory (`lock`), and the archive.
+Each attempt runs the experiment's acceptance tests in a fresh directory, `results/acceptance/<label directory>/<UTC>-<random>/`, which `acceptance.json` records; failed attempts are kept.
+The node self-tests that an attempt runs first use temporary directories, which they remove.
 The manifest records the machine, the installed package versions, and the environment variables that can change a run, such as `PYTHONPATH` and `NUMBA_*`.
 A node start refuses a few of them, such as `PYTHONPATH`, unless `--allow-env NAME` accepts one, as [`run_node.py`](run_node.py) says.
 The analyses of certification and distances name in every output each such variable that a start accepted, and each recorded variable whose value differs among the label's starts.
@@ -43,7 +44,9 @@ A run is a `timeout` if T reaches the task's limit, even if a memory kill follow
 Otherwise it is `ok` if the measured call returns and its result reaches the runner, a `memout` if its memory exceeds the task's memory cap before its result arrives, and an `error` otherwise.
 For example, a run is an `error` if process start, imports, and untimed preparation exceed the task's start-up cap.
 The runner polls the run's summed memory every second.
-Since the polls can miss a short peak, it also checks the peak that the operating system records for the run's process and the processes that it waited for, which the process sends with its result or the runner reads when it exits: an `ok` run whose peak until its result exceeded the cap becomes a `memout`.
+Since the polls can miss a short peak, it also checks the peak that the operating system records for the run's process and the processes that it waited for.
+The process sends that peak with its result, or the runner reads it when the process exits.
+An `ok` run whose peak until its result exceeded the cap becomes a `memout`.
 These are peaks of single processes, so a short peak of the run's summed memory between polls can still go unseen.
 If the experiment sends its measured result before untimed post-processing, running out of the time that the task allows for it (`post_s`), or a peak above the cap after the result, does not change an `ok` status, but marks the row's `post_status`.
 A run is discarded if numba reports a compilation during its measured call, and the task runs once more in a fresh process that loads the compiled code from numba's disk cache.
@@ -72,7 +75,8 @@ Then build the bundle, which carries the data, and note its checksum:
 python experiments/state_prep_certification/bundle.py EXPERIMENT --out /path/to/bundles
 ```
 
-Name in a bundle every experiment whose directory holds a frozen file of an experiment that it names; `bundle.py` refuses a bundle that lacks a named experiment's frozen file, and says which experiment to add.
+If an experiment's frozen files lie in another experiment's directory, name that experiment in the bundle too.
+`bundle.py` refuses a bundle that lacks a named experiment's frozen file, and says which experiment to add, or which file to make.
 
 The bundle needs a pinned qLDPC commit in `pins.json`; `--unfrozen` builds a trial bundle without one, which `run_node.py` refuses on the node unless `--allow-unfrozen` is given.
 
@@ -86,7 +90,7 @@ bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hour
 
 `node.sh --check` runs only the preflight, and needs only `node.sh` and `pins.json`, so it can run on the node before any bundle exists.
 `node.sh` keeps the results, each bundle's installs, and each bundle's preflight record in `results/` beside it, or in the directory that `FTSP_RESULTS` names, which bundles may share.
-Before the experiment first runs for its label, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
+Before the experiment first runs for its label directory, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
 Repeating the command resumes the run, on any host with the same CPU model, but not while the label's `active/` directory lists runs of another host; if that host's runs are gone, delete their records, which the refusal lists.
 One start, or `--cleanup`, owns a label directory at a time.
 A start refuses while GNU parallel, a run of an earlier start's passes, or a run of its acceptance tests on this host is alive.
@@ -101,7 +105,9 @@ The archive that the run prints at its end is the one file to copy back.
 
 For development on a workstation, `--local` runs the tasks one at a time, without GNU parallel or pinning, and `--subset` selects tasks, as in the commands below.
 A local run has its own label directory, with the suffix `-local`, and the analyses of certification and distances refuse its rows unless given `--allow-local`, with which every output says how many rows of local runs it includes.
-After a hard kill of a local run, run `run_node.py EXPERIMENT --local --cleanup` with the run's `--subset`, before any change to the tree, since the uncommitted changes of a dirty tree name its label directory; check that the label directory that it prints is the run's.
+After a hard kill of a local run, run `run_node.py EXPERIMENT --local --cleanup` with the run's `--subset`, before any change to the tree, since the uncommitted changes to tracked files of a dirty tree name its label directory; check that the label directory that it prints is the run's.
+Locally, `--cleanup` kills a run's process with its current descendants, and the processes that a runner recorded as left after the run's grace; a process that a run left behind after its own process ended has no record, and stays.
+If the tree has changed since, each record in the run's `active/` directory names the run's process id (`pid`) and its runner's (`runner_pid`), with their start times, which you can check with `ps` and kill by hand.
 
 ```bash
 python experiments/state_prep_certification/run_node.py EXPERIMENT --local --subset smoke --approved-cpu-hours H

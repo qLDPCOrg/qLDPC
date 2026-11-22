@@ -1231,7 +1231,10 @@ def test_cleanup_unreadable_records(directory: pathlib.Path, node: bool) -> None
 
 @test
 def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
-    """run_node.py refuses live runs, a local acceptance pass for node mode, and trial bundles."""
+    """run_node.py refuses live runs and a local acceptance pass for node mode.
+
+    It also recognizes a trial bundle, which a node start refuses unless given --allow-unfrozen.
+    """
     from experiments.state_prep_certification.common import manifest, runner
 
     run_node = _run_node_module()

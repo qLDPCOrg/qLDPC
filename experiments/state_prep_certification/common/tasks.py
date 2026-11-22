@@ -4,18 +4,19 @@
 
 A task is a JSON object with a unique ``key``, the ``experiment``, ``arm``, ``mode``, ``repeat``,
 ``limit_s``, and ``mem_cap_gib``.  It may also set ``post_s``, ``startup_cap_s``, and ``grace_s``,
-which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``; each limit
-must be finite and positive, and a key must not start with ``_``, which names GNU parallel's record
-beside the runs' records in a label's ``active/`` directory (see ``run_node.py``);
-``runner.check_task`` refuses a task that breaks either rule.  Beyond these, a task holds whatever
-the experiment needs to run it, such as an input.  ``write_pass1`` writes every task of pass 1 to
-``tasks.json`` and their keys, shuffled with a fixed seed, to ``tasks-pass1.txt``.  ``write_pass2``
-writes the repeats that the experiment's repeat policy asks for, once every task of pass 1 has a
-final row, to ``tasks-pass2.json`` and ``tasks-pass2.txt``, in the order of pass 1; their keys must
-be unique and differ from those of pass 1.  A task file is written once and never changed, since
-GNU parallel's resumption depends on its order; writing it again with other contents is an error,
-because a changed input must give a new label.  ``cores.txt`` lists the logical CPU of each job
-slot.
+which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Each limit
+must be finite and positive, and ``grace_s`` at most ``runner.TERM_WAIT_S`` less 2 s, so that GNU
+parallel's signal sequence leaves the runner its grace.  A key must not start with ``_``, which
+names GNU parallel's record beside the runs' records in a label's ``active/`` directory (see
+``run_node.py``).  ``runner.check_task`` refuses a task that breaks one of these rules.  Beyond
+these, a task holds whatever the experiment needs to run it, such as an input.  ``write_pass1``
+writes every task of pass 1 to ``tasks.json`` and their keys, shuffled with a fixed seed, to
+``tasks-pass1.txt``.  ``write_pass2`` writes the repeats that the experiment's repeat policy asks
+for, once every task of pass 1 has a final row, to ``tasks-pass2.json`` and ``tasks-pass2.txt``, in
+the order of pass 1; their keys must be unique and differ from those of pass 1.  A task file is
+written once and never changed, since GNU parallel's resumption depends on its order; writing it
+again with other contents is an error, because a changed input must give a new label.  ``cores.txt``
+lists the logical CPU of each job slot.
 
 The ceiling is the worst-case CPU time of the task list, with the runner's retries.  For each task
 of pass 1, the experiment's ``worst_case_s`` W counts its first run and the repeats that it can

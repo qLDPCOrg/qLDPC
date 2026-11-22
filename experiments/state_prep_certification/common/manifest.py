@@ -10,8 +10,9 @@ in this order:
 
 * ``-dirty-<hash>`` if the qLDPC tree has uncommitted changes to tracked files (allowed only in
   local runs), where ``<hash>`` is the first 8 hexadecimal digits of the SHA-256 of ``git diff HEAD
-  --binary``, so that a local run of changed code never resumes in the directory of other changes;
-  the manifest records the full SHA-256 of the diff;
+  --binary``, so that a local run of changed code never resumes in the directory of other changes
+  to tracked files (untracked files do not enter the hash); the manifest records the full SHA-256
+  of the diff;
 * ``-local`` for a ``--local`` run, so that its rows never mix with those of the node;
 * ``-<subset>`` for a subset other than ``main`` or ``acceptance``.
 

@@ -15,8 +15,9 @@ experiment (``common/manifest.py``), it
    (``manifest.record_start``), so that the analyses see every environment in which the acceptance
    tests ran, even that of a start that stops at a later step;
 2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
-   label, and stops if they fail; each attempt writes to a fresh directory under
-   ``acceptance/<label directory>/`` of the results directory, which ``acceptance.json`` records;
+   label directory, and stops if they fail; each attempt runs the acceptance tests in a fresh
+   directory under ``acceptance/<label directory>/`` of the results directory, which
+   ``acceptance.json`` records, and the self-tests in temporary directories, which they remove;
 3. refuses a task list in which a task's memory cap exceeds a job slot's memory (``JOB_MEM_GIB``),
    computes the ceiling of CPU-hours of the task list of pass 1, and refuses to go on unless
    ``--approved-cpu-hours`` covers it;
@@ -38,26 +39,26 @@ experiment (``common/manifest.py``), it
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
 with status 0, and the task runner skips tasks that already have a final row.  One start, or
-``--cleanup``, owns a label at a time: it holds an exclusive lock on the label's ``lock`` file until
-it exits, and another refuses to begin.  The script refuses to start while GNU parallel or a run of
-an earlier start is still alive, including a run of the label directory's acceptance attempts on
-this host, whose runners record it under the attempt's directory.  It also refuses to start, and
-``--cleanup`` refuses to act, while the label's ``active/`` directory lists a run of another host,
-which this host can neither see nor stop.  A start refuses a machine whose CPU model differs from
-the one in the label's manifest, which the label's first start that runs tasks writes, so that one
-label never mixes the times of two CPU models; another host with the same CPU model may resume,
-since a machine's hostname can change between its allocations, and ``starts.jsonl`` records each
-start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run it
-once with ``--cleanup``, which kills GNU parallel, every run still listed in the label's ``active/``
-directory, and this host's runs of the label directory's acceptance attempts, if their processes are
-still the ones recorded; the node self-tests run in temporary directories without such records, so
-after a hard kill during them, wait for ``common/selftest.py`` to end.  ``--cleanup`` names, and
-leaves alive, the processes of a run's group whose leader is gone (see ``cleanup``).  ``--status``
-prints the label directory, its progress, and whether each recorded run is alive, and ``--cleanup``
-prints the label directory and what it kills, or that it has nothing to clean up.  Both act on the
-label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose uncommitted
-changes name a dirty label's directory: run them with the run's options and before any change to the
-tree, and check that the label directory that they print is the run's.
+``--cleanup``, owns a label directory at a time: it holds an exclusive lock on the label's ``lock``
+file until it exits, and another refuses to begin.  The script refuses to start while GNU parallel
+or a run of an earlier start is still alive, including a run of the label directory's acceptance
+attempts on this host, whose runners record it under the attempt's directory.  It also refuses to
+start, and ``--cleanup`` refuses to act, while the label's ``active/`` directory lists a run of
+another host, which this host can neither see nor stop.  A start refuses a machine whose CPU model
+differs from the one in the label's manifest, which the label's first start that runs tasks writes,
+so that one label never mixes the times of two CPU models; another host with the same CPU model may
+resume, since a machine's hostname can change between its allocations, and ``starts.jsonl`` records
+each start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run
+it once with ``--cleanup``, which kills GNU parallel, every run still listed in the label's
+``active/`` directory, and this host's runs of the label directory's acceptance attempts, if their
+processes are still the ones recorded; the node self-tests run in temporary directories without such
+records, so after a hard kill during them, wait for ``common/selftest.py`` to end.  ``--cleanup``
+names, and leaves alive, the processes of a run's group whose leader is gone (see ``cleanup``).
+``--status`` prints the label directory, its progress, and whether each recorded run is alive, and
+``--cleanup`` prints the label directory and what it kills, or that it has nothing to clean up.
+Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose
+uncommitted changes name a dirty label's directory: run them with the run's options and before any
+change to the tree, and check that the label directory that they print is the run's.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session, and
 skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development on a
@@ -169,7 +170,7 @@ def main() -> None:
         },
     )
 
-    # 2. self-tests and acceptance tests, once per label
+    # 2. self-tests and acceptance tests, once per label directory
     if args.subset == "acceptance" or not args.local:
         if not run_acceptance(module, label_dir, results_dir, node=not args.local):
             sys.exit("The acceptance tests failed; see above.  Nothing was run.")
@@ -245,13 +246,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--status",
         action="store_true",
-        help="print the progress of the label of --subset (and --local, --results-dir)",
+        help="print the progress of the label directory of --subset (and --local, --results-dir)",
     )
     parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="kill the runs that a hard kill left in the label of --subset (and --local, "
-        "--results-dir)",
+        help="kill the runs that a hard kill left in the label directory of --subset (and "
+        "--local, --results-dir)",
     )
     parser.add_argument("--subset", default="main", help="the subset of tasks (default: main)")
     parser.add_argument(
@@ -340,9 +341,10 @@ def run_acceptance(
 ) -> bool:
     """Run the self-tests (on the node) and the acceptance tests, unless they passed before.
 
-    A pass in local mode does not count for node mode.  Each attempt writes its runs to a fresh
-    directory, ``acceptance/<label directory>/<UTC>-<random>/`` in the results directory, which
-    ``acceptance.json`` records, so that no attempt reuses the rows of another.  Every attempt's
+    A pass in local mode does not count for node mode.  Each attempt runs the experiment's
+    acceptance tests in a fresh directory, ``acceptance/<label directory>/<UTC>-<random>/`` in the
+    results directory, which ``acceptance.json`` records, so that no attempt reuses the rows of
+    another; the node self-tests run in temporary directories, which they remove.  Every attempt's
     directory is kept.
     """
     record = label_dir / "acceptance.json"
@@ -519,7 +521,9 @@ def run_parallel(label_dir: pathlib.Path, command: list[str]) -> int:
     """Run GNU parallel from the qLDPC root, passing SIGTERM on to it; return its exit status.
 
     While it runs, ``active/_parallel`` records its process id, start time, and host, so that after
-    a hard kill of this script, ``live_runs`` and ``cleanup`` find it.
+    a hard kill of this script, ``live_runs`` and ``cleanup`` find it.  A hard kill between GNU
+    parallel's start and that record leaves it unrecorded: ``cleanup`` then kills the runners that
+    it started, but not GNU parallel itself.
     """
     print("+ " + shlex.join(command), flush=True)
     process = subprocess.Popen(command, cwd=ROOT)
@@ -650,14 +654,16 @@ def cleanup(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) ->
     GNU parallel is killed first, if it is still the recorded process, so that it starts no other
     task, and then each task runner, so that it cannot write a row for a run that it lost.  A
     process is killed only if its start time is the recorded one, and a run's process group only if
-    its leader is the recorded process, so that a process that has reused an id is never killed.
-    If the leader is gone but members of its group remain, they may belong to a later group that
-    reused the id, since nothing tells the two apart: ``cleanup`` lists them, kills none, and keeps
-    the record.  A record that a runner kept for the processes left after a run's grace names them
-    with their start times (``survivors``), and ``cleanup`` kills exactly those that are still the
-    same processes; if one of them is still alive ``CLEANUP_WAIT_S`` after the kill, it says so and
-    keeps the record.  An unreadable record is removed, with a note.  Without records, ``cleanup``
-    says that there is nothing to clean up.
+    its leader is the recorded process, so that a process that has reused an id is never killed.  If
+    the leader is gone but members of its group remain, they may belong to a later group that reused
+    the id, since nothing tells the two apart: ``cleanup`` lists them, kills none, and keeps the
+    record.  A record that a runner kept for the processes left after a run's grace names them with
+    their start times (``survivors``), and ``cleanup`` kills exactly those that are still the same
+    processes; if one of them is still alive ``CLEANUP_WAIT_S`` after the kill, it says so and keeps
+    the record.  Locally, a run's record names only its own process, so ``cleanup`` kills that
+    process with its current descendants, and a process that the run left behind after its own
+    process ended stays, unless it is among the survivors.  An unreadable record is removed, with a
+    note.  Without records, ``cleanup`` says that there is nothing to clean up.
     """
     attempts = _acceptance_records(label_dir, results_dir)
     if not _active_records(label_dir) and not attempts:

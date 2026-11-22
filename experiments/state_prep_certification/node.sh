@@ -25,12 +25,13 @@
 #
 # Before every start, and before --status and --cleanup, the files of the bundle are checked
 # against its SHA256SUMS, so that a tree edited on the node is not run under the bundle's label.
-# Every other option passes through to run_node.py; `run_node.py --help` lists them.  --status and
-# --cleanup act on one label directory, so they need the run's --subset, if it was not main.  The
-# environment variable FTSP_RESULTS chooses another results directory, relative to the directory
-# where this script starts; bundles may share it, since each keeps its own environment, CPython,
-# GNU parallel, and preflight record there.  This script passes it to run_node.py as
-# --results-dir, which it refuses as an option.
+# Every other option passes through to run_node.py; `python3
+# experiments/state_prep_certification/run_node.py --help` lists them.  --status and --cleanup act
+# on one label directory, so they need the run's --subset, if it was not main.  The environment
+# variable FTSP_RESULTS chooses another results directory, relative to the directory where this
+# script starts; bundles may share it, since each keeps its own environment, CPython, GNU parallel,
+# and preflight record there.  This script passes it to run_node.py as --results-dir, which it
+# refuses as an option.
 
 set -euo pipefail
 
@@ -72,7 +73,8 @@ version_at_least() {
     [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n 1)" = "$2" ]
 }
 
-# a value as a JSON string: control characters dropped, backslashes and quotes escaped
+# a value as a JSON string: tabs and line breaks become spaces, other control characters are
+# dropped, and backslashes and quotes are escaped
 json_string() {
     printf '"%s"' "$(printf '%s' "$1" | tr '\t\r\n' '   ' | tr -d '\000-\037' |
         sed 's/\\/\\\\/g; s/"/\\"/g')"

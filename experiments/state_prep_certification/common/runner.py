@@ -23,8 +23,9 @@ run until after its row is appended, and watches the child:
   ``FINISH_S``) to send its result and exit.  An experiment with untimed post-processing, such as
   describing a counterexample, sends its measured result first with ``send_result`` and declares a
   longer ``post_s``; running out of it then marks only the row's ``post_status``, and the
-  measured result stands.  Without ``send_result``, running out of
-  ``post_s`` makes the run an ``error``.
+  measured result stands.  Without ``send_result``, a run whose result has not arrived within
+  ``post_s`` is an ``error``, and a run killed after its final result arrived, for not exiting
+  within ``post_s``, stays ``ok``.
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
   process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since
   the polls can miss a short peak, the parent also checks the peak that the operating system
@@ -87,9 +88,8 @@ around the measured call, may call ``send_partial`` with partial results as they
 ``send_result`` with the measured result before it starts post-processing, and returns the
 remaining fields.  On the node, the child runs in a new session, so that its process group holds
 the whole run; locally (``local=True``), it stays in the runner's session, so that whatever watches
-or stops that session reaches it too, and kills walk its process tree instead.  In
-local mode, a process that the run leaves behind after a normal exit is neither killed nor
-reported.
+or stops that session reaches it too, and kills walk its process tree instead.  In local mode, a
+process that the run leaves behind after a normal exit is neither killed nor reported.
 """
 
 from __future__ import annotations
@@ -149,8 +149,9 @@ def check_task(task: dict[str, Any]) -> None:
     """Raise ValueError if a task's limits cannot be enforced, or if its key is reserved.
 
     Each limit must be finite and positive, since a comparison with NaN, or with infinity, never
-    triggers a kill.  A key must not start with ``_``, which names GNU parallel's record in a
-    label's ``active/`` directory (see ``run_node.py``).
+    triggers a kill, and ``grace_s`` at most ``TERM_WAIT_S - _CLEANUP_S``, so that GNU parallel's
+    signal sequence leaves the runner its grace and its clean-up.  A key must not start with ``_``,
+    which names GNU parallel's record in a label's ``active/`` directory (see ``run_node.py``).
     """
     if task["key"].startswith("_"):
         raise ValueError(f"{task['key']}: a task key must not start with '_'")
