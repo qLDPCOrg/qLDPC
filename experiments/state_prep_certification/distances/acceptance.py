@@ -2,49 +2,23 @@
 
 """Acceptance tests of the distance experiment.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python acceptance.py [--local] [--only AT1 AT5 ...] [--results-dir R]
 
-* **AT1:** both arms on fast anchors (bb72, pp110, the quantum Golay code, qr47, the five-qubit
-  code concatenated with itself, the rotated surface code of distance 9) and on
-  ``SurfaceCode(3, 5)`` as plain matrices return the reference distance (3 for the asymmetric
-  code); the plain codes of Golay and qr47, which have H_X = H_Z, have ``_equal_distance_xz``, and
-  the other CSS codes not.  Locally, runs are limited to ``LOCAL_LIMIT_S``, and arms that time out
-  are reported rather than checked.
-* **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
-  left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
-* **AT5:** the regenerated sample matches ``sample.json``, and ``prepare`` copies it into the label
-  directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
-  the analysis of a run on golay a disagreement.  AT5's runs are local, so the analysis refuses
-  their rows without ``--allow-local``; with it, every output gives the number of these rows, the
-  refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for a
-  start under -O, which sets no variable, and the recorded variable that a resume changed,
-  ``distances.pdf`` in its metadata.  The analysis of the label's archive requires ``--out``, writes
-  its outputs there, and leaves no extraction of the archive behind, whether it succeeds or refuses
-  the rows.  ``compare_with_sample`` reports a sample in which one reference distance differs from
-  that of ``sample.json``, and one with another endpoint and another family of a code.  Each row's
-  tuning is the shipped default, with ``BZ_PRIOR`` for ``q_bz_prior``.
-* **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
-  fails; arms that time out are reported rather than compared.  Locally, runs are limited to
-  ``LOCAL_LIMIT_S``.
-* **AT9:** ``run_node.py --dry-run`` writes no task file without an approval that covers the
-  ceiling, never rewrites its task files, and reports the ceiling that ``worst_case_s`` gives with
-  the runner's retries (``tasks.ceiling_hours``).  The repeat policy gives two repeats exactly to
-  first runs that finished in under 300 s.
-* **AT10:** the analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree
-  or time out, medians of three and of two runs that a timed-out run determines, arms that agree on
-  a distance other than the reference, an arm without rows, an arm whose repeats have rows but whose
-  first run has none, which keeps their distance, a first run that ends in an error, a repeat that
-  ends in a memout, both finished, only one arm finished, and both timed out), writes every output,
-  classifies the codes, and marks the family medians as ``analyze.py``'s docstring says, with the
-  number of these ratios, and how many of them are lower bounds and how many upper bounds.  Its rows
-  with ``compiled_in_timing`` set are first runs and repeats, some of them on codes that disagree or
-  fail.  ``load_sample`` refuses a label directory without a copy of the sample.
+* **AT1:** Both arms return the reference distance on fast anchors, searching the same sectors.
+* **AT2:** A run past 5 s is a timeout with no process left; a concurrent run is unaffected.
+* **AT5:** Codes match the sample, the analysis reads the run's copy, and rows hold shipped tunings.
+* **AT6:** Both arms agree on AT1's codes and a small code of each family.
+* **AT9:** Task files need a sufficient approval and are never rewritten; the ceiling and repeats.
+* **AT10:** The analysis classifies synthetic rows of every case, and needs the run's sample.json.
 
-GNU parallel's stop and resume and its job-slot pinning are tested by ``common/selftest.py``:
-locally with stand-in CPU numbers, and in node mode on Linux before the node's acceptance tests.
-``node.sh``'s offline install can be rehearsed on a workstation with a bundle that ``bundle.py``
-builds for the workstation's platform.  The IDs AT3, AT4, AT7, and AT8 are unused.  Each test prints
-PASS or FAIL.
+Each test's docstring gives its details.  GNU parallel's stop and resume and its job-slot pinning
+are tested by ``common/selftest.py``: locally with stand-in CPU numbers, and in node mode on Linux
+before the node's acceptance tests.  ``node.sh``'s offline install can be rehearsed on a workstation
+with a bundle that ``bundle.py`` builds for the workstation's platform.  The IDs AT3, AT4, AT7, and
+AT8 are unused.  Each test prints PASS or FAIL.
 """
 
 from __future__ import annotations
@@ -59,28 +33,41 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
-sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
-from experiments.state_prep_certification.common import acceptance, local_runs, store, tasks
+from experiments.state_prep_certification.common import (
+    acceptance,
+    local_runs,
+    plugin,
+    store,
+    tasks,
+)
 from experiments.state_prep_certification.distances import arms, codes, experiment
 from qldpc import codes as qldpc_codes
 from qldpc.codes.distance import _tuning
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
 AT1_CODES = ("bb72", "pp110", "golay", "qr47", "five_five", "surface9")
 EQUAL_SECTORS = ("golay", "qr47")
 LOCAL_LIMIT_S = 60.0
-# the prior tuning, written out here independently of config.json, which AT5 checks
+# the prior tuning that config.json must give, written out independently of it
 EXPECTED_BZ_PRIOR = {
     "partition_max_coverage": 1,
     "overlapping_minimum_work": _tuning.MAX_VALUE,
     "completion_bound_minimum_layer_work": _tuning.MAX_VALUE,
     "completion_bound_max_table_bytes": 0,
     "automorphism_minimum_layer_work": _tuning.MAX_VALUE,
+}
+# a task's limits, the runner's window for a result, and the repeat policy that config.json and the
+# runner must give, written out independently of them
+EXPECTED_LIMITS = {
+    "startup_cap_s": 120.0,
+    "limit_s": 1800.0,
+    "finish_s": 30.0,
+    "grace_s": 30.0,
+    "repeat_below_s": 300.0,
+    "repeats": 2,
 }
 
 
@@ -133,10 +120,18 @@ def _run_arms(
 def at1_anchors(directory: pathlib.Path, node: bool) -> None:
     """Both arms return the reference distance on fast anchors, searching the same sectors.
 
-    Both arms make the same code-method call on a plain code, so they search the same sectors.  The
-    plain codes with H_X = H_Z, and only those, have ``_equal_distance_xz``, under which a search
-    covers only the X sector; with bliss, a sector map can also give a search of one sector of a
-    code whose check matrices differ.
+    Both arms run on the fast anchors of ``AT1_CODES`` (bb72, pp110, the quantum Golay code, qr47,
+    the five-qubit code concatenated with itself, and the rotated surface code of distance 9) and on
+    ``SurfaceCode(3, 5)`` as plain matrices, and return the reference distance, 3 for the asymmetric
+    code.  Locally, runs are limited to ``LOCAL_LIMIT_S``, and arms that time out are reported
+    rather than checked.
+
+    Each code object that the arms build (``arms.plain_code``) is exactly a ``CSSCode``, or a
+    ``QuditCode`` for a non-CSS code, never a family class.  Both arms make the same code-method
+    call on a plain code, so they search the same sectors.  The plain codes with H_X = H_Z, those of
+    Golay and qr47, and only those, have ``_equal_distance_xz``, under which a search covers only
+    the X sector; with bliss, a sector map can also give a search of one sector of a code whose
+    check matrices differ.
     """
     label_dir = _prepared(directory)
     entries = _entries(AT1_CODES)
@@ -145,21 +140,25 @@ def at1_anchors(directory: pathlib.Path, node: bool) -> None:
     entries.append({"name": "surface_3x5", "reference_d": 3, **stored})
     for entry in entries:
         arrays = codes.load_code(label_dir, entry["code_hash"])
+        plain = arms.plain_code(arrays)
         if "matrix" in arrays:
+            assert type(plain) is qldpc_codes.QuditCode, entry["name"]
             continue
-        plain = qldpc_codes.CSSCode(arrays["matrix_x"], arrays["matrix_z"], is_subsystem_code=False)
+        assert type(plain) is qldpc_codes.CSSCode, entry["name"]
         equal = entry["name"] in EQUAL_SECTORS
         assert bool(plain._equal_distance_xz) == equal, entry["name"]
         assert entry["equal_distance_xz"] == equal, entry["name"]
     rows = _run_arms(label_dir, entries, limit_s=None if node else LOCAL_LIMIT_S)
-    references = {entry["code_hash"][:12]: entry["reference_d"] for entry in entries}
+    label_tasks = tasks.load_tasks(label_dir)
+    references = {entry["code_hash"]: entry["reference_d"] for entry in entries}
     unfinished = []
     for key, row in rows.items():
         if row["status"] == "timeout" and not node:
             unfinished.append(key)
             continue
         assert row["status"] == "ok", (key, row["status"], row["error"])
-        assert row["result"]["distance"] == references[key.split(".")[2]], (key, row)
+        reference = references[label_tasks[key]["input"]["code_hash"]]
+        assert row["result"]["distance"] == reference, (key, row)
     print(
         f"  {len(rows) - len(unfinished)} runs returned the reference distances; "
         f"not finished within the local limit: {unfinished or 'none'}"
@@ -168,7 +167,12 @@ def at1_anchors(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at2_timeout(directory: pathlib.Path, node: bool) -> None:
-    """A run past 5 s is a timeout with no process left; a concurrent run is unaffected."""
+    """A run past 5 s is a timeout with no process left; a concurrent run is unaffected.
+
+    ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process left,
+    while a concurrent run of ``q_bz_on`` on golay finishes unaffected, without
+    ``compiled_in_timing``.
+    """
     label_dir = _prepared(directory)
     (slow,) = _entries(("pp170",))
     (fast,) = _entries(("golay",))
@@ -176,16 +180,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
     fast_task = experiment._task("q_bz_on", fast, 0)
     tasks.write_pass1(label_dir, [slow_task, fast_task])
     processes = [
-        subprocess.Popen(
-            [
-                sys.executable,
-                str(local_runs.RUN_TASK),
-                "--label-dir",
-                str(label_dir),
-                "--local",
-                task["key"],
-            ]
-        )
+        subprocess.Popen(plugin.run_task_command(label_dir, task["key"], local=True))
         for task in (slow_task, fast_task)
     ]
     assert [process.wait() for process in processes] == [0, 0]
@@ -199,7 +194,22 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
-    """Codes match the sample, the analysis reads the run's copy, and rows hold shipped tunings."""
+    """Codes match the sample, the analysis reads the run's copy, and rows hold shipped tunings.
+
+    The regenerated sample matches ``sample.json``, and ``prepare`` copies it into the label
+    directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
+    the analysis of a run on golay a disagreement.  ``compare_with_sample`` reports the difference
+    of a sample in which one reference distance differs from that of ``sample.json``, and those of a
+    sample with another endpoint and another family of a code.  Each row's tuning is the shipped
+    default, with ``BZ_PRIOR`` for ``q_bz_prior``.
+
+    The runs are local, so the analysis refuses their rows without ``--allow-local``.  With it,
+    every output gives the number of these rows, the refused environment variable that a start
+    accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for a start under -O, which sets no variable,
+    and the recorded variable that a resume changed; ``distances.pdf`` gives them in its metadata.
+    The analysis of the label's archive requires ``--out``, writes its outputs there, and leaves no
+    extraction of the archive behind, whether it succeeds or refuses the rows.
+    """
 
     label_dir = directory
     label_dir.mkdir(parents=True, exist_ok=True)
@@ -251,9 +261,7 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
         (anchors,) = [row for row in csv.DictReader(file) if row["family"] == "anchors"]
     assert (anchors["codes"], anchors["disagreement"]) == ("1", "1"), anchors
 
-    # every output gives the number of rows of local runs, the refused environment variables that a
-    # start accepted with --allow-env or ran under, and the recorded variable that a resume changed,
-    # distances.pdf in its metadata too
+    # the marks of every output, and of distances.pdf's metadata
     marks = {
         "local_rows": 2,
         "allowed_environment": "PYTHONOPTIMIZE PYTHONPATH",
@@ -265,13 +273,9 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     assert f"/Subject ({subject})".encode() in (out / "distances.pdf").read_bytes()
 
     # an archive needs --out, and its extraction is removed whether or not the analysis succeeds
+    archive = store.make_archive(label_dir, "label")
     archived = directory / "archived"
     archived.mkdir()
-    archive = archived / "label.tar.gz"
-    with tarfile.open(archive, "w:gz") as tar:
-        for path in label_dir.iterdir():
-            if path != archived:
-                tar.add(path, arcname=f"label/{path.name}")
     scratch = archived / "tmp"
     scratch.mkdir()
     environment = dict(os.environ, TMPDIR=str(scratch))
@@ -290,7 +294,12 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at6_agreement(directory: pathlib.Path, node: bool) -> None:
-    """Both arms agree on AT1's codes and a small code of each family."""
+    """Both arms agree on AT1's codes and a small code of each family.
+
+    Both arms agree on the AT1 codes and on the smallest drawn code of each family, and none fails;
+    arms that time out are reported rather than compared.  Locally, runs are limited to
+    ``LOCAL_LIMIT_S``.
+    """
     label_dir = _prepared(directory)
     sample = _sample()
     smallest: dict[str, dict[str, Any]] = {}
@@ -299,9 +308,10 @@ def at6_agreement(directory: pathlib.Path, node: bool) -> None:
             smallest[entry["family"]] = entry
     entries = _entries(AT1_CODES) + list(smallest.values())
     rows = _run_arms(label_dir, entries, limit_s=None if node else LOCAL_LIMIT_S)
+    label_tasks = tasks.load_tasks(label_dir)
     by_code: dict[str, dict[str, Any]] = {}
     for key, row in rows.items():
-        by_code.setdefault(key.split(".")[2], {})[row["arm"]] = row
+        by_code.setdefault(label_tasks[key]["input"]["code_hash"], {})[row["arm"]] = row
     timeouts = [key for key, row in rows.items() if row["status"] == "timeout"]
     failures = [
         (key, row["status"]) for key, row in rows.items() if row["status"] not in ("ok", "timeout")
@@ -319,11 +329,18 @@ def at6_agreement(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
-    """Task files need a sufficient approval and are never rewritten; the ceiling and repeats."""
+    """Task files need a sufficient approval and are never rewritten; the ceiling and repeats.
+
+    ``run_node.py --dry-run`` writes no task file without an approval that covers the ceiling, and
+    never rewrites its task files.  It reports the ceiling that ``worst_case_s`` gives with the
+    runner's retries (``tasks.ceiling_hours``), which the test computes independently from
+    ``EXPECTED_LIMITS``.  The repeat policy gives two repeats exactly to first runs that finished in
+    under 300 s.
+    """
     shutil.rmtree(directory, ignore_errors=True)
     command = [
         sys.executable,
-        str(ROOT / "experiments" / "state_prep_certification" / "run_node.py"),
+        str(plugin.EXPERIMENTS_DIR / "run_node.py"),
         "distances",
         "--local",
         "--dry-run",
@@ -348,11 +365,14 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     subprocess.run(command + ["--approved-cpu-hours", "100"], check=True, capture_output=True)
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in task_files] == before
 
-    # the ceiling, by independent arithmetic: start-up cap, limit (or the repeat threshold for a
-    # repeated run's first run), result window, and grace, for each run; then, for the runner's
-    # retries, twice that and one more run at the first run's limit
-    task_cost = (120 + 300 + 30 + 30) + 2 * (120 + 1800 + 30 + 30)
-    run_cost = 120 + 1800 + 30 + 30  # one run at the first run's limit
+    # the ceiling, by independent arithmetic: S + 2 W per task (tasks.ceiling_hours), with S the
+    # cost of a run at the task's limit, and W that of a fast first run and its repeats
+    startup, limit, below = (
+        EXPECTED_LIMITS[key] for key in ("startup_cap_s", "limit_s", "repeat_below_s")
+    )
+    after = EXPECTED_LIMITS["finish_s"] + EXPECTED_LIMITS["grace_s"]
+    run_cost = startup + limit + after  # one run at the first run's limit
+    task_cost = (startup + below + after) + EXPECTED_LIMITS["repeats"] * run_cost
     (golay,) = _entries(("golay",))
     for arm in arms.ARMS:
         assert experiment.worst_case_s(experiment._task(arm, golay, 0)) == task_cost
@@ -364,21 +384,35 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
     # the repeat policy: two repeats of a first run that finished in under 300 s, and no others
     task = experiment._task("q_bz_on", golay, 0)
     for status, seconds, expected in (
-        ("ok", 299.9, 2),
-        ("ok", 300.0, 0),
-        ("timeout", 1800.0, 0),
+        ("ok", below - 0.1, EXPECTED_LIMITS["repeats"]),
+        ("ok", below, 0),
+        ("timeout", limit, 0),
         ("error", 1.0, 0),
     ):
         repeats = experiment.repeat_tasks(task, {"status": status, "T": seconds})
         assert len(repeats) == expected, (status, seconds, repeats)
         for number, repeat in enumerate(repeats, 1):
-            assert repeat["key"] == task["key"][:-1] + str(number), repeat["key"]
-            assert repeat["limit_s"] == task["limit_s"] and repeat["repeat"] == number
+            assert repeat["key"] == task["key"].removesuffix(".r0") + f".r{number}", repeat["key"]
+            assert repeat["limit_s"] == limit and repeat["repeat"] == number
 
 
 @test
 def at10_analysis(directory: pathlib.Path, node: bool) -> None:
-    """The analysis classifies synthetic rows of every case, and needs the run's sample.json."""
+    """The analysis classifies synthetic rows of every case, and needs the run's sample.json.
+
+    The analysis reads synthetic rows of every case of ``analyze.py`` (repeats that disagree or time
+    out, medians of three and of two runs that a timed-out run determines, arms that agree on a
+    distance other than the reference, an arm without rows, an arm whose repeats have rows but whose
+    first run has none, which keeps their distance, a first run that ends in an error, a repeat that
+    ends in a memout, both finished, only one arm finished, and both timed out), writes every
+    output, classifies the codes, and marks the family medians as ``analyze.py``'s docstring says,
+    with the number of these ratios, and how many of them are lower bounds and how many upper
+    bounds.  Its rows with ``compiled_in_timing`` set are first runs and repeats, some of them on
+    codes that disagree or fail.  The task keys are opaque, so that each row's code comes from
+    its task's input, and a row without a task is an error.  ``analyze_label`` on a label directory
+    of these rows, whose repeats are tasks of pass 2, writes the same ``summary.csv``.
+    ``load_sample`` refuses a label directory without a copy of the sample.
+    """
     from experiments.state_prep_certification.distances import analyze
 
     sample = _sample()
@@ -391,6 +425,13 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     (gb,) = [e for e in sample["codes"] if e["family"] == "gb"][:1]
     lp_prior, lp_on = [e for e in sample["codes"] if e["family"] == "lp"][:2]
     rows = []
+    label_tasks: dict[str, dict[str, Any]] = {}
+    keys: dict[str, str] = {}
+
+    def task_of(arm: str, entry: dict[str, Any], repeat: int) -> dict[str, Any]:
+        # an opaque key, so that the analysis must take each row's code from its task's input
+        task = experiment._task(arm, entry, repeat)
+        return task | {"key": keys.setdefault(task["key"], f"task{len(keys)}")}
 
     def add(
         entry: dict[str, Any],
@@ -401,9 +442,11 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         d: Any,
         compiled: bool = False,
     ) -> None:
+        task = task_of(arm, entry, repeat)
+        label_tasks[task["key"]] = task
         rows.append(
             {
-                "task_key": f"{arm}.timed.{entry['code_hash'][:12]}.r{repeat}",
+                "task_key": task["key"],
                 "arm": arm,
                 "mode": "timed",
                 "repeat": repeat,
@@ -481,13 +524,13 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     ):
         add(entry, finished, 0, "ok", T, 5)
         add(entry, ({"q_bz_on", "q_bz_prior"} - {finished}).pop(), 0, "timeout", 1800.0, None)
-    expected = [
-        experiment._task(arm, entry, repeat=0)
-        for entry in (golay, bb72, qr47, qr71, qr79, pp110, surface9)
-        + (first, second, third, fourth, fifth, sixth, seventh, gb, lp_prior, lp_on)
-        for arm in ("q_bz_on", "q_bz_prior")
-    ]
-    records = analyze.summarize(rows, sample, expected)
+    # every first run is a task, so that an arm without rows is missing
+    named = (golay, bb72, qr47, qr71, qr79, pp110, surface9)
+    for entry in named + (first, second, third, fourth, fifth, sixth, seventh, gb, lp_prior, lp_on):
+        for arm in ("q_bz_on", "q_bz_prior"):
+            task = task_of(arm, entry, repeat=0)
+            label_tasks[task["key"]] = task
+    records = analyze.summarize(rows, sample, label_tasks)
     out = directory / "analysis"
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
@@ -584,13 +627,26 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         ]
     assert (row["status"], row["T"]) == ("median_timed_out", ""), row
 
-    # a label directory without a copy of the sample is refused
-    try:
-        analyze.load_sample(directory)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("load_sample accepted a label directory without sample.json")
+    # the analysis of a label directory of these rows, whose repeats are tasks of pass 2
+    label_dir = directory / "label"
+    shutil.rmtree(label_dir, ignore_errors=True)
+    label_dir.mkdir()
+    (label_dir / "sample.json").write_text(json.dumps(sample))
+    tasks.write_pass1(label_dir, [task for task in label_tasks.values() if task["repeat"] == 0])
+    (label_dir / tasks.PASS2_TASKS_FILE).write_text(
+        json.dumps([task for task in label_tasks.values() if task["repeat"]])
+    )
+    for row in rows:
+        store.append_row(label_dir, row)
+    analyze.analyze_label(label_dir, label_dir / "analysis", allow_local=False)
+    summary = (label_dir / "analysis" / "summary.csv").read_text()
+    assert summary == (out / "summary.csv").read_text()
+
+    # a row without a task is an error, and a label directory without a copy of the sample is
+    # refused
+    unknown = dict(rows[0], task_key="unknown")
+    acceptance.raises(ValueError, lambda: analyze.summarize([unknown], sample, label_tasks))
+    acceptance.raises(ValueError, lambda: analyze.load_sample(directory))
 
 
 if __name__ == "__main__":

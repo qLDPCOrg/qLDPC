@@ -2,6 +2,9 @@
 
 """Analyze a run of the ranking experiment: admission, scores, agreement, the gate, and costs.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python analyze.py (--archive PATH | --label-dir DIR) --certification-archive PATH [--out DIR]
 
 The analysis is descriptive: tables with first-order standard errors, which are not confidence
@@ -127,7 +130,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from experiments.state_prep_certification.certification import analyze as certification_analyze
 from experiments.state_prep_certification.certification import experiment as certification
-from experiments.state_prep_certification.common import manifest, store
+from experiments.state_prep_certification.common import manifest, plugin, store
 from experiments.state_prep_certification.common import tasks as task_store
 from experiments.state_prep_certification.ranking import direct, experiment
 from qldpc.experimental.circuits.benchmarking import (
@@ -156,7 +159,7 @@ class ProvenanceError(SystemExit):
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or certification_analyze._unpack(
+    label_dir = args.label_dir or store.unpack_archive(
         args.archive, pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
     )
     out = args.out or label_dir / "analysis"
@@ -242,7 +245,7 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
     if recorded[:2] != [store.sha256_file(archive), archive.name]:
         raise ProvenanceError(f"{archive.name} does not match {sums_file.name}")
     # the files of the archive against its inner SHA256SUMS
-    label_dir = certification_analyze._unpack(
+    label_dir = store.unpack_archive(
         archive, pathlib.Path(tempfile.mkdtemp(prefix="spc-analysis-"))
     )
     sums = (label_dir / "SHA256SUMS").read_text().splitlines()
@@ -298,7 +301,7 @@ def admit(
         for e in json.loads((certification_dir / "circuits.json").read_text())["circuits"]
     }
     rows = certification_analyze._final_rows(certification_dir)
-    expected = certification_analyze._expected_tasks(certification_dir)
+    expected = task_store.load_tasks(certification_dir)
     summary, _ = certification_analyze.summarize(
         certification_analyze.collect(rows, circuits, expected)
     )
@@ -1299,7 +1302,7 @@ def _flatten(candidate: dict[str, Any]) -> dict[str, Any]:
 def _git_show(commit: str, path: str) -> bytes:
     """A file of the repository at a commit; a provenance error if Git cannot show it."""
     shown = subprocess.run(
-        ["git", "-C", str(manifest.REPOSITORY_ROOT), "show", f"{commit}:{path}"],
+        ["git", "-C", str(plugin.ROOT), "show", f"{commit}:{path}"],
         capture_output=True,
         check=False,
     )

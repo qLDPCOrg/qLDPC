@@ -2,23 +2,26 @@
 
 """The brute-force baseline of the certification experiment, with the certifier's own oracle.
 
-The baseline measures what the listing of irreducible accepted faults saves over checking every
-accepted fault combination with the same oracle.  ``brute_force_smallest_violation`` takes the
+The baseline measures what the listing of irreducible accepted faults saves over checking the
+accepted fault combinations with the same oracle.  ``BruteForce.find_smallest_violation`` takes the
 arguments of qLDPC's ``find_smallest_violation`` (``qldpc.circuits.certification._fault_search``)
 and returns its result, a ``Violation`` of the smallest fault weight or None.  Like it, the
 baseline keeps one mechanism per distinct nonzero (flags, syndrome) signature, the N_0 reduced
-mechanisms, and builds its oracle as ``CosetLeaderSearch(stabilizers, css_weight=css_weight,
-method=method)``, by the name that the fault search uses.  Its search uses no theory of the
-certifier, such as listing, the classification of heavy mechanisms, the cutoff K', or skipping:
+mechanisms.  It builds its oracle as ``CosetLeaderSearch(stabilizers, css_weight=css_weight,
+method=method)``, through the name ``_fault_search.CosetLeaderSearch``, as the fault search does.
+Its search uses no theory of the certifier, such as listing, the classification of heavy
+mechanisms, or skipping:
 
-* for each fault weight m = 1, ..., K, it enumerates every accepted combination of weight m, a
-  set of m reduced mechanisms whose flags sum to zero.  A compiled depth-first search runs over
-  increasing tuples of m - 1 mechanisms with their running sums, and finds each m-th mechanism by
-  a lookup of the later mechanisms whose flags equal the prefix's sum;
-* it submits the packed syndromes of the combinations, in enumeration order, to
-  ``oracle.find_first_not_within_max_weight(rows, m)`` in batches of ``batch_size`` rows;
-* it stops at the first weight with a violation, as the certifier does, and returns the first
-  violating combination of that weight.
+* for each fault weight m = 1, ..., K, it enumerates the accepted combinations of weight m, the
+  sets of m reduced mechanisms whose flags sum to zero (``_enumerate_combinations``), and submits
+  their packed syndromes, in enumeration order and in batches of ``batch_size`` rows, to
+  ``oracle.find_first_not_within_max_weight(rows, m)``;
+* it stops at the first batch that holds a violation, so that it queries every accepted
+  combination only of the weights below the smallest violating one, and returns the first
+  violating combination of that batch.
+
+Given ``max_weight`` K, it checks every weight up to K, also above the cutoff K'; with
+``max_weight`` None, it checks up to the cutoff r + 1, as qLDPC does.
 
 ``BruteForce.install`` replaces ``fault_propagation.find_smallest_violation`` by the baseline in
 this process, so that ``certify_bounded_fault_propagation`` builds the DEM and the oracle as for
@@ -32,9 +35,7 @@ part of T, and each weight records it as ``distinct_seconds``.  By default, ``ba
 
 from __future__ import annotations
 
-import json
 import math
-import pathlib
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -47,12 +48,11 @@ from experiments.state_prep_certification.certification.counting import (
     pack_words,
     reduce_signatures,
 )
+from experiments.state_prep_certification.certification.settings import CONFIG
 from qldpc._compilation import always_compiled
 from qldpc.circuits.certification import _fault_search, fault_propagation
 from qldpc.circuits.certification._fault_search import Violation
 from qldpc.codes.distance import CosetMethod
-
-CONFIG = json.loads((pathlib.Path(__file__).resolve().parent / "config.json").read_text())
 
 # The number of rows in each batch of oracle queries.
 BATCH_SIZE = int(CONFIG["brute_force"]["batch_size"])
@@ -116,12 +116,8 @@ class BruteForce:
     @contextmanager
     def install(self) -> Iterator[BruteForce]:
         """Replace ``fault_propagation.find_smallest_violation`` for the duration of the block."""
-        original = fault_propagation.find_smallest_violation
-        fault_propagation.find_smallest_violation = self.find_smallest_violation
-        try:
+        with fault_search_replaced(self.find_smallest_violation):
             yield self
-        finally:
-            fault_propagation.find_smallest_violation = original
 
     def find_smallest_violation(
         self,
@@ -251,23 +247,19 @@ class BruteForce:
         return violation
 
 
-def brute_force_smallest_violation(
-    flags: Sequence[int],
-    syndromes: Sequence[int],
-    stabilizers: npt.ArrayLike,
-    max_weight: int | None,
-    css_weight: bool,
-    memory_limit: int = 2**30,
-    method: CosetMethod = "auto",
-) -> Violation | None:
-    """Find a violating accepted fault of the smallest fault weight by brute force, or None.
+@contextmanager
+def fault_search_replaced(search: Callable[..., Violation | None]) -> Iterator[None]:
+    """Replace ``fault_propagation.find_smallest_violation`` by ``search`` within the block.
 
-    The arguments and the result are those of qLDPC's ``find_smallest_violation``; see
-    ``BruteForce.find_smallest_violation``.
+    The certifier calls the replacement with the arguments of qLDPC's fault search, by the name
+    that ``certify_bounded_fault_propagation`` uses.  The original is restored on exit.
     """
-    return BruteForce().find_smallest_violation(
-        flags, syndromes, stabilizers, max_weight, css_weight, memory_limit, method=method
-    )
+    original = fault_propagation.find_smallest_violation
+    fault_propagation.find_smallest_violation = search
+    try:
+        yield
+    finally:
+        fault_propagation.find_smallest_violation = original
 
 
 def enumeration_size(num_reduced: int, max_weight: int) -> int:

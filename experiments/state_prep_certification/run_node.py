@@ -2,8 +2,10 @@
 
 """Run one experiment: acceptance tests, task lists, the two passes, and the archive.
 
-    python experiments/state_prep_certification/run_node.py EXPERIMENT --approved-cpu-hours H \
-        [options]
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
+    python experiments/state_prep_certification/run_node.py EXPERIMENT --approved-cpu-hours H [...]
 
 On the node, ``node.sh`` calls this script with the bundle's interpreter.  For the label of the
 experiment (``common/manifest.py``), it
@@ -12,60 +14,60 @@ experiment (``common/manifest.py``), it
    and an environment variable of ``REFUSED_ENVIRONMENT``, such as ``PYTHONPATH``, unless
    ``--allow-env NAME`` accepts it (``NUMBA_CACHE_DIR``, which ``node.sh`` sets, is allowed),
    and then records the start, with its host, CPU model, environment, and Python's optimization
-   level, in ``starts.jsonl`` (``manifest.record_start``), so that the analyses see every
-   environment in which the acceptance tests ran, even that of a start that stops at a later step;
-2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
-   label directory, and stops if they fail; each attempt runs the acceptance tests in a fresh
-   directory under ``acceptance/<label directory>/`` of the results directory, which
-   ``acceptance.json`` records, and the self-tests in temporary directories, which they remove;
+   level, in ``starts.jsonl``, before the tests of step 2 (see ``manifest.record_start``);
+2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, unless they
+   passed for the label directory before (see ``run_acceptance``), and stops if they fail.  Each
+   such attempt, an acceptance attempt, runs the acceptance tests in a fresh directory under
+   ``acceptance/<label directory>/`` of the results directory, which ``acceptance.json`` records,
+   and the self-tests in temporary directories, which they remove;
 3. refuses a task list in which a task's memory cap exceeds a job slot's memory (``JOB_MEM_GIB``),
-   computes the ceiling of CPU-hours of the task list of pass 1, and refuses to go on unless
-   ``--approved-cpu-hours`` covers it;
+   prints the number of tasks of pass 1 and the ceiling of CPU-hours (``tasks.ceiling_hours``),
+   and stops with exit status 1 unless ``--approved-cpu-hours`` covers the ceiling;
 4. prepares the inputs (``prepare``), which checks them against the experiment's frozen files, and
    writes the task list;
-5. writes ``cores.txt``, adds the job slots to the start's line of ``starts.jsonl``, and writes the
-   manifest at the label's first start that is not a dry run: the number of job slots is the
-   smallest of the number of free physical cores, the number of ``JOB_MEM_GIB`` slots that fit in
-   memory, and ``--jobs``, if given, with ``tasks.RESERVED_CORES`` physical cores and
-   ``tasks.RESERVED_MEM_GIB`` of memory reserved, and the script stops if no slot fits; it also
-   pins this script, and so GNU parallel and the task runners, to the logical CPUs of the reserved
-   cores;
-6. runs pass 1 with GNU parallel, one task per job slot, whose child process pins itself to its
-   slot's CPU, then the repeats of pass 2; while GNU parallel runs, ``active/_parallel`` records
-   it, and after each pass, the script stops if a task of the pass has no final row, lists such
-   tasks in ``missing-pass<N>.txt``, and says how to rerun them through a start (see
-   ``run_pass``);
-7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz``: the one file to copy back.
+5. chooses the job slots (``tasks.choose_cpus``), at most ``--jobs`` if given, and stops if no
+   slot fits.  It writes ``cores.txt``, adds the job slots to the start's line of
+   ``starts.jsonl``, and writes the manifest at the label's first start that is not a dry run.  It
+   also pins this script, and so GNU parallel and the task runners, to the logical CPUs of the
+   reserved cores;
+6. runs pass 1 with GNU parallel, one task at a time per job slot, each run pinned to its slot's
+   CPU, then the repeats of pass 2.  While GNU parallel runs, ``active/_parallel`` records it.
+   After each pass, the script stops if a task of the pass has no final row, lists such tasks in
+   ``missing-pass<N>.txt``, and says how to rerun them through a start (see ``run_pass``);
+7. writes the archive ``archive/<label directory>-<host>-<UTC>.tar.gz`` and its ``.sha256`` file:
+   the files to copy back.
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
-with status 0, and the task runner skips tasks that already have a final row.  One start, or
-``--cleanup``, owns a label directory at a time: it holds an exclusive lock on the label's ``lock``
-file until it exits, and another refuses to begin.  The script refuses to start while GNU parallel
-or a run of an earlier start is still alive, including a run of the label directory's acceptance
-attempts on this host, whose runners record it under the attempt's directory.  It also refuses to
-start, and ``--cleanup`` refuses to act, while the label's ``active/`` directory lists a run of
-another host, which this host can neither see nor stop.  A start refuses a machine whose CPU model
-differs from the one in the label's manifest, which the label's first start that runs tasks writes,
-so that one label never mixes the times of two CPU models; another host with the same CPU model may
-resume, since a machine's hostname can change between its allocations, and ``starts.jsonl`` records
-each start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run
-it once with ``--cleanup``, which kills GNU parallel, every run still listed in the label's
-``active/`` directory, and this host's runs of the label directory's acceptance attempts, if their
-processes are still the ones recorded; the node self-tests run in temporary directories without such
-records, so after a hard kill during them, wait for ``common/selftest.py`` to end.  ``--cleanup``
-names, and leaves alive, the processes of a run's group whose leader is gone (see ``cleanup``).
-``--status`` prints the label directory, its progress, and whether each recorded run is alive, or
-that its record is unreadable or of another host, and ``--cleanup`` prints the label directory and
-what it kills, or that it has nothing to clean up.
-Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose
-uncommitted changes name a dirty label's directory: run them with the run's options and before any
-change to the tree, and check that the label directory that they print is the run's.
+with status 0, and the task runner skips tasks that already have a final row, whatever its status,
+so that resuming never reruns a task whose row is a ``timeout``, ``memout``, or ``error``.
 
-``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session, and
-skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development on a
-workstation.  A local run has its own label directory, so ``--status`` and ``--cleanup`` of a local
-run need ``--local`` too, and the analyses of certification and distances refuse its rows unless
-given ``--allow-local``.  ``--dry-run`` stops after step 5, without writing ``manifest.json``
+One start, or ``--cleanup``, owns a label directory at a time: it holds an exclusive lock on the
+label's ``lock`` file until it exits, and another refuses to begin.  The script refuses to start
+while GNU parallel or a run of an earlier start is still alive, including a run of the label
+directory's acceptance attempts on this host, whose runners record it under the attempt's directory.
+It also refuses to start, and ``--cleanup`` refuses to act, while the label's ``active/`` directory
+lists a run of another host, which this host can neither see nor stop.  A start refuses a machine
+whose CPU model differs from the one in the label's manifest, so that one label never mixes the
+times of two CPU models; another host with the same CPU model may resume, and ``starts.jsonl``
+records each start's host and number of job slots.
+
+After a hard kill of this script or of GNU parallel, run it once with ``--cleanup``, which kills GNU
+parallel, every run still listed in the label's ``active/`` directory, and this host's runs of the
+label directory's acceptance attempts, if their processes are still the ones recorded; the node
+self-tests run in temporary directories without such records, so after a hard kill during them, wait
+for ``common/selftest.py`` to end.  ``--cleanup`` names, and leaves alive, the processes of a run's
+group whose leader is gone (see ``cleanup``).  ``--status`` prints the label directory, its
+progress, and whether each recorded run is alive, or that its record is unreadable or of another
+host, and ``--cleanup`` prints the label directory and what it kills, or that it has nothing to
+clean up.  Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the
+tree, whose uncommitted changes name a dirty label's directory: run them with the run's options and
+before any change to the tree, and check that the label directory that they print is the run's.
+
+``--local`` runs the tasks one at a time without GNU parallel, keeps every run in the session of the
+command, and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves
+development on a workstation.  A local run has its own label directory, so ``--status`` and
+``--cleanup`` of a local run need ``--local`` too, and an analysis may refuse its rows (see
+``store.count_local_rows``).  ``--dry-run`` stops after step 5, without writing ``manifest.json``
 (``starts.jsonl`` records it as a dry run), and prints the GNU parallel command.  ``--subset NAME``
 selects a subset of the tasks, such as ``smoke``; a subset other than ``main`` or ``acceptance``
 gets its own label directory (see ``common/manifest.py``).  ``--subset acceptance`` runs only the
@@ -94,10 +96,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from experiments.state_prep_certification.common import manifest, plugin, runner, store, tasks
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_task.py"
-SELFTEST = ROOT / "experiments" / "state_prep_certification" / "common" / "selftest.py"
-DEFAULT_RESULTS = ROOT / "experiments" / "state_prep_certification" / "results"
+SELFTEST = plugin.EXPERIMENTS_DIR / "common" / "selftest.py"
+DEFAULT_RESULTS = plugin.EXPERIMENTS_DIR / "results"
 # GNU parallel's record in a label's active/ directory, beside the runs' records, which task keys
 # name (runner.check_task refuses a task key that starts with "_")
 PARALLEL_RECORD = "_parallel"
@@ -108,7 +108,7 @@ CLEANUP_WAIT_S = 2.0
 # Python's -O, which strips the asserts of the acceptance tests that this script runs, and paths
 # that can import other code.  numba reads NUMBA_DISABLE_JIT with int(), and a value that does not
 # parse leaves the JIT on.  PYTHONOPTIMIZE is refused when this interpreter, or a Python that it
-# starts, runs with -O, as Python reads the variable (see check_environment), not by its value.
+# starts, runs with -O (see check_environment), not by its value.
 REFUSED_ENVIRONMENT: dict[str, Callable[[str], bool]] = {
     "QLDPC_DISABLE_COMPILATION": lambda value: value == "1",
     "NUMBA_DISABLE_JIT": lambda value: _nonzero_integer(value),
@@ -171,7 +171,7 @@ def main() -> None:
         },
     )
 
-    # 2. self-tests and acceptance tests, once per label directory
+    # 2. self-tests and acceptance tests, unless they passed for the label directory before
     if args.subset == "acceptance" or not args.local:
         if not run_acceptance(module, label_dir, results_dir, node=not args.local):
             sys.exit("The acceptance tests failed; see above.  Nothing was run.")
@@ -343,11 +343,10 @@ def run_acceptance(
     """Run the self-tests (on the node) and the acceptance tests, unless they passed before.
 
     A pass in local mode does not count for node mode, nor a pass on another CPU model.  Each
-    attempt runs the experiment's
-    acceptance tests in a fresh directory, ``acceptance/<label directory>/<UTC>-<random>/`` in the
-    results directory, which ``acceptance.json`` records, so that no attempt reuses the rows of
-    another; the node self-tests run in temporary directories, which they remove.  Every attempt's
-    directory is kept.
+    attempt runs the experiment's acceptance tests in a fresh directory,
+    ``acceptance/<label directory>/<UTC>-<random>/`` in the results directory, which
+    ``acceptance.json`` records, so that no attempt reuses the rows of another; the node self-tests
+    run in temporary directories, which they remove.  Every attempt's directory is kept.
     """
     record = label_dir / "acceptance.json"
     if record.exists():
@@ -363,7 +362,7 @@ def run_acceptance(
     passed = True
     if node:
         selftest = [sys.executable, str(SELFTEST), "--node"]
-        passed = subprocess.run(selftest, cwd=ROOT, check=False).returncode == 0
+        passed = subprocess.run(selftest, cwd=plugin.ROOT, check=False).returncode == 0
     passed = passed and bool(module.acceptance(node, directory))
     store.write_atomic(
         record,
@@ -477,7 +476,7 @@ def refuse_other_cpu(label_dir: pathlib.Path) -> None:
 
 
 def _unfrozen_bundle() -> bool:
-    """Whether this tree comes from a bundle built without a frozen qLDPC commit."""
+    """Whether this tree comes from a bundle built without a pinned qLDPC commit."""
     bundle = manifest.bundle_record()
     return bool(bundle and bundle.get("unfrozen"))
 
@@ -540,7 +539,7 @@ def run_parallel(label_dir: pathlib.Path, command: list[str]) -> int:
     it started, but not GNU parallel itself.
     """
     print("+ " + shlex.join(command), flush=True)
-    process = subprocess.Popen(command, cwd=ROOT)
+    process = subprocess.Popen(command, cwd=plugin.ROOT)
     record = label_dir / "active" / PARALLEL_RECORD
     try:
         record.parent.mkdir(exist_ok=True)
@@ -571,8 +570,8 @@ def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, lo
     """Run the tasks of a pass file: one at a time locally, or with GNU parallel."""
     if local:
         for key in keys:
-            command = [sys.executable, str(RUN_TASK), "--label-dir", str(label_dir), "--local", key]
-            if subprocess.run(command, cwd=ROOT, check=False).returncode:
+            command = plugin.run_task_command(label_dir, key, local=True)
+            if subprocess.run(command, cwd=plugin.ROOT, check=False).returncode:
                 sys.exit(f"Task {key} ended without a final row; rerun to resume")
         return
     command = tasks.parallel_command(label_dir, pathlib.Path(sys.executable), name, jobs)
@@ -587,10 +586,11 @@ def _run_keys(label_dir: pathlib.Path, name: str, keys: list[str], jobs: int, lo
 def print_status(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) -> None:
     """Print the label's directory, its final rows by pass and status, and its recorded runs.
 
-    Each record of a run, in the label's ``active/`` directory or, given the results directory,
-    under the label directory's acceptance attempts, is said to be alive or ended, as
-    ``live_runs`` finds it, or else to be unreadable or of another host, whose processes this host
-    cannot check.
+    For each pass, it also counts the tasks that ``missing-pass<N>.txt`` lists as having ended the
+    pass without a final row, and that still have none.  Each record of a run, in the label's
+    ``active/`` directory or, given the results directory, under the label directory's acceptance
+    attempts, is said to be alive or ended, as ``live_runs`` finds it, or else to be unreadable or
+    of another host, whose processes this host cannot check.
     """
     print(f"label directory: {label_dir}")
     problems: list[str] = []
@@ -809,11 +809,8 @@ def _kill_tree_if_same(pid: int, start: str | None) -> bool:
     table = runner.process_table()
     if not _same(table, pid, start):
         return False
-    for member in runner.descendants(table, pid):
-        try:
-            os.kill(member, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+    members = runner.descendants(table, pid)
+    runner.kill_same(table, {member: table[member].start for member in members})
     return True
 
 

@@ -2,6 +2,9 @@
 
 """Build the offline bundle that carries the experiments of this directory to the node.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python experiments/state_prep_certification/bundle.py EXPERIMENT... --out DIR [--unfrozen]
 
 The node has no practical network access, so everything that it needs travels in one file,
@@ -13,23 +16,23 @@ one directory of the same name, with:
   (their inputs that are not committed, as each experiment's README describes) and
   ``experiments/state_prep_certification/bundle.json``;
 * ``wheels/``: wheels for the pinned CPython and Linux platform of ``pins.json``.  They cover
-  qLDPC's runtime requirements with the extras of ``qldpc_extras``, each experiment's
-  ``EXTRA_WHEELS``, and qLDPC itself, built from the archive;
+  qLDPC's runtime requirements with the extras that ``qldpc_extras`` of ``pins.json`` names, each
+  experiment's ``EXTRA_WHEELS``, and qLDPC itself, built from the archive;
 * ``requirements-node.txt``: the resolved requirements with exact versions and hashes, including
   qLDPC's own wheel;
 * ``python/``: the pinned python-build-standalone CPython;
 * ``parallel/``: the pinned GNU parallel release, whose ``src/parallel`` is a Perl script;
-* ``SHA256SUMS`` over every file, and ``bundle.json``: the bundle's name, the commits, the platform,
-  every command run, and every fallback taken.
+* ``SHA256SUMS`` over every file, and ``bundle.json``: the bundle's name, the harness commit and the
+  pinned qLDPC commit, the platforms, the commands that made the bundle's contents (``commands``:
+  the archive, the resolution, the builds, the wheel downloads that succeeded, and each download
+  that the cache did not serve, but not the checks of the worktree), and each fallback taken
+  (``fallbacks``): a requirement built from its sdist, or a trial bundle (``--unfrozen``).
 
 ``bundle.json`` records the SHA-256 of the resolved requirements, which enters the label of every
 run on the node, so that a label fixes the versions of the third-party packages too.
 
-A requirement without a wheel for the platform is built into a wheel here, from its sdist checked
-against the resolution's hash, if it is pure Python (``py3-none-any`` or ``py2.py3-none-any``); the
-lockfile's hash for it is then replaced by the hash of that wheel, since an install with
-``--require-hashes`` would otherwise reject it.  Any other requirement without a wheel stops the
-script.
+A requirement without a wheel for the platform is built into a wheel here from its sdist if it is
+pure Python, and any other requirement without a wheel stops the script (``download_wheels``).
 
 The script refuses a named experiment whose frozen files (``FROZEN_FILES``) are not all in the
 staged tree, before any download, so that an experiment whose frozen files lie in another
@@ -66,7 +69,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from experiments.state_prep_certification.common import manifest, plugin, store
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMMANDS: list[list[str]] = []
 FALLBACKS: list[str] = []
 
@@ -78,7 +80,7 @@ def main() -> None:
     platform = args.uv_python_platform or pins["platform"]["uv_python_platform"]
     wheel_platforms = args.wheel_platform or pins["platform"]["wheel_platforms"]
     modules = [plugin.load_experiment(name) for name in args.experiments]
-    commit = check_tree(pins, modules, args.unfrozen)
+    commit = check_tree(pins, args.unfrozen)
 
     # build in a staging directory, named once the requirements are resolved
     out = args.out.resolve()
@@ -93,7 +95,7 @@ def main() -> None:
     tree = staging / "qLDPC"
     tree.mkdir()
     archive = subprocess.run(
-        ["git", "-C", str(ROOT), "archive", "HEAD"], capture_output=True, check=True
+        ["git", "-C", str(plugin.ROOT), "archive", "HEAD"], capture_output=True, check=True
     )
     COMMANDS.append(["git", "archive", "HEAD"])
     with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r|") as tar:
@@ -232,12 +234,12 @@ def check_frozen_files(tree: pathlib.Path, modules: list[Any]) -> None:
             )
 
 
-def check_tree(pins: dict[str, Any], modules: list[Any], unfrozen: bool) -> str:
+def check_tree(pins: dict[str, Any], unfrozen: bool) -> str:
     """Check the worktree and the qLDPC pin; return the harness commit."""
-    status = _git("status", "--porcelain", "--untracked-files=no")
+    status = manifest.tracked_changes()
     if status:
         sys.exit(f"The worktree has uncommitted changes:\n{status}")
-    head = _git("rev-parse", "HEAD")
+    head = manifest.git("rev-parse", "HEAD")
     frozen = pins["qldpc_commit"]
     if frozen is None:
         if not unfrozen:
@@ -245,17 +247,11 @@ def check_tree(pins: dict[str, Any], modules: list[Any], unfrozen: bool) -> str:
         FALLBACKS.append("trial: no qldpc_commit in pins.json, so not for the node")
         return head
     if subprocess.run(
-        ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", frozen, head], check=False
+        ["git", "-C", str(plugin.ROOT), "merge-base", "--is-ancestor", frozen, head], check=False
     ).returncode:
         sys.exit(f"HEAD does not descend from the pinned qLDPC commit {frozen}")
-    if _git("diff", "--name-only", frozen, head, "--", "src", "pyproject.toml"):
+    if manifest.git("diff", "--name-only", frozen, head, "--", "src", "pyproject.toml"):
         sys.exit(f"src/ or pyproject.toml changed since the pinned qLDPC commit {frozen}")
-    for module in modules:
-        config = plugin.experiment_dir(module.NAME) / "config.json"
-        if config.exists():
-            own = json.loads(config.read_text()).get("qldpc_commit")
-            if own not in (None, frozen):
-                sys.exit(f"{module.NAME}/config.json pins qLDPC at {own}, pins.json at {frozen}")
     return head
 
 
@@ -337,7 +333,8 @@ def download_wheels(
 ) -> str:
     """Download a wheel of every requirement, or build a pure-Python one; return the requirements.
 
-    The hash of a requirement whose wheel was built here is replaced by the hash of that wheel.
+    The hash of a requirement whose wheel was built here is replaced by the hash of that wheel,
+    since an install with ``--require-hashes`` would otherwise reject it.
     """
     entries = _split_requirements(requirements)
     lines = []
@@ -381,8 +378,8 @@ def build_pure_python_wheel(
 ) -> pathlib.Path:
     """Build a wheel from a requirement's sdist, and stop unless it is pure Python.
 
-    The sdist is downloaded through the hashed requirement file ``hashed``, so that it must match
-    a hash of the resolution.
+    A pure-Python wheel is tagged ``py3-none-any`` or ``py2.py3-none-any``.  The sdist is downloaded
+    through the hashed requirement file ``hashed``, so that it must match a hash of the resolution.
     """
     sdists = cache / "sdists"
     sdists.mkdir(exist_ok=True)
@@ -426,7 +423,7 @@ def build_pure_python_wheel(
 
 
 def _split_requirements(requirements: str) -> list[tuple[str, str, str]]:
-    """The name, version, and full hashed entry of each requirement of a compiled file."""
+    """The name, version, and full hashed entry of each requirement of a resolved file."""
     entries: list[tuple[str, str, str]] = []
     current: list[str] = []
     for line in requirements.splitlines():
@@ -442,7 +439,7 @@ def _split_requirements(requirements: str) -> list[tuple[str, str, str]]:
 
 
 def _entry(lines: list[str]) -> tuple[str, str, str]:
-    """The name, version, and text of one compiled requirement."""
+    """The name, version, and text of one requirement of a resolved file."""
     match = re.match(r"([A-Za-z0-9_.-]+)==([^ ;\\]+)", lines[0])
     if match is None:
         raise ValueError(f"Cannot parse the requirement {lines[0]!r}")
@@ -472,13 +469,6 @@ def _run(command: list[str]) -> None:
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode:
         sys.exit(f"failed: {' '.join(command)}\n{result.stdout}\n{result.stderr}")
-
-
-def _git(*args: str) -> str:
-    """The output of a Git command in this worktree."""
-    return subprocess.run(
-        ["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True
-    ).stdout.strip()
 
 
 def _normalized(name: str) -> str:

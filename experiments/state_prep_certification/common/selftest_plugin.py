@@ -2,7 +2,9 @@
 
 """A stand-in experiment with which ``selftest.py`` tests the shared code of the experiments.
 
-Each task's ``input`` is a list of steps that ``run`` performs in order:
+Each task's ``input`` is a list of steps.  ``run`` first performs the ``startup`` steps, then times
+one call, the measured call, that performs the other steps in order, and then performs a ``post``
+step, if any:
 
 * ``["startup", s]``: sleep s seconds before timing starts;
 * ``["sleep", s]``: the measured call sleeps s seconds;
@@ -12,6 +14,8 @@ Each task's ``input`` is a list of steps that ``run`` performs in order:
 * ``["child_flash", gib]``: the measured call starts a grandchild that touches gib GiB of memory
   and exits at once, and waits for it;
 * ``["spawn", s]``: the measured call starts a grandchild that sleeps s seconds, and waits for it;
+  ``["spawn", s, path]`` also writes the grandchild's process id to the file ``path`` once it has
+  started;
 * ``["orphan", s]``: the measured call starts a grandchild that sleeps s seconds, and does not wait;
 * ``["partial", n]``: the measured call sends n partial results;
 * ``["fail"]``: the measured call raises an exception;
@@ -28,8 +32,9 @@ Each task's ``input`` is a list of steps that ``run`` performs in order:
   after it (after ``send_result``, if there is a ``post`` step);
 * ``["die"]``: the measured call kills its own process with SIGKILL.
 
-Every result also holds the child's process id and the wall-clock interval of its measured call,
-with which the tests check that concurrent runs use different CPUs.
+Every result also holds the child's process id and the wall-clock interval from just before its
+call of ``runner.timed`` to just after it, with which the tests check that concurrent runs use
+different CPUs.
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ from typing import Any
 
 import numpy as np
 
-from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common import runner, store
 from experiments.state_prep_certification.common.tasks import run_cost_s
 
 NAME = "selftest"
@@ -137,6 +142,8 @@ def _measured(steps: list[tuple[Any, ...]]) -> Any:
             subprocess.run([sys.executable, "-c", script], check=True)
         elif step[0] in ("spawn", "orphan"):
             child = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({step[1]})"])
+            if len(step) > 2:
+                store.write_atomic(pathlib.Path(step[2]), str(child.pid))
             if step[0] == "spawn":
                 child.wait()
         elif step[0] == "partial":
@@ -147,7 +154,7 @@ def _measured(steps: list[tuple[Any, ...]]) -> Any:
         elif step[0] == "value":
             value = step[1]
         elif step[0] == "garbage":
-            os.write(int(os.environ["FTSP_CHANNEL_FD"]), b"not a message\n")
+            os.write(int(os.environ[runner._CHANNEL_VARIABLE]), b"not a message\n")
             time.sleep(step[1])
         elif step[0] == "compile":
             _compile(step[1])

@@ -2,45 +2,46 @@
 
 """The codes of the distance experiment: families drawn by a fixed size rule, and named anchors.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python codes.py --out DIR [--write-sample] [--check]
 
-**Families and sizes.**  Each family has endpoints n_lo and n_hi from its published source,
-recorded in ``code_data/endpoints.json``; the README cites each source and gives the rule by which
-the endpoints were read from it.  The four target lengths are n_j = n_lo (n_hi / n_lo)^(j / 3)
-for j = 0, ..., 3, and each target goes to the family's admissible parameters whose length is
-nearest in log n; ties go to the smaller n, then to the family's tie-break.  Targets that land on
-the same parameters merge; in the ``ladders`` of ``code_data/sample.json``, a target that lands on
-the parameters of an earlier one has ``merged`` set to true.  No timing of any kind enters this
-rule.
+**Families and sizes.**  Each family of ``FAMILIES`` has endpoints n_lo and n_hi from its published
+source, recorded in ``code_data/endpoints.json``; ``distances/README.md`` cites each source and
+gives the rule by which the endpoints were read from it.  The family has four target lengths
+n_j = n_lo (n_hi / n_lo)^(j / 3), j = 0, ..., 3.  Each target goes to the family's admissible
+parameters whose length is nearest in log n, which can lie outside [n_lo, n_hi]; ties go to the
+smaller n, then to the smaller tie-break, a value that each family's ``admissible`` gives with its
+parameters.  Targets that land on the same parameters make one size.  The sample's ``ladders`` list
+each family's targets and the parameters that they land on, with ``merged`` set to true for a
+target that lands on the parameters of an earlier one.
 
-**Draws.**  For each size, draws i = 0, 1, ... are made until 4 are kept or 100 are made.  Draw i
-of parameters ``params`` of family ``f`` uses ``numpy.random.default_rng(seed)`` with
-``seed = int.from_bytes(sha256(json.dumps(["ftsp-distances-1", f, params, i], sort_keys=True,
-separators=(",", ":"))).digest()[:8], "big") >> 1``.  A draw is kept unless the construction
-rejects it, it has ``k = 0``, or it duplicates an earlier code.  Two codes are duplicates if the
-reduced row echelon forms of their check matrices have the same SHA-256.  The earlier codes are
-the kept codes, the anchors, the CSS codes of ``trial.WARM_UP_CODES``, and the Hadamard variants of
-those CSS codes.  ``trial.WARM_UP_CODES`` are the codes on which ``experiments/distance_tuning``
-warms up; no run of this experiment warms up on them, but the screen against them is part of the
-rule that produced the frozen ``sample.json``.  Every draw and its outcome goes to
-``draws.jsonl``, a size with fewer than 4 kept draws goes to ``shortfalls`` of the sample, and an
-unexpected exception stops the script.
+**Draws.**  For each size, draws i = 0, 1, ... are made until ``CODES_PER_SIZE`` are kept or
+``MAX_DRAWS`` are made.  Draw i of a family's parameters uses ``numpy.random.default_rng`` with the
+seed ``draw_seed``.  A draw is kept unless the construction rejects it, it has ``k = 0``, or it
+duplicates an earlier code (``duplicate_key``).  The earlier codes are the kept codes, the anchors,
+the CSS codes of ``trial.WARM_UP_CODES``, and their Hadamard variants, which apply Hadamards to the
+second half of their qubits (``workloads.get_hadamard_code``).  ``trial.WARM_UP_CODES`` are the
+codes on which ``experiments/distance_tuning`` warms up; no run of this experiment warms up on
+them, but the screen against them is part of the rule that produced the frozen ``sample.json``.
+Every draw and its outcome goes to ``draws.jsonl``.  A size with fewer than ``CODES_PER_SIZE``
+kept draws is a shortfall, which goes to ``shortfalls`` of the sample, such as a bivariate bicycle
+size where every draw has k = 0.  An unexpected exception stops the script.
 
 **Anchors.**  The named codes of ``ANCHORS``, from ``experiments/distance_tuning/workloads.py``,
 qLDPC's constructors, and the constructions below, with a reference distance where an
 independent source gives one.
 
-**Storage.**  Every code is stored as plain matrices, ``H_X`` and ``H_Z`` for a CSS code and
-``H = [x | z]`` otherwise, in ``codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of
-the stored arrays.  ``--write-sample`` writes ``code_data/sample.json``, with ``qldpc_src_tree``,
-the Git tree of this checkout's ``src/`` at ``HEAD``.  That tree is the qLDPC source that generated
-the sample only if the imported ``qldpc`` is this checkout's ``src/``, with no uncommitted or
+**Storage.**  Every run of the script regenerates every code, and stores it as plain matrices in
+``DIR/codes/<code_hash>.npz`` (``store_code``), with its draws in ``DIR/draws.jsonl``.
+``--write-sample`` writes ``code_data/sample.json``, with ``qldpc_src_tree``, the Git tree of this
+checkout's ``src/`` at ``HEAD``.  That tree is the qLDPC source that generated the sample under two
+conditions: the imported ``qldpc`` is this checkout's ``src/``, and ``src/`` has no uncommitted or
 untracked changes.  It covers nothing outside ``src/``, such as this experiment's code,
-``experiments/distance_tuning/``, or other packages.  ``--check`` regenerates the codes and
-compares the regenerated sample with ``sample.json`` in every field but ``qldpc_src_tree`` and the
-codes' ``constructor`` (see ``compare_with_sample``).  These fields include the anchors' reference
-distances and the codes' families, which the analysis reads from the sample.  Git ignores
-``code_data/``, which the offline bundle carries.
+``experiments/distance_tuning/``, or other packages.  ``--check`` compares the regenerated sample
+with ``sample.json`` (``compare_with_sample``), including the anchors' reference distances and the
+codes' families, which the analysis reads from the sample.
 """
 
 from __future__ import annotations
@@ -51,10 +52,9 @@ import hashlib
 import json
 import math
 import pathlib
-import subprocess
 import sys
 from collections.abc import Callable, Iterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 import galois
 import numpy as np
@@ -64,6 +64,8 @@ from sympy.abc import x, y
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
+from experiments.state_prep_certification.common import manifest
+from experiments.state_prep_certification.distances import arms
 from qldpc import abstract, codes
 
 # Scripts in distance_tuning/ import each other as top-level modules.  mypy knows these files only
@@ -79,7 +81,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 CODE_DATA = HERE / "code_data"
 ENDPOINTS = CODE_DATA / "endpoints.json"
 SAMPLE = CODE_DATA / "sample.json"
-# part of every draw's seed: changing it redraws every code and invalidates sample.json
+# part of every draw's seed: changing it redraws every code and invalidates sample.json.  It is a
+# frozen string, in which "ftsp" abbreviates fault-tolerant state preparation.
 SEED_TAG = "ftsp-distances-1"
 CODES_PER_SIZE = 4
 MAX_DRAWS = 100
@@ -92,12 +95,7 @@ def main() -> None:
     args = parse_args()
     sample = generate(args.out)
     if args.write_sample:
-        sample["qldpc_src_tree"] = subprocess.run(
-            ["git", "-C", str(HERE), "rev-parse", "HEAD:src"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        sample["qldpc_src_tree"] = manifest.git("rev-parse", "HEAD:src")
         SAMPLE.write_text(json.dumps(sample, indent=1, sort_keys=True) + "\n")
         print(f"wrote {SAMPLE}")
     if args.check:
@@ -135,12 +133,10 @@ class Family:
     Attributes:
         draw: Draw a code of the given parameters with a random generator.
         admissible: The admissible parameters with lengths up to a bound, as (params, n, tie-break).
-        css: Whether the family's codes are CSS.
     """
 
     draw: Callable[[dict[str, Any], np.random.Generator], Any]
     admissible: Callable[[int], Iterator[tuple[dict[str, Any], int, Any]]]
-    css: bool
 
 
 def _bb_sizes(bound: int) -> Iterator[tuple[dict[str, Any], int, Any]]:
@@ -173,7 +169,7 @@ PP_ARRAYS = ("110", "232", "276")
 
 def _pp_sizes(bound: int) -> Iterator[tuple[dict[str, Any], int, Any]]:
     for array in PP_ARRAYS:
-        _, published_lift, columns = _cpm_shape(workloads.INSTANCES[array][1])
+        published_lift, columns = _cpm_shape(workloads.INSTANCES[array][1])
         for lift in range(published_lift, bound // columns + 1):
             if _is_prime(lift):
                 yield {"array": array, "P": lift}, columns * lift, array
@@ -198,7 +194,8 @@ def size_ladder(
     family: Family, n_lo: int, n_hi: int
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """The parameters of the family's sizes, and a record of each target and where it went."""
-    # admissible lengths up to 4 n_hi include the nearest one to every target, which is <= n_hi
+    # every target is at most n_hi, so the admissible lengths up to 4 n_hi include the nearest one
+    # to each target
     candidates = list(family.admissible(4 * n_hi))
     chosen: list[dict[str, Any]] = []
     record = []
@@ -408,14 +405,14 @@ def _regular_ldpc(
 
 
 FAMILIES = {
-    "bb": Family(draw_bb, _bb_sizes, css=True),
-    "gb": Family(draw_gb, _gb_sizes, css=True),
-    "hgp": Family(draw_hgp, _hgp_sizes, css=True),
-    "lp": Family(draw_lp, _lp_sizes, css=True),
-    "pp": Family(draw_pp, _pp_sizes, css=True),
-    "qt": Family(draw_qt, _qt_sizes, css=True),
-    "css_walk": Family(draw_css_walk, _dense_sizes(4), css=True),
-    "rstab": Family(draw_rstab, _dense_sizes(3), css=False),
+    "bb": Family(draw_bb, _bb_sizes),
+    "gb": Family(draw_gb, _gb_sizes),
+    "hgp": Family(draw_hgp, _hgp_sizes),
+    "lp": Family(draw_lp, _lp_sizes),
+    "pp": Family(draw_pp, _pp_sizes),
+    "qt": Family(draw_qt, _qt_sizes),
+    "css_walk": Family(draw_css_walk, _dense_sizes(4)),
+    "rstab": Family(draw_rstab, _dense_sizes(3)),
 }
 
 
@@ -613,48 +610,13 @@ def generate(out: pathlib.Path) -> dict[str, Any]:
             n_lo, n_hi = endpoints[family_name]["n_lo"], endpoints[family_name]["n_hi"]
             sizes, ladders[family_name] = size_ladder(family, n_lo, n_hi)
             for params in sizes:
-                kept = 0
-                for index in range(MAX_DRAWS):
-                    seed = draw_seed(family_name, params, index)
-                    record: dict[str, Any] = {
-                        "family": family_name,
-                        "params": params,
-                        "index": index,
-                        "seed": seed,
-                    }
-                    try:
-                        code = family.draw(params, np.random.default_rng(seed))
-                    except Rejected as error:
-                        record["outcome"] = f"rejected: {error}"
-                    else:
-                        key = duplicate_key(code)
-                        if code.dimension == 0:
-                            record["outcome"] = "rejected: k = 0"
-                        elif key in seen:
-                            record["outcome"] = f"rejected: duplicate of {seen[key]}"
-                        else:
-                            stored = store_code(out, code)
-                            name = f"{family_name}.{_params_label(params)}.i{index}"
-                            seen[key] = name
-                            record["outcome"] = "kept"
-                            record["code_hash"] = stored["code_hash"]
-                            drawn.append(
-                                {
-                                    "name": name,
-                                    "family": family_name,
-                                    "params": params,
-                                    "index": index,
-                                    "seed": seed,
-                                    **stored,
-                                }
-                            )
-                            kept += 1
-                    draws.write(json.dumps(record, sort_keys=True) + "\n")
-                    if kept == CODES_PER_SIZE:
-                        break
-                if kept < CODES_PER_SIZE:
-                    print(f"shortfall: {family_name} {params}: {kept} codes in {MAX_DRAWS} draws")
-                    shortfalls.append({"family": family_name, "params": params, "kept": kept})
+                kept = _draw_size(out, family_name, params, seen, draws)
+                drawn += kept
+                if len(kept) < CODES_PER_SIZE:
+                    print(
+                        f"shortfall: {family_name} {params}: {len(kept)} codes in {MAX_DRAWS} draws"
+                    )
+                    shortfalls.append({"family": family_name, "params": params, "kept": len(kept)})
     return {
         "seed_tag": SEED_TAG,
         "endpoints": endpoints,
@@ -666,27 +628,24 @@ def generate(out: pathlib.Path) -> dict[str, Any]:
 
 
 def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
-    """Store a code's plain matrices, and return its record."""
+    """Store a code's plain matrices, and return its record.
+
+    The matrices are ``H_X`` and ``H_Z`` for a CSS code and ``H = [x | z]`` otherwise, stored in
+    ``out/codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of the stored arrays
+    (``hash_arrays``).
+    """
     if isinstance(code, codes.CSSCode):
-        arrays = {
+        arrays: dict[str, Any] = {
             "matrix_x": np.asarray(code.matrix_x, dtype=np.uint8),
             "matrix_z": np.asarray(code.matrix_z, dtype=np.uint8),
         }
-        plain_css = codes.CSSCode(
-            arrays["matrix_x"].astype(np.int_),
-            arrays["matrix_z"].astype(np.int_),
-            is_subsystem_code=False,
-        )
-        # whether the plain code has equal X and Z distances because H_X = H_Z, which AT1 checks
-        equal_sectors = bool(plain_css._equal_distance_xz)
-        plain: codes.QuditCode = plain_css
     else:
         arrays = {"matrix": np.asarray(code.matrix, dtype=np.uint8)}
-        plain = codes.QuditCode(arrays["matrix"].astype(np.int_))
-        equal_sectors = False
+    plain = arms.plain_code(arrays)
+    # whether the plain code has H_X = H_Z, and so equal X and Z distances
+    equal_sectors = isinstance(plain, codes.CSSCode) and bool(plain._equal_distance_xz)
     code_hash = hash_arrays(arrays)
-    contents: dict[str, Any] = arrays
-    np.savez(out / "codes" / f"{code_hash}.npz", **contents)
+    np.savez(out / "codes" / f"{code_hash}.npz", **arrays)
     return {
         "code_hash": code_hash,
         "n": len(plain),
@@ -767,6 +726,62 @@ def compare_with_sample(sample: dict[str, Any]) -> list[str]:
     return problems
 
 
+def _draw_size(
+    out: pathlib.Path,
+    family_name: str,
+    params: dict[str, Any],
+    seen: dict[str, str],
+    draws: TextIO,
+) -> list[dict[str, Any]]:
+    """Draw codes of one family's parameters until ``CODES_PER_SIZE`` are kept; return them.
+
+    At most ``MAX_DRAWS`` codes are drawn.  A draw is kept unless the family rejects it, its k is
+    0, or it duplicates a code of ``seen``, which maps the ``duplicate_key`` of each code so far to
+    its name and gains each kept code.  Each kept code is stored under ``out``, and the record of
+    each draw is written to ``draws``.
+    """
+    family = FAMILIES[family_name]
+    kept: list[dict[str, Any]] = []
+    for index in range(MAX_DRAWS):
+        seed = draw_seed(family_name, params, index)
+        record: dict[str, Any] = {
+            "family": family_name,
+            "params": params,
+            "index": index,
+            "seed": seed,
+        }
+        try:
+            code = family.draw(params, np.random.default_rng(seed))
+        except Rejected as error:
+            record["outcome"] = f"rejected: {error}"
+        else:
+            key = duplicate_key(code)
+            if code.dimension == 0:
+                record["outcome"] = "rejected: k = 0"
+            elif key in seen:
+                record["outcome"] = f"rejected: duplicate of {seen[key]}"
+            else:
+                stored = store_code(out, code)
+                name = f"{family_name}.{_params_label(params)}.i{index}"
+                seen[key] = name
+                record["outcome"] = "kept"
+                record["code_hash"] = stored["code_hash"]
+                kept.append(
+                    {
+                        "name": name,
+                        "family": family_name,
+                        "params": params,
+                        "index": index,
+                        "seed": seed,
+                        **stored,
+                    }
+                )
+        draws.write(json.dumps(record, sort_keys=True) + "\n")
+        if len(kept) == CODES_PER_SIZE:
+            break
+    return kept
+
+
 def _same(new: Any, old: Any) -> bool:
     """Whether two JSON values are equal, with floats compared to a relative 1e-9."""
     if isinstance(new, float) and isinstance(old, float):
@@ -783,10 +798,10 @@ def _params_label(params: dict[str, Any]) -> str:
     return "".join(f"{key}{value}" for key, value in params.items())
 
 
-def _cpm_shape(text: str) -> tuple[str, int, int]:
-    """The name, lift size, and block columns of a ``.cpm`` instance."""
-    _magic, name, lift, columns, *_ = text.split()
-    return name, int(lift), int(columns)
+def _cpm_shape(text: str) -> tuple[int, int]:
+    """The lift size and block columns of a ``.cpm`` instance."""
+    _magic, _name, lift, columns, *_ = text.split()
+    return int(lift), int(columns)
 
 
 def _is_prime(number: int) -> bool:

@@ -9,14 +9,14 @@ increasing order, and no violation up to fault weight k gives the lower bound m*
 "all" if the cutoff r + 1 is at most k.  The claims come from the result of each run of ``cert_bz``,
 ``cert_cc``, ``shadow``, ``brute_bz``, ``margin``, and ``ground_truth``, first runs and repeats,
 whatever their status, and from each fault weight that it reported as completed or violating.  A row
-of status ``timeout`` can keep the result of a call that returned at or after the limit.  A row of
-status ``memout`` can keep the result of a call whose memory exceeded the cap before the result
-arrived, as found afterward (``common/runner.py``, and the shared README's Runs).  The claims also
-come from the parent verdict of each deletion task at K = t, and from the claim on the final circuit
-of a deletion task that accepted no deletion, which is the parent (``final_claim``).  All values
-that determine m* must be equal and exceed every lower bound; otherwise the circuit is a
-disagreement.  The combined margin is the determined value, in the column ``margin``, or else the
-largest lower bound k, in the column ``margin_lower_bound``, meaning m* > k.
+of status ``timeout`` can keep the result of a call that returned at or after the limit, and a row
+of status ``memout`` that of a call whose peak memory, found after the run, exceeded the cap before
+the result arrived (``common/runner.py``).  The claims also come from the parent verdict of each
+deletion task at K = t, and from the claim on the final circuit of a deletion task that accepted no
+deletion, which is the parent (``final_claim``).  All values that determine m* must be equal and
+exceed every lower bound; otherwise the circuit is a disagreement.  The combined margin is the
+determined value, in the column ``margin``, or else the largest lower bound k, in the column
+``margin_lower_bound``, meaning m* > k.
 
 **Deletions.**  Each final circuit must be certified at K = t by the connected-cluster oracle, by
 the task's result or, for a run killed during the search of its final m*, by the final checks that
@@ -27,7 +27,9 @@ gives only a lower bound, since its flag rank is not recorded.  The claims of th
 that end at the same final circuit, by its SHA-256, must agree too.  A failure of any of these
 checks makes the circuit a disagreement (``final_contradictions``).  The final circuit is rebuilt
 from the parent's input in ``circuit_data/inputs/`` and the accepted deletions, and compared with
-its recorded SHA-256, if that input is the one that the label ran on.
+its recorded SHA-256, if that input is the one that the label ran on (``rebuild_matches``).  A final
+circuit whose rebuild does not match, or could not be checked, keeps its row of
+``deletion_table.csv`` and its file in ``pruned/``.
 
 Outputs, besides the margin fields of ``summary.csv`` and the margin counts of ``families.csv``:
 
@@ -35,35 +37,46 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
   the ``counterexample_*`` fields of ``margin_fields``.  They describe one counterexample of weight
   m* where the first run of ``cert_bz``, ``cert_cc``, or ``margin`` described one; an empty field
   says nothing about a counterexample, as where m* comes from a deletion parent or a stopped run.
+  These fields describe that counterexample only: they do not show whether another fault of weight
+  m* violates in the other part, so they do not tell whether the circuit meets a criterion on one
+  part alone.
 * ``deletion.csv``: every step of every deletion task, with its outcome.
 * ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every deletion task whose final
   checks record the final circuit and its SHA-256, with whether its circuit is a disagreement.
 * ``deletion_table.csv``: one row per deletion task whose final checks record the final circuit and
   its SHA-256, finished or killed during the search of its final m*, on a circuit without a
-  disagreement, in the order of circuit ids: the task's status, the family, with the MQT QECC
-  release of a synthesized circuit, gate counts (encoder and verification), measured qubits,
-  measurements, and acceptance probabilities of parent and final circuit, the final m*, or else the
-  lower bound m* > k, for k the largest of t and the fault weights that its search completed, and
-  the deletions attempted and accepted.  A task killed during that search gives the final m* "all"
-  where it accepted no deletion and its search completed the parent's cutoff r + 1.
+  disagreement, in the order of circuit ids.  A row holds the task's status and the family, with the
+  MQT QECC release of a synthesized circuit.  For the parent and the final circuit, it holds the
+  two-qubit gates, split into encoder gates, which touch no measured qubit, and verification gates
+  (``applications.count_gates``), the measured qubits, the measurements, and the acceptance
+  probability with its standard error.  It holds the final m* (``final_margin``), or else the lower
+  bound m* > k (``final_margin_lower_bound``), for k the largest of t and the fault weights that the
+  search of the final m* completed; a task killed during that search gives "all" where it accepted
+  no deletion and its search completed the parent's cutoff r + 1.  It also holds the parts of the
+  final circuit's counterexample whose residual weight exceeds the fault weight
+  (``final_violating_parts``), and the deletions attempted and accepted.  It compares each final
+  circuit only with its parent.
 * ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the other
-  tasks without a row of ``deletion_table.csv``, such as those whose final checks do not record the
-  final circuit, with the number of their completed steps and any final checks, the disagreements,
-  and the final circuits whose rebuild does not match.
+  tasks without a row of ``deletion_table.csv``, such as those killed before their final checks, or
+  whose final checks do not record the final circuit, with the number of their completed steps and
+  any final checks, the disagreements, and the final circuits whose rebuild does not match.
 * ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.  The analysis deletes
   ``pruned/`` with everything in it before it writes them, so that it holds only these circuits.
 """
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import pathlib
 import shutil
 from typing import Any
 
-HERE = pathlib.Path(__file__).resolve().parent
-INPUTS = HERE / "circuit_data" / "inputs"
+import stim
+
+from experiments.state_prep_certification.certification import applications, circuits
+from experiments.state_prep_certification.certification.settings import INPUTS
 
 # The arms whose runs make claims on a circuit's m* by their results and their fault weights.
 MARGIN_ARMS = ("cert_bz", "cert_cc", "shadow", "brute_bz", "margin", "ground_truth")
@@ -88,8 +101,6 @@ def margin_claims(
     claim holds the values ``exact`` that it determines, an integer or "all", and the largest lower
     bound ``bound`` k, meaning m* > k, or None.
     """
-    from experiments.state_prep_certification.certification import applications
-
     claims: dict[str, Claim] = {}
     cutoff = circuit["r"] + 1
 
@@ -304,8 +315,6 @@ def agree_prune(
     certification certifies or violates at t + 1, and otherwise both violate at the same weight.
     Each final circuit must be certified by the CC oracle.  None if nothing was compared.
     """
-    from experiments.state_prep_certification.certification import applications
-
     certification = bz if bz["status"] == "ok" else cc
     compared = []
     for arm in applications.PRUNE_ORDERS:
@@ -338,8 +347,6 @@ def final_contradictions(
     end at the same final circuit, by its ``final_sha256``.  The final circuit of a task that
     accepted no deletion is the parent, whose claims ``margin_claims`` compares instead.
     """
-    from experiments.state_prep_certification.certification import applications
-
     contradictions = []
     by_final_circuit: dict[str, dict[str, Claim]] = {}
     for arm in applications.PRUNE_ORDERS:
@@ -371,9 +378,6 @@ def write_applications(
 
     The module docstring describes the outputs.
     """
-    from experiments.state_prep_certification.certification import applications
-    from experiments.state_prep_certification.certification.analyze import _status, _write_csv
-
     # the circuits with m* <= t
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
     violations = [
@@ -546,8 +550,6 @@ def _table_row(
     not finish, ``final_margin_lower_bound`` is k, the largest of t and the fault weights that the
     search completed, meaning m* > k (the final circuit is certified at K = t).
     """
-    from experiments.state_prep_certification.certification import applications
-
     row: dict[str, Any] = {
         "id": circuit_id,
         "arm": arm,
@@ -594,10 +596,6 @@ def _rebuild_matches(
     None if the parent's input is missing, or is not the one that the label ran on, by its SHA-256
     in the label's ``circuits.json``.
     """
-    import stim
-
-    from experiments.state_prep_certification.certification import applications, circuits
-
     path = inputs / f"{circuit['id']}.stim"
     if (
         not path.exists()
@@ -610,3 +608,29 @@ def _rebuild_matches(
             parent, _, _ = circuits._delete_qubit(parent, record["qubit"])
     text = applications.circuit_text(parent)
     return hashlib.sha256(text.encode()).hexdigest() == checks["final_sha256"]
+
+
+def _status(arm_rows: list[dict[str, Any]] | None) -> str:
+    """The status of an arm's first run, or 'not run'.
+
+    A timeout whose row has ``compiled_in_timing`` set is ``timeout_compiled`` (see the
+    docstring of ``analyze.py``).
+    """
+    if not arm_rows:
+        return "not run"
+    first = arm_rows[0]
+    if first["status"] == "timeout" and first.get("compiled_in_timing"):
+        return "timeout_compiled"
+    return str(first["status"])
+
+
+def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> pathlib.Path:
+    """Write rows to a CSV file, with the union of their keys as columns; return its path."""
+    fields: list[str] = []
+    for row in rows:
+        fields += [key for key in row if key not in fields]
+    with open(path, "w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fields or ["empty"])
+        writer.writeheader()
+        writer.writerows(rows)
+    return path

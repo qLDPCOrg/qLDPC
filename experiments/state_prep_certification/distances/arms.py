@@ -29,7 +29,7 @@ qLDPC finds one for codes with equal check matrices and, with bliss, which the b
 for some codes whose check matrices differ, such as the anchors ``surface9`` and ``toric10``.
 
 Every arm builds a plain code object from the stored matrices inside the timer: ``CSSCode(H_X,
-H_Z, is_subsystem_code=False)``, or ``QuditCode(H)``, never a family class.
+H_Z, is_subsystem_code=False)``, or ``QuditCode(H)``, never a family class (``plain_code``).
 """
 
 from __future__ import annotations
@@ -71,13 +71,21 @@ def distance_call(arrays: dict[str, npt.NDArray[Any]]) -> Callable[[], int]:
     """
 
     def call() -> int:
-        if "matrix" in arrays:
-            code: Any = codes.QuditCode(arrays["matrix"])
-        else:
-            code = codes.CSSCode(arrays["matrix_x"], arrays["matrix_z"], is_subsystem_code=False)
+        code = plain_code(arrays)
         return int(code.get_distance_exact(method="brouwer_zimmermann"))
 
     return call
+
+
+def plain_code(arrays: dict[str, npt.NDArray[Any]]) -> codes.QuditCode:
+    """The plain code object of a code's stored matrices, never of a family class.
+
+    It is ``QuditCode(H)`` for the matrix ``H`` of a stored non-CSS code, and ``CSSCode(H_X, H_Z,
+    is_subsystem_code=False)`` for the matrices ``H_X`` and ``H_Z`` of a stored CSS code.
+    """
+    if "matrix" in arrays:
+        return codes.QuditCode(arrays["matrix"])
+    return codes.CSSCode(arrays["matrix_x"], arrays["matrix_z"], is_subsystem_code=False)
 
 
 def active_tuning() -> dict[str, Any]:

@@ -2,31 +2,33 @@
 
 """The JSONL result store of a label, and the archive that carries it back from the node.
 
-Each task runner appends one final row per task to ``runs.jsonl`` with ``append_row``: one write of
-a whole line under an exclusive ``flock``, followed by a flush and an fsync.  A runner that dies in
-the middle of a write can leave an incomplete last line.  The next append, under the same lock,
-moves that fragment to ``recovered.txt`` and truncates the file to its last complete line before it
-writes, so that a new row never joins a fragment.  ``read_rows`` ignores an incomplete last line and
-reports it, and ``final_rows`` keeps the first final row of each task and reports every duplicate,
-such as a second row of a task that two runners ran at once.
+Each task runner appends one final row per task to ``runs.jsonl`` with ``append_row``, which other
+runners appending at once cannot interleave.  A runner that dies in the middle of a write can leave
+an incomplete last line, which the next append moves to ``recovered.txt``, so that a new row never
+joins it.  ``read_rows`` ignores an incomplete last line and reports it, and ``final_rows`` keeps
+the first final row of each task and reports every duplicate, such as a second row of a task that
+two runners ran at once.
 
 ``write_atomic`` writes the label's other records, such as ``acceptance.json``, ``manifest.json``,
 and the runner's ``active/`` files, whole or not at all, so that a kill during a write never
 leaves a partial record.  The temporary file that such a kill can leave, ``.<name>.<pid>.tmp``,
-never enters the archive.
+never enters the archive.  ``make_archive`` writes the archive with its checksums, and
+``open_archive`` checks them and unpacks the archive for an analysis.
 
 The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
-analysis that refuses them, as those of certification and distances do, counts them with
-``count_local_rows``, which exits unless the analysis is given ``--allow-local``.  Such an analysis
-also reads, with ``allowed_environment``, the refused environment variables that a start accepted
-with ``--allow-env`` (see ``run_node.py``), and ``PYTHONOPTIMIZE`` if a start, or a Python that it
-started, ran with -O, and, with ``changed_environment``, the recorded environment variables whose
-values differ among the label's starts.  It marks each of its outputs with these, and with the
-number of rows of local runs, whichever are nonempty, with ``mark_outputs``.
+analysis that refuses them counts them with ``count_local_rows``, which exits unless the analysis
+is given ``--allow-local``.  Such an analysis also reads, with ``allowed_environment``, the refused
+environment variables that a start accepted with ``--allow-env`` (see ``run_node.py``), and
+``PYTHONOPTIMIZE`` if a start, or a Python that it started, ran with -O, and, with
+``changed_environment``, the recorded environment variables whose values differ among the label's
+starts.  With ``mark_outputs``, it
+marks each of its outputs with whichever of these, and of the number of rows of local runs, are
+nonempty.
 """
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import fcntl
 import hashlib
@@ -36,7 +38,8 @@ import os
 import pathlib
 import sys
 import tarfile
-from collections.abc import Iterable
+import tempfile
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 RUNS_FILE = "runs.jsonl"
@@ -53,7 +56,12 @@ _UNARCHIVED = ("archive", LOCK_FILE)
 
 
 def append_row(label_dir: pathlib.Path, row: dict[str, Any]) -> None:
-    """Append one row to the label's ``runs.jsonl``, atomically with respect to other runners."""
+    """Append one row to the label's ``runs.jsonl``, atomically with respect to other runners.
+
+    The row is one write of a whole line under an exclusive ``flock``, followed by an fsync.  Under
+    the same lock, an incomplete last line that a dead runner left goes to ``recovered.txt`` first,
+    and the file is truncated to its last complete line.
+    """
     line = (json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n").encode()
     path = label_dir / RUNS_FILE
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
@@ -61,7 +69,7 @@ def append_row(label_dir: pathlib.Path, row: dict[str, Any]) -> None:
         fcntl.flock(fd, fcntl.LOCK_EX)
         _truncate_incomplete_tail(fd, label_dir)
         os.lseek(fd, 0, os.SEEK_END)
-        _write_all(fd, line)
+        write_all(fd, line)
         os.fsync(fd)
     finally:
         os.close(fd)  # closing releases the lock
@@ -111,6 +119,13 @@ def final_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], list
     return first, problems
 
 
+def write_all(fd: int, data: bytes) -> None:
+    """Write all of ``data`` to a file descriptor."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view) :]
+
+
 def _truncate_incomplete_tail(fd: int, label_dir: pathlib.Path) -> None:
     """Move an incomplete last line, if any, to ``recovered.txt``, and cut it from the file."""
     size = os.lseek(fd, 0, os.SEEK_END)
@@ -142,13 +157,6 @@ def _truncate_incomplete_tail(fd: int, label_dir: pathlib.Path) -> None:
     os.fsync(fd)
 
 
-def _write_all(fd: int, data: bytes) -> None:
-    """Write all of ``data`` to a file descriptor."""
-    view = memoryview(data)
-    while view:
-        view = view[os.write(fd, view) :]
-
-
 ####################################################################################################
 # marks of an analysis's outputs
 
@@ -175,8 +183,7 @@ def allowed_environment(label_dir: pathlib.Path) -> list[str]:
     ``run_node.py``); ``starts.jsonl`` records, for each start, the names that it accepted, the
     environment, and its optimization level (``manifest.optimize_level``).  ``PYTHONOPTIMIZE``
     counts whenever a start ran with an optimization level above 0, whatever set it, such as -O.
-    Every start counts, dry runs too, since each records itself before it runs the acceptance tests,
-    whose pass later starts reuse.
+    Every start counts, dry runs too (see ``manifest.record_start``).
     """
     names: set[str] = set()
     for start in _starts(label_dir):
@@ -276,6 +283,52 @@ def make_archive(label_dir: pathlib.Path, name: str) -> pathlib.Path:
         f"{sha256_file(archive)}  {archive.name}\n"
     )
     return archive
+
+
+@contextlib.contextmanager
+def open_archive(archive: pathlib.Path) -> Iterator[pathlib.Path]:
+    """Check an archive of ``make_archive``, unpack it, and yield its label directory.
+
+    The archive must match the SHA-256 of the ``.sha256`` file beside it, and its files must be
+    those that its inner ``SHA256SUMS`` lists, with their SHA-256.  The archive is unpacked into a
+    temporary directory, which is removed when the block ends, whether or not it succeeds.
+
+    Raises:
+        SystemExit: If the ``.sha256`` file or the inner ``SHA256SUMS`` is missing, or a checksum
+            or the list of files differs.
+    """
+    sums_file = archive.with_name(archive.name + ".sha256")
+    if not sums_file.exists():
+        raise SystemExit(f"{sums_file} is missing")
+    if sums_file.read_text().split()[:2] != [sha256_file(archive), archive.name]:
+        raise SystemExit(f"{archive.name} does not match {sums_file.name}")
+    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
+        label_dir = unpack_archive(archive, pathlib.Path(scratch))
+        if not (label_dir / "SHA256SUMS").exists():
+            raise SystemExit(f"{archive.name} has no inner SHA256SUMS")
+        listed = {}
+        for line in (label_dir / "SHA256SUMS").read_text().splitlines():
+            digest, name = line.split("  ", 1)
+            listed[name] = digest
+        present = {
+            path.relative_to(label_dir).as_posix()
+            for path in label_dir.rglob("*")
+            if path.is_file() and path != label_dir / "SHA256SUMS"
+        }
+        if present != set(listed) or any(
+            sha256_file(label_dir / name) != digest for name, digest in listed.items()
+        ):
+            raise SystemExit(f"{archive.name} does not match its inner SHA256SUMS")
+        yield label_dir
+
+
+def unpack_archive(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
+    """Unpack an archive of ``make_archive`` into a directory, and return its label directory."""
+    directory.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive) as tar:
+        tar.extractall(directory, filter="data")
+    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
+    return label_dir
 
 
 def sha256_file(path: pathlib.Path) -> str:

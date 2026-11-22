@@ -4,28 +4,21 @@
 
 A task is a JSON object with a unique ``key``, the ``experiment``, ``arm``, ``mode``, ``repeat``,
 ``limit_s``, and ``mem_cap_gib``.  It may also set ``post_s``, ``startup_cap_s``, and ``grace_s``,
-which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Each limit
-must be finite and positive, and ``grace_s`` at most ``runner.TERM_WAIT_S`` less 2 s, so that GNU
-parallel's signal sequence leaves the runner its grace.  A key must not start with ``_``, which
-names GNU parallel's record beside the runs' records in a label's ``active/`` directory (see
-``run_node.py``).  ``runner.check_task`` refuses a task that breaks one of these rules.  Beyond
-these, a task holds whatever the experiment needs to run it, such as an input.  ``write_pass1``
-writes every task of pass 1 to ``tasks.json`` and their keys, shuffled with a fixed seed, to
-``tasks-pass1.txt``.  ``write_pass2`` writes the repeats that the experiment's repeat policy asks
-for, once every task of pass 1 has a final row, to ``tasks-pass2.json`` and ``tasks-pass2.txt``, in
-the order of pass 1; their keys must be unique and differ from those of pass 1.  A task file is
-written once and never changed, since GNU parallel's resumption depends on its order; writing it
-again with other contents is an error, because a changed input must give a new label.  ``cores.txt``
-lists the logical CPU of each job slot.
+which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Beyond
+these, a task holds whatever the experiment needs to run it, such as an input.
+``runner.check_task`` refuses a task whose limits cannot be enforced or whose key is reserved.
 
-The ceiling is the worst-case CPU time of the task list, with the runner's retries.  For each task
-of pass 1, the experiment's ``worst_case_s`` W counts its first run and the repeats that it can
-cause, without the runner's retries.  The runner runs each of these at most twice
-(``runner.RUNS_PER_TASK``), so they cost at most 2 W.  One more run at the first run's limit, S
-(``run_cost_s``), covers a first run that is discarded after its whole limit, while its retry
-finishes fast and calls for repeats.  So the task costs at most S + 2 W.  The bound is loose for a
-task without repeats, which costs at most 2 S.  ``check_approval`` refuses a list whose ceiling
-exceeds the approved CPU-hours.
+The task lists of a label directory are ``tasks.json`` and ``tasks-pass1.txt`` for pass 1
+(``write_pass1``), and ``tasks-pass2.json`` and ``tasks-pass2.txt`` for the repeats of pass 2
+(``write_pass2``); ``cores.txt`` lists the logical CPU of each job slot (``write_cores``).  A task
+file is written once and never changed, since GNU parallel's resumption depends on its order;
+writing it again with other contents is an error, because a changed input must give a new label.
+
+The ceiling of a task list bounds the single-core time, in CPU-hours, of the runs of its tasks: the
+first run of each task of pass 1, the repeats that it can cause, and the runner's retries
+(``ceiling_hours``).  It excludes the cores reserved for the runners (``RESERVED_CORES``), the
+self-tests and acceptance tests, idle job slots, reruns after a hard kill, and resumes.
+``check_approval`` refuses a list whose ceiling exceeds the approved CPU-hours.
 """
 
 from __future__ import annotations
@@ -38,7 +31,7 @@ import shlex
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import runner, store
+from experiments.state_prep_certification.common import plugin, runner, store
 
 TASKS_FILE = "tasks.json"
 PASS2_TASKS_FILE = "tasks-pass2.json"
@@ -78,7 +71,10 @@ def missing_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
 
 
 def write_pass1(label_dir: pathlib.Path, tasks: Sequence[dict[str, Any]]) -> list[str]:
-    """Write ``tasks.json`` and the shuffled ``tasks-pass1.txt`` once; return the keys in order."""
+    """Write ``tasks.json`` and ``tasks-pass1.txt`` once; return the keys in order.
+
+    ``tasks-pass1.txt`` lists the keys in an order shuffled with the fixed seed ``SHUFFLE_SEED``.
+    """
     keys = [task["key"] for task in tasks]
     if len(set(keys)) != len(keys):
         raise ValueError("Task keys must be unique")
@@ -97,6 +93,8 @@ def write_pass2(
     repeat_tasks: Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]]],
 ) -> list[str]:
     """Write the repeats of pass 2 once, in the order of pass 1; return their keys.
+
+    The repeats' keys must be unique and differ from those of pass 1.
 
     Args:
         label_dir: The label's directory.
@@ -121,7 +119,15 @@ def write_pass2(
 
 
 def load_tasks(label_dir: pathlib.Path, pass2: bool = True) -> dict[str, dict[str, Any]]:
-    """Every task of the label by key: pass 1, and pass 2 if it has been written."""
+    """Every task of the label by key: pass 1, and pass 2 if it has been written.
+
+    Raises:
+        SystemExit: If the label has no ``tasks.json``.
+    """
+    if not (label_dir / TASKS_FILE).exists():
+        raise SystemExit(
+            f"{label_dir.name} has no {TASKS_FILE}, which maps its rows to their tasks"
+        )
     tasks = json.loads((label_dir / TASKS_FILE).read_text())
     if pass2 and (label_dir / PASS2_TASKS_FILE).exists():
         tasks += json.loads((label_dir / PASS2_TASKS_FILE).read_text())
@@ -140,14 +146,17 @@ def pass_keys(label_dir: pathlib.Path, name: str) -> list[str]:
 def ceiling_hours(
     tasks: Iterable[dict[str, Any]], worst_case_s: Callable[[dict[str, Any]], float]
 ) -> float:
-    """The worst-case CPU-hours of the tasks of pass 1, with their repeats and retries.
+    """The ceiling: the worst-case CPU-hours of the tasks of pass 1, with their repeats and retries.
 
-    If the runner runs a task's first run and each of its repeats up to k = ``runner.RUNS_PER_TASK``
-    times, the task costs at most (k - 1) S + k W, where S is ``run_cost_s(task)`` and W is
-    ``worst_case_s(task)`` (see the module docstring).
+    For each task of pass 1, the experiment's ``worst_case_s`` W counts its first run and the
+    repeats that it can cause, without the runner's retries.  The runner runs each of these at most
+    twice (``runner.RUNS_PER_TASK``), so they cost at most 2 W.  One more run, of at most S =
+    ``run_cost_s(task)``, covers a first run that is discarded after its whole limit while its
+    retry finishes fast and calls for repeats.  So the task costs at most S + 2 W.  The bound is
+    loose for a task without repeats, which costs at most 2 S.
     """
-    runs = runner.RUNS_PER_TASK
-    return sum((runs - 1) * run_cost_s(task) + runs * worst_case_s(task) for task in tasks) / 3600
+    assert runner.RUNS_PER_TASK == 2, "the ceiling allows one retry per run"
+    return sum(run_cost_s(task) + 2 * worst_case_s(task) for task in tasks) / 3600
 
 
 def run_cost_s(task: dict[str, Any]) -> float:
@@ -158,6 +167,33 @@ def run_cost_s(task: dict[str, Any]) -> float:
         + float(task.get("post_s", runner.FINISH_S))
         + float(task.get("grace_s", runner.GRACE_S))
     )
+
+
+def repeated_worst_case_s(
+    task: dict[str, Any],
+    repeat_tasks: Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]]],
+    below_s: float,
+) -> float:
+    """The worst case W of a task of pass 1 whose first run is repeated if it is fast.
+
+    W is the larger of a slow first run, which uses its whole limit, and a fast one, which ends
+    just under ``below_s`` with status ``ok`` and so calls for the repeats that ``repeat_tasks``
+    gives it.  Each run costs at most ``run_cost_s`` of its task.  A task that a fast first run does
+    not repeat costs one run.  W is the worst case only if ``repeat_tasks`` repeats exactly the
+    first runs with status ``ok`` and T under ``below_s``, and the cost of its repeats does not fall
+    as T grows, since this probes it at one T.
+
+    Args:
+        task: A task of pass 1.
+        repeat_tasks: The experiment's repeat policy, as for ``write_pass2``.
+        below_s: The time under which a first run with status ``ok`` is repeated.
+    """
+    slow = run_cost_s(task)
+    repeats = repeat_tasks(task, {"status": "ok", "T": math.nextafter(below_s, 0.0)})
+    if not repeats:
+        return slow
+    fast = run_cost_s(dict(task, limit_s=below_s)) + sum(run_cost_s(repeat) for repeat in repeats)
+    return max(slow, fast)
 
 
 def check_memory_caps(tasks: Sequence[dict[str, Any]], job_mem_gib: float) -> None:
@@ -261,8 +297,9 @@ def parallel_command(
     that affinity.  ``local`` serves local tests, whose runs stay in the caller's session.
     """
     label = shlex.quote(str(label_dir))
+    run_task = plugin.RUN_TASK.relative_to(plugin.ROOT).as_posix()
     task_command = (
-        f"{shlex.quote(str(python))} experiments/state_prep_certification/common/run_task.py "
+        f"{shlex.quote(str(python))} {run_task} "
         f'--label-dir {label} --job-slot {{%}} --cpu "$(sed -n {{%}}p {label}/{CORES_FILE})"'
         + (" --local" if local else "")
         + " {}"

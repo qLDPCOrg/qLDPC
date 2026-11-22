@@ -2,25 +2,29 @@
 
 """Analyze a run of the distance experiment: summary.csv, families.csv, anchors.csv, distances.pdf.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python analyze.py (--archive PATH --out DIR | --label-dir DIR [--out DIR]) [--allow-local]
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
 first run and repeats on the code, with a repeat that timed out counted as the limit L.  If the
-first run finished with complete timing, and a run that timed out determines the median, as the
-middle one of an odd number of runs or either middle one of an even number, the median timed out:
-the arm has no T, and its status in ``summary.csv`` and its T cell in ``anchors.csv`` are
-``median_timed_out``.  If the first run did not finish, or a repeat ended in an error or memout, T
-is the first run's time.  An arm counts as finished if its first run finished and its median did not
-time out; ``summary.csv`` records the number of unfinished repeats in ``repeats_unfinished``.  A row
-with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A repeat with it is left
-out of the median, as a missing repeat is.  A first run with it leaves the arm without T, and its T
-cell in ``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged
-runs in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The
-cases, in order:
+first run finished with complete timing, no repeat ended in an error or memout, and a run that timed
+out determines the median, as the middle one of an odd number of runs or either middle one of an
+even number, the median timed out: the arm has no T, and its status in ``summary.csv`` and its T
+cell in ``anchors.csv`` are ``median_timed_out``.  If the first run did not finish, or a repeat
+ended in an error or memout, T is the first run's time.  An arm counts as finished if its first run
+finished and its median did not time out; ``summary.csv`` records the number of unfinished repeats
+in ``repeats_unfinished``.  A row with ``compiled_in_timing`` set (see ``common/runner.py``) enters
+no T.  A repeat with it is left out of the median, as a missing repeat is.  A first run with it
+leaves the arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
+``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats``,
+its count of runs, the first included, and of ``repeats_unfinished``.  The cases, in order:
 
-1. **disagreement:** the arms or their repeats report different distances, or a distance that
-   differs from the code's reference distance; no ratio;
+1. **disagreement:** the rows with status ``ok`` of the arms and their repeats report different
+   distances, or a distance that differs from the code's reference distance; a distance that a
+   ``timeout`` or ``memout`` row kept is not compared; no ratio;
 2. **failure:** either arm's first run or one of its repeats ended in an error or memout, or its
    first run has no final row although ``tasks.json`` lists it or a repeat has one; no ratio.  A
    repeat without a final row only leaves the median with fewer runs, which ``repeats`` in
@@ -47,34 +51,31 @@ The analysis reads the sample from the label directory, where ``experiment.prepa
 ``code_data/sample.json``, so that a later change to the sample, such as to a reference distance,
 does not change the analysis of an earlier run.
 
-The analysis extracts an archive into a temporary directory, which it removes when it ends, whether
-or not it succeeds.  So ``--archive`` requires ``--out``.  Outputs in ``--out`` (by default
-``analysis/`` in the label directory of ``--label-dir``): ``summary.csv`` (one row per code and
-arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior against on),
-and ``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack of a value, or
-for a disagreement, a failure, or an incomplete timing).
+The analysis checks and extracts an archive with ``store.open_archive``, into a temporary directory
+that it removes when it ends, so ``--archive`` requires ``--out``.  The outputs go to ``--out``, by
+default ``analysis/`` in the label directory of ``--label-dir``.  They are ``summary.csv`` (one row
+per code and arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of the on
+arm's T against the prior arm's), and ``figure_notes.json`` (the number of codes that
+``distances.pdf`` omits, for lack of a value, or for a disagreement, a failure, or an incomplete
+timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
-``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
-``local_rows``.  If a start of the label accepted a refused environment variable with
-``--allow-env`` (see ``run_node.py``), or ran Python with -O, it marks every output with the names
-of these variables, ``PYTHONOPTIMIZE`` for -O, ``allowed_environment``.  If the recorded environment
-variables of the label's starts differ, such as those of a resume in another shell, it marks every
-output with the names of the variables that differ, ``environment_changed``.  Each mark is a column
-in each CSV file, a key in ``figure_notes.json``, and part of the title and of the Subject in the
-metadata of ``distances.pdf``.
+``--allow-local``.  Where they apply, it marks every output with ``local_rows``
+(``store.count_local_rows``), ``allowed_environment`` (``store.allowed_environment``), and
+``environment_changed`` (``store.changed_environment``).  Each mark is a column in each CSV file, a
+key in ``figure_notes.json``, and part of the title and of the Subject in the metadata of
+``distances.pdf``.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import json
 import pathlib
 import statistics
 import sys
-import tarfile
-import tempfile
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -88,13 +89,14 @@ ON, PRIOR = "q_bz_on", "q_bz_prior"
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    with tempfile.TemporaryDirectory(prefix="spc-analysis-") as scratch:
-        label_dir = args.label_dir or _unpack(args.archive, pathlib.Path(scratch, "label"))
+    with contextlib.ExitStack() as archives:
+        label_dir = args.label_dir or archives.enter_context(store.open_archive(args.archive))
         analyze_label(label_dir, args.out or label_dir / "analysis", args.allow_local)
 
 
 def analyze_label(label_dir: pathlib.Path, out: pathlib.Path, allow_local: bool) -> None:
     """Analyze a label directory, and write the outputs to ``out``."""
+    label_tasks = tasks.load_tasks(label_dir)
     out.mkdir(parents=True, exist_ok=True)
     final, problems = store.final_rows(label_dir)
     for problem in problems:
@@ -115,11 +117,10 @@ def analyze_label(label_dir: pathlib.Path, out: pathlib.Path, allow_local: bool)
         print(f"note: the starts ran with different {', '.join(changed)}; every output says so")
         marks["environment_changed"] = " ".join(changed)
     sample = load_sample(label_dir)
-    expected = list(tasks.load_tasks(label_dir, pass2=False).values())
-    missing = [key for key in tasks.load_tasks(label_dir) if key not in final]
+    missing = [key for key in label_tasks if key not in final]
     if missing:
         print(f"note: {len(missing)} tasks have no final row, such as {missing[0]}")
-    per_code = summarize(list(final.values()), sample, expected)
+    per_code = summarize(list(final.values()), sample, label_tasks)
     write_outputs(per_code, sample, out, marks)
     print(f"wrote {out}")
 
@@ -140,15 +141,6 @@ def parse_args() -> argparse.Namespace:
     if args.archive and args.out is None:
         parser.error("--archive requires --out, since the archive's extraction is removed")
     return args
-
-
-def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a directory, and return its label directory."""
-    directory.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive) as tar:
-        tar.extractall(directory, filter="data")
-    (label_dir,) = [path for path in directory.iterdir() if path.is_dir()]
-    return label_dir
 
 
 ####################################################################################################
@@ -172,21 +164,30 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
 
 
 def summarize(
-    rows: list[dict[str, Any]], sample: dict[str, Any], expected: list[dict[str, Any]]
+    rows: list[dict[str, Any]], sample: dict[str, Any], label_tasks: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """One record per code and arm: status, median T, and distance.
 
     Args:
         rows: The final rows of the runs.
         sample: The run's copy of the sample (``load_sample``).
-        expected: The tasks of pass 1, so that a task without a final row is reported as missing.
+        label_tasks: Every task of the label by key, as ``tasks.load_tasks`` gives them.  Each row's
+            code is the input of its task, and an arm whose first run has no final row is missing.
+
+    Raises:
+        ValueError: If a row's key is not the key of a task, or a code is not in ``sample``.
     """
+    unknown_keys = sorted({row["task_key"] for row in rows} - label_tasks.keys())
+    if unknown_keys:
+        raise ValueError(
+            f"{len(unknown_keys)} rows have no task in tasks.json, such as {unknown_keys[0]}"
+        )
     grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = {}
-    for task in expected:
-        code_hash = task["key"].split(".")[2]
+    for task in label_tasks.values():
+        code_hash = task["input"]["code_hash"][:12]
         grouped.setdefault((code_hash, task["arm"]), {}).setdefault(task["mode"], [])
     for row in rows:
-        code_hash = row["task_key"].split(".")[2]
+        code_hash = label_tasks[row["task_key"]]["input"]["code_hash"][:12]
         grouped.setdefault((code_hash, row["arm"]), {}).setdefault(row["mode"], []).append(row)
     names = {
         entry["code_hash"][:12]: (entry, kind)
@@ -267,8 +268,9 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     runs or either middle one of an even number, the status is ``median_timed_out`` and T is None.
     A row with ``compiled_in_timing`` set enters no T and is left out of ``repeats`` and
     ``repeats_unfinished``: a repeat with it is left out of the median, and a first run with it
-    makes T None and the timing incomplete.  Repeats that report different distances make the arm's
-    distance a list, which ``ratio`` treats as a disagreement.
+    makes T None and the timing incomplete.  The arm's distance is that of its rows with status
+    ``ok``; if they report different distances, it is a list, which ``ratio`` treats as a
+    disagreement.
     """
     distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
     distance = distances[0] if len(distances) == 1 else (distances or None)
@@ -373,7 +375,7 @@ def write_outputs(
 
 
 def _median(results: list[dict[str, Any]]) -> str:
-    """The agreement-only median of ratios, marked by the kinds of bounds among them."""
+    """The median of the ratios of cases 5-7, marked by the kinds of bounds among them."""
     values = [r for r in results if r["value"] is not None]
     if not values:
         return "-"
@@ -438,7 +440,18 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> pathlib.P
 def _write_anchors(
     by_code: dict[str, dict[str, dict[str, Any]]], sample: dict[str, Any], out: pathlib.Path
 ) -> pathlib.Path:
-    """Write anchors.csv: one row per anchor, with n, k, the reference d, the d found, and Ts."""
+    """Write anchors.csv: one row per anchor, with n, k, the reference d, the d found, and Ts.
+
+    ``d_found`` is the distance that the arms' runs on the anchor report, or the list of their
+    distances if they report none or several.  An arm's T cell is "n/a" where the label has neither
+    a task nor a row of the arm on the anchor.  Otherwise it follows the arm's status
+    (``_timed_summary``): "compiled" where the status is ``ok`` or ``timeout`` and the first run has
+    ``compiled_in_timing`` set; else T to three significant digits for ``ok``, "> L" for
+    ``timeout``, and the status itself for any other.  Such statuses include "missing", where the
+    arm's first run has no row, "median_timed_out", "error", and "memout".  A repeat ending in
+    ``error`` or ``memout`` gives the arm that status even if its first run has
+    ``compiled_in_timing`` set.
+    """
     arms = [ON, PRIOR]
     path = out / "anchors.csv"
     with open(path, "w", newline="") as file:

@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The label of a run, and the version manifest of the machine and software that made it.
+"""The label of an experiment, and the manifest of the machine and software of its first start.
+
+The manifest (``write_manifest``) describes the label's first start that runs tasks, and
+``starts.jsonl`` holds a line for every start (``record_start``).
 
 The label of an experiment is ``<experiment>-`` followed by the first 12 hexadecimal digits of the
 SHA-256 of ``pins.json``, the experiment's frozen files, the harness commit, and, in a bundle, the
 SHA-256 of the bundle's resolved requirements.  Any change to them gives a new label, and so a new
-results directory.  ``run_node.py`` names the directory by the label, followed by these suffixes,
+label directory.  ``run_node.py`` names the directory by the label, followed by these suffixes,
 in this order:
 
 * ``-dirty-<hash>`` if the qLDPC tree has uncommitted changes to tracked files (allowed only in
@@ -16,12 +19,10 @@ in this order:
 * ``-local`` for a ``--local`` run, so that its rows never mix with those of the node;
 * ``-<subset>`` for a subset other than ``main`` or ``acceptance``.
 
-The harness commit is the Git commit of the qLDPC tree that holds the experiments.  On the node,
-whose tree is a ``git archive`` without history, ``bundle.py`` records it in
-``experiments/state_prep_certification/bundle.json``, with the SHA-256 of the bundle's
-requirements; ``bundle_record`` reads that record.  ``compute_label`` reads no file: its callers
-pass the contents of the files and the requirements' SHA-256.  An analysis that checks the label of
-a results archive passes the requirements' SHA-256 that the archive's ``manifest.json`` records.
+The harness commit is HEAD of the whole qLDPC checkout that holds the experiments, not of the
+experiment's own files only.  On the node, whose tree is a ``git archive`` without history,
+``bundle.py`` records it in ``experiments/state_prep_certification/bundle.json``, with the SHA-256
+of the bundle's requirements; ``bundle_record`` reads that record.
 """
 
 from __future__ import annotations
@@ -37,12 +38,10 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import store
+from experiments.state_prep_certification.common import plugin, runner, store
 
-FT_STATE_PREP_DIR = pathlib.Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = FT_STATE_PREP_DIR.parents[1]
-PINS_FILE = FT_STATE_PREP_DIR / "pins.json"
-BUNDLE_RECORD = FT_STATE_PREP_DIR / "bundle.json"
+PINS_FILE = plugin.EXPERIMENTS_DIR / "pins.json"
+BUNDLE_RECORD = plugin.EXPERIMENTS_DIR / "bundle.json"
 
 # The environment variables that the manifest records, with their values: those that can change
 # what a run computes, how fast, or which code it imports.  The values enter manifest.json,
@@ -78,15 +77,15 @@ def harness_commit() -> dict[str, Any]:
             "diff_sha256": None,
             "source": "bundle.json",
         }
-    commit = _git("rev-parse", "HEAD")
-    dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
+    commit = git("rev-parse", "HEAD")
+    dirty = bool(tracked_changes())
     diff = None
     if dirty:
         diff = subprocess.run(
             [
                 "git",
                 "-C",
-                str(REPOSITORY_ROOT),
+                str(plugin.ROOT),
                 "diff",
                 "HEAD",
                 "--binary",
@@ -105,13 +104,25 @@ def harness_commit() -> dict[str, Any]:
     }
 
 
+def tracked_changes() -> str:
+    """The uncommitted changes to tracked files of the qLDPC tree, staged or not, one per line."""
+    return git("status", "--porcelain", "--untracked-files=no")
+
+
+def git(*args: str) -> str:
+    """The output of a Git command in the qLDPC tree, without surrounding white space."""
+    return subprocess.run(
+        ["git", "-C", str(plugin.ROOT), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
 def compute_label(
     experiment: str,
     files: Sequence[tuple[str, bytes]],
     commit: str,
     requirements_sha256: str | None,
 ) -> str:
-    """The label of a run: its pins, frozen files, harness commit, and a bundle's requirements.
+    """An experiment's label: its pins, frozen files, harness commit, and a bundle's requirements.
 
     Args:
         experiment: The experiment's name.
@@ -251,7 +262,7 @@ def machine_info() -> dict[str, Any]:
         )
         info["mem_total_bytes"] = mem_total_bytes()
     elif sys.platform == "darwin":
-        info["cpu"] = _run(["sysctl", "-n", "machdep.cpu.brand_string"]).strip()
+        info["cpu"] = runner.cpu_model()
         info["physical_cores"] = int(_run(["sysctl", "-n", "hw.physicalcpu"]) or 0)
         info["mem_total_bytes"] = mem_total_bytes()
     return info
@@ -272,15 +283,11 @@ def package_freeze() -> str:
     return output or _run([sys.executable, "-m", "pip", "freeze"])
 
 
-def _git(*args: str) -> str:
-    """The output of a Git command in the repository."""
-    return subprocess.run(
-        ["git", "-C", str(REPOSITORY_ROOT), *args], capture_output=True, text=True, check=True
-    ).stdout.strip()
-
-
 def _run(command: list[str]) -> str:
-    """The output of a command, or an empty string if it fails."""
+    """A command's standard output, whatever its exit status.
+
+    Empty if the command cannot start or takes more than 60 seconds.
+    """
     try:
         return subprocess.run(
             command, capture_output=True, text=True, timeout=60, check=False

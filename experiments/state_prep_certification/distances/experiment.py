@@ -18,17 +18,18 @@ import shutil
 from typing import Any
 
 from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common.tasks import repeated_worst_case_s
 from experiments.state_prep_certification.distances import arms, codes
+from qldpc.codes.distance import _tuning
 
 NAME = "distances"
 EXTRA_WHEELS = ["matplotlib"]
 DATA = ["code_data"]
 FROZEN_FILES = ["config.json", "code_data/endpoints.json", "code_data/sample.json"]
-HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = arms.CONFIG
 JOB_MEM_GIB = float(CONFIG["mem_cap_gib"])
 
-# The codes of the ``smoke`` subset: small anchors of each kind.
+# The codes of the ``smoke`` subset: four small anchors of different constructions.
 SMOKE = ("golay", "bb72", "surface9", "five_five")
 
 
@@ -59,17 +60,8 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
 
 
 def worst_case_s(task: dict[str, Any]) -> float:
-    """The worst-case CPU seconds of a task with its repeats.
-
-    A run costs at most its start-up cap, the limit L, the runner's window ``runner.FINISH_S`` for
-    returning a result, and then the grace in which its processes must end.  A task's worst case has
-    a first run just under the repeat threshold and ``repeats`` repeats that each cost the most that
-    a run can.
-    """
-    startup, limit = CONFIG["startup_cap_s"], task["limit_s"]
-    after = runner.FINISH_S + CONFIG["grace_s"]
-    first = startup + CONFIG["repeat_below_s"] + after
-    return float(first + CONFIG["repeats"] * (startup + limit + after))
+    """The worst-case CPU seconds of a task with its repeats (``tasks.repeated_worst_case_s``)."""
+    return repeated_worst_case_s(task, repeat_tasks, float(CONFIG["repeat_below_s"]))
 
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -77,15 +69,13 @@ def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, An
     if row["status"] != "ok" or row["T"] >= CONFIG["repeat_below_s"]:
         return []
     return [
-        dict(task, key=task["key"].rsplit(".r", 1)[0] + f".r{repeat}", repeat=repeat)
+        dict(task, key=_key(task["arm"], task["input"]["code_hash"], repeat), repeat=repeat)
         for repeat in range(1, CONFIG["repeats"] + 1)
     ]
 
 
 def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     """Run the arm's distance call once, timed."""
-    from qldpc.codes.distance import _tuning
-
     arm, entry = task["arm"], task["input"]
     stored = codes.load_code(label_dir, entry["code_hash"])
     with _tuning.use_tuning(**arms.tuning_changes(arm)):
@@ -113,7 +103,7 @@ def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
 def _task(arm: str, entry: dict[str, Any], repeat: int) -> dict[str, Any]:
     """A task of one arm on one code."""
     return {
-        "key": f"{arm}.timed.{entry['code_hash'][:12]}.r{repeat}",
+        "key": _key(arm, entry["code_hash"], repeat),
         "experiment": NAME,
         "arm": arm,
         "mode": "timed",
@@ -126,3 +116,8 @@ def _task(arm: str, entry: dict[str, Any], repeat: int) -> dict[str, Any]:
             key: entry[key] for key in ("name", "code_hash", "css", "equal_distance_xz", "n", "k")
         },
     }
+
+
+def _key(arm: str, code_hash: str, repeat: int) -> str:
+    """The key of the task of one arm on one code: ``<arm>.timed.<code hash[:12]>.r<repeat>``."""
+    return f"{arm}.timed.{code_hash[:12]}.r{repeat}"

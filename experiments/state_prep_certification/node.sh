@@ -3,9 +3,13 @@
 #
 # The single node entry point of the experiments of state_prep_certification.
 #
+# Everything in state_prep_certification/ is a prototype, subject to change: its code, interfaces,
+# inputs, outputs, and documentation.
+#
 #   bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hours H [--jobs N]
 #   bash experiments/state_prep_certification/node.sh --check
-#   bash experiments/state_prep_certification/node.sh EXPERIMENT --status | --cleanup [--subset S]
+#   bash experiments/state_prep_certification/node.sh EXPERIMENT --status [--subset S]
+#   bash experiments/state_prep_certification/node.sh EXPERIMENT --cleanup [--subset S]
 #
 # Run it from the unpacked bundle's qLDPC/ directory.  It never uses the network.
 #
@@ -16,15 +20,16 @@
 #    bundle; it needs only this script and pins.json beside it, so it can run before the bundle
 #    exists.
 # 2. Install, once per bundle, in results/: a virtual environment in venv-<bundle> from the
-#    bundle's wheels alone, with hashes required, marked complete only after the install
-#    succeeds; the bundle's CPython in python-<bundle>, if uv finds no pinned one; and GNU
-#    parallel's script in ext-<bundle>/bin, if the system has none of the pinned version.  Then
+#    bundle's wheels alone, with hashes required; the bundle's CPython in python-<bundle>, if uv
+#    finds no pinned one; and GNU parallel's script in ext-<bundle>/bin, if the system has none of
+#    the pinned version.  A failed install is redone at the next start.  Then
 #    results/preflight-<bundle>.json records the checks and the GNU parallel that runs.
 # 3. Run: <venv>/bin/python experiments/state_prep_certification/run_node.py EXPERIMENT ...,
 #    with the numba cache in results/numba-cache.  Repeating the command resumes the run.
 #
 # Before every start, and before --status and --cleanup, the files of the bundle are checked
-# against its SHA256SUMS, so that a tree edited on the node is not run under the bundle's label.
+# against its SHA256SUMS, so that a tree edited on the node does not run under the bundle's labels.
+# The check finds edited and missing files, not added ones.
 # Every other option passes through to run_node.py; `python3
 # experiments/state_prep_certification/run_node.py --help` lists them.  --status and --cleanup act
 # on one label directory, so they need the run's --subset, if it was not main.  The environment
@@ -162,6 +167,7 @@ install() {
         fail "no bundle around $HERE: expected $bundle/wheels and $bundle/requirements-node.txt"
     asset="$(pin python standalone_asset)"
 
+    # .installed marks an install that succeeded, so that a failed one is redone
     if [ ! -f "$VENV/.installed" ]; then
         python_path="$(uv python find "$PYTHON_VERSION" 2>/dev/null || true)"
         if [ -z "$python_path" ]; then

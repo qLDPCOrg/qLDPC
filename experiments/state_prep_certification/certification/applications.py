@@ -27,9 +27,12 @@ sleeps that many seconds after each step, so that a short limit ends the run bet
   completed fault weight as a partial result.  A parent that is not certified at K = t gets no step.
 
 Deleting a qubit removes every instruction target group that involves it, as for the weakened
-variants (``circuits._delete_qubit``).  The sector of a counterexample is the residual weight of the
-X part and of the Z part of its output error, each minimized modulo the stabilizers of the prepared
-state; for CSS weight, the larger of the two is the residual weight.
+variants (``circuits._delete_qubit``).  The weakened variants also try qubits last measured first,
+but break ties otherwise (``measured_qubits``).  The sector of a counterexample is the residual
+weight of the X part and of the Z part of its output error, each minimized modulo the stabilizers of
+the prepared state; for CSS weight, the larger of the two is the residual weight.
+``describe_certificate`` describes a certificate, with the sector of its counterexample, for the
+margins and for the first runs of ``cert_bz`` and ``cert_cc`` (``experiment.py``).
 """
 
 from __future__ import annotations
@@ -43,12 +46,19 @@ from typing import Any
 import numpy as np
 import stim
 
-from experiments.state_prep_certification.certification import circuits, experiment, instrument
+from experiments.state_prep_certification.certification import circuits, instrument
+from experiments.state_prep_certification.certification.settings import (
+    CONFIG,
+    INPUTS,
+    certify_options,
+    noisy_circuit,
+    noisy_input,
+)
+from experiments.state_prep_certification.certification.states import same_state, stabilizer_matrix
 from experiments.state_prep_certification.common import runner
 from qldpc import circuits as qldpc_circuits
 from qldpc.codes.distance import CosetLeaderSearch
 
-ARMS = ("margin", "prune", "prune_sensitivity")
 PRUNE_ORDERS = {"prune": "last_measured_first", "prune_sensitivity": "first_measured_first"}
 
 # The number of shots that each batch of the acceptance estimate samples, which bounds its memory.
@@ -58,20 +68,32 @@ _SHOTS_PER_BATCH = 100_000
 def run(task: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
     """Run a task of ``margin``, ``prune``, or ``prune_sensitivity`` on a circuit of the list."""
     fields: dict[str, Any] = {"id": entry["id"], "family": entry["family"], "t": entry["t"]}
-
-    def report(record: dict[str, Any]) -> None:
-        runner.send_partial(record)
-        time.sleep(float(task.get("step_delay_s", 0.0)))
-
+    report = delayed_progress(float(task.get("step_delay_s", 0.0)))
     if task["arm"] == "margin":
-        noisy = experiment._noisy_input(entry)
-        options = experiment.certify_options(entry)
+        noisy = noisy_input(entry)
+        options = certify_options(entry["options"])
         result = runner.timed(find_margin, noisy, options, report)
         return fields | result | {"cutoff_reached": cutoff_reached(result, entry["r"])}
-    circuit = stim.Circuit((experiment.INPUTS / f"{entry['id']}.stim").read_text())
+    circuit = stim.Circuit((INPUTS / f"{entry['id']}.stim").read_text())
     seed = int(hashlib.sha256(task["key"].encode()).hexdigest()[:8], 16)
     order = PRUNE_ORDERS[task["arm"]]
     return fields | runner.timed(prune, circuit, entry, order, seed, report)
+
+
+def delayed_progress(delay: float) -> Callable[[dict[str, Any]], None]:
+    """``runner.send_partial``, followed by a sleep of ``delay`` seconds after each record.
+
+    Only the acceptance tests set a delay, through a task's ``step_delay_s`` or ``weight_delay_s``;
+    without one, this is ``runner.send_partial`` itself.
+    """
+    if not delay:
+        return runner.send_partial
+
+    def send_then_sleep(record: dict[str, Any]) -> None:
+        runner.send_partial(record)
+        time.sleep(delay)
+
+    return send_then_sleep
 
 
 ####################################################################################################
@@ -100,7 +122,7 @@ def find_margin(
         "per_weight": instrumentation.weights,
     }
     if example is not None:
-        fields |= experiment._describe(certificate)
+        fields |= describe_certificate(certificate)
     return fields
 
 
@@ -115,6 +137,36 @@ def cutoff_reached(result: dict[str, Any], flag_rank: int) -> bool:
     return result["margin"] == "all" and searched == flag_rank + 1
 
 
+def describe_certificate(certificate: Any) -> dict[str, Any]:
+    """The description of a certificate, with the exact residual weight of a counterexample.
+
+    The description of a counterexample also gives its sector (``sector_fields``).  It is
+    post-processing, outside T, for ``cert_bz`` and ``cert_cc``, and part of T for ``margin`` and
+    the deletions (``experiment.py``).
+    """
+    fields: dict[str, Any] = {"certificate_text": str(certificate)}
+    example = certificate.counterexample
+    if example is None:
+        return fields
+    num_qubits = len(certificate.output_qubits)
+    fields |= {
+        "fault_indices": list(example.fault_indices),
+        "output_pauli": str(example.output_pauli),
+        "residual_weight_lower_bound": example.residual_weight_lower_bound,
+    }
+    oracle = CosetLeaderSearch(
+        stabilizer_matrix(certificate.state_stabilizers),
+        css_weight=certificate.css_weight,
+        method="brouwer_zimmermann",
+    )
+    batch = oracle.pack_syndromes(np.array(example.output_syndrome, dtype=np.uint8))
+    # with a cap of the number of output qubits, the returned weight is exact
+    weight = int(oracle.get_min_weights(batch, num_qubits)[0])
+    fields["residual_weight"] = weight
+    fields["residual_exceeds_fault_weight"] = weight > len(example.fault_indices)
+    return fields | sector_fields(certificate)
+
+
 def sector_fields(certificate: Any) -> dict[str, Any]:
     """The sector of a certificate's counterexample, for CSS weight; empty otherwise.
 
@@ -125,7 +177,7 @@ def sector_fields(certificate: Any) -> dict[str, Any]:
     example = certificate.counterexample
     if example is None or not certificate.css_weight:
         return {}
-    stabilizers = experiment.stabilizer_matrix(certificate.state_stabilizers)
+    stabilizers = stabilizer_matrix(certificate.state_stabilizers)
     num_qubits = len(certificate.output_qubits)
     x_part, z_part = (part.astype(np.uint8) for part in example.output_pauli.to_numpy())
     # a Pauli (x, z) anticommutes with a stabilizer (s_x, s_z) if s_x.z + s_z.x is odd
@@ -173,7 +225,7 @@ def prune(
             directly as partial results, without the delay of a step.
     """
     report = report or (lambda record: None)
-    options = experiment.certify_options(entry) | {
+    options = certify_options(entry["options"]) | {
         "output_qubits": entry["output_qubits"],
         "max_weight": entry["t"],
     }
@@ -204,7 +256,7 @@ def prune(
     # unbounded and reports each completed fault weight
     text = circuit_text(current)
     final_cc = _certify(current, noise, options, "connected_cluster")
-    shots = int(experiment.CONFIG["prune"]["acceptance_shots"])
+    shots = int(CONFIG["prune"]["acceptance_shots"])
     checks = {
         "parent_counts": count_gates(circuit),
         "final_counts": count_gates(current),
@@ -218,7 +270,7 @@ def prune(
         "final_sha256": hashlib.sha256(text.encode()).hexdigest(),
     }
     runner.send_partial({"final_checks": checks})
-    final_margin = find_margin(experiment.noisy_circuit(current, noise), options, report)
+    final_margin = find_margin(noisy_circuit(current, noise), options, report)
     final_margin.pop("per_weight")
     final_margin.pop("certificate_text", None)
     return fields | checks | {"steps": steps, "final_margin": final_margin}
@@ -230,6 +282,9 @@ def measured_qubits(circuit: stim.Circuit, order: str) -> list[int]:
     ``"last_measured_first"`` orders them by decreasing index of the instruction of their last
     measurement, and ``"first_measured_first"`` by increasing index of the instruction of their
     first measurement.  Qubits tied by one instruction keep the order of their first measurement.
+    The weakened variants of ``circuits.py`` try qubits last measured first too, but take the qubits
+    whose last measurements share an instruction in the reverse order of its targets
+    (``circuits._make_weakened``).
     """
     if order not in ("last_measured_first", "first_measured_first"):
         raise ValueError(f"Unknown deletion order {order!r}")
@@ -327,14 +382,12 @@ def _check_deletion(
 def _prepares_target(stabilizers: Any, entry: dict[str, Any]) -> bool:
     """Whether stabilizers of a prepared state give the parent's signed state, ``entry``'s."""
     texts = [str(stabilizer) for stabilizer in stabilizers]
-    return len(texts) == len(entry["output_qubits"]) and circuits.same_state(
-        entry["stabilizers"], texts
-    )
+    return len(texts) == len(entry["output_qubits"]) and same_state(entry["stabilizers"], texts)
 
 
 def _certify(
     circuit: stim.Circuit, noise: dict[str, Any], options: dict[str, Any], method: Any
 ) -> Any:
     """Certify a noiseless circuit with the given noise, options, and method."""
-    noisy = experiment.noisy_circuit(circuit, noise)
+    noisy = noisy_circuit(circuit, noise)
     return qldpc_circuits.certify_bounded_fault_propagation(noisy, method=method, **options)

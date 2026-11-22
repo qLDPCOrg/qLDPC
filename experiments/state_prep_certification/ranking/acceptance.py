@@ -2,6 +2,9 @@
 
 """Acceptance tests of the ranking experiment.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python acceptance.py [--local] [--only RT1 RT3 ...] [--results-dir R]
 
 On the node, before the run, only RT1, RT2, and RT8 run; with ``--local``, every test runs.  Each
@@ -85,7 +88,14 @@ import numpy.typing as npt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from experiments.state_prep_certification.certification import circuits as certification_circuits
-from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
+from experiments.state_prep_certification.certification import states as certification_states
+from experiments.state_prep_certification.common import (
+    acceptance,
+    local_runs,
+    manifest,
+    plugin,
+    store,
+)
 from experiments.state_prep_certification.ranking import analyze, direct, experiment
 from experiments.state_prep_certification.ranking import consumer as ranking_consumer
 from qldpc import circuits
@@ -131,7 +141,7 @@ def rt1_inputs(directory: pathlib.Path) -> None:
             noiseless = experiment.noisy_input(entry, 0.001).without_noise()
             prepared = circuits.get_state_stabilizers(noiseless, entry["output_qubits"])
             assert len(prepared) == len(entry["output_qubits"]), entry["id"]
-            assert certification_circuits.same_state(
+            assert certification_states.same_state(
                 [str(op) for op in prepared], members[0]["stabilizers"]
             ), (group, entry["id"])
         print(f"  {group}: {[entry['id'] for entry in members]}")
@@ -1129,13 +1139,14 @@ def synthetic_certification_archive(
 ) -> pathlib.Path:
     """A certification archive of a bundle's run, as ``run_node.py`` names it, with given verdicts.
 
-    Each circuit gets one ``cert_bz`` and one ``cert_cc`` row, with the verdicts "certified" or
-    "violation at m".  The label is that of ``manifest.compute_label`` for the harness commit
-    HEAD, this tree's ``pins.json``, certification's ``config.json`` and ``circuits.json``, and a
-    stand-in for the bundle's requirements; the other arguments change the manifest.
+    Each circuit gets one ``cert_bz`` and one ``cert_cc`` task and row, with the verdicts
+    "certified" or "violation at m".  The label is that of ``manifest.compute_label`` for the
+    harness commit HEAD, this tree's ``pins.json``, certification's ``config.json`` and
+    ``circuits.json``, and a stand-in for the bundle's requirements; the other arguments change the
+    manifest.
     """
     commit = subprocess.run(
-        ["git", "-C", str(manifest.REPOSITORY_ROOT), "rev-parse", "HEAD"],
+        ["git", "-C", str(plugin.ROOT), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
         check=True,
@@ -1158,13 +1169,16 @@ def synthetic_certification_archive(
         "bundle": {"requirements_sha256": requirements} if bundle else None,
     }
     (label_dir / "manifest.json").write_text(json.dumps(record) + "\n")
+    task_list = []
     for circuit_id, (bz, cc) in verdicts.items():
         for arm, verdict in (("cert_bz", bz), ("cert_cc", cc)):
             certified = verdict == "certified"
+            key = f"{arm}.{circuit_id}.r0"
+            task_list.append({"key": key, "arm": arm, "repeat": 0, "input": {"id": circuit_id}})
             store.append_row(
                 label_dir,
                 {
-                    "task_key": f"{arm}.{circuit_id}.r0",
+                    "task_key": key,
                     "arm": arm,
                     "repeat": 0,
                     "status": "ok",
@@ -1181,6 +1195,7 @@ def synthetic_certification_archive(
                     },
                 },
             )
+    (label_dir / "tasks.json").write_text(json.dumps(task_list) + "\n")
     return store.make_archive(label_dir, f"{label}-node-20261118T000000Z")
 
 

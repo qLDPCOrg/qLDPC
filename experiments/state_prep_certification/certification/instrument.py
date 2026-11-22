@@ -13,15 +13,18 @@ them, without editing qLDPC, and restores on exit the values that it found on en
   makes to another.  Calls are classified by their place in the search: threshold-1 checks of
   single zero-flag mechanisms (made through ``_check_fault``), threshold-1 classification of
   flagged mechanisms, and batches at threshold m >= 2, whose submitted rows are counted.
-* ``FaultLister.__init__`` records the room of the table of syndromes (``_max_syndromes``), and
-  ``FaultLister.find_first`` times each fault weight and reports a progress record after it.
+* ``FaultLister.__init__`` records the most syndromes that the lister's table may hold
+  (``_max_syndromes``), and ``FaultLister.find_first`` times each fault weight and reports a
+  progress record after it.
 
 With ``shadow=True``, every outermost query is also answered by a connected-cluster
-``CosetLeaderSearch`` built once on the same stabilizers, timed separately.  The two answers must
+``CosetLeaderSearch`` built once on the same stabilizers, timed separately, so that the two oracles'
+times compare on identical queries.  BZ answers each query first, then CC.  The two answers must
 agree (``within_max_weight``, or the index of the first failing row); a disagreement raises
-``ShadowDisagreement``.  Each mirrored call is appended to a JSON-lines file.  The shadow record
-also names the method that ``method="auto"`` takes for these queries (``auto``), so that the
-``bz`` and ``cc`` times of the calls file compare auto's choice with the other oracle.
+``ShadowDisagreement``.  Given ``calls_file``, each mirrored call whose answers agree is appended to
+that JSON-lines file.  The shadow record also names the method to which qLDPC resolves
+``method="auto"`` (``auto``), which is the same for every query, so that the ``bz`` and ``cc``
+times of the calls file compare auto's choice with the other oracle.
 """
 
 from __future__ import annotations
@@ -48,8 +51,6 @@ class Instrumentation:
     """Counters and times of one certification, filled by the wrappers of ``install``.
 
     Attributes:
-        shadow_search: The class of the shadow oracle, ``CosetLeaderSearch``; a test may override
-            it in a subclass.
         search_seconds: T_search, the time of ``find_smallest_violation``.
         oracle_setup_seconds: The time to construct the oracle of the fault search (the last one,
             if it constructs several).
@@ -58,11 +59,9 @@ class Instrumentation:
         batches: For each threshold m, the batch calls, submitted rows, and oracle time.
         weights: Per-weight records of ``find_first``: m, T_m, rows, oracle time, cumulative T.
         lister: ``max_syndromes`` of the fault lister.
-        shadow: Totals of the CC oracle by threshold, its setup time, and the method that
-            ``method="auto"`` takes for these queries, with ``shadow=True``.
+        shadow: Totals of the CC oracle by threshold, its setup time, and the method to which
+            ``method="auto"`` resolves, with ``shadow=True``.
     """
-
-    shadow_search: type[CosetLeaderSearch] = CosetLeaderSearch
 
     def __init__(
         self,
@@ -225,7 +224,7 @@ def _instrumented_search(
             self._shadow: CosetLeaderSearch | None = None
             if instrumentation.shadow_enabled:
                 start = time.perf_counter()
-                self._shadow = instrumentation.shadow_search(
+                self._shadow = CosetLeaderSearch(
                     stabilizers,
                     css_weight=kwargs.get("css_weight", False),
                     method="connected_cluster",

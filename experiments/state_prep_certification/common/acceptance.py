@@ -9,7 +9,7 @@ on the node.  Each test prints PASS or FAIL.  An exception that a test raises fa
 the other tests still run, if it derives from ``Exception`` or is ``SystemExit`` (``FAILURES``);
 another, such as ``KeyboardInterrupt``, stops the suite.  ``--only`` refuses an ID that is not a
 test of the suite.  ``check_marked`` checks the marks that an analysis puts on its outputs
-(``store.mark_outputs``).
+(``store.mark_outputs``), and ``raises`` checks that a call raises an exception.
 """
 
 from __future__ import annotations
@@ -24,12 +24,13 @@ import tempfile
 import time
 import traceback
 from collections.abc import Callable, Collection
-from typing import Any
+from typing import Any, TypeVar
 
 # The exceptions that fail a test, after which the other tests still run.
 FAILURES = (Exception, SystemExit)
 
 Test = Callable[[pathlib.Path, bool], None]
+_Error = TypeVar("_Error", bound=BaseException)
 
 
 class Suite:
@@ -133,6 +134,15 @@ def check_marked(out: pathlib.Path, marks: dict[str, Any]) -> list[pathlib.Path]
             others.append(path)
     assert marked, f"no CSV or JSON output in {out}"
     return others
+
+
+def raises(exception: type[_Error], function: Callable[[], Any]) -> _Error:
+    """Call ``function``, check that it raises ``exception``, and return what it raised."""
+    try:
+        function()
+    except exception as error:
+        return error
+    raise AssertionError(f"{exception.__name__} was not raised")
 
 
 def _stop(signum: int, frame: Any) -> None:

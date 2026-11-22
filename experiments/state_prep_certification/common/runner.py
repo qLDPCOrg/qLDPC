@@ -3,12 +3,9 @@
 """The task runner: one task, in one or two fresh child processes, with its limits and its row.
 
 The parent side, ``run_task``, starts the child with the thread variables of ``THREAD_VARIABLES``
-set to 1, and, if it is given a CPU, has the child pin itself to that CPU.  On the node, the
-runner itself inherits the CPUs of the reserved cores from ``run_node.py``, so that its polling
-of processes every second runs off the measured cores; rows record both affinities.  The runner
-records the child's process group (or, in local mode, its process id), the start times of the
-child and the runner, and the host in ``active/<task_key>``, which it keeps from the task's first
-run until after its row is appended, and watches the child:
+set to 1, pinned to a CPU if it is given one; rows record the affinities of both.  It records the
+run in ``active/<task_key>`` until the task's row is appended, for ``run_node.py``'s ``--status``
+and ``--cleanup`` (``_Watcher.run``), and watches the child:
 
 * **Start-up cap:** the child must report that timing started within ``startup_cap_s`` of its
   launch (process start, imports, and any untimed preparation); otherwise it is killed and the
@@ -26,50 +23,40 @@ run until after its row is appended, and watches the child:
   stands.  Without ``send_result``, a run whose result has not arrived within ``post_s`` is an
   ``error``, and a run killed after its final result arrived, for not exiting within ``post_s``,
   stays ``ok``, unless its peak until the result exceeded the cap (see below).
-* **Memory:** every second the parent sums the resident memory of the child's process group (or
-  process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since the
-  polls can miss a short peak, the parent also checks the peak that the operating system records for
-  the child and the processes that it waited for: the child sends it with its result
-  (``getrusage``), of ``send_result`` or final, and the parent reads it when the child exits without
-  a kill (``wait4``).  These are peaks of single processes, not of their sum, so a short peak of the
-  run's summed memory between two polls can still go unseen.  An ``ok`` run whose peak until its
-  result exceeds the cap becomes a ``memout``, with an ``error`` that says that the peak was found
-  after the run.  For a run that sends its result before post-processing, the peak that the child
-  sends with the result decides the status; a later peak above the cap marks only ``post_status``.
-  The row's ``peak_rss_gib`` is the largest of the polled peak and these peaks.
-* **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
-  partial results and the report of a compilation that the child wrote before the kill, waits up
-  to ``grace_s`` for the processes to go, and accepts no other message.  The row's ``error`` lists
-  each process left after the grace, with its command line, and the run's record stays in
-  ``active/``, as ``active/<run_id>``, with the id and start time of each such process, so that
-  ``run_node.py --cleanup`` kills exactly those that are still the same processes, even once the
-  run's own process and its runner have exited.  On the node, a kill signals the run's process
-  group, whose id cannot be reused while a member lives.  Locally, a process is killed only if its
-  start time is the one recorded when it was seen, so that a reused process id is never killed.
-* **Compilation:** while the measured call runs, the child listens to two of numba's documented
-  events: ``"numba:compile"``, which numba sends when it compiles a ``numba.jit`` function, and
-  ``"numba:run_pass"``, which it sends for each compiler pass of any compilation, including those
-  of ``numba.vectorize`` ufuncs.  The child reports the first compilation to the parent.  A process
-  that the measured call starts with a fresh interpreter, such as by multiprocessing's spawn or as a
-  subprocess, does not listen.  A compilation in such a process goes unreported, though it counts in
-  T if the call waits for the process.
+* **Memory:** every second the parent sums the resident memory of the run's processes, records the
+  peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since the polls can miss a short
+  peak, the parent also checks the peaks that the operating system records for single processes
+  of the run (``_Watcher.run``), so that only a short peak of the run's summed memory between two
+  polls can go unseen.  An ``ok`` run whose peak until its result exceeds the cap becomes a
+  ``memout``, with an ``error`` that says that the peak was found after the run.  For a run that
+  sends its result before post-processing, the peak that the child sends with the result decides
+  the status; a later peak above the cap marks only ``post_status``.  The row's ``peak_rss_gib``
+  is the largest peak seen.
+* **Kills:** a kill sends SIGKILL to every process of the run at once (``_Watcher._kill``); the
+  parent then reads the partial results and the report of a compilation that the child wrote
+  before the kill, waits up to ``grace_s`` for the processes to go, and accepts no other message.
+  The row's ``error`` lists each process left after the grace, with its command line, and the
+  run's record stays in ``active/`` with those processes, so that ``run_node.py --cleanup`` can
+  kill them (``_Watcher._keep_record``).
+* **Compilation:** the child reports to the parent the first compilation that numba reports during
+  the measured call, on any thread of the child's process (see ``timed``).  A compilation in a
+  process that the measured call starts with a fresh interpreter, such as by multiprocessing's spawn
+  or as a subprocess, goes unreported, though it counts in T if the call waits for the process.
 
-  The parent discards a run whose measured call compiled, whatever its status.  The discarded run is
-  not stopped early, since numba writes compiled code to its cache only after the compilation ends,
-  and a kill could lose it.  The parent then runs the task once more, in a fresh process that loads
-  the compiled code from numba's disk cache: the retry, which is never discarded.  A run's T
-  includes loading from the cache any compiled code that its process first reaches in its measured
-  call, and the other first-call work of a fresh process.  A task takes at most ``RUNS_PER_TASK``
-  runs, and its kept row records the discarded run, if any, in ``discarded_run``: its run id,
-  status, T, error, and the function that it compiled.
+  The parent discards a run whose measured call compiled, whatever its status, without stopping it
+  early, since numba writes compiled code to its cache only after the compilation ends.  It then
+  runs the task once more, in a fresh process that loads the compiled code from numba's disk cache:
+  the retry, which is never discarded.  So T includes loading compiled code from the cache, and the
+  other first-call work of a fresh process.  A task takes at most ``RUNS_PER_TASK`` runs, and its
+  row records the discarded run, if any, in ``discarded_run``: its run id, status, T, error, and
+  the function that it compiled.
 
   A row has ``compiled_in_timing`` set when its run is a retry that compiled too; only then does its
   T include a compilation that numba reports.  That happens for code whose compilation was lost when
-  the discarded run was killed at its limit or memory cap or ended in an error, for code that the
-  discarded run never reached, and for code that numba does not cache on disk, such as galois's
-  arithmetic when a task does not compile it first.  Such a row is kept so that it is visible.
-  ``compiled_in_timing`` is the flag that the analyses test, and ``compiled_function`` names the
-  first function compiled, to show what to look into.
+  the discarded run was killed or ended in an error, for code that the discarded run never reached,
+  and for code that numba does not cache on disk, such as galois's arithmetic when a task does not
+  compile it first.  ``compiled_in_timing`` is the flag that the analyses test, and
+  ``compiled_function`` names the first function compiled.
 
   numba saves to its disk cache without a lock across processes, so processes that first compile
   different signatures of one function at once can lose a cache entry, so that a later run
@@ -77,23 +64,29 @@ run until after its row is appended, and watches the child:
   compiled for another signature (numba/numba#10862), which can give wrong results or fail when
   the code is called.  No row records such a load.
 
+A row keeps the result that arrived, whatever its status: a ``timeout`` whose call returned at or
+after the limit, or a ``memout`` whose peak was found after the run, keeps its result.
+
 ``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
-during or between its runs, kills any current run, waits up to the grace for its processes to go,
-and returns 2 without a row; ``run_task.py`` exits with that status.  If the parent itself fails, it
-kills the run before it exits.  If it cannot tell that the run's processes are gone, as when ``ps``
-fails, it kills the run's own process, if it has not reaped it, and keeps the run's record in
-``active/``.  On the node, where the kill reached the run's process group, the record lets a start
-and ``--cleanup`` find members of the group that survive it; locally, the run's other processes
-may survive unrecorded.  If it cannot write the record of the processes left after a run's grace,
-the task's record stays as it was.
+before its last check for a signal, returns 2 without a row; ``run_task.py`` exits with that status.
+The docstring of ``run_task`` says when that check comes, and when a signal or a failure of the
+runner itself leaves a run's processes or record behind.
 
 The child side is ``child_main``.  The experiment's ``run(task, label_dir)`` calls ``timed`` once
 around the measured call, may call ``send_partial`` with partial results as they arrive and
-``send_result`` with the measured result before it starts post-processing, and returns the
-remaining fields.  On the node, the child runs in a new session, so that its process group holds
-the whole run; locally (``local=True``), it stays in the runner's session, so that whatever watches
-or stops that session reaches it too, and kills walk its process tree instead.  In local mode, a
-process that the run leaves behind after a normal exit is neither killed nor reported.
+``send_result`` with the measured result before it starts post-processing, and returns the rest of
+the row's ``result``: all of it, or, after ``send_result``, the fields of its post-processing.
+These results hold only values that JSON encodes, NumPy scalars and arrays, and sets, which the
+child sends as sorted lists.  JSON turns tuples into lists, and dictionary keys of type str, int,
+float, bool, or None into strings.  Any other object or key, or a set whose elements do not
+compare, raises TypeError, which ends the child with an error.
+
+On the node, the child runs in a new session, so that its process group holds the whole run, and
+the runner watches and kills that group.  In local mode (``local=True``, ``run_node.py --local``),
+the child stays in the runner's session, so that whatever watches or stops that session reaches it
+too, and the runner watches and kills the child's process tree instead.  Locally, a process that
+the run leaves behind after a normal exit is neither killed nor reported, and one that it leaves
+after a failure of the runner may survive unrecorded.
 """
 
 from __future__ import annotations
@@ -113,10 +106,10 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple, TypeVar
 
-from experiments.state_prep_certification.common import store
+from experiments.state_prep_certification.common import plugin, store
 
 THREAD_VARIABLES = (
     "OMP_NUM_THREADS",
@@ -128,9 +121,8 @@ THREAD_VARIABLES = (
 )
 
 STARTUP_CAP_S = 120.0
-# The most runs of one task: a run, and a retry if the measured call of that run compiled.  Raising
-# it would need discarded_run to record every discarded run, and the docs that describe one retry,
-# such as tasks.py's statement of the ceiling, to change.
+# The most runs of one task: a run, and a retry if the measured call of that run compiled.  A row's
+# discarded_run records one discarded run, and tasks.ceiling_hours allows one retry per run.
 RUNS_PER_TASK = 2
 GRACE_S = 30.0
 FINISH_S = 30.0
@@ -206,10 +198,23 @@ def run_task(
 
     Returns:
         0 once it has appended the row, or 2, without a row, if SIGTERM or SIGINT stopped the task.
+
+    A signal during or between the task's runs kills any current run and waits up to its grace for
+    the run's processes to go.  After a run's process has ended and the runner has kept the tail of
+    its log, the runner checks for a signal one last time: a signal before that check also
+    discards the finished run.  A signal after the last run's check is ignored: the runner builds
+    and appends the row and returns 0.
+
+    If the runner itself fails, it kills the run before it exits.  If it cannot tell that the run's
+    processes are gone, as when ``ps`` fails, it kills the run's own process, if it has not reaped
+    it, and keeps the run's record in ``active/``.  On the node, where the kill reached the run's
+    process group, the record lets a start and ``--cleanup`` find members of the group that
+    survive it.  If it cannot write the record of the processes left after a run's grace, the
+    task's record stays as it was.
     """
     command = [
         sys.executable,
-        str(pathlib.Path(__file__).with_name("run_task.py")),
+        str(plugin.RUN_TASK),
         "--child",
         "--label-dir",
         str(label_dir),
@@ -309,7 +314,15 @@ class _Watcher:
         self.may_live = False
 
     def run(self, command: list[str]) -> dict[str, Any] | None:
-        """Start the child, watch it, and return its row, or None if a signal stopped it."""
+        """Start the child, watch it, and return its row, or None if a signal stopped it.
+
+        The run's record in ``active/<task_key>`` names the child's process group (or, locally, its
+        process id), the start times of the child and of this runner, and the host.  Besides the
+        polls, the peak memory of the run is that which the operating system records for single
+        processes: the child sends its own (``getrusage``) with its result, and the parent reads
+        that of the child and the processes that it waited for when the child exits without a
+        kill (``wait4``).
+        """
         for name in ("active", "logs"):
             (self.label_dir / name).mkdir(exist_ok=True)
         active_file = self.label_dir / "active" / self.task["key"]
@@ -649,7 +662,12 @@ class _Watcher:
         return rss, (sum(known) if len(known) == len(threads) else None)
 
     def _kill(self) -> None:
-        """Kill every process of the run that is still the process that was seen."""
+        """Kill every process of the run that is still the process that was seen.
+
+        On the node, this signals the run's process group, whose id cannot be reused while a member
+        lives.  Locally, a process is killed only if its start time is the one recorded when it was
+        seen, so that a reused process id is never killed.
+        """
         if self.group is not None:
             try:
                 os.killpg(self.group, signal.SIGKILL)
@@ -658,12 +676,7 @@ class _Watcher:
             return
         table = process_table()
         self._members(table)
-        for pid, start in self.seen.items():
-            if pid in table and table[pid].start == start:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+        kill_same(table, self.seen)
 
     def _wait_until_gone(self, child: subprocess.Popen[bytes]) -> list[int]:
         """Reap the child and wait up to the grace for the run's processes; return any left."""
@@ -717,10 +730,8 @@ class _Channel:
         if self.fd is None:
             return
         data = (json.dumps(message, separators=(",", ":"), default=_jsonable) + "\n").encode()
-        view = memoryview(data)
         with self.lock:
-            while view:
-                view = view[os.write(self.fd, view) :]
+            store.write_all(self.fd, data)
 
 
 _CHANNEL = _Channel()
@@ -731,7 +742,10 @@ def timed(function: Callable[..., _ReturnType], *args: Any, **kwargs: Any) -> _R
 
     T is the wall time by ``time.perf_counter``, and the CPU time includes the child processes that
     this process waited for during the call.  While the function runs, the first compilation by
-    numba in this process, on any thread, is reported to the runner (see the module docstring).
+    numba in this process, on any thread, is reported to the runner (see the module docstring).  It
+    listens to two of numba's documented events: ``"numba:compile"``, which numba sends when it
+    compiles a ``numba.jit`` function, and ``"numba:run_pass"``, which it sends for each compiler
+    pass of any compilation, including those of ``numba.vectorize`` ufuncs.
     """
     # numba is imported here, in the child, so that the runner's own process does not load it
     from numba.core import event
@@ -783,7 +797,10 @@ def send_result(fields: dict[str, Any]) -> None:
 
 
 def pin_child() -> None:
-    """Pin this child process, and so its descendants, to the runner's CPU, if it gave one."""
+    """Pin this child process, and so its descendants, to the CPU that the runner passed, if any.
+
+    On the node, that CPU is the one of the task's job slot.
+    """
     cpu = os.environ.get(_CPU_VARIABLE)
     if cpu is not None and hasattr(os, "sched_setaffinity"):
         os.sched_setaffinity(0, {int(cpu)})
@@ -888,6 +905,20 @@ def descendants(table: dict[int, Process], root: int) -> list[int]:
     return members
 
 
+def kill_same(table: dict[int, Process], processes: Mapping[int, str | None]) -> None:
+    """Kill each process, by id and start time, that ``table`` shows is still the same process.
+
+    A process that is gone, or that this user may not signal, is skipped; for a run, the check for
+    processes left after its grace then reports one that survives.
+    """
+    for pid, start in processes.items():
+        if pid in table and table[pid].start == start:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+
 def describe_processes(pids: list[int]) -> str:
     """Processes by id, each with its command line, as ``ps`` shows it."""
     output = subprocess.run(
@@ -957,9 +988,9 @@ def _utc_now() -> str:
 
 
 def _jsonable(value: Any) -> Any:
-    """Convert NumPy scalars and arrays, and other simple objects, for JSON."""
+    """Convert a NumPy scalar or array, or a set, which JSON lacks; refuse any other object."""
     if hasattr(value, "tolist"):
         return value.tolist()
-    if isinstance(value, (set, frozenset, tuple)):
-        return list(value)
-    return str(value)
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    raise TypeError(f"an object of type {type(value).__name__} is not JSON serializable")

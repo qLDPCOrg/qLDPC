@@ -595,10 +595,10 @@ def entry_of(circuit_id: str) -> dict[str, Any]:
 
 def noisy_input(entry: dict[str, Any], rate: float) -> stim.Circuit:
     """A circuit's frozen noiseless input, with the noise model of its options at a rate."""
-    from experiments.state_prep_certification.certification import experiment as certification
+    from experiments.state_prep_certification.certification.settings import noisy_circuit
 
     circuit = stim.Circuit((CIRCUITS_JSON.parent / f"{entry['id']}.stim").read_text())
-    return certification.noisy_circuit(circuit, entry["options"]["noise"] | {"p": rate})
+    return noisy_circuit(circuit, entry["options"]["noise"] | {"p": rate})
 
 
 def histogram_options(entry: dict[str, Any]) -> dict[str, Any]:

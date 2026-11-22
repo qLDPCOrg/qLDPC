@@ -9,22 +9,20 @@ sends the task's runner SIGTERM, as GNU parallel does.  The runner then kills it
 within ``runner.TERM_WAIT_S``, before ``run_locally`` re-raises the exception.
 
 ``run_locally`` fails if a row with status ``ok`` has ``compiled_in_timing`` set (see
-``runner.py``), which checks that the disk caches and any untimed preparation keep every compilation
-that numba reports out of the measured call.  Rows of other statuses are not checked, since the
-retry of a run killed at its limit can compile code that the discarded run never reached.
+``runner.py``).  An acceptance test thereby checks that numba's disk caches and the experiment's
+untimed preparation keep every compilation that numba reports out of the measured call.  Rows of
+other statuses are not checked, since the retry of a run killed at its limit can compile code that
+the discarded run never reached.
 """
 
 from __future__ import annotations
 
 import pathlib
 import subprocess
-import sys
 from collections.abc import Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import runner, store, tasks
-
-RUN_TASK = pathlib.Path(__file__).resolve().with_name("run_task.py")
+from experiments.state_prep_certification.common import plugin, runner, store, tasks
 
 
 def run_locally(
@@ -39,14 +37,7 @@ def run_locally(
     label_dir.mkdir(parents=True, exist_ok=True)
     tasks.write_pass1(label_dir, task_list)
     for task in task_list:
-        command = [
-            sys.executable,
-            str(RUN_TASK),
-            "--label-dir",
-            str(label_dir),
-            "--local",
-            task["key"],
-        ]
+        command = plugin.run_task_command(label_dir, task["key"], local=True)
         with subprocess.Popen(command) as process:
             try:
                 returncode = process.wait()
