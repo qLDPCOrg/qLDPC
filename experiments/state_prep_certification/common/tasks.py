@@ -142,12 +142,11 @@ def ceiling_hours(
 ) -> float:
     """The worst-case CPU-hours of the tasks of pass 1, with their repeats and retries.
 
-    If the runner runs a task's first run and each of its repeats up to k = ``runner.RUNS_PER_TASK``
-    times, the task costs at most (k - 1) S + k W, where S is ``run_cost_s(task)`` and W is
-    ``worst_case_s(task)`` (see the module docstring).
+    Each task costs at most S + 2 W, where S is ``run_cost_s(task)`` and W is
+    ``worst_case_s(task)``, since the runner runs each run at most twice (see the module docstring).
     """
-    runs = runner.RUNS_PER_TASK
-    return sum((runs - 1) * run_cost_s(task) + runs * worst_case_s(task) for task in tasks) / 3600
+    assert runner.RUNS_PER_TASK == 2, "the ceiling allows one retry per run"
+    return sum(run_cost_s(task) + 2 * worst_case_s(task) for task in tasks) / 3600
 
 
 def run_cost_s(task: dict[str, Any]) -> float:
@@ -158,6 +157,31 @@ def run_cost_s(task: dict[str, Any]) -> float:
         + float(task.get("post_s", runner.FINISH_S))
         + float(task.get("grace_s", runner.GRACE_S))
     )
+
+
+def repeated_worst_case_s(
+    task: dict[str, Any],
+    repeat_tasks: Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]]],
+    below_s: float,
+) -> float:
+    """The worst case W of a task of pass 1 whose first run is repeated if it is fast.
+
+    W is the larger of a slow first run, which uses its whole limit, and a fast one, which ends
+    just under ``below_s`` with status ``ok`` and so calls for the repeats that ``repeat_tasks``
+    gives it.  Each run costs at most ``run_cost_s`` of its task.  A task that a fast first run does
+    not repeat costs one run.
+
+    Args:
+        task: A task of pass 1.
+        repeat_tasks: The experiment's repeat policy, as for ``write_pass2``.
+        below_s: The time under which a first run with status ``ok`` is repeated.
+    """
+    slow = run_cost_s(task)
+    repeats = repeat_tasks(task, {"status": "ok", "T": math.nextafter(below_s, 0.0)})
+    if not repeats:
+        return slow
+    fast = run_cost_s(dict(task, limit_s=below_s)) + sum(run_cost_s(repeat) for repeat in repeats)
+    return max(slow, fast)
 
 
 def check_memory_caps(tasks: Sequence[dict[str, Any]], job_mem_gib: float) -> None:

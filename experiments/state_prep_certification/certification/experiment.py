@@ -60,6 +60,7 @@ import stim
 
 from experiments.state_prep_certification.certification import baseline, counting, instrument
 from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common.tasks import repeated_worst_case_s
 from qldpc import circuits as qldpc_circuits
 from qldpc import math as qldpc_math
 from qldpc.codes.distance import CosetLeaderSearch, CosetMethod
@@ -175,22 +176,12 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
 
 
 def worst_case_s(task: dict[str, Any]) -> float:
-    """The worst-case seconds of a task of pass 1 with its repeats.
+    """The worst-case seconds of a task of pass 1 with its repeats (``repeat_tasks``).
 
-    Each run costs at most start-up cap + limit + grace + post-processing allowance, where the
-    allowance is ``post_s`` for the first run of a certification and ``runner.FINISH_S`` for every
-    other run, including those of ``brute_bz``.  An arm other than those of ``REPEATED_ARMS`` runs
-    once.  A run of ``REPEATED_ARMS`` costs the larger of a slow run, which uses its whole limit,
-    and a fast run, which takes at most ``repeats.below_s``, with its ``repeats.count`` repeats at
-    the largest limit of ``repeat_tasks``.
+    See ``tasks.repeated_worst_case_s``.  Only the first run of a certification has a
+    post-processing allowance ``post_s``.
     """
-    first_post = float(task.get("post_s", runner.FINISH_S))
-    slow = _run_cost(float(task["limit_s"]), first_post)
-    if task["arm"] not in REPEATED_ARMS:
-        return slow
-    below, count = float(CONFIG["repeats"]["below_s"]), int(CONFIG["repeats"]["count"])
-    fast = _run_cost(below, first_post) + count * _run_cost(_repeat_limit(below), runner.FINISH_S)
-    return max(slow, fast)
+    return repeated_worst_case_s(task, repeat_tasks, float(CONFIG["repeats"]["below_s"]))
 
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -247,11 +238,6 @@ def _task(arm: str, entry: dict[str, Any], repeat: int, limit: float) -> dict[st
     if arm in METHODS and repeat == 0:
         task["post_s"] = float(LIMITS["post_s"])
     return task
-
-
-def _run_cost(limit: float, post: float) -> float:
-    """The worst-case seconds of one run with this limit and post-processing allowance."""
-    return float(LIMITS["startup_cap_s"]) + limit + float(LIMITS["grace_s"]) + post
 
 
 def _repeat_limit(first_seconds: float) -> float:

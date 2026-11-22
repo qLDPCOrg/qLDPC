@@ -18,6 +18,7 @@ import shutil
 from typing import Any
 
 from experiments.state_prep_certification.common import runner
+from experiments.state_prep_certification.common.tasks import repeated_worst_case_s
 from experiments.state_prep_certification.distances import arms, codes
 
 NAME = "distances"
@@ -59,17 +60,8 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
 
 
 def worst_case_s(task: dict[str, Any]) -> float:
-    """The worst-case CPU seconds of a task with its repeats.
-
-    A run costs at most its start-up cap, the limit L, the runner's window ``runner.FINISH_S`` for
-    returning a result, and then the grace in which its processes must end.  A task's worst case has
-    a first run just under the repeat threshold and ``repeats`` repeats that each cost the most that
-    a run can.
-    """
-    startup, limit = CONFIG["startup_cap_s"], task["limit_s"]
-    after = runner.FINISH_S + CONFIG["grace_s"]
-    first = startup + CONFIG["repeat_below_s"] + after
-    return float(first + CONFIG["repeats"] * (startup + limit + after))
+    """The worst-case CPU seconds of a task with its repeats (``tasks.repeated_worst_case_s``)."""
+    return repeated_worst_case_s(task, repeat_tasks, float(CONFIG["repeat_below_s"]))
 
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
