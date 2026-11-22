@@ -88,10 +88,14 @@ bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hour
 `node.sh` keeps the results, each bundle's installs, and each bundle's preflight record in `results/` beside it, or in the directory that `FTSP_RESULTS` names, which bundles may share.
 Before the experiment first runs for its label, `run_node.py`, which `node.sh` calls, runs the self-tests of the shared code in node mode and the experiment's acceptance tests, and stops if any fails.
 Repeating the command resumes the run, on any host with the same CPU model, but not while the label's `active/` directory lists runs of another host.
-One start, or `--cleanup`, owns a label at a time, and a start refuses while GNU parallel or a run of an earlier start is alive.
+One start, or `--cleanup`, owns a label directory at a time.
+A start refuses while GNU parallel, a run of an earlier start's passes, or a run of its acceptance tests on this host is alive.
 If a pass ends with tasks that have no final row, as after damage to `runs.jsonl`, `run_node.py` stops and lists them in `missing-pass<N>.txt` of the label directory, which `--status` counts.
 To rerun them under all the checks of a start, delete their lines from the pass's job log, `joblog-pass<N>.tsv`, and repeat the command: GNU parallel's `--resume-failed` reruns a task that the job log does not list, and the tasks that have a final row end at once.
-After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming, which kills GNU parallel and the runs that the label's `active/` directory lists, if their processes are still the recorded ones; `--status` prints the progress.
+After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming.
+It kills GNU parallel, the runs that the label's `active/` directory lists, and this host's runs of the label's acceptance attempts, whose records are in the `active/` directories under `results/acceptance/<label directory>/`, if their processes are still the recorded ones.
+The node self-tests' runs, in temporary directories, have no such records: after a hard kill during the self-tests, wait for `common/selftest.py` to end before resuming.
+`--status` prints the progress.
 Both act on one label directory, which both print: give them the run's `--subset` if it was not `main`, and the same `FTSP_RESULTS`.
 The archive that the run prints at its end is the one file to copy back.
 

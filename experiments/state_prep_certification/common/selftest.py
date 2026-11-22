@@ -1002,6 +1002,35 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_cleanup_acceptance(directory: pathlib.Path, node: bool) -> None:
+    """A run of an acceptance attempt whose runner was killed hard is live until --cleanup kills it.
+
+    Its record is in the active/ directory of a label directory under the attempt's directory.
+    """
+    run_node = _run_node_module()
+    results = directory / "results"
+    label_dir = results / "selftest" / "label"
+    label_dir.mkdir(parents=True)
+    attempt = run_node.acceptance_dir(label_dir, results) / "attempt" / "AT1"
+    tasks.write_pass1(attempt, [_task("hard", [["spawn", 50.75]], limit_s=60.0)])
+    process = subprocess.Popen(_run_task_command(attempt, "hard", node=False))
+    record = attempt / "active" / "hard"
+    _wait_for(lambda: record.exists())
+    time.sleep(2)
+    process.kill()
+    process.wait()
+    assert _processes_matching("time.sleep(50.75)")
+    assert run_node.live_runs(label_dir) == []
+    assert run_node.live_runs(label_dir, results) == [str(record)]
+    with contextlib.redirect_stdout(io.StringIO()):
+        run_node.cleanup(label_dir, results)
+    time.sleep(1)
+    assert not _processes_matching("time.sleep(50.75)"), "a run survived --cleanup"
+    assert not record.exists()
+    assert run_node.live_runs(label_dir, results) == []
+
+
+@test
 def test_cleanup_parallel(directory: pathlib.Path, node: bool) -> None:
     """After a hard kill of run_node.py, its GNU parallel is live until --cleanup kills it."""
     run_node = _run_node_module()

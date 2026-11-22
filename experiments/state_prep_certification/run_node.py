@@ -40,20 +40,24 @@ Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips 
 with status 0, and the task runner skips tasks that already have a final row.  One start, or
 ``--cleanup``, owns a label at a time: it holds an exclusive lock on the label's ``lock`` file until
 it exits, and another refuses to begin.  The script refuses to start while GNU parallel or a run of
-an earlier start is still alive.  It also refuses to start, and ``--cleanup`` refuses to act, while
-the label's ``active/`` directory lists a run of another host, which this host can neither see nor
-stop.  A start refuses a machine whose CPU model differs from the one in the label's manifest,
-which the label's first start that runs tasks writes, so that one label never mixes the times of
-two CPU models; another host with the same CPU model may resume, since a machine's hostname can
-change between its allocations, and ``starts.jsonl`` records each start's host and number of job
-slots.  After a hard kill of this script or of GNU parallel, run it once with ``--cleanup``, which
-kills GNU parallel and every run still listed in the label's ``active/`` directory, if their
-processes are still the ones recorded; it names, and leaves alive, the processes of a run's group
-whose leader is gone (see ``cleanup``).  ``--status`` prints the label directory and its progress,
-and ``--cleanup`` prints the label directory and what it kills, or that it has nothing to clean up.
-Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose
-uncommitted changes name a dirty label's directory: run them with the run's options and before any
-change to the tree, and check that the label directory that they print is the run's.
+an earlier start is still alive, including a run of the label directory's acceptance attempts on
+this host, whose runners record it under the attempt's directory.  It also refuses to start, and
+``--cleanup`` refuses to act, while the label's ``active/`` directory lists a run of another host,
+which this host can neither see nor stop.  A start refuses a machine whose CPU model differs from
+the one in the label's manifest, which the label's first start that runs tasks writes, so that one
+label never mixes the times of two CPU models; another host with the same CPU model may resume,
+since a machine's hostname can change between its allocations, and ``starts.jsonl`` records each
+start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run it
+once with ``--cleanup``, which kills GNU parallel, every run still listed in the label's ``active/``
+directory, and this host's runs of the label directory's acceptance attempts, if their processes are
+still the ones recorded; the node self-tests run in temporary directories without such records, so
+after a hard kill during them, wait for ``common/selftest.py`` to end.  ``--cleanup`` names, and
+leaves alive, the processes of a run's group whose leader is gone (see ``cleanup``).  ``--status``
+prints the label directory and its progress, and ``--cleanup`` prints the label directory and what
+it kills, or that it has nothing to clean up.  Both act on the label directory of ``--subset``,
+``--local``, ``--results-dir``, and the tree, whose uncommitted changes name a dirty label's
+directory: run them with the run's options and before any change to the tree, and check that the
+label directory that they print is the run's.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session, and
 skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development on a
@@ -123,7 +127,7 @@ def main() -> None:
             return
         lock_label(label_dir)
         refuse_other_hosts(label_dir)
-        cleanup(label_dir)
+        cleanup(label_dir, results_dir)
         return
     if args.status:
         print_status(label_dir)
@@ -138,7 +142,7 @@ def main() -> None:
     lock_label(label_dir)
     refuse_other_hosts(label_dir)
     refuse_other_cpu(label_dir)
-    live = live_runs(label_dir)
+    live = live_runs(label_dir, results_dir)
     if live:
         sys.exit(
             f"Runs of an earlier start are still alive ({live[:3]}...); run --cleanup first, with "
@@ -342,7 +346,7 @@ def run_acceptance(
             print("acceptance tests: passed before for this label", flush=True)
             return True
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    directory = results_dir / "acceptance" / label_dir.name / f"{stamp}-{secrets.token_hex(4)}"
+    directory = acceptance_dir(label_dir, results_dir) / f"{stamp}-{secrets.token_hex(4)}"
     directory.mkdir(parents=True)
     print(f"acceptance tests: in {directory}", flush=True)
     passed = True
@@ -356,6 +360,11 @@ def run_acceptance(
         + "\n",
     )
     return passed
+
+
+def acceptance_dir(label_dir: pathlib.Path, results_dir: pathlib.Path) -> pathlib.Path:
+    """The directory of a label directory's acceptance attempts, in the results directory."""
+    return results_dir / "acceptance" / label_dir.name
 
 
 ####################################################################################################
@@ -573,19 +582,21 @@ def print_status(label_dir: pathlib.Path) -> None:
         print(f"note: {problem}")
 
 
-def live_runs(label_dir: pathlib.Path) -> list[str]:
+def live_runs(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) -> list[str]:
     """The records of ``active/`` whose GNU parallel, runner, or run is still the recorded process.
 
     A run is also live if a process that survived its grace (``survivors``) is still the same
     process, or if its process group's leader is gone but members of the group remain, which
     ``cleanup`` reports without killing them.  An unreadable record counts as live, since nothing
-    shows that its run ended; ``cleanup`` removes it.
+    shows that its run ended; ``cleanup`` removes it.  Given the results directory, the records of
+    this host's runs of the label directory's acceptance attempts count too, by their paths (see
+    ``_acceptance_records``).
     """
     live = []
     table = runner.process_table()
-    for path, record in _active_records(label_dir):
+    for path, record in _active_records(label_dir) + _acceptance_records(label_dir, results_dir):
         if record is None:
-            live.append(path.name)
+            live.append(_record_name(label_dir, path))
             continue
         recorded = [(record["pid"], record["pid_start"])]
         if path.name != PARALLEL_RECORD:
@@ -596,12 +607,15 @@ def live_runs(label_dir: pathlib.Path) -> list[str]:
             for pid, start in recorded
         )
         if same or _orphaned_members(table, record):
-            live.append(path.name)
+            live.append(_record_name(label_dir, path))
     return live
 
 
-def cleanup(label_dir: pathlib.Path) -> None:
+def cleanup(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) -> None:
     """Kill every run listed in the label's ``active/`` directory, and remove the files.
+
+    Given the results directory, it does the same for this host's runs of the label directory's
+    acceptance attempts (see ``_acceptance_records``), which run in this script's process.
 
     GNU parallel is killed first, if it is still the recorded process, so that it starts no other
     task, and then each task runner, so that it cannot write a row for a run that it lost.  A
@@ -614,7 +628,8 @@ def cleanup(label_dir: pathlib.Path) -> None:
     same processes.  An unreadable record is removed, with a note.  Without records, ``cleanup``
     says that there is nothing to clean up.
     """
-    if not _active_records(label_dir):
+    attempts = _acceptance_records(label_dir, results_dir)
+    if not _active_records(label_dir) and not attempts:
         print("no runs recorded in active/, so nothing to clean up")
         return
     for path, record in _active_records(label_dir):
@@ -624,10 +639,11 @@ def cleanup(label_dir: pathlib.Path) -> None:
             path.unlink(missing_ok=True)
     # listed again after GNU parallel's kill, for the tasks that it started meanwhile; a runner
     # that writes its record only after this listing is left to the next start's live_runs
-    for path, record in _active_records(label_dir):
+    for path, record in _active_records(label_dir) + attempts:
+        name = _record_name(label_dir, path)
         if record is None:
             print(
-                f"{path.name}: unreadable, so its run is unknown; removed the record.  If "
+                f"{name}: unreadable, so its run is unknown; removed the record.  If "
                 "processes of the run are alive, find and kill them by hand."
             )
             path.unlink(missing_ok=True)
@@ -640,7 +656,7 @@ def cleanup(label_dir: pathlib.Path) -> None:
                 if not _kill_if_same(pid, start, group=False)
             ]
             print(
-                f"{path.name}: killed the processes left after its grace that were still alive; "
+                f"{name}: killed the processes left after its grace that were still alive; "
                 f"of {[pid for pid, _ in record['survivors']]}, {ended or 'none'} had ended"
             )
             path.unlink(missing_ok=True)
@@ -648,7 +664,7 @@ def cleanup(label_dir: pathlib.Path) -> None:
         members = _orphaned_members(runner.process_table(), record)
         if members:
             print(
-                f"{path.name}: the leader of its process group {record['pid']} is gone, and its "
+                f"{name}: the leader of its process group {record['pid']} is gone, and its "
                 f"members {runner.describe_processes(members)} may belong to a later group that "
                 f"reused the id, so none was killed.  If they are this run's, run `kill -KILL -- "
                 f"-{record['pid']}` and --cleanup again; if not, delete {path}."
@@ -658,7 +674,7 @@ def cleanup(label_dir: pathlib.Path) -> None:
             killed = _kill_if_same(record["pid"], record["pid_start"], group=True)
         else:
             killed = _kill_tree_if_same(record["pid"], record["pid_start"])
-        print(f"{path.name}: {'killed its run' if killed else 'its run had already ended'}")
+        print(f"{name}: {'killed its run' if killed else 'its run had already ended'}")
         path.unlink(missing_ok=True)
 
 
@@ -676,6 +692,36 @@ def _active_records(label_dir: pathlib.Path) -> list[tuple[pathlib.Path, dict[st
         except ValueError:
             records.append((path, None))
     return records
+
+
+def _acceptance_records(
+    label_dir: pathlib.Path, results_dir: pathlib.Path | None
+) -> list[tuple[pathlib.Path, dict[str, Any] | None]]:
+    """The records of this host's runs under the label directory's acceptance attempts.
+
+    The acceptance tests that run tasks write their runners' records in the ``active/``
+    directories of their own label directories, under the attempt's directory.  Without
+    ``results_dir``, there are none.
+    """
+    if results_dir is None:
+        return []
+    host = socket.gethostname()
+    records: list[tuple[pathlib.Path, dict[str, Any] | None]] = []
+    for path in sorted(acceptance_dir(label_dir, results_dir).glob("*/**/active/*")):
+        try:
+            record = json.loads(path.read_text())
+        except FileNotFoundError:
+            continue
+        except ValueError:
+            record = None
+        if record is None or record.get("host", host) == host:
+            records.append((path, record))
+    return records
+
+
+def _record_name(label_dir: pathlib.Path, path: pathlib.Path) -> str:
+    """The name of a record: its file name in the label's ``active/``, or else its path."""
+    return path.name if path.parent == label_dir / "active" else str(path)
 
 
 def _orphaned_members(table: dict[int, runner.Process], record: dict[str, Any]) -> list[int]:
