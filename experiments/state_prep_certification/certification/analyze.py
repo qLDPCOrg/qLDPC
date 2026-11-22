@@ -799,7 +799,7 @@ def _ground_truth_counts_match(
 ) -> bool | None:
     """Whether the ground truth's Pi, E, Phi, and A equal the counters' on the weights of both.
 
-    None if the ground truth did not finish or no weight has both counts.
+    None if the ground truth has no result (``_ground_truth``) or no weight has both counts.
     """
     truth = _ground_truth(truth_rows)
     if truth is None:
@@ -812,8 +812,19 @@ def _ground_truth_counts_match(
 
 
 def _ground_truth(truth_rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
-    """The result of a finished ground-truth run, or None."""
-    return next((row["result"] for row in truth_rows or [] if row["status"] == "ok"), None)
+    """The result of the first ground-truth run that has one, whatever its status, or None.
+
+    A run that timed out or exceeded its memory cap after its call returned keeps its result
+    (``common/runner.py``).
+    """
+    return next(
+        (
+            row["result"]
+            for row in truth_rows or []
+            if "smallest_violation" in (row.get("result") or {})
+        ),
+        None,
+    )
 
 
 def _per_weight(

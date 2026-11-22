@@ -8,12 +8,14 @@ violation found at fault weight w determines m* = w, since every arm checks the 
 increasing order, and no violation up to fault weight k gives the lower bound m* > k, or determines
 "all" if the cutoff r + 1 is at most k.  The claims come from the result of each run of
 ``cert_bz``, ``cert_cc``, ``shadow``, ``brute_bz``, ``margin``, and ``ground_truth``, first runs and
-repeats, finished or not, and from each fault weight that it reported as completed or violating;
-from the parent verdict of each deletion task at K = t; and from the claim on the final circuit of a
-deletion task that accepted no deletion, which is the parent (``final_claim``).  All values that
-determine m* must be equal and exceed every lower bound; otherwise the circuit is a disagreement.
-The combined margin is the determined value, in the column ``margin``, or else the largest lower
-bound k, in the column ``margin_lower_bound``, meaning m* > k.
+repeats, whatever their status, and from each fault weight that it reported as completed or
+violating.  A run that timed out or exceeded its memory cap after its call returned keeps its
+result (``common/runner.py``).  The claims also come from the parent verdict of each deletion task
+at K = t, and from the claim on the final circuit of a deletion task that accepted no deletion,
+which is the parent (``final_claim``).  All values that determine m* must be equal and exceed every
+lower bound; otherwise the circuit is a disagreement.  The combined margin is the determined value,
+in the column ``margin``, or else the largest lower bound k, in the column ``margin_lower_bound``,
+meaning m* > k.
 
 **Deletions.**  Each final circuit must be certified at K = t by the connected-cluster oracle, by
 the task's result or, for a run killed during the search of its final m*, by the final checks that
@@ -60,6 +62,9 @@ INPUTS = HERE / "circuit_data" / "inputs"
 # The arms whose runs make claims on a circuit's m* by their results and their fault weights.
 MARGIN_ARMS = ("cert_bz", "cert_cc", "shadow", "brute_bz", "margin", "ground_truth")
 
+# The key of the verdict in a result of an arm of MARGIN_ARMS, where it is not "certified".
+VERDICT_KEYS = {"margin": "margin", "ground_truth": "smallest_violation"}
+
 # A claim of one source on m*: the values that it determines, and its largest lower bound.
 Claim = dict[str, Any]
 
@@ -82,18 +87,19 @@ def margin_claims(
     claims: dict[str, Claim] = {}
     cutoff = circuit["r"] + 1
 
-    # each run's result, and each fault weight that it reported
+    # each run's result, whatever the run's status, and each fault weight that it reported
     max_weight = circuit["options"]["max_weight"]
     for arm in MARGIN_ARMS:
+        key = VERDICT_KEYS.get(arm, "certified")
         for row in arms.get(arm) or []:
             source = f"{arm}.r{row['repeat']}"
             result = row.get("result") or {}
-            if row["status"] == "ok":
+            if key in result:
                 if arm == "margin":
                     _determine(claims, source, result["margin"])
-                elif arm == "ground_truth" and result["smallest_violation"] is not None:
-                    _determine(claims, source, result["smallest_violation"])
-                elif arm != "ground_truth" and not result.get("certified"):
+                elif arm == "ground_truth" and result[key] is not None:
+                    _determine(claims, source, result[key])
+                elif arm != "ground_truth" and not result["certified"]:
                     _determine(claims, source, result["violation_weight"])
                 else:
                     _no_violation_up_to(claims, source, max_weight, cutoff)
