@@ -404,21 +404,23 @@ def _unpack(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
 def collect(
     rows: list[dict[str, Any]],
     circuits: dict[str, dict[str, Any]],
-    expected: dict[str, dict[str, Any]] | None = None,
+    tasks: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     """For each circuit: its record, and the rows of each arm (repeats in order).
 
-    Each expected task without a row gets a row of status ``missing``, with a printed note.
+    ``tasks`` holds every task of the label by key, as ``tasks.load_tasks`` gives them, and each
+    row's circuit is the input of its task.  Each task without a row gets a row of status
+    ``missing``, with a printed note.
     """
     present = {row["task_key"] for row in rows}
-    missing = [task for key, task in sorted((expected or {}).items()) if key not in present]
+    missing = [task for key, task in sorted(tasks.items()) if key not in present]
     if missing:
         keys = [task["key"] for task in missing]
         more = f", and {len(keys) - 10} more" if len(keys) > 10 else ""
         print(f"note: {len(keys)} tasks have no row, reported as missing: {keys[:10]}{more}")
     per_circuit: dict[str, dict[str, Any]] = {}
     for row in rows + [_missing_row(task) for task in missing]:
-        circuit_id = row["task_key"].split(".", 1)[1].rsplit(".r", 1)[0]
+        circuit_id = tasks[row["task_key"]]["input"]["id"]
         entry = per_circuit.setdefault(circuit_id, {"circuit": circuits[circuit_id], "arms": {}})
         entry["arms"].setdefault(row["arm"], []).append(row)
     for entry in per_circuit.values():

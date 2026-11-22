@@ -1132,10 +1132,11 @@ def synthetic_certification_archive(
 ) -> pathlib.Path:
     """A certification archive of a bundle's run, as ``run_node.py`` names it, with given verdicts.
 
-    Each circuit gets one ``cert_bz`` and one ``cert_cc`` row, with the verdicts "certified" or
-    "violation at m".  The label is that of ``manifest.compute_label`` for the harness commit
-    HEAD, this tree's ``pins.json``, certification's ``config.json`` and ``circuits.json``, and a
-    stand-in for the bundle's requirements; the other arguments change the manifest.
+    Each circuit gets one ``cert_bz`` and one ``cert_cc`` task and row, with the verdicts
+    "certified" or "violation at m".  The label is that of ``manifest.compute_label`` for the
+    harness commit HEAD, this tree's ``pins.json``, certification's ``config.json`` and
+    ``circuits.json``, and a stand-in for the bundle's requirements; the other arguments change the
+    manifest.
     """
     commit = subprocess.run(
         ["git", "-C", str(manifest.REPOSITORY_ROOT), "rev-parse", "HEAD"],
@@ -1161,13 +1162,16 @@ def synthetic_certification_archive(
         "bundle": {"requirements_sha256": requirements} if bundle else None,
     }
     (label_dir / "manifest.json").write_text(json.dumps(record) + "\n")
+    task_list = []
     for circuit_id, (bz, cc) in verdicts.items():
         for arm, verdict in (("cert_bz", bz), ("cert_cc", cc)):
             certified = verdict == "certified"
+            key = f"{arm}.{circuit_id}.r0"
+            task_list.append({"key": key, "arm": arm, "repeat": 0, "input": {"id": circuit_id}})
             store.append_row(
                 label_dir,
                 {
-                    "task_key": f"{arm}.{circuit_id}.r0",
+                    "task_key": key,
                     "arm": arm,
                     "repeat": 0,
                     "status": "ok",
@@ -1184,6 +1188,7 @@ def synthetic_certification_archive(
                     },
                 },
             )
+    (label_dir / "tasks.json").write_text(json.dumps(task_list) + "\n")
     return store.make_archive(label_dir, f"{label}-node-20261118T000000Z")
 
 

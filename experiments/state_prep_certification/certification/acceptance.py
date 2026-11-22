@@ -188,6 +188,7 @@ from experiments.state_prep_certification.certification import (
     instrument,
 )
 from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
+from experiments.state_prep_certification.common import tasks as task_store
 
 SUITE = acceptance.Suite("spc-cert-")
 test = SUITE.test
@@ -850,6 +851,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     label_dir = directory / "label"
     label_dir.mkdir()
     (label_dir / "circuits.json").write_bytes(circuits.CIRCUITS_JSON.read_bytes())
+    task_store.write_pass1(label_dir, list(expected.values()))
     for number, row in enumerate(rows):
         store.append_row(label_dir, dict(row, local=number < 2))
     start = {
@@ -1649,6 +1651,7 @@ def _check_consistency() -> None:
     ]
     entries = {}
     rows = []
+    task_list = {}
     for width, arms in enumerate(cases, start=10):
         entry = experiment._entry(f"bcat.w{width}.t2")
         assert entry["r"] + 1 > entry["options"]["max_weight"] == 3, entry
@@ -1656,13 +1659,14 @@ def _check_consistency() -> None:
         for arm, runs in arms.items():
             for repeat, (status, result, partial, fields) in enumerate(runs):
                 task = experiment._task(arm, entry, repeat, experiment._limit(arm))
+                task_list[task["key"]] = task
                 rows.append(
                     {"task_key": task["key"], "arm": arm, "repeat": repeat, "post_status": None}
                     | {"status": status, "result": result, "partial": partial}
                     | {"T": 1.0, "peak_rss_gib": 0.5}
                     | (fields or {})
                 )
-    summary, _ = analyze.summarize(analyze.collect(rows, entries))
+    summary, _ = analyze.summarize(analyze.collect(rows, entries, task_list))
     verdicts = {row["id"]: row["verdict"] for row in summary}
     *contradicting, consistent = entries
     assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 26, verdicts
@@ -1760,16 +1764,18 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         },
     }
     rows = []
+    task_list = {}
     for circuit_id, results in synthetic.items():
         for arm, result in results.items():
             task = experiment._task(arm, experiment._entry(circuit_id), 0, experiment._limit(arm))
+            task_list[task["key"]] = task
             rows.append(
                 {"task_key": task["key"], "arm": arm, "repeat": 0, "post_status": None}
                 | {"T": 1.0, "peak_rss_gib": 0.5}
                 | (result if "status" in result else run("ok", result))
             )
     entries = {circuit_id: experiment._entry(circuit_id) for circuit_id in synthetic}
-    summary, _ = analyze.summarize(analyze.collect(rows, entries))
+    summary, _ = analyze.summarize(analyze.collect(rows, entries, task_list))
     disagreements = {row["id"] for row in summary if row["verdict"] == "disagreement"}
     expected = {"echen", "cgoto", "aft.steane.heuristic_opt", "aft.shor.heuristic_opt"}
     assert disagreements == expected, disagreements

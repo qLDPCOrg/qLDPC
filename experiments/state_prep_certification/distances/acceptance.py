@@ -155,14 +155,16 @@ def at1_anchors(directory: pathlib.Path, node: bool) -> None:
         assert bool(plain._equal_distance_xz) == equal, entry["name"]
         assert entry["equal_distance_xz"] == equal, entry["name"]
     rows = _run_arms(label_dir, entries, limit_s=None if node else LOCAL_LIMIT_S)
-    references = {entry["code_hash"][:12]: entry["reference_d"] for entry in entries}
+    label_tasks = tasks.load_tasks(label_dir)
+    references = {entry["code_hash"]: entry["reference_d"] for entry in entries}
     unfinished = []
     for key, row in rows.items():
         if row["status"] == "timeout" and not node:
             unfinished.append(key)
             continue
         assert row["status"] == "ok", (key, row["status"], row["error"])
-        assert row["result"]["distance"] == references[key.split(".")[2]], (key, row)
+        reference = references[label_tasks[key]["input"]["code_hash"]]
+        assert row["result"]["distance"] == reference, (key, row)
     print(
         f"  {len(rows) - len(unfinished)} runs returned the reference distances; "
         f"not finished within the local limit: {unfinished or 'none'}"
@@ -302,9 +304,10 @@ def at6_agreement(directory: pathlib.Path, node: bool) -> None:
             smallest[entry["family"]] = entry
     entries = _entries(AT1_CODES) + list(smallest.values())
     rows = _run_arms(label_dir, entries, limit_s=None if node else LOCAL_LIMIT_S)
+    label_tasks = tasks.load_tasks(label_dir)
     by_code: dict[str, dict[str, Any]] = {}
     for key, row in rows.items():
-        by_code.setdefault(key.split(".")[2], {})[row["arm"]] = row
+        by_code.setdefault(label_tasks[key]["input"]["code_hash"], {})[row["arm"]] = row
     timeouts = [key for key, row in rows.items() if row["status"] == "timeout"]
     failures = [
         (key, row["status"]) for key, row in rows.items() if row["status"] not in ("ok", "timeout")
@@ -375,7 +378,7 @@ def at9_task_lists(directory: pathlib.Path, node: bool) -> None:
         repeats = experiment.repeat_tasks(task, {"status": status, "T": seconds})
         assert len(repeats) == expected, (status, seconds, repeats)
         for number, repeat in enumerate(repeats, 1):
-            assert repeat["key"] == task["key"][:-1] + str(number), repeat["key"]
+            assert repeat["key"] == task["key"].removesuffix(".r0") + f".r{number}", repeat["key"]
             assert repeat["limit_s"] == task["limit_s"] and repeat["repeat"] == number
 
 
@@ -394,6 +397,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     (gb,) = [e for e in sample["codes"] if e["family"] == "gb"][:1]
     lp_prior, lp_on = [e for e in sample["codes"] if e["family"] == "lp"][:2]
     rows = []
+    label_tasks: dict[str, dict[str, Any]] = {}
 
     def add(
         entry: dict[str, Any],
@@ -404,9 +408,11 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         d: Any,
         compiled: bool = False,
     ) -> None:
+        task = experiment._task(arm, entry, repeat)
+        label_tasks[task["key"]] = task
         rows.append(
             {
-                "task_key": f"{arm}.timed.{entry['code_hash'][:12]}.r{repeat}",
+                "task_key": task["key"],
                 "arm": arm,
                 "mode": "timed",
                 "repeat": repeat,
@@ -484,13 +490,13 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     ):
         add(entry, finished, 0, "ok", T, 5)
         add(entry, ({"q_bz_on", "q_bz_prior"} - {finished}).pop(), 0, "timeout", 1800.0, None)
-    expected = [
-        experiment._task(arm, entry, repeat=0)
-        for entry in (golay, bb72, qr47, qr71, qr79, pp110, surface9)
-        + (first, second, third, fourth, fifth, sixth, seventh, gb, lp_prior, lp_on)
-        for arm in ("q_bz_on", "q_bz_prior")
-    ]
-    records = analyze.summarize(rows, sample, expected)
+    # every first run is a task, so that an arm without rows is missing
+    named = (golay, bb72, qr47, qr71, qr79, pp110, surface9)
+    for entry in named + (first, second, third, fourth, fifth, sixth, seventh, gb, lp_prior, lp_on):
+        for arm in ("q_bz_on", "q_bz_prior"):
+            task = experiment._task(arm, entry, repeat=0)
+            label_tasks[task["key"]] = task
+    records = analyze.summarize(rows, sample, label_tasks)
     out = directory / "analysis"
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)

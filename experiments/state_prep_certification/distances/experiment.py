@@ -69,7 +69,7 @@ def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, An
     if row["status"] != "ok" or row["T"] >= CONFIG["repeat_below_s"]:
         return []
     return [
-        dict(task, key=task["key"].rsplit(".r", 1)[0] + f".r{repeat}", repeat=repeat)
+        dict(task, key=_key(task["arm"], task["input"]["code_hash"], repeat), repeat=repeat)
         for repeat in range(1, CONFIG["repeats"] + 1)
     ]
 
@@ -105,7 +105,7 @@ def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
 def _task(arm: str, entry: dict[str, Any], repeat: int) -> dict[str, Any]:
     """A task of one arm on one code."""
     return {
-        "key": f"{arm}.timed.{entry['code_hash'][:12]}.r{repeat}",
+        "key": _key(arm, entry["code_hash"], repeat),
         "experiment": NAME,
         "arm": arm,
         "mode": "timed",
@@ -118,3 +118,8 @@ def _task(arm: str, entry: dict[str, Any], repeat: int) -> dict[str, Any]:
             key: entry[key] for key in ("name", "code_hash", "css", "equal_distance_xz", "n", "k")
         },
     }
+
+
+def _key(arm: str, code_hash: str, repeat: int) -> str:
+    """The key of the task of one arm on one code: ``<arm>.timed.<code hash[:12]>.r<repeat>``."""
+    return f"{arm}.timed.{code_hash[:12]}.r{repeat}"

@@ -118,11 +118,11 @@ def analyze_label(label_dir: pathlib.Path, out: pathlib.Path, allow_local: bool)
         print(f"note: the starts ran with different {', '.join(changed)}; every output says so")
         marks["environment_changed"] = " ".join(changed)
     sample = load_sample(label_dir)
-    expected = list(tasks.load_tasks(label_dir, pass2=False).values())
-    missing = [key for key in tasks.load_tasks(label_dir) if key not in final]
+    label_tasks = tasks.load_tasks(label_dir)
+    missing = [key for key in label_tasks if key not in final]
     if missing:
         print(f"note: {len(missing)} tasks have no final row, such as {missing[0]}")
-    per_code = summarize(list(final.values()), sample, expected)
+    per_code = summarize(list(final.values()), sample, label_tasks)
     write_outputs(per_code, sample, out, marks)
     print(f"wrote {out}")
 
@@ -175,21 +175,22 @@ def load_sample(label_dir: pathlib.Path) -> dict[str, Any]:
 
 
 def summarize(
-    rows: list[dict[str, Any]], sample: dict[str, Any], expected: list[dict[str, Any]]
+    rows: list[dict[str, Any]], sample: dict[str, Any], label_tasks: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """One record per code and arm: status, median T, and distance.
 
     Args:
         rows: The final rows of the runs.
         sample: The run's copy of the sample (``load_sample``).
-        expected: The tasks of pass 1, so that a task without a final row is reported as missing.
+        label_tasks: Every task of the label by key, as ``tasks.load_tasks`` gives them.  Each row's
+            code is the input of its task, and an arm whose first run has no final row is missing.
     """
     grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = {}
-    for task in expected:
-        code_hash = task["key"].split(".")[2]
+    for task in label_tasks.values():
+        code_hash = task["input"]["code_hash"][:12]
         grouped.setdefault((code_hash, task["arm"]), {}).setdefault(task["mode"], [])
     for row in rows:
-        code_hash = row["task_key"].split(".")[2]
+        code_hash = label_tasks[row["task_key"]]["input"]["code_hash"][:12]
         grouped.setdefault((code_hash, row["arm"]), {}).setdefault(row["mode"], []).append(row)
     names = {
         entry["code_hash"][:12]: (entry, kind)
