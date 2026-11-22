@@ -27,10 +27,11 @@ is reported as ``missing``, with a printed note.  The analysis refuses a label w
 ``tasks.json``, since that file gives each row's circuit.
 
 The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.
-Where they apply, it marks every output with ``local_rows``, ``allowed_environment``, and
-``environment_changed`` of either label, which ``common/store.py`` defines.  Each mark is a column
-in each CSV file, a key in each JSON file, and a first comment line in each circuit of ``pruned/``;
-the ``final_sha256`` of ``deletion_table.csv`` is that of the circuit without these lines.
+Where they apply, it marks every output with ``local_rows`` (``store.count_local_rows``),
+``allowed_environment`` (``store.allowed_environment``), and ``environment_changed``
+(``store.changed_environment``), each of either label.  Each mark is a column in each CSV file, a
+key in each JSON file, and a first comment line in each circuit of ``pruned/``; the ``final_sha256``
+of ``deletion_table.csv`` is that of the circuit without these lines.
 
 An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/runner.py``) has the
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only

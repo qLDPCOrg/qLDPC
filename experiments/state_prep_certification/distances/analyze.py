@@ -60,11 +60,10 @@ arm's T against the prior arm's), and ``figure_notes.json`` (the number of codes
 timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
-``--allow-local``.  Where they apply, it marks every output with ``local_rows``, the number of
-these rows; ``allowed_environment``, the refused environment variables that a start accepted, with
-``PYTHONOPTIMIZE`` for -O; and ``environment_changed``, the environment variables that differ among
-the label's starts (see ``common/store.py``).  Each mark is a column in each CSV file, a key in
-``figure_notes.json``, and part of the title and of the Subject in the metadata of
+``--allow-local``.  Where they apply, it marks every output with ``local_rows``
+(``store.count_local_rows``), ``allowed_environment`` (``store.allowed_environment``), and
+``environment_changed`` (``store.changed_environment``).  Each mark is a column in each CSV file, a
+key in ``figure_notes.json``, and part of the title and of the Subject in the metadata of
 ``distances.pdf``.
 """
 
