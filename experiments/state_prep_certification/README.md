@@ -46,7 +46,7 @@ The harness commit is HEAD of the whole qLDPC checkout, so that any commit, even
 The frozen files include the experiment's configuration and the data that fix its inputs.
 From a bundle, the label also covers the bundle's resolved requirements.
 Any change to these inputs gives a new label, and so a new label directory `results/<experiment>/<label>/`, which Git ignores.
-Paths `results/...` here are relative to the directory that holds the results: `results/` beside `node.sh`, or the directory that `FTSP_RESULTS` names for `node.sh` or `--results-dir` for `run_node.py`.
+In such paths, `results/` stands for the results directory: by default `results/` beside `node.sh`, or else the directory that `FTSP_RESULTS` names for `node.sh` or `--results-dir` for `run_node.py`.
 `common/manifest.py` gives the suffixes that the label directory's name can carry.
 The label directory holds, among others, the manifest (`manifest.json`), one line per start (`starts.jsonl`, written as the start begins, before its acceptance tests), the record of the acceptance tests (`acceptance.json`), the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, the records of GNU parallel and of the runs that are, or were, in progress in `active/`, the lock of the start that owns the label directory (`lock`), and the archive.
 Each experiment adds its own files, such as certification's copy of `circuits.json` and its `oracle_calls/`, and distances' copy of `sample.json`, its `codes/`, and `draws.jsonl`.
