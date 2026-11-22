@@ -43,9 +43,11 @@ change between its allocations, and ``starts.jsonl`` records each start's host a
 slots.  After a hard kill of this script or of GNU parallel, run it once with ``--cleanup``, which
 kills GNU parallel and every run still listed in the label's ``active/`` directory, if their
 processes are still the ones recorded; it names, and leaves alive, the processes of a run's group
-whose leader is gone (see ``cleanup``).  ``--status`` prints the label directory and its progress.
-Both act on the label directory of ``--subset``, ``--local``, and ``--results-dir``, so they need
-the values of the run.
+whose leader is gone (see ``cleanup``).  ``--status`` prints the label directory and its progress,
+and ``--cleanup`` prints the label directory and what it kills, or that it has nothing to clean up.
+Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose
+uncommitted changes name a dirty label's directory: run them with the run's options and before any
+change to the tree, and check that the label directory that they print is the run's.
 
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session,
 and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development
@@ -105,8 +107,11 @@ def main() -> None:
     results_dir = (args.results_dir or DEFAULT_RESULTS).resolve()
     label_dir = get_label_dir(module, results_dir, args.subset, args.local)
     if args.cleanup:
-        if label_dir.exists():
-            lock_label(label_dir)
+        print(f"label directory: {label_dir}", flush=True)
+        if not label_dir.exists():
+            print("no such directory, so nothing to clean up")
+            return
+        lock_label(label_dir)
         refuse_other_hosts(label_dir)
         cleanup(label_dir)
         return
@@ -471,7 +476,11 @@ def print_status(label_dir: pathlib.Path) -> None:
     active = sorted(path.name for path in (label_dir / "active").glob("*"))
     if PARALLEL_RECORD in active:
         active.remove(PARALLEL_RECORD)
-        print(f"GNU parallel: recorded in active/{PARALLEL_RECORD}")
+        running = PARALLEL_RECORD in live_runs(label_dir)
+        print(
+            f"GNU parallel: recorded in active/{PARALLEL_RECORD}, "
+            + ("still running" if running else "no longer running (--cleanup removes the record)")
+        )
     print(f"active runs: {len(active)}" + "".join(f"\n  {key}" for key in active))
     for problem in problems:
         print(f"note: {problem}")
@@ -501,6 +510,12 @@ def lock_label(label_dir: pathlib.Path) -> None:
         sys.exit(
             f"Another start, or --cleanup, of this label is running: it holds {label_dir}/"
             f"{store.LOCK_FILE}.  Wait for it to end, or stop it, first."
+        )
+    except OSError as error:
+        os.close(fd)
+        sys.exit(
+            f"Could not lock {label_dir}/{store.LOCK_FILE}: {error}.  Use a results directory on "
+            "a file system that supports flock, such as a local disk (FTSP_RESULTS on the node)."
         )
 
 
@@ -569,14 +584,19 @@ def cleanup(label_dir: pathlib.Path) -> None:
     reused the id, since nothing tells the two apart: ``cleanup`` lists them, kills none, and keeps
     the record.  A record that a runner kept for the processes left after a run's grace names them
     with their start times (``survivors``), and ``cleanup`` kills exactly those that are still the
-    same processes.  An unreadable record is removed, with a note.
+    same processes.  An unreadable record is removed, with a note.  Without records, ``cleanup``
+    says that there is nothing to clean up.
     """
+    if not _active_records(label_dir):
+        print("no runs recorded in active/, so nothing to clean up")
+        return
     for path, record in _active_records(label_dir):
         if path.name == PARALLEL_RECORD and record is not None:
             killed = _kill_if_same(record["pid"], record["pid_start"], group=False)
             print(f"GNU parallel: {'killed it' if killed else 'it had already ended'}")
             path.unlink(missing_ok=True)
-    # listed again, after GNU parallel, which may have started a task meanwhile
+    # listed again after GNU parallel's kill, for the tasks that it started meanwhile; a runner
+    # that writes its record only after this listing is left to the next start's live_runs
     for path, record in _active_records(label_dir):
         if record is None:
             print(

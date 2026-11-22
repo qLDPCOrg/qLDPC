@@ -885,7 +885,8 @@ def test_parallel_stop_and_resume(directory: pathlib.Path, node: bool) -> None:
 def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     """run_node.py refuses without approval, runs both passes, writes an archive, and reports.
 
-    ``--status`` names the label directory that it reads.
+    ``--status`` and ``--cleanup`` name the label directory that they read, and ``--cleanup`` says
+    when it has nothing to clean up.
     """
     command = [
         sys.executable,
@@ -908,6 +909,9 @@ def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     assert f"label directory: {label_dir.resolve()}\npass 1: 3 tasks" in status.stdout, (
         status.stdout
     )
+    cleanup = subprocess.run(command + ["--cleanup"], capture_output=True, text=True, check=True)
+    assert f"label directory: {label_dir.resolve()}\n" in cleanup.stdout, cleanup.stdout
+    assert "nothing to clean up" in cleanup.stdout, cleanup.stdout
 
 
 @test

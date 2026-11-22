@@ -88,11 +88,12 @@ Repeating the command resumes the run, on any host with the same CPU model, but 
 One start, or `--cleanup`, owns a label at a time, and a start refuses while GNU parallel or a run of an earlier start is alive.
 If a pass ends with a task that has no final row, as after damage to `runs.jsonl`, `run_node.py` stops and prints the command that reruns the task, with its runner and child pinned as those of GNU parallel are.
 After a hard kill of `node.sh` or GNU parallel, run `node.sh EXPERIMENT --cleanup` before resuming, which kills GNU parallel and the runs that the label's `active/` directory lists, if their processes are still the recorded ones; `--status` prints the progress.
-Both act on one label directory, which `--status` names: give them the run's `--subset` if it was not `main`, and the same `FTSP_RESULTS`.
+Both act on one label directory, which both print: give them the run's `--subset` if it was not `main`, and the same `FTSP_RESULTS`.
 The archive that the run prints at its end is the one file to copy back.
 
 For development on a workstation, `--local` runs the tasks one at a time, without GNU parallel or pinning, and `--subset` selects tasks, as in the commands below.
 A local run has its own label directory, with the suffix `-local`, and the analyses of certification and distances refuse its rows unless given `--allow-local`, with which every output says how many rows of local runs it includes.
+After a hard kill of a local run, run `run_node.py EXPERIMENT --local --cleanup` with the run's `--subset`, before any change to the tree, since the uncommitted changes of a dirty tree name its label directory; check that the label directory that it prints is the run's.
 
 ```bash
 python experiments/state_prep_certification/run_node.py EXPERIMENT --local --subset smoke --approved-cpu-hours H
