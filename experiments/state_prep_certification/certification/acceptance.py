@@ -55,10 +55,11 @@
   ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and times that
   ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
   whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
-  first run that finished.  With two of these rows marked as rows of ``--local`` runs,
-  ``analyze.py`` refuses the label without ``--allow-local``, and with it, every output says how
-  many it includes.  Every case of the combined margin of ``analyze_applications.py`` gives
-  its value, its bound, or a disagreement, and a margin of at most t keeps its sector.  A margin or
+  first run that finished.  With two of the synthetic rows marked as rows of ``--local`` runs,
+  ``analyze.py`` refuses the label without ``--allow-local``; with it, every output gives the
+  number of these rows, and the name of the refused environment variable that a start accepted with
+  ``--allow-env``.  Every case of the combined margin of ``analyze_applications.py`` gives its
+  value, its bound, or a disagreement, and a margin of at most t keeps its sector.  A margin or
   a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
   makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
   so also when its verdict is only in the partial results of a killed task.  The margin counts of
@@ -670,13 +671,16 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     )
     assert weight["T_m_bz"] is None and weight["T_m_cc"] == 1.0, weight
 
-    # with rows of --local runs, the analysis refuses the label unless given --allow-local, and then
-    # every output says how many it includes
+    # with two of the synthetic rows marked as rows of --local runs, the analysis refuses the label
+    # unless given --allow-local, and then every output gives their number; it also names, in
+    # every output, the refused environment variable that a start accepted with --allow-env
     label_dir = directory / "label"
     label_dir.mkdir()
     (label_dir / "circuits.json").write_bytes(circuits.CIRCUITS_JSON.read_bytes())
     for number, row in enumerate(rows):
         store.append_row(label_dir, dict(row, local=number < 2))
+    start = {"allowed_environment": ["PYTHONPATH"], "environment": {"PYTHONPATH": "/elsewhere"}}
+    (label_dir / "starts.jsonl").write_text(json.dumps(start) + "\n")
     command = [sys.executable, analyze.__file__, "--label-dir", str(label_dir)]
     analysis = subprocess.run(command, capture_output=True, text=True, check=False)
     assert analysis.returncode != 0 and "--allow-local" in analysis.stderr, analysis.stderr
@@ -684,16 +688,10 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         command + ["--allow-local"], capture_output=True, text=True, check=False
     )
     assert analysis.returncode == 0, analysis.stderr
-    for path in (label_dir / "analysis").rglob("*"):
-        if path.suffix == ".csv":
-            with open(path) as file:
-                reader = csv.DictReader(file)
-                assert "local_rows" in (reader.fieldnames or []), path.name
-                assert all(row["local_rows"] == "2" for row in reader), path.name
-        elif path.suffix == ".json":
-            assert json.loads(path.read_text())["local_rows"] == 2, path.name
-        elif path.is_file():
-            assert path.read_text().startswith("# local_rows: 2"), path.name
+    assert "accepted PYTHONPATH with --allow-env" in analysis.stdout, analysis.stdout
+    marks = {"local_rows": 2, "allowed_environment": "PYTHONPATH"}
+    others = acceptance.check_marked(label_dir / "analysis", marks)
+    assert not others, others  # no deletion run, so no circuit in pruned/
 
     _check_application_analysis(directory / "applications")
     print("  6 B-cat circuits, 2 disagreements, 1 missing task, 1 circuit of flagged timeouts")

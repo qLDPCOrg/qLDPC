@@ -16,8 +16,11 @@ leaves a partial record.  The temporary file that such a kill can leave, ``.<nam
 never enters the archive.
 
 The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
-analysis refuses them with ``local_rows`` unless it is given ``--allow-local``, and then marks each
-of its outputs with ``mark_local``.
+analysis that refuses them, as those of certification and distances do, counts them with
+``count_local_rows``, which exits unless the analysis is given ``--allow-local``.  Such an analysis
+also reads with ``allowed_environment`` the refused environment variables that a start accepted
+with ``--allow-env`` (see ``run_node.py``), and marks each of its outputs with both, if any, with
+``mark_outputs``.
 """
 
 from __future__ import annotations
@@ -101,7 +104,7 @@ def final_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], list
     return first, problems
 
 
-def local_rows(rows: Iterable[dict[str, Any]], allow_local: bool) -> int:
+def count_local_rows(rows: Iterable[dict[str, Any]], allow_local: bool) -> int:
     """The number of rows of ``--local`` runs, which an analysis refuses unless ``allow_local``.
 
     Raises:
@@ -116,28 +119,50 @@ def local_rows(rows: Iterable[dict[str, Any]], allow_local: bool) -> int:
     return count
 
 
-def mark_local(out: pathlib.Path, count: int) -> None:
-    """Mark the outputs in ``out`` as an analysis that includes ``count`` rows of local runs.
+def allowed_environment(label_dir: pathlib.Path) -> list[str]:
+    """The refused environment variables that a start of the label accepted and that were set.
 
-    Each CSV file gets a ``local_rows`` column, each JSON object a ``local_rows`` key, and each Stim
-    circuit a first comment line.  Other files are left to the analysis.
+    A node start refuses some environment variables unless ``--allow-env`` accepts them (see
+    ``run_node.py``); ``starts.jsonl`` records, for each start, the names that it accepted and the
+    environment.  Dry runs, which run no task, are left out.
     """
+    path = label_dir / "starts.jsonl"
+    names: set[str] = set()
+    for line in path.read_text().splitlines() if path.exists() else []:
+        start = json.loads(line)
+        if not start.get("dry_run"):
+            environment = start.get("environment", {})
+            names |= {
+                name for name in start.get("allowed_environment") or [] if name in environment
+            }
+    return sorted(names)
+
+
+def mark_outputs(out: pathlib.Path, marks: dict[str, Any]) -> None:
+    """Mark the outputs in ``out`` with ``marks``, such as the number of rows of local runs.
+
+    Each CSV file gets a column per mark, each JSON object a key per mark, and each Stim circuit a
+    first comment line per mark, ``# <name>: <value>``.  Other files are left to the analysis.
+    """
+    header = "".join(f"# {name}: {value}\n" for name, value in marks.items())
     for path in sorted(out.rglob("*")):
         if path.suffix == ".csv":
             with open(path, newline="") as file:
                 table = list(csv.reader(file))
-            if table and "local_rows" not in table[0]:
-                table = [table[0] + ["local_rows"]] + [row + [str(count)] for row in table[1:]]
+            new = [name for name in marks if table and name not in table[0]]
+            if new:
+                values = [str(marks[name]) for name in new]
+                table = [table[0] + new] + [row + values for row in table[1:]]
                 with open(path, "w", newline="") as file:
                     csv.writer(file).writerows(table)
         elif path.suffix == ".json":
             data = json.loads(path.read_text())
-            data["local_rows"] = count
+            data.update(marks)
             path.write_text(json.dumps(data, indent=1) + "\n")
         elif path.suffix == ".stim":
             text = path.read_text()
-            if not text.startswith("# local_rows"):
-                path.write_text(f"# local_rows: {count} rows of --local runs analyzed\n" + text)
+            if not text.startswith(header):
+                path.write_text(header + text)
 
 
 def write_atomic(path: pathlib.Path, text: str, directory: pathlib.Path | None = None) -> None:

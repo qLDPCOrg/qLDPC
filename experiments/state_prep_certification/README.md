@@ -31,7 +31,7 @@ Any change to these inputs gives a new label, and so a new directory `results/<e
 `common/manifest.py` gives the suffixes that the directory's name can carry.
 That directory holds the manifest, with one line per start in `starts.jsonl`, the record of the acceptance tests (`acceptance.json`), the task lists, GNU parallel's job logs, `runs.jsonl` with one row per task (see [Runs](#runs)), the tail of each run's output in `logs/`, the records of GNU parallel and of the live runs in `active/`, the lock of the start that owns the label (`lock`), and the archive.
 Each attempt of the acceptance tests writes its runs to a fresh directory, `results/acceptance/<label directory>/<UTC>-<random>/`, which `acceptance.json` records; failed attempts are kept.
-The manifest records the machine, the installed package versions, and the environment variables that can change a run, such as `PYTHONPATH` and `NUMBA_*`; a node start refuses a few of them, such as `PYTHONPATH`, unless `--allow-env NAME` accepts one, as [`run_node.py`](run_node.py) says.
+The manifest records the machine, the installed package versions, and the environment variables that can change a run, such as `PYTHONPATH` and `NUMBA_*`; a node start refuses a few of them, such as `PYTHONPATH`, unless `--allow-env NAME` accepts one, as [`run_node.py`](run_node.py) says, and the analyses of certification and distances then name it in every output.
 
 ### Runs
 

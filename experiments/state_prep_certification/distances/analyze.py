@@ -49,8 +49,11 @@ directory for ``--archive``): ``summary.csv`` (one row per code and arm), ``fami
 a disagreement, a failure, or an incomplete timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
-``--allow-local``.  It then marks every output with their number: a ``local_rows`` column in each
-CSV file, a ``local_rows`` key in ``figure_notes.json``, and the title of ``distances.pdf``.
+``--allow-local``.  With ``--allow-local``, it marks every output with the number of these rows,
+``local_rows``.  If a start of the label accepted a refused environment variable with
+``--allow-env`` (see ``run_node.py``), it marks every output with the names of these variables,
+``allowed_environment``.  Each mark is a column in each CSV file, a key in ``figure_notes.json``,
+and part of the title and of the Subject in the metadata of ``distances.pdf``.
 """
 
 from __future__ import annotations
@@ -82,14 +85,21 @@ def main() -> None:
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {problem}")
-    local_rows = store.local_rows(final.values(), args.allow_local)
+    marks: dict[str, Any] = {}
+    local_rows = store.count_local_rows(final.values(), args.allow_local)
+    if local_rows:
+        marks["local_rows"] = local_rows
+    allowed = store.allowed_environment(label_dir)
+    if allowed:
+        print(f"note: a start accepted {', '.join(allowed)} with --allow-env; every output says so")
+        marks["allowed_environment"] = " ".join(allowed)
     sample = load_sample(label_dir)
     expected = list(tasks.load_tasks(label_dir, pass2=False).values())
     missing = [key for key in tasks.load_tasks(label_dir) if key not in final]
     if missing:
         print(f"note: {len(missing)} tasks have no final row, such as {missing[0]}")
     per_code = summarize(list(final.values()), sample, expected)
-    write_outputs(per_code, sample, out, local_rows)
+    write_outputs(per_code, sample, out, marks)
     print(f"wrote {out}")
 
 
@@ -271,11 +281,12 @@ def write_outputs(
     records: list[dict[str, Any]],
     sample: dict[str, Any],
     out: pathlib.Path,
-    local_rows: int = 0,
+    marks: dict[str, Any] | None = None,
 ) -> None:
     """Write summary.csv, families.csv, anchors.csv, distances.pdf, and figure_notes.json.
 
-    With ``local_rows``, the number of rows of ``--local`` runs, every output says so.
+    Every output carries ``marks``, if any, such as the number of rows of ``--local`` runs: as a
+    column, a key, or part of the title and the metadata of ``distances.pdf``.
     """
     fields = [
         "name",
@@ -318,9 +329,9 @@ def write_outputs(
             )
     _write_families(pairs, out)
     _write_anchors(by_code, sample, out)
-    _plot(pairs, out, local_rows)
-    if local_rows:
-        store.mark_local(out, local_rows)
+    _plot(pairs, out, marks or {})
+    if marks:
+        store.mark_outputs(out, marks)
 
 
 def _median(results: list[dict[str, Any]]) -> str:
@@ -426,8 +437,11 @@ def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else [value]
 
 
-def _plot(pairs: list[dict[str, Any]], out: pathlib.Path, local_rows: int) -> None:
-    """A log-log plot of T, with the prior arm's T on the x axis and the on arm's on the y axis."""
+def _plot(pairs: list[dict[str, Any]], out: pathlib.Path, marks: dict[str, Any]) -> None:
+    """A log-log plot of T, with the prior arm's T on the x axis and the on arm's on the y axis.
+
+    The marks go into the title, and into the Subject of the PDF's metadata.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -461,11 +475,12 @@ def _plot(pairs: list[dict[str, Any]], out: pathlib.Path, local_rows: int) -> No
     axis.plot(limits, limits, "k-", lw=0.6)
     axis.plot(limits, [x / FASTER for x in limits], "k:", lw=0.6)
     axis.plot(limits, [x * FASTER for x in limits], "k:", lw=0.6)
-    axis.set_title(f"time (s); {local_rows} local rows" if local_rows else "time (s)")
+    marked = "; ".join(f"{name}: {value}" for name, value in marks.items())
+    axis.set_title(f"time (s); {marked}" if marks else "time (s)")
     axis.set_xlabel("prior")
     axis.set_ylabel("on")
     figure.tight_layout()
-    figure.savefig(out / "distances.pdf")
+    figure.savefig(out / "distances.pdf", metadata={"Subject": marked} if marks else None)
     (out / "figure_notes.json").write_text(json.dumps({"T": omitted}, indent=1) + "\n")
 
 

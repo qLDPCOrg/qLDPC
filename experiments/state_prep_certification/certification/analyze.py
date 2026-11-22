@@ -18,9 +18,13 @@ is recomputed from these files and from the harness commit and bundle that the l
 analyzed label.  Every task of the label's ``tasks.json`` and ``tasks-pass2.json`` that has no row
 is reported as ``missing``, with a printed note.
 
-The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.  It
-then marks every output with their number: a ``local_rows`` column in each CSV file, a
-``local_rows`` key in each JSON file, and a first comment line in each circuit of ``pruned/``.
+The analysis refuses rows of ``--local`` runs, of either label, unless given ``--allow-local``.
+With ``--allow-local``, it marks every output with the number of these rows, ``local_rows``.  If a
+start of either label accepted a refused environment variable with ``--allow-env`` (see
+``run_node.py``), it marks every output with the names of these variables,
+``allowed_environment``.  Each mark is a column in each CSV file, a key in each JSON file, and a
+first comment line in each circuit of ``pruned/``; the ``final_sha256`` of ``deletion_table.csv``
+is that of the circuit without these lines.
 
 An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/runner.py``) has the
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
@@ -197,9 +201,19 @@ def main() -> None:
             for key, task in _expected_tasks(check_dir).items()
             if task["arm"] == "ground_truth"
         }
-    local_rows = store.local_rows(rows, args.allow_local)
+    marks: dict[str, Any] = {}
+    local_rows = store.count_local_rows(rows, args.allow_local)
+    if local_rows:
+        marks["local_rows"] = local_rows
+    allowed = sorted(
+        set(store.allowed_environment(label_dir))
+        | set(store.allowed_environment(check_dir) if check_dir else [])
+    )
+    if allowed:
+        print(f"note: a start accepted {', '.join(allowed)} with --allow-env; every output says so")
+        marks["allowed_environment"] = " ".join(allowed)
     circuits = {e["id"]: e for e in json.loads(circuits_text)["circuits"]}
-    write_outputs(collect(rows, circuits, expected), circuits, out, local_rows)
+    write_outputs(collect(rows, circuits, expected), circuits, out, marks)
     print(f"wrote {out}")
 
 
@@ -207,20 +221,20 @@ def write_outputs(
     per_circuit: dict[str, dict[str, Any]],
     circuits: dict[str, dict[str, Any]],
     out: pathlib.Path,
-    local_rows: int = 0,
+    marks: dict[str, Any] | None = None,
 ) -> None:
     """Write every output of the circuits that ``collect`` gives, as the module docstring lists.
 
-    Every output takes each circuit's verdict from the rows of summary.csv.  With ``local_rows``,
-    the number of rows of ``--local`` runs, every output says so.
+    Every output takes each circuit's verdict from the rows of summary.csv.  Every output carries
+    ``marks``, if any, such as the number of rows of ``--local`` runs (``store.mark_outputs``).
     """
     summary_rows, weight_rows = summarize(per_circuit)
     write_tables(summary_rows, weight_rows, out)
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
     write_counterexamples(per_circuit, verdicts, circuits, out)
     analyze_applications.write_applications(per_circuit, summary_rows, out)
-    if local_rows:
-        store.mark_local(out, local_rows)
+    if marks:
+        store.mark_outputs(out, marks)
 
 
 def parse_args() -> argparse.Namespace:

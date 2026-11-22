@@ -7,12 +7,15 @@ runs them with ``Suite.main`` from the command line, or with ``Suite.run_all`` f
 ``acceptance``.  A test takes its own directory, ``<results_dir>/<ID>``, and whether the tests run
 on the node.  Each test prints PASS or FAIL.  Any exception that a test raises, including
 ``SystemExit``, fails that test, and the other tests still run.  ``--only`` refuses an ID that is
-not a test of the suite.
+not a test of the suite.  ``check_marked`` checks the marks that an analysis puts on its outputs
+(``store.mark_outputs``).
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import pathlib
 import signal
 import sys
@@ -103,6 +106,28 @@ class Suite:
                     signal.setitimer(signal.ITIMER_REAL, 0)
         print(f"{len(failed)} failed: {failed}" if failed else "all passed", flush=True)
         return not failed
+
+
+def check_marked(out: pathlib.Path, marks: dict[str, Any]) -> list[pathlib.Path]:
+    """Check that every CSV and JSON output in ``out`` carries ``marks``; return the other files.
+
+    A CSV file carries a mark as a column with its value in every row, and a JSON file as a key.
+    """
+    others = []
+    for path in sorted(out.rglob("*")):
+        if path.suffix == ".csv":
+            with open(path, newline="") as file:
+                reader = csv.DictReader(file)
+                rows = list(reader)
+            assert set(marks) <= set(reader.fieldnames or []), (path.name, reader.fieldnames)
+            for name, value in marks.items():
+                assert all(row[name] == str(value) for row in rows), (path.name, name)
+        elif path.suffix == ".json":
+            data = json.loads(path.read_text())
+            assert all(data.get(name) == value for name, value in marks.items()), (path.name, data)
+        elif path.is_file():
+            others.append(path)
+    return others
 
 
 def _stop(signum: int, frame: Any) -> None:
