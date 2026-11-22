@@ -52,7 +52,7 @@ For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at 
 | `css_walk`, `rstab` | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de, qubit stabilizer codes with k = 2 |
 
 `codes.py --write-sample` overwrites the frozen `sample.json`, so run it only to refreeze the sample; use `--check` otherwise.
-The node regenerates the codes and stops on any difference from the sample, in the codes or in the draws' metadata, such as the endpoints and each code's family, parameters, and seed.
+The node regenerates the codes and stops on any difference from the sample, in the codes or in the draws' metadata, such as the endpoints and each code's family, parameters, and seed, except in the name of the class that built each code and in the record of qLDPC's source tree (`codes.compare_with_sample`).
 Each size has 4 target codes and at most 100 draws.
 A size where fewer than 4 draws are kept (see the docstring of `codes.py`) keeps fewer codes and is reported as a shortfall, such as a bivariate bicycle size where every draw has k = 0.
 Sizes whose target lengths land on the same parameters merge (see the docstring of `codes.py`); in the sample's `ladders`, a target that repeats an earlier one has `merged` set to true.
@@ -71,7 +71,7 @@ The local run's label directory, which `run_node.py` prints, ends in `-local-smo
 On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes.
 `analyze.py --archive PATH --out DIR` reads the archive that comes back, and writes `summary.csv`, `families.csv`, `anchors.csv`, `distances.pdf`, and `figure_notes.json`.
 It extracts the archive into a temporary directory, which it removes when it ends, so `--archive` requires `--out`.
-`analyze.py`'s docstring says how it treats a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
+The docstring of [`analyze.py`](analyze.py) says how to read the timings and the outputs, including a median that a timed-out run determines, an arm without a first run, and a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
 ## Attributions
 

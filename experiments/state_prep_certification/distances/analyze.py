@@ -6,17 +6,18 @@
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
-first run and repeats on the code, with a repeat that timed out counted as the limit L.  If a run
-that timed out determines the median, as the middle one of an odd number of runs or either middle
-one of an even number, the median timed out: the arm has no T, and its status in ``summary.csv``
-and its T cell in ``anchors.csv`` are ``median_timed_out``.  If the first run did not finish, or a
-repeat ended in an error or memout, T is the first run's time.  An arm counts as finished if its
-first run finished and its median did not time out; ``summary.csv`` records the number of unfinished
-repeats in ``repeats_unfinished``.  A row with ``compiled_in_timing`` set (see ``common/runner.py``)
-enters no T.  A repeat with it is left out of the median, as a missing repeat is.  A first run with
-it leaves the arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
-``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats`` and
-``repeats_unfinished``.  The cases, in order:
+first run and repeats on the code, with a repeat that timed out counted as the limit L.  If the
+first run finished with complete timing, and a run that timed out determines the median, as the
+middle one of an odd number of runs or either middle one of an even number, the median timed out:
+the arm has no T, and its status in ``summary.csv`` and its T cell in ``anchors.csv`` are
+``median_timed_out``.  If the first run did not finish, or a repeat ended in an error or memout, T
+is the first run's time.  An arm counts as finished if its first run finished and its median did not
+time out; ``summary.csv`` records the number of unfinished repeats in ``repeats_unfinished``.  A row
+with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A repeat with it is left
+out of the median, as a missing repeat is.  A first run with it leaves the arm without T, and its T
+cell in ``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged
+runs in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The
+cases, in order:
 
 1. **disagreement:** the arms or their repeats report different distances, or a distance that
    differs from the code's reference distance; no ratio;
@@ -261,12 +262,13 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     The status is that of the first run, unless a repeat ended in an error or memout, whose status
     it then takes.  An arm without a first run is missing, even if a repeat has a row, and keeps the
     repeats' distances for the disagreement check.  A repeat that timed out counts as the limit in
-    the median, and is counted in ``repeats_unfinished``.  If a run that timed out determines the
-    median, as the middle one of an odd number of runs or either middle one of an even number, the
-    status is ``median_timed_out`` and T is None.  A row with ``compiled_in_timing`` set enters no T
-    and is left out of ``repeats`` and ``repeats_unfinished``: a repeat with it is left out of the
-    median, and a first run with it makes T None and the timing incomplete.  Repeats that report
-    different distances make the arm's distance a list, which ``ratio`` treats as a disagreement.
+    the median, and is counted in ``repeats_unfinished``.  If the first run finished with complete
+    timing, and a run that timed out determines the median, as the middle one of an odd number of
+    runs or either middle one of an even number, the status is ``median_timed_out`` and T is None.
+    A row with ``compiled_in_timing`` set enters no T and is left out of ``repeats`` and
+    ``repeats_unfinished``: a repeat with it is left out of the median, and a first run with it
+    makes T None and the timing incomplete.  Repeats that report different distances make the arm's
+    distance a list, which ``ratio`` treats as a disagreement.
     """
     distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
     distance = distances[0] if len(distances) == 1 else (distances or None)
