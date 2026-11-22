@@ -405,8 +405,8 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     output, classifies the codes, and marks the family medians as ``analyze.py``'s docstring says,
     with the number of these ratios, and how many of them are lower bounds and how many upper
     bounds.  Its rows with ``compiled_in_timing`` set are first runs and repeats, some of them on
-    codes that disagree or fail.  ``load_sample`` refuses a label directory without a copy of the
-    sample.
+    codes that disagree or fail.  The task keys are opaque, so that each row's code comes from
+    its task's input.  ``load_sample`` refuses a label directory without a copy of the sample.
     """
     from experiments.state_prep_certification.distances import analyze
 
@@ -421,6 +421,12 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     lp_prior, lp_on = [e for e in sample["codes"] if e["family"] == "lp"][:2]
     rows = []
     label_tasks: dict[str, dict[str, Any]] = {}
+    keys: dict[str, str] = {}
+
+    def task_of(arm: str, entry: dict[str, Any], repeat: int) -> dict[str, Any]:
+        # an opaque key, so that the analysis must take each row's code from its task's input
+        task = experiment._task(arm, entry, repeat)
+        return task | {"key": keys.setdefault(task["key"], f"task{len(keys)}")}
 
     def add(
         entry: dict[str, Any],
@@ -431,7 +437,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         d: Any,
         compiled: bool = False,
     ) -> None:
-        task = experiment._task(arm, entry, repeat)
+        task = task_of(arm, entry, repeat)
         label_tasks[task["key"]] = task
         rows.append(
             {
@@ -517,7 +523,7 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
     named = (golay, bb72, qr47, qr71, qr79, pp110, surface9)
     for entry in named + (first, second, third, fourth, fifth, sixth, seventh, gb, lp_prior, lp_on):
         for arm in ("q_bz_on", "q_bz_prior"):
-            task = experiment._task(arm, entry, repeat=0)
+            task = task_of(arm, entry, repeat=0)
             label_tasks[task["key"]] = task
     records = analyze.summarize(rows, sample, label_tasks)
     out = directory / "analysis"

@@ -533,7 +533,8 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     ``count_accepted`` or else of the ground truth.  So does a baseline stopped after a violation at
     weight m against a finished certification whose smallest violation is not at m.  With no
     finished certification, a baseline whose only record is a violation within A_m leaves
-    ``agree_baseline`` unknown.  An expected task without a row is reported as ``missing``.
+    ``agree_baseline`` unknown.  An expected task without a row is reported as ``missing``.  The
+    task keys are opaque, so that each row's circuit comes from its task's input.
 
     Rows with ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and
     times that ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of
@@ -598,7 +599,10 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         partial: list[dict[str, Any]] | None = None,
         compiled: bool = False,
     ) -> None:
-        task = experiment._task(arm, entry, 0, experiment._limit(arm))
+        # an opaque key, so that the analysis must take each row's circuit from its task's input
+        task = experiment._task(arm, entry, 0, experiment._limit(arm)) | {
+            "key": f"task{len(expected)}"
+        }
         expected[task["key"]] = task
         if status == "missing":
             return
@@ -692,7 +696,11 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     calls_dir = directory / "oracle_calls"
     calls_dir.mkdir(parents=True, exist_ok=True)
     call = json.dumps({"kind": "batch", "m": 2, "rows": 7, "bz": 0.5, "cc": 0.25})
-    shadow_key = experiment._task("shadow", fourth, 0, experiment._limit("shadow"))["key"]
+    (shadow_key,) = [
+        key
+        for key, task in expected.items()
+        if task["arm"] == "shadow" and task["input"]["id"] == fourth["id"]
+    ]
     (calls_dir / f"{shadow_key}.jsonl").write_text(f"{call}\n{call}\n{call[:20]}")
 
     # analyze the rows, and read summary.csv, per_weight.csv, and families.csv
