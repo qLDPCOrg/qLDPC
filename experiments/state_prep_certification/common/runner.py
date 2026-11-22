@@ -79,7 +79,8 @@ run until after its row is appended, and watches the child:
 ``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
 during or between its runs, kills any current run, waits up to the grace for its processes to go,
 and returns 2 without a row; ``run_task.py`` exits with that status.  If the parent itself fails, it
-kills the run before it exits.
+kills the run before it exits.  If it cannot tell that the run's processes are gone, as when ``ps``
+fails, it kills the run's own process and keeps the run's record in ``active/`` for ``--cleanup``.
 
 The child side is ``child_main``.  The experiment's ``run(task, label_dir)`` calls ``timed`` once
 around the measured call, may call ``send_partial`` with partial results as they arrive and
@@ -218,8 +219,10 @@ def run_task(
     previous_handlers = {
         sig: signal.signal(sig, on_signal) for sig in (signal.SIGTERM, signal.SIGINT)
     }
-    # each run writes the task's active file, which stays between the runs and until the row is in
+    # each run writes the task's active file, which stays between the runs and until the row is in,
+    # or, if the runner failed before it knew that the run was gone, for --cleanup
     active_file = label_dir / "active" / task["key"]
+    watcher: _Watcher | None = None
     try:
         row: dict[str, Any] | None = None
         for _ in range(RUNS_PER_TASK):
@@ -241,7 +244,8 @@ def run_task(
         store.append_row(label_dir, row)
         return 0
     finally:
-        active_file.unlink(missing_ok=True)
+        if watcher is None or not watcher.may_live:
+            active_file.unlink(missing_ok=True)
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
 
@@ -296,6 +300,7 @@ class _Watcher:
         self.timing_started_at: float | None = None
         self.measured_at: float | None = None
         self.killed_at: float | None = None
+        self.may_live = False
 
     def run(self, command: list[str]) -> dict[str, Any] | None:
         """Start the child, watch it, and return its row, or None if a signal stopped it."""
@@ -363,8 +368,17 @@ class _Watcher:
             finished_at = _utc_now()
             stray = self._wait_until_gone(child) if kill_reason or not self.local else []
         except BaseException:
-            self._kill()
-            self._keep_record(active_file, self._wait_until_gone(child))
+            self.may_live = True
+            try:
+                self._kill()
+                self._keep_record(active_file, self._wait_until_gone(child))
+                self.may_live = False
+            finally:
+                # if the run may live on, as when ps fails, kill at least its own process; its
+                # record stays (see run_task)
+                if self.may_live:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.kill(child.pid, signal.SIGKILL)
             raise
         finally:
             os.close(read_fd)

@@ -735,6 +735,52 @@ def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_blind(directory: pathlib.Path, node: bool) -> None:
+    """A runner whose process table fails kills its run's own process and keeps the run's record.
+
+    The runner cannot tell whether other processes of the run live, so the record stays in
+    ``active/`` for --cleanup.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("blind", [["sleep", 54.75]], limit_s=60.0)
+    tasks.write_pass1(directory, [task])
+    process_table = runner.process_table
+    calls: list[None] = []
+
+    def failing_table() -> dict[int, Any]:  # works while the runner records the run
+        calls.append(None)
+        if len(calls) > 2:
+            raise RuntimeError("ps failed")
+        return process_table()
+
+    def reaped(pid: int) -> bool:  # the run's process is this process's child
+        try:
+            return os.waitpid(pid, os.WNOHANG)[0] == pid
+        except ChildProcessError:
+            return True
+
+    record = directory / "active" / task["key"]
+    pid = None
+    try:
+        with _patched(runner, "process_table", failing_table):
+            try:
+                runner.run_task(directory, task, local=not node)
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("the runner did not fail")
+        pid = json.loads(record.read_text())["pid"]
+        _wait_for(functools.partial(reaped, pid), timeout=10)
+        pid = None
+    finally:
+        if pid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+            reaped(pid)
+
+
+@test
 def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None:
     """A task's active file stays from its first run, through its retry, until its row is in."""
     from experiments.state_prep_certification.common import runner
