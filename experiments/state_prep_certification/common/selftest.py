@@ -183,7 +183,8 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
 
     It leaves out the temporary file of an interrupted ``write_atomic``, and the label's lock, but
     keeps a file named ``SHA256SUMS`` below the top level.  ``open_archive`` unpacks it, and refuses
-    it once a file or the archive no longer matches its checksum.
+    it once its files no longer match its inner list, or the archive its ``.sha256``, or that file
+    is missing.
     """
     label_dir = directory / "label"
     (label_dir / "logs").mkdir(parents=True)
@@ -216,27 +217,32 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
         assert (unpacked / "logs" / "a.txt").read_text() == "log"
     assert not unpacked.exists()
 
-    # it refuses an archive whose inner SHA256SUMS does not match a file, and one whose .sha256
-    # does not match it
+    # it refuses an archive with a file that its inner SHA256SUMS does not list, here a nested
+    # SHA256SUMS, or with a file that does not match its digest there, even if the archive matches
+    # its .sha256; and an archive whose .sha256 does not match it or is missing
     with tarfile.open(archive) as tar:
         contents = {}
         for member in tar.getmembers():
             file = tar.extractfile(member)
             assert file is not None
             contents[member.name] = file.read()
-    contents["label-host-utc/logs/a.txt"] = b"changed"
-    with tarfile.open(archive, "w:gz") as tar:
-        for name, data in contents.items():
-            info = tarfile.TarInfo(name)
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
     outer_sums = archive.parent / (archive.name + ".sha256")
-    outer_sums.write_text(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
-    error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
-    assert "does not match its inner SHA256SUMS" in str(error.code), error.code
+    for changed in ("label-host-utc/extra/SHA256SUMS", "label-host-utc/logs/a.txt"):
+        with tarfile.open(archive, "w:gz") as tar:
+            for name, data in (contents | {changed: b"changed"}).items():
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        outer_sums.write_text(f"{digest}  {archive.name}\n")
+        error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
+        assert "does not match its inner SHA256SUMS" in str(error.code), (changed, error.code)
     outer_sums.write_text(f"{'0' * 64}  {archive.name}\n")
     error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
     assert f"does not match {outer_sums.name}" in str(error.code), error.code
+    outer_sums.unlink()
+    error = acceptance.raises(SystemExit, lambda: store.open_archive(archive).__enter__())
+    assert f"{outer_sums.name} is missing" in str(error.code), error.code
 
 
 ####################################################################################################
@@ -890,6 +896,21 @@ def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None
         assert runner.run_task(directory, task, local=not node) == 0
     assert after_runs == [True, True] and not active.exists(), after_runs
     assert len(store.read_rows(directory)[0]) == 1
+
+
+@test
+def test_runner_channel_json(directory: pathlib.Path, node: bool) -> None:
+    """The child sends a set as a sorted list, and refuses an object that JSON lacks."""
+    read_fd, write_fd = os.pipe()
+    channel = runner._Channel()
+    channel.fd = write_fd
+    try:
+        channel.send({"value": {2, 1}})
+        acceptance.raises(TypeError, lambda: channel.send({"value": object()}))
+    finally:
+        os.close(write_fd)
+    with os.fdopen(read_fd) as file:
+        assert file.read() == '{"value":[1,2]}\n'
 
 
 ####################################################################################################
