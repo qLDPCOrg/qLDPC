@@ -1608,7 +1608,8 @@ class QuditCode(AbstractCode):
 
         # if requested, retrieve logical operators of one type only
         if pauli is not None:
-            return self.get_logical_ops(recompute=recompute).reshape(2, -1, 2 * len(self))[pauli]
+            ops = self.get_logical_ops(recompute=recompute)
+            return ops.reshape(2, len(ops) // 2, 2 * len(self))[pauli]
 
         # return logical operators if known and not asked to recompute
         if not (self._logical_ops is None or recompute):
@@ -1659,8 +1660,8 @@ class QuditCode(AbstractCode):
 
         # move qudits back to their original locations
         permutation = np.argsort(qudit_locs)
-        logicals_x = logicals_x.reshape(-1, len(self))[:, permutation].reshape(-1, 2 * len(self))
-        logicals_z = logicals_z.reshape(-1, len(self))[:, permutation].reshape(-1, 2 * len(self))
+        logicals_x = _permute_qudits(logicals_x, permutation, len(self))
+        logicals_z = _permute_qudits(logicals_z, permutation, len(self))
         logical_ops = np.vstack([logicals_x, logicals_z]).view(self.field)
 
         self._logical_ops = logical_ops
@@ -1924,7 +1925,8 @@ class QuditCode(AbstractCode):
 
         # if requested, retrieve gauge operators of one type only
         if pauli is not None:
-            return self.get_gauge_ops(recompute=recompute).reshape(2, -1, 2 * len(self))[pauli]
+            ops = self.get_gauge_ops(recompute=recompute)
+            return ops.reshape(2, len(ops) // 2, 2 * len(self))[pauli]
 
         if self._gauge_ops is None or recompute:
             self._gauge_ops = self.dual().get_logical_ops(recompute=recompute)
@@ -2691,7 +2693,7 @@ class QuditCode(AbstractCode):
         rows_gx = rows_gz = cols_gx = cols_gz = slice(0)
 
         return (
-            matrix.reshape(-1, 2, len(self)),
+            matrix.reshape(len(matrix), 2, len(self)),
             qudit_locs,
             (rows_sx, rows_gx, rows_sz, rows_gz),
             (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
@@ -2722,7 +2724,8 @@ class QuditCode(AbstractCode):
             (rows_sx, _, rows_sz, _),
             (cols_sx, _, _, cols_sz, _, cols_gl),
         ) = code.get_standard_form_data()
-        stabilizers_x = standard_stabilizer_ops[rows_sx].reshape(-1, 2 * len(self))
+        stabilizers_x = standard_stabilizer_ops[rows_sx]
+        stabilizers_x = stabilizers_x.reshape(len(stabilizers_x), 2 * len(self))
         stabilizers_z = standard_stabilizer_ops[rows_sz, 1, :]
         cols_gl = _join_slices(cols_gl)  # convert into an indexable array
 
@@ -2771,7 +2774,7 @@ class QuditCode(AbstractCode):
         cols_lz = [qq for qq in cols_gl if qq not in cols_gz]
 
         return (
-            matrix.reshape(-1, 2, len(self)),
+            matrix.reshape(len(matrix), 2, len(self)),
             qudit_locs,
             (rows_sx, rows_gx, rows_sz, rows_gz),
             (cols_sx, cols_gx, cols_lx, cols_sz, cols_gz, cols_lz),
@@ -3748,7 +3751,8 @@ class CSSCode(QuditCode):
         )
         if symplectic or pauli is None:
             return stabilizer_ops
-        return stabilizer_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
+        num_ops = len(stabilizer_ops)
+        return stabilizer_ops.reshape(num_ops, 2, len(self))[:, pauli, :].view(self.field)
 
     def get_gauge_ops(
         self, pauli: PauliXZLike | None = None, *, recompute: bool = False, symplectic: bool = False
@@ -3764,7 +3768,7 @@ class CSSCode(QuditCode):
         gauge_ops = QuditCode.get_gauge_ops(self, pauli, recompute=recompute)
         if symplectic or pauli is None:
             return gauge_ops
-        return gauge_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
+        return gauge_ops.reshape(len(gauge_ops), 2, len(self))[:, pauli, :].view(self.field)
 
     def get_destabilizer_ops(
         self, pauli: PauliXZLike | None = None, *, symplectic: bool = False
@@ -3779,7 +3783,8 @@ class CSSCode(QuditCode):
         destabilizer_ops = QuditCode.get_destabilizer_ops(self, pauli)
         if symplectic or pauli is None:
             return destabilizer_ops
-        return destabilizer_ops.reshape(-1, 2, len(self))[:, pauli, :].view(self.field)
+        num_ops = len(destabilizer_ops)
+        return destabilizer_ops.reshape(num_ops, 2, len(self))[:, pauli, :].view(self.field)
 
     def dual(self) -> CSSCode:
         """The dual of this code, which swaps the roles of logical and gauge operators.
@@ -4717,6 +4722,8 @@ def _permute_qudits(
     matrix: npt.NDArray[np.int_], permutation: Slice, num_qudits: int
 ) -> npt.NDArray[np.int_]:
     """Permute the qudits of a matrix whose rows are blocks of num_qudits columns each."""
+    if num_qudits == 0:
+        return matrix.copy()  # nothing to permute, and NumPy cannot infer the number of blocks
     return matrix.reshape(-1, num_qudits)[:, permutation].reshape(matrix.shape)
 
 
