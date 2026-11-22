@@ -16,13 +16,14 @@ never enters the archive.  ``make_archive`` writes the archive with its checksum
 ``open_archive`` checks them and unpacks the archive for an analysis.
 
 The rows of ``--local`` runs (``"local": true``) were not timed under the node's conditions.  An
-analysis that refuses them, as those of certification and distances do, counts them with
-``count_local_rows``, which exits unless the analysis is given ``--allow-local``.  Such an analysis
-also reads, with ``allowed_environment``, the refused environment variables that a start accepted
-with ``--allow-env`` (see ``run_node.py``), and ``PYTHONOPTIMIZE`` if a start, or a Python that it
-started, ran with -O, and, with ``changed_environment``, the recorded environment variables whose
-values differ among the label's starts.  It marks each of its outputs with these, and with the
-number of rows of local runs, whichever are nonempty, with ``mark_outputs``.
+analysis that refuses them counts them with ``count_local_rows``, which exits unless the analysis
+is given ``--allow-local``.  Such an analysis also reads, with ``allowed_environment``, the refused
+environment variables that a start accepted with ``--allow-env`` (see ``run_node.py``), and
+``PYTHONOPTIMIZE`` if a start, or a Python that it started, ran with -O, and, with
+``changed_environment``, the recorded environment variables whose values differ among the label's
+starts.  With ``mark_outputs``, it
+marks each of its outputs with whichever of these, and of the number of rows of local runs, are
+nonempty.
 """
 
 from __future__ import annotations

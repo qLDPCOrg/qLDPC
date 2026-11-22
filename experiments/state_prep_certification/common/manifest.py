@@ -8,7 +8,7 @@ The manifest (``write_manifest``) describes the label's first start that runs ta
 The label of an experiment is ``<experiment>-`` followed by the first 12 hexadecimal digits of the
 SHA-256 of ``pins.json``, the experiment's frozen files, the harness commit, and, in a bundle, the
 SHA-256 of the bundle's resolved requirements.  Any change to them gives a new label, and so a new
-results directory.  ``run_node.py`` names the directory by the label, followed by these suffixes,
+label directory.  ``run_node.py`` names the directory by the label, followed by these suffixes,
 in this order:
 
 * ``-dirty-<hash>`` if the qLDPC tree has uncommitted changes to tracked files (allowed only in

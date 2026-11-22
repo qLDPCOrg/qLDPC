@@ -5,8 +5,7 @@
 Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
 inputs, outputs, and documentation.
 
-    python experiments/state_prep_certification/run_node.py EXPERIMENT --approved-cpu-hours H \
-        [options]
+    python experiments/state_prep_certification/run_node.py EXPERIMENT --approved-cpu-hours H [...]
 
 On the node, ``node.sh`` calls this script with the bundle's interpreter.  For the label of the
 experiment (``common/manifest.py``), it
@@ -18,9 +17,10 @@ experiment (``common/manifest.py``), it
    level, in ``starts.jsonl`` (``manifest.record_start``), so that the analyses see every
    environment in which the acceptance tests ran, even that of a start that stops at a later step;
 2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
-   label directory, and stops if they fail; each attempt runs the acceptance tests in a fresh
-   directory under ``acceptance/<label directory>/`` of the results directory, which
-   ``acceptance.json`` records, and the self-tests in temporary directories, which they remove;
+   label directory, and stops if they fail.  Each such attempt, an acceptance attempt, runs the
+   acceptance tests in a fresh directory under ``acceptance/<label directory>/`` of the results
+   directory, which ``acceptance.json`` records, and the self-tests in temporary directories, which
+   they remove;
 3. refuses a task list in which a task's memory cap exceeds a job slot's memory (``JOB_MEM_GIB``),
    prints the number of tasks of pass 1 and their ceiling of CPU-hours (``tasks.ceiling_hours``),
    and stops with exit status 1 unless ``--approved-cpu-hours`` covers the ceiling;
@@ -48,10 +48,10 @@ while GNU parallel or a run of an earlier start is still alive, including a run 
 directory's acceptance attempts on this host, whose runners record it under the attempt's directory.
 It also refuses to start, and ``--cleanup`` refuses to act, while the label's ``active/`` directory
 lists a run of another host, which this host can neither see nor stop.  A start refuses a machine
-whose CPU model differs from the one in the label's manifest, which the label's first start that
-runs tasks writes, so that one label never mixes the times of two CPU models; another host with the
-same CPU model may resume, since a machine's hostname can change between its allocations, and
-``starts.jsonl`` records each start's host and number of job slots.
+whose CPU model differs from the one in the label's manifest, so that one label never mixes the
+times of two CPU models; another host with the same CPU model may resume, since a machine's hostname
+can change between its allocations, and ``starts.jsonl`` records each start's host and number of job
+slots.
 
 After a hard kill of this script or of GNU parallel, run it once with ``--cleanup``, which kills GNU
 parallel, every run still listed in the label's ``active/`` directory, and this host's runs of the
@@ -68,12 +68,12 @@ before any change to the tree, and check that the label directory that they prin
 ``--local`` runs the tasks one at a time without GNU parallel, keeps every run in the session of the
 command, and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves
 development on a workstation.  A local run has its own label directory, so ``--status`` and
-``--cleanup`` of a local run need ``--local`` too, and the analyses of certification and distances
-refuse its rows unless given ``--allow-local``.  ``--dry-run`` stops after step 5, without writing
-``manifest.json`` (``starts.jsonl`` records it as a dry run), and prints the GNU parallel command.
-``--subset NAME`` selects a subset of the tasks, such as ``smoke``; a subset other than ``main`` or
-``acceptance`` gets its own label directory (see ``common/manifest.py``).  ``--subset acceptance``
-runs only the acceptance tests.
+``--cleanup`` of a local run need ``--local`` too, and an analysis may refuse its rows (see
+``store.count_local_rows``).  ``--dry-run`` stops after step 5, without writing ``manifest.json``
+(``starts.jsonl`` records it as a dry run), and prints the GNU parallel command.  ``--subset NAME``
+selects a subset of the tasks, such as ``smoke``; a subset other than ``main`` or ``acceptance``
+gets its own label directory (see ``common/manifest.py``).  ``--subset acceptance`` runs only the
+acceptance tests.
 """
 
 from __future__ import annotations

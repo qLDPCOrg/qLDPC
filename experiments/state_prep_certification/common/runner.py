@@ -64,6 +64,9 @@ and ``--cleanup`` (``_Watcher.run``), and watches the child:
   compiled for another signature (numba/numba#10862), which can give wrong results or fail when
   the code is called.  No row records such a load.
 
+A row keeps the result that arrived, whatever its status: a ``timeout`` whose call returned at or
+after the limit, or a ``memout`` whose peak was found after the run, keeps its result.
+
 ``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT,
 returns 2 without a row; ``run_task.py`` exits with that status.  Its docstring says when a signal
 or a failure of the runner itself leaves a run's processes or record behind.
