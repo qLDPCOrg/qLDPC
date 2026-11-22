@@ -372,7 +372,7 @@ class _Watcher:
             self.child_error = log_file.read_text(errors="replace")[-2000:].strip()
         row = self._row(kill_reason, child.returncode, started_at, finished_at)
         if stray:
-            left = f"processes left after the grace: {_describe(stray)}"
+            left = f"processes left after the grace: {describe_processes(stray)}"
             row["error"] = f"{row['error']}; {left}" if row["error"] else left
         return row
 
@@ -558,7 +558,7 @@ class _Watcher:
             "peak_rss_gib": peak_rss / 2**30,
             "limit_s": self.limit_s,
             "host": socket.gethostname(),
-            "cpu": _cpu_model(),
+            "cpu": cpu_model(),
             "pinned_cpu": self.cpu,
             "affinity": start_info.get("affinity"),
             "runner_affinity": _affinity(),
@@ -848,6 +848,18 @@ def descendants(table: dict[int, Process], root: int) -> list[int]:
     return members
 
 
+def describe_processes(pids: list[int]) -> str:
+    """Processes by id, each with its command line, as ``ps`` shows it."""
+    output = subprocess.run(
+        ["ps", "-o", "pid=,command=", "-p", ",".join(str(pid) for pid in pids)],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+    commands = dict(line.split(None, 1) for line in output.splitlines() if len(line.split()) > 1)
+    return ", ".join(f"{pid} ({commands.get(str(pid), 'gone').strip()})" for pid in pids)
+
+
 ####################################################################################################
 # helpers
 
@@ -871,7 +883,7 @@ def _cpu_seconds() -> float:
     return times.user + times.system + times.children_user + times.children_system
 
 
-def _cpu_model() -> str:
+def cpu_model() -> str:
     """The model name of this machine's CPU."""
     try:
         if sys.platform.startswith("linux"):
@@ -888,18 +900,6 @@ def _cpu_model() -> str:
     except OSError:
         pass
     return platform.processor()
-
-
-def _describe(pids: list[int]) -> str:
-    """Processes by id, each with its command line, as ``ps`` shows it."""
-    output = subprocess.run(
-        ["ps", "-o", "pid=,command=", "-p", ",".join(str(pid) for pid in pids)],
-        capture_output=True,
-        text=True,
-        check=False,
-    ).stdout
-    commands = dict(line.split(None, 1) for line in output.splitlines() if len(line.split()) > 1)
-    return ", ".join(f"{pid} ({commands.get(str(pid), 'gone').strip()})" for pid in pids)
 
 
 def _keep_tail(path: pathlib.Path) -> None:

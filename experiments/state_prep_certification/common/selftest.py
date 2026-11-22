@@ -685,6 +685,45 @@ def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
     assert not _processes_matching("time.sleep(49.25)")
 
 
+@test
+def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
+    """A runner that fails kills its run, removes its active file, and writes no row."""
+    tasks.write_pass1(directory, [_task("broken", [["garbage", 52.25]], limit_s=60.0)])
+    result = subprocess.run(
+        _run_task_command(directory, "broken", node), capture_output=True, check=False
+    )
+    assert result.returncode != 0
+    assert not (directory / "active" / "broken").exists()
+    assert store.read_rows(directory) == ([], [])
+    time.sleep(1)
+    assert not _processes_matching("broken"), "the failed runner's run survived"
+
+
+@test
+def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None:
+    """A task's active file stays from its first run, through its retry, until its row is in."""
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("twice", [["compile", False], ["value", 1]])
+    tasks.write_pass1(directory, [task])
+    active = directory / "active" / task["key"]
+    after_runs: list[bool] = []
+    run = runner._Watcher.run
+
+    def watched_run(watcher: Any, command: list[str]) -> dict[str, Any] | None:
+        row = run(watcher, command)
+        after_runs.append(active.exists())
+        return row
+
+    with (
+        _environment("NUMBA_CACHE_DIR", str(directory / "numba")),
+        _patched(runner._Watcher, "run", watched_run),
+    ):
+        assert runner.run_task(directory, task, local=not node) == 0
+    assert after_runs == [True, True] and not active.exists(), after_runs
+    assert len(store.read_rows(directory)[0]) == 1
+
+
 ####################################################################################################
 # task lists, GNU parallel, run_node, and cleanup
 
@@ -1027,20 +1066,6 @@ def test_cleanup_unreadable_records(directory: pathlib.Path, node: bool) -> None
 
 
 @test
-def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
-    """A runner that fails kills its run, removes its active file, and writes no row."""
-    tasks.write_pass1(directory, [_task("broken", [["garbage", 52.25]], limit_s=60.0)])
-    result = subprocess.run(
-        _run_task_command(directory, "broken", node), capture_output=True, check=False
-    )
-    assert result.returncode != 0
-    assert not (directory / "active" / "broken").exists()
-    assert store.read_rows(directory) == ([], [])
-    time.sleep(1)
-    assert not _processes_matching("broken"), "the failed runner's run survived"
-
-
-@test
 def test_run_node_refusals(directory: pathlib.Path, node: bool) -> None:
     """run_node.py refuses live runs, a local acceptance pass for node mode, and trial bundles."""
     from experiments.state_prep_certification.common import manifest, runner
@@ -1212,7 +1237,7 @@ def test_run_node_cpu_model(directory: pathlib.Path, node: bool) -> None:
     subprocess.run(command, check=True, capture_output=True)
     assert not (label_dir / "manifest.json").exists()
     (start,) = [json.loads(line) for line in (label_dir / "starts.jsonl").read_text().splitlines()]
-    assert start["dry_run"] and start["cpu_model"] == runner._cpu_model(), start
+    assert start["dry_run"] and start["cpu_model"] == runner.cpu_model(), start
 
 
 @test
@@ -1269,31 +1294,6 @@ def test_run_node_lock(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
-def test_runner_active_across_retry(directory: pathlib.Path, node: bool) -> None:
-    """A task's active file stays from its first run, through its retry, until its row is in."""
-    from experiments.state_prep_certification.common import runner
-
-    task = _task("twice", [["compile", False], ["value", 1]])
-    tasks.write_pass1(directory, [task])
-    active = directory / "active" / task["key"]
-    after_runs: list[bool] = []
-    run = runner._Watcher.run
-
-    def watched_run(watcher: Any, command: list[str]) -> dict[str, Any] | None:
-        row = run(watcher, command)
-        after_runs.append(active.exists())
-        return row
-
-    with (
-        _environment("NUMBA_CACHE_DIR", str(directory / "numba")),
-        _patched(runner._Watcher, "run", watched_run),
-    ):
-        assert runner.run_task(directory, task, local=not node) == 0
-    assert after_runs == [True, True] and not active.exists(), after_runs
-    assert len(store.read_rows(directory)[0]) == 1
-
-
-@test
 def test_records_atomic(directory: pathlib.Path, node: bool) -> None:
     """A write of ``acceptance.json`` or ``manifest.json`` that a kill interrupts leaves no part."""
     from experiments.state_prep_certification.common import manifest
@@ -1332,6 +1332,10 @@ def test_records_atomic(directory: pathlib.Path, node: bool) -> None:
                 raise AssertionError("the write was not interrupted")
     assert json.loads(record.read_text()) == {"passed": False, "node": False}
     assert not (label_dir / "manifest.json").exists()
+
+
+####################################################################################################
+# acceptance
 
 
 @test
@@ -1455,6 +1459,10 @@ def test_acceptance_selection(directory: pathlib.Path, node: bool) -> None:
             ran.clear()
             assert suite.run_all(node=False, results_dir=directory / name, only=ids[-1:])
             assert ran == ids[-1:], (name, ran)
+
+
+####################################################################################################
+# manifest and labels
 
 
 @test
@@ -1584,7 +1592,7 @@ def test_manifest_dirty_digest(directory: pathlib.Path, node: bool) -> None:
 
 
 ####################################################################################################
-# bundle
+# bundle and node.sh
 
 
 @test

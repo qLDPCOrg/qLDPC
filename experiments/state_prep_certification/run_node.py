@@ -170,7 +170,7 @@ def main() -> None:
             "jobs": jobs,
             "cpus": cpus,
             "runner_cpus": reserved,
-            "cpu_model": runner._cpu_model(),
+            "cpu_model": runner.cpu_model(),
             "host": socket.gethostname(),
             "ceiling_cpu_hours": ceiling,
             "approved_cpu_hours": args.approved_cpu_hours,
@@ -305,6 +305,17 @@ def choose_slots(
     return len(cpus), cpus, reserved
 
 
+def pin_runners(reserved: list[int]) -> None:
+    """Pin this process, and so GNU parallel and the task runners, to the reserved CPUs (Linux)."""
+    if reserved and sys.platform.startswith("linux"):
+        try:
+            os.sched_setaffinity(0, reserved)
+        except OSError as error:
+            sys.exit(f"Could not pin to the reserved CPUs {reserved}: {error}")
+        if os.sched_getaffinity(0) != set(reserved):
+            sys.exit(f"Could not pin to the reserved CPUs {reserved}")
+
+
 def run_acceptance(
     module: types.ModuleType, label_dir: pathlib.Path, results_dir: pathlib.Path, node: bool
 ) -> bool:
@@ -338,6 +349,10 @@ def run_acceptance(
     return passed
 
 
+####################################################################################################
+# refusals of a start
+
+
 def check_environment(environ: Mapping[str, str], allowed: Sequence[str]) -> None:
     """Exit if a variable of ``REFUSED_ENVIRONMENT`` is set to a value that it refuses.
 
@@ -357,6 +372,56 @@ def _unfrozen_bundle() -> bool:
     """Whether this tree comes from a bundle built without a frozen qLDPC commit."""
     bundle = manifest.bundle_record()
     return bool(bundle and bundle.get("unfrozen"))
+
+
+def lock_label(label_dir: pathlib.Path) -> None:
+    """Lock the label for this process until it exits, or exit if another process holds it.
+
+    The lock's file descriptor is not inherited, so GNU parallel and the runners do not hold it.
+    """
+    fd = os.open(label_dir / store.LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        sys.exit(
+            f"Another start, or --cleanup, of this label is running: it holds {label_dir}/"
+            f"{store.LOCK_FILE}.  Wait for it to end, or stop it, first."
+        )
+    except OSError as error:
+        os.close(fd)
+        sys.exit(
+            f"Could not lock {label_dir}/{store.LOCK_FILE}: {error}.  Use a results directory on "
+            "a file system that supports flock, such as a local disk (FTSP_RESULTS on the node)."
+        )
+
+
+def refuse_other_hosts(label_dir: pathlib.Path) -> None:
+    """Exit if the label's ``active/`` directory lists a run of another host."""
+    host = socket.gethostname()
+    for path, record in _active_records(label_dir):
+        other = host if record is None else record.get("host", host)
+        if other != host:
+            sys.exit(
+                f"{path} lists a run on host {other}, which this host ({host}) can neither see nor "
+                f"stop.  Resume, or run --cleanup, on {other}; if that host's runs are gone, "
+                "delete the file."
+            )
+
+
+def refuse_other_cpu(label_dir: pathlib.Path) -> None:
+    """Exit if this machine's CPU model differs from the one in the label's manifest.
+
+    The manifest is that of the label's first start that went on to run tasks, never a dry run's.
+    """
+    path = label_dir / "manifest.json"
+    recorded = json.loads(path.read_text()).get("cpu_model") if path.exists() else None
+    this = runner.cpu_model()
+    if recorded is not None and recorded != this:
+        sys.exit(
+            f"This label's runs were made on {recorded!r}, and this machine has {this!r}; a label "
+            "never mixes the times of two CPU models."
+        )
 
 
 ####################################################################################################
@@ -487,66 +552,6 @@ def print_status(label_dir: pathlib.Path) -> None:
         print(f"note: {problem}")
 
 
-def pin_runners(reserved: list[int]) -> None:
-    """Pin this process, and so GNU parallel and the task runners, to the reserved CPUs (Linux)."""
-    if reserved and sys.platform.startswith("linux"):
-        try:
-            os.sched_setaffinity(0, reserved)
-        except OSError as error:
-            sys.exit(f"Could not pin to the reserved CPUs {reserved}: {error}")
-        if os.sched_getaffinity(0) != set(reserved):
-            sys.exit(f"Could not pin to the reserved CPUs {reserved}")
-
-
-def lock_label(label_dir: pathlib.Path) -> None:
-    """Lock the label for this process until it exits, or exit if another process holds it.
-
-    The lock's file descriptor is not inherited, so GNU parallel and the runners do not hold it.
-    """
-    fd = os.open(label_dir / store.LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        os.close(fd)
-        sys.exit(
-            f"Another start, or --cleanup, of this label is running: it holds {label_dir}/"
-            f"{store.LOCK_FILE}.  Wait for it to end, or stop it, first."
-        )
-    except OSError as error:
-        os.close(fd)
-        sys.exit(
-            f"Could not lock {label_dir}/{store.LOCK_FILE}: {error}.  Use a results directory on "
-            "a file system that supports flock, such as a local disk (FTSP_RESULTS on the node)."
-        )
-
-
-def refuse_other_hosts(label_dir: pathlib.Path) -> None:
-    """Exit if the label's ``active/`` directory lists a run of another host."""
-    host = socket.gethostname()
-    for path, record in _active_records(label_dir):
-        other = host if record is None else record.get("host", host)
-        if other != host:
-            sys.exit(
-                f"{path} lists a run on host {other}, which this host ({host}) can neither see nor "
-                f"stop.  Resume, or run --cleanup, on {other}; if that host's runs are gone, "
-                "delete the file."
-            )
-
-
-def refuse_other_cpu(label_dir: pathlib.Path) -> None:
-    """Exit if this machine's CPU model differs from the one in the label's manifest.
-
-    The manifest is that of the label's first start that went on to run tasks, never a dry run's.
-    """
-    path = label_dir / "manifest.json"
-    recorded = json.loads(path.read_text()).get("cpu_model") if path.exists() else None
-    if recorded is not None and recorded != runner._cpu_model():
-        sys.exit(
-            f"This label's runs were made on {recorded!r}, and this machine has "
-            f"{runner._cpu_model()!r}; a label never mixes the times of two CPU models."
-        )
-
-
 def live_runs(label_dir: pathlib.Path) -> list[str]:
     """The records of ``active/`` whose GNU parallel, runner, or run is still the recorded process.
 
@@ -623,8 +628,8 @@ def cleanup(label_dir: pathlib.Path) -> None:
         if members:
             print(
                 f"{path.name}: the leader of its process group {record['pid']} is gone, and its "
-                f"members {runner._describe(members)} may belong to a later group that reused the "
-                f"id, so none was killed.  If they are this run's, run `kill -KILL -- "
+                f"members {runner.describe_processes(members)} may belong to a later group that "
+                f"reused the id, so none was killed.  If they are this run's, run `kill -KILL -- "
                 f"-{record['pid']}` and --cleanup again; if not, delete {path}."
             )
             continue
