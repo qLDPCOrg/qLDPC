@@ -23,8 +23,8 @@ from qldpc.conftest import run_python
 from . import _compilation
 
 
-def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
-    """Only ``always_compiled`` may ask numba for a disk cache, since it makes that cache safe."""
+def test_only_compilation_asks_numba_for_a_disk_cache() -> None:
+    """Only ``_compilation`` may ask numba for a disk cache, since it makes that cache safe."""
     for file in _get_source_files():
         for node in file.nodes:
             if not (isinstance(node, ast.Call) and _is_njit(node.func)):
