@@ -115,7 +115,8 @@ cd spc-bundle-<id>/qLDPC
 bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hours H
 ```
 
-Here `<id>` is the bundle's id, which `bundle.py` derives from the bundle's contents (see its docstring); it is not a label.
+Here `<id>` is the bundle's id, a hash of the pins, the harness commit, the names of the experiments, the platforms, and the resolved requirements (see `bundle.py`'s docstring); it is not a label.
+The experiments' data directories do not enter it, so a bundle built from the same commit with other data gets the same name, and its tar replaces the earlier one in `--out`.
 
 `node.sh --check` runs only the preflight, and needs only `node.sh` and `pins.json`, so it can run on the node before any bundle exists.
 `node.sh` keeps the results, each bundle's installs, and each bundle's preflight record in the results directory (see [Labels and results](#labels-and-results)), which bundles may share.
