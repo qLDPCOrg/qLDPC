@@ -46,6 +46,7 @@ under ``repeats.below_s`` gets ``repeats.count`` more runs (``repeat_tasks``).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import pathlib
 import shutil
@@ -88,37 +89,43 @@ FROZEN_FILES = ["config.json", "circuit_data/inputs/circuits.json"]
 LIMITS = CONFIG["limits"]
 JOB_MEM_GIB = float(CONFIG["mem_cap_gib"])
 
-ARMS: tuple[str, ...] = (
-    "cert_bz",
-    "cert_cc",
-    "brute_bz",
-    "shadow",
-    "count_accepted",
-    "count_listing",
-    "ground_truth",
-    "margin",
-    "prune",
-    "prune_sensitivity",
-)
-METHODS: dict[str, CosetMethod] = {
-    "cert_bz": "brouwer_zimmermann",
-    "cert_cc": "connected_cluster",
-}
-MODES = {
-    "cert_bz": "timed",
-    "cert_cc": "timed",
-    "brute_bz": "brute",
-    "shadow": "shadow",
-    "count_accepted": "count",
-    "count_listing": "count",
-    "ground_truth": "ground_truth",
-    "margin": "margin",
-    "prune": "prune",
-    "prune_sensitivity": "prune",
+
+@dataclasses.dataclass(frozen=True)
+class Arm:
+    """How the tasks of an arm run.
+
+    Attributes:
+        mode: The ``mode`` of the arm's tasks.
+        limit_key: The key of the arm's limit in ``limits`` of ``config.json``.
+        repeated: Whether a run that finishes in under ``repeats.below_s`` gets repeats
+            (``repeat_tasks``).
+        method: The oracle of a certification arm, ``cert_bz`` or ``cert_cc``, whose first run
+            describes its certificate within the post-processing allowance ``post_s``; None for the
+            other arms.
+    """
+
+    mode: str
+    limit_key: str
+    repeated: bool = False
+    method: CosetMethod | None = None
+
+
+# The arms, in the order of a circuit's tasks.
+ARMS = {
+    "cert_bz": Arm("timed", "cert_s", repeated=True, method="brouwer_zimmermann"),
+    "cert_cc": Arm("timed", "cert_s", repeated=True, method="connected_cluster"),
+    "brute_bz": Arm("brute", "cert_s", repeated=True),
+    "shadow": Arm("shadow", "shadow_s"),
+    "count_accepted": Arm("count", "count_s"),
+    "count_listing": Arm("count", "count_s"),
+    "ground_truth": Arm("ground_truth", "ground_truth_s"),
+    "margin": Arm("margin", "margin_s"),
+    "prune": Arm("prune", "prune_s"),
+    "prune_sensitivity": Arm("prune", "prune_s"),
 }
 
-# The arms whose fast runs are repeated (``repeat_tasks``).
-REPEATED_ARMS = ("cert_bz", "cert_cc", "brute_bz")
+# The oracle of each certification arm.
+METHODS = {arm: spec.method for arm, spec in ARMS.items() if spec.method is not None}
 
 # The circuits of the ``smoke`` subset.
 SMOKE_FAMILIES = ("C-goto", "E-chen")
@@ -151,7 +158,7 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
         entries = [
             e for e in entries if e["family"] in SMOKE_FAMILIES or e["id"].startswith(SMOKE_PREFIX)
         ]
-        arms = ARMS
+        arms = tuple(ARMS)
     elif subset == "main":
         arms = tuple(arm for arm in ARMS if arm != "ground_truth")
     elif subset == "check":
@@ -188,14 +195,14 @@ def worst_case_s(task: dict[str, Any]) -> float:
 
 
 def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
-    """The repeats of a run of ``REPEATED_ARMS`` that finished in under ``repeats.below_s``.
+    """The repeats of a run of a repeated arm that finished in under ``repeats.below_s``.
 
     There are ``repeats.count`` repeats, each with the limit max(``limit_factor`` T1,
     ``limit_floor_s``) of ``repeats`` for the first run's T1, which is 600 s at the configured
     values.
     """
     below, count = CONFIG["repeats"]["below_s"], CONFIG["repeats"]["count"]
-    if task["arm"] not in REPEATED_ARMS or row["status"] != "ok" or row["T"] >= below:
+    if not ARMS[task["arm"]].repeated or row["status"] != "ok" or row["T"] >= below:
         return []
     entry = {"id": task["input"]["id"]}
     limit = _repeat_limit(row["T"])
@@ -211,17 +218,7 @@ def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
 
 def _limit(arm: str) -> float:
     """The shared allowance of an arm's task."""
-    if arm in REPEATED_ARMS:
-        return float(LIMITS["cert_s"])
-    if arm == "shadow":
-        return float(LIMITS["shadow_s"])
-    if arm == "ground_truth":
-        return float(LIMITS["ground_truth_s"])
-    if arm == "margin":
-        return float(LIMITS["margin_s"])
-    if arm in ("prune", "prune_sensitivity"):
-        return float(LIMITS["prune_s"])
-    return float(LIMITS["count_s"])
+    return float(LIMITS[ARMS[arm].limit_key])
 
 
 def _task(arm: str, entry: dict[str, Any], repeat: int, limit: float) -> dict[str, Any]:
@@ -230,7 +227,7 @@ def _task(arm: str, entry: dict[str, Any], repeat: int, limit: float) -> dict[st
         "key": f"{arm}.{entry['id']}.r{repeat}",
         "experiment": NAME,
         "arm": arm,
-        "mode": MODES[arm],
+        "mode": ARMS[arm].mode,
         "repeat": repeat,
         "limit_s": limit,
         "mem_cap_gib": JOB_MEM_GIB,
@@ -238,7 +235,7 @@ def _task(arm: str, entry: dict[str, Any], repeat: int, limit: float) -> dict[st
         "grace_s": float(LIMITS["grace_s"]),
         "input": {"id": entry["id"]},
     }
-    if arm in METHODS and repeat == 0:
+    if ARMS[arm].method is not None and repeat == 0:
         task["post_s"] = float(LIMITS["post_s"])
     return task
 

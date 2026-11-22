@@ -202,7 +202,7 @@ OVER_CAP = "not run (U > {})".format(
 )
 
 # The arms whose timeouts, memouts, and errors summary.csv and families.csv report.
-REPORTED_ARMS = experiment.ARMS
+REPORTED_ARMS = tuple(experiment.ARMS)
 
 # The statuses of an arm's first run that families.csv counts per arm (see ``_status``).
 COUNTED_STATUSES = ("timeout", "timeout_compiled", "memout", "error", "missing")
