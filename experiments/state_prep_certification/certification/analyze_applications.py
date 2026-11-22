@@ -27,7 +27,9 @@ gives only a lower bound, since its flag rank is not recorded.  The claims of th
 that end at the same final circuit, by its SHA-256, must agree too.  A failure of any of these
 checks makes the circuit a disagreement (``final_contradictions``).  The final circuit is rebuilt
 from the parent's input in ``circuit_data/inputs/`` and the accepted deletions, and compared with
-its recorded SHA-256, if that input is the one that the label ran on.
+its recorded SHA-256, if that input is the one that the label ran on (``rebuild_matches``).  A final
+circuit whose rebuild does not match, or could not be checked, keeps its row of
+``deletion_table.csv`` and its file in ``pruned/``.
 
 Outputs, besides the margin fields of ``summary.csv`` and the margin counts of ``families.csv``:
 
@@ -35,17 +37,25 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
   the ``counterexample_*`` fields of ``margin_fields``.  They describe one counterexample of weight
   m* where the first run of ``cert_bz``, ``cert_cc``, or ``margin`` described one; an empty field
   says nothing about a counterexample, as where m* comes from a deletion parent or a stopped run.
+  These fields describe that counterexample only: they do not show whether another fault of weight
+  m* violates in the other part, so they do not tell whether the circuit meets a criterion on one
+  part alone.
 * ``deletion.csv``: every step of every deletion task, with its outcome.
 * ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every deletion task whose final
   checks record the final circuit and its SHA-256, with whether its circuit is a disagreement.
 * ``deletion_table.csv``: one row per deletion task whose final checks record the final circuit and
   its SHA-256, finished or killed during the search of its final m*, on a circuit without a
-  disagreement, in the order of circuit ids: the task's status, the family, with the MQT QECC
-  release of a synthesized circuit, gate counts (encoder and verification), measured qubits,
-  measurements, and acceptance probabilities of parent and final circuit, the final m*, or else the
-  lower bound m* > k, for k the largest of t and the fault weights that its search completed, and
-  the deletions attempted and accepted.  A task killed during that search gives the final m* "all"
-  where it accepted no deletion and its search completed the parent's cutoff r + 1.
+  disagreement, in the order of circuit ids.  A row holds the task's status and the family, with the
+  MQT QECC release of a synthesized circuit.  For the parent and the final circuit, it holds the
+  two-qubit gates, split into encoder gates, which touch no measured qubit, and verification gates
+  (``applications.count_gates``), the measured qubits, the measurements, and the acceptance
+  probability with its standard error.  It holds the final m* (``final_margin``), or else the lower
+  bound m* > k (``final_margin_lower_bound``), for k the largest of t and the fault weights that the
+  search of the final m* completed; a task killed during that search gives "all" where it accepted
+  no deletion and its search completed the parent's cutoff r + 1.  It also holds the parts of the
+  final circuit's counterexample whose residual weight exceeds the fault weight
+  (``final_violating_parts``), and the deletions attempted and accepted.  It compares each final
+  circuit only with its parent.
 * ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the other
   tasks without a row of ``deletion_table.csv``, such as those whose final checks do not record the
   final circuit, with the number of their completed steps and any final checks, the disagreements,

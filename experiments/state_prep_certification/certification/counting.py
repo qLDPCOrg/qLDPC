@@ -3,26 +3,29 @@
 """Deterministic counts of the certification experiment, and brute force for small circuits.
 
 These counts describe the listing of irreducible accepted faults in ``fault_propagation.md`` of
-``qldpc.circuits.certification``, independently of qLDPC's data structures:
+``qldpc.circuits.certification``, independently of qLDPC's data structures; the README's section
+Terms says what each symbol means.  The flagged mechanisms with equal flags form a class.  Classes
+are numbered as qLDPC numbers them: heavy mechanisms first, then the rest, each in DEM order, and
+classes in the order of their first members, so that the start classes, those with a heavy member,
+come first.  A class codeword is a set of m >= 3 classes whose flags sum to zero and every proper
+nonempty subset of which has independent flags.  Let class c have s_c members, h_c of them heavy.
 
 * ``reduce_signatures`` keeps one mechanism per distinct nonzero (flags, syndrome) signature of
   the DEM, in DEM order, as qLDPC does: N_0 mechanisms, z of them with zero flags.
-* ``listing_counts`` counts, for each weight, the class codewords E_m whose first class is a
+* ``listing_counts`` counts, for each weight m, the class codewords E_m whose first class is a
   start class, the listed faults Phi_m, and the prefixes Pi_l of the naive enumeration of these
   class codewords: the increasing tuples of l classes with independent flags whose first class is
   a start class.  ``fault_propagation.md`` contrasts this enumeration with qLDPC's walk by shared
   flags, which visits far fewer sets of classes, so Pi_l counts the work of the naive enumeration,
-  not of qLDPC's listing.  Classes are the flagged mechanisms with equal flags, numbered as qLDPC
-  numbers them: heavy mechanisms first, then the rest, each in DEM order, and classes in the order
-  of their first members, so that start classes (those with a heavy member) come first.  Phi_2 is
-  a sum over start classes, and Phi_m for m >= 3 a sum over class codewords of
-  prod(s_c) - prod(s_c - h_c), with s_c members and h_c heavy members in class c.  The naive
-  enumeration, a compiled depth-first search, emits the class codewords, and Python integers hold
-  the products and totals, which can exceed 64 bits.
-* ``accepted_counts`` counts the accepted fault combinations A_m of weight m <= K (sets of
-  reduced mechanisms whose flags sum to zero) by dynamic programming over classes, with C(N_0, m)
-  beside them.  It counts up to K, not K', as the brute-force baseline (``baseline.py``)
-  enumerates up to K; for K' < m <= K nothing is listed, and Phi_m = 0.
+  not of qLDPC's listing.  Phi_2 is the sum over start classes of C(s_c, 2) - C(s_c - h_c, 2), the
+  pairs of members of one class with a heavy one, and Phi_m for m >= 3 the sum over the class
+  codewords of prod(s_c) - prod(s_c - h_c), the choices of one member of each class with a heavy
+  one.  The naive enumeration, a compiled depth-first search, emits the class codewords, and Python
+  integers hold the products and totals, which can exceed 64 bits.
+* ``accepted_counts`` counts the accepted fault combinations A_m of weight m <= K by dynamic
+  programming over classes, with C(N_0, m) beside them.  It counts up to K, not K', as the
+  brute-force baseline (``baseline.py``) enumerates up to K; for K' < m <= K nothing is listed, and
+  Phi_m = 0.
 * ``ground_truth`` enumerates every accepted fault of weight at most K of a small reduced DEM, and
   gives the smallest violating fault weight, A by its definition up to K, and Pi, E, and Phi by
   their definitions up to K'.
@@ -461,7 +464,8 @@ def residual_weight_table(stabilizers: npt.NDArray[np.uint8]) -> npt.NDArray[np.
     """The CSS residual weight of every syndrome of a CSS stabilizer state on at most 20 qubits.
 
     ``stabilizers`` has one row ``[x | z]`` per generator, and syndrome bit j of an error is whether
-    it anticommutes with generator j.  The generators need not be pure X or pure Z: this function
+    it anticommutes with generator j.  The rows must be n independent generators of the state's
+    stabilizer group, for n qubits.  The generators need not be pure X or pure Z: this function
     first finds pure ones, T = G S over GF(2), whose syndrome is G times the original one.  The
     residual weight of a syndrome is then the larger of the least weights of an X error and a Z
     error with its parts on the pure-Z and pure-X generators.

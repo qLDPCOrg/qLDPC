@@ -11,7 +11,8 @@ inputs, outputs, and documentation.
 The analysis is descriptive: counts and medians, with every timeout, memout, error, missing run,
 and disagreement in its CSV files.  The ground truth runs in the subset ``check``, which has its own
 label directory and archive; ``--check-label-dir`` or ``--check-archive`` adds its ``ground_truth``
-rows to those of the analyzed run, if any.  The analysis checks each archive against its
+rows to those of the analyzed run, if any.  Without either, the outputs report the ground truth as
+not run.  The analysis checks each archive against its
 ``.sha256`` file and its inner ``SHA256SUMS``, and extracts it into a temporary directory, which it
 removes when it ends, whether or not it succeeds (``store.open_archive``).  So ``--archive``
 requires ``--out``.
@@ -53,12 +54,11 @@ or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete t
 median or maximum.  The same holds for the brute-force baseline ``brute_bz``.  If an arm's first run
 has ``compiled_in_timing`` set, its per-weight times are left empty.
 
-Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
-(``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
-whose enumeration size U exceeds the brute-force cap of ``config.json`` has no ``brute_bz`` task,
-and its status is "not run (U > cap)", never a timeout.  An agreement is "a/b", a of b compared
-circuits, or "not run" where no circuit of the family has rows of the arm compared.
-
+The README's section Terms defines the symbols, such as Omega_m, and a weight is completed if a run
+finished it without a violation.  A circuit whose enumeration size U exceeds the brute-force cap of
+``config.json`` has no ``brute_bz`` task, and its status is "not run (U > cap)", never a timeout.
+An agreement is "a/b", a of b compared circuits, or "not run" where no circuit of the family has
+rows of the arm compared.
 The outputs go to ``--out``, by default ``analysis/`` in the label directory of ``--label-dir``.
 They are:
 
@@ -77,8 +77,9 @@ They are:
     which ``timeout_<arm>`` does not count;
   - ``largest_n_certified`` and ``largest_K_certified``, over the circuits certified at their K,
     with the cat width as n for cat circuits;
-  - ``T_bz_median``, ``T_bz_max``, and ``T_bz_finished``, the median and largest T of ``cert_bz``
-    over its finished runs with complete timing, and their number, and the same for ``cert_cc``;
+  - ``T_bz_median``, ``T_bz_max``, and ``T_bz_finished``: the median and largest T of ``cert_bz``
+    over the circuits whose ``cert_bz`` finished with complete timing, and the number of these
+    circuits, and the same for ``cert_cc``;
   - ``brute_not_run_over_cap``, ``brute_finished``, and ``brute_timed_out``: circuits over the
     brute-force cap, and circuits whose ``brute_bz`` run has status ``ok`` or ``timeout``;
     ``brute_ratio_median`` and ``brute_ratio_circuits``: the median of T(``brute_bz``) /
@@ -94,13 +95,13 @@ They are:
     one.
 
 * ``summary.csv``, one row per circuit: its parameters and DEM counts, U and whether it is within
-  the brute-force cap, the verdicts, T, timing completeness, and peak memory of both certification
-  arms and of ``brute_bz``, the status of each arm of ``REPORTED_ARMS``, the post-processing status
-  of each certification's first run, ``repeats_not_ok`` (the repeats that did not finish or are
-  missing, and the runs whose rows have ``compiled_in_timing`` set), the oracle rows of ``cert_bz``
-  (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz`` (every row queried), the
-  agreements, and the ``contradictions`` that make the circuit a disagreement.  These agreements
-  compare first runs:
+  the brute-force cap, the verdicts of both certification arms, the T, timing completeness, and peak
+  memory of both and of ``brute_bz``, the status of each arm of ``REPORTED_ARMS``, the
+  post-processing status of each certification's first run, ``repeats_not_ok`` (the repeats that did
+  not finish or are missing, and the runs whose rows have ``compiled_in_timing`` set), the oracle
+  rows of ``cert_bz`` (its threshold-1 queries and the sum of Omega_m) and of ``brute_bz`` (every
+  row queried), the agreements, and the ``contradictions`` that make the circuit a disagreement.
+  These agreements compare first runs:
 
   - ``agree_bz_cc``: the verdicts of the first runs of ``cert_bz`` and ``cert_cc``, where both
     finished.
@@ -133,8 +134,8 @@ They are:
   mechanisms and classifications of flagged ones instead), skipped = Phi_m - Omega_m (on completed
   weights only), T_m of BZ and CC, and the oracle time of BZ; and the baseline's combinations
   enumerated, rows queried, oracle calls, distinct syndromes, and oracle time, and whether it
-  completed the weight.  For K' < m <= K, Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the
-  circuit.
+  completed the weight.  For K' < m <= K, Phi_m = 0 where ``count_listing`` has counts, and
+  Omega_m = 0 where ``cert_bz`` certified the circuit.
 * ``listing_table.csv``, the listing counts, one row per family and weight m >= 2: the median and
   maximum over circuits of Phi_m / A_m, and over the circuits that completed m with ``cert_bz``, of
   Omega_m / A_m.  Where ``count_accepted`` did not compute A_m, C(N_0, m) takes its place if z >= m,

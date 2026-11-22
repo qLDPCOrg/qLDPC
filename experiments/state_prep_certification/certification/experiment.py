@@ -12,9 +12,10 @@ t + 1 for design t:
   fault indices, output Pauli, lower bound, and exact residual weight.  Repeats skip this
   description.
 * ``brute_bz``: the same BZ certification with qLDPC's fault search replaced by the brute-force
-  baseline (``baseline.py``), which queries every accepted fault combination of weight at most K
-  with the certifier's own oracle.  It runs only on the circuits whose enumeration size U is
-  within the cap of ``config.json``, as ``circuits.json`` records; it has no post-processing.
+  baseline (``baseline.py``), which queries the accepted fault combinations, weight by weight up to
+  K, with the certifier's own oracle until it finds a violation.  It runs only on the circuits whose
+  enumeration size U is within the cap of ``config.json``, as ``circuits.json`` records; it has no
+  post-processing.
 * ``shadow``: BZ certification in which every oracle query is also answered by a CC oracle.
 * ``count_listing``: the counts of the listing (``counting.py``) on the reduced DEM.
 * ``count_accepted``: A_m and C(N_0, m) for m <= K.
@@ -27,21 +28,16 @@ t + 1 for design t:
   (``applications.py``);
   ``prune_sensitivity`` runs only on the circuits of ``prune.sensitivity_inputs``.
 
-The counts use these symbols: N error mechanisms of the DEM; N_0 reduced mechanisms, one per
-distinct nonzero signature (flags, syndrome); z of them with zero flags; p post-selection
-detectors, the bits of the flags; r the GF(2) rank of the flags; K' = min(K, r + 1), above which
-no flagged fault is accepted and irreducible; h heavy flagged mechanisms, whose syndrome has no
-error of weight 1; q flag classes, the flagged mechanisms grouped by equal flags; q_h start
-classes, those with a heavy member; Pi (the prefixes of a naive enumeration of class codewords,
-not qLDPC's work), E, and Phi by weight, as ``counting.py`` defines them; and U, the sum over
-1 <= m <= K of C(N_0, m).
+The README's section Terms defines the symbols of the counts, such as N_0, h, and Phi_m.
 
 The count and ground-truth arms take the DEM from an untimed certification with ``max_weight=1``,
-and their measured call is the counting itself, so that the runner's limit applies to it.  The
-runner retries any run whose measured call compiled (``common/runner.py``).  No run warms up before
-timing, apart from ``ground_truth``, which first compiles galois's arithmetic, untimed
-(``counting._compile_galois``).  A run of ``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in
-under ``repeats.below_s`` gets ``repeats.count`` more runs (``repeat_tasks``).
+and their measured call is the counting itself, so that the runner's limit applies to it.  That
+certification is preparation, not a warm-up, but it also compiles, or loads from the cache, the code
+that their measured calls share with it.  The runner retries any run whose measured call compiled
+(``common/runner.py``).  No run warms up before timing, apart from ``ground_truth``, whose task
+process first compiles galois's GF(2) arithmetic, untimed (``counting._compile_galois``).  A run of
+``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in under ``repeats.below_s`` gets
+``repeats.count`` more runs (``repeat_tasks``).
 """
 
 from __future__ import annotations
@@ -147,9 +143,10 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
 
     ``main`` has certification, the brute-force baseline, the shadow run, the counts, the margins,
     and the deletions; ``check`` the ground truth; and ``smoke`` every arm that applies to C-goto,
-    E-chen, and A-ft steane.  In every subset, ``brute_bz`` runs only where ``circuits.json`` puts U
-    within the cap, ``ground_truth`` only where its rule applies, ``margin`` only where r > t,
-    ``prune`` only on the families of ``settings.VERIFIED_FAMILIES``, and ``prune_sensitivity`` only
+    E-chen, and the A-ft circuits of the Steane code.  In every subset, ``brute_bz`` runs only where
+    ``circuits.json`` puts U within the cap, ``ground_truth`` only where its rule applies,
+    ``margin`` only where r > t, ``prune`` only on the families of ``settings.VERIFIED_FAMILIES``,
+    and ``prune_sensitivity`` only
     on the circuits of ``prune.sensitivity_inputs`` of ``config.json``.
     """
     entries = [e for e in json.loads(CIRCUITS_JSON.read_text())["circuits"] if e["status"] == "ok"]
@@ -197,8 +194,8 @@ def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, An
     """The repeats of a run of a repeated arm that finished in under ``repeats.below_s``.
 
     There are ``repeats.count`` repeats, each with the limit max(``limit_factor`` T1,
-    ``limit_floor_s``) of ``repeats`` for the first run's T1, which is 600 s at the configured
-    values.
+    ``limit_floor_s``) of ``repeats`` for the first run's T1, which is ``limit_floor_s`` whenever
+    ``limit_factor`` times ``below_s`` is at most ``limit_floor_s``, as in ``config.json``.
     """
     below, count = CONFIG["repeats"]["below_s"], CONFIG["repeats"]["count"]
     if not ARMS[task["arm"]].repeated or row["status"] != "ok" or row["T"] >= below:

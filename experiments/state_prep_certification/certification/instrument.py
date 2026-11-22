@@ -13,14 +13,16 @@ them, without editing qLDPC, and restores on exit the values that it found on en
   makes to another.  Calls are classified by their place in the search: threshold-1 checks of
   single zero-flag mechanisms (made through ``_check_fault``), threshold-1 classification of
   flagged mechanisms, and batches at threshold m >= 2, whose submitted rows are counted.
-* ``FaultLister.__init__`` records the room of the table of syndromes (``_max_syndromes``), and
-  ``FaultLister.find_first`` times each fault weight and reports a progress record after it.
+* ``FaultLister.__init__`` records the most syndromes that the lister's table may hold
+  (``_max_syndromes``), and ``FaultLister.find_first`` times each fault weight and reports a
+  progress record after it.
 
 With ``shadow=True``, every outermost query is also answered by a connected-cluster
-``CosetLeaderSearch`` built once on the same stabilizers, timed separately.  BZ answers each query
-first, then CC.  The two answers must agree (``within_max_weight``, or the index of the first
-failing row); a disagreement raises ``ShadowDisagreement``.  Each mirrored call is appended to a
-JSON-lines file.  The shadow record also names the method to which qLDPC resolves
+``CosetLeaderSearch`` built once on the same stabilizers, timed separately, so that the two oracles'
+times compare on identical queries.  BZ answers each query first, then CC.  The two answers must
+agree (``within_max_weight``, or the index of the first failing row); a disagreement raises
+``ShadowDisagreement``.  Given ``calls_file``, each mirrored call whose answers agree is appended to
+that JSON-lines file.  The shadow record also names the method to which qLDPC resolves
 ``method="auto"`` (``auto``), which is the same for every query, so that the ``bz`` and ``cc``
 times of the calls file compare auto's choice with the other oracle.
 """

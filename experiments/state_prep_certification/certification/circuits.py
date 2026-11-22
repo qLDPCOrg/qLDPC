@@ -177,7 +177,7 @@ RESET_GATES = {"R", "RX"}
 
 
 def build_inputs() -> None:
-    """Build every certification input, with its weakened variant, and write ``circuits.json``.
+    """Build every certification input, and the weakened variants, and write ``circuits.json``.
 
     See ``make_inputs``; this writes the inputs, the licenses, and ``circuits.json`` to
     ``circuit_data/inputs/``.
@@ -194,16 +194,17 @@ def build_inputs() -> None:
 
 
 def make_inputs(inputs: pathlib.Path) -> dict[str, Any]:
-    """Build every certification input, with its weakened variant; return ``circuits.json``.
+    """Build every certification input, and the weakened variants; return ``circuits.json``.
 
-    Each input is written noiseless to ``<inputs>/<id>.stim``; the node adds the noise and certify
-    options that ``circuits.json`` records.  Every input is validated by building its DEM with the
-    certifier, untimed and without an oracle, which also gives the DEM parameters of
-    ``circuits.json`` (``dem_parameters``); a cat circuit whose added detectors qLDPC rejects is
-    recorded as excluded.  The licenses of ``LICENSES`` are copied beside the inputs.  The record
-    of the sources gives the MQT QECC releases that synthesized the circuits of ``SYNTHESES``, from
-    their ``provenance.json``, and each of these circuits records its release.  Each input of
-    ``VERIFIED_FAMILIES`` records its code file and the file's SHA-256
+    Each input of ``VERIFIED_FAMILIES`` that is not excluded gets one weakened variant
+    (``_make_weakened``).  Each input is written noiseless to ``<inputs>/<id>.stim``; the node adds
+    the noise and certify options that ``circuits.json`` records.  Every input is validated by
+    building its DEM with the certifier, untimed and without an oracle, which also gives the DEM
+    parameters of ``circuits.json`` (``dem_parameters``); a cat circuit whose added detectors qLDPC
+    rejects is recorded as excluded.  The licenses of ``LICENSES`` are copied beside the inputs.
+    The record of the sources gives the MQT QECC releases that synthesized the circuits of
+    ``SYNTHESES``, from their ``provenance.json``, and each of these circuits records its release.
+    Each input of ``VERIFIED_FAMILIES`` records its code file and the file's SHA-256
     (``code_files.code_file_fields``).
     """
     inputs.mkdir(parents=True, exist_ok=True)
@@ -235,7 +236,8 @@ def dem_parameters(circuit: Any, options: dict[str, Any]) -> tuple[Any, dict[str
     (``num_mechanisms``), p (``num_post_selection_detectors``), N_0, z, r, K' = min(K, r + 1),
     U = sum over 1 <= m <= K of C(N_0, m), whether U is within the brute-force cap of
     ``config.json`` (``brute_force``), and whether the ground truth applies (``ground_truth``):
-    n <= 15 and the sum over 0 <= m <= K of C(N_0, m) is within its limit.
+    whether n and the sum over 0 <= m <= K of C(N_0, m) are within the limits of ``ground_truth``
+    of ``config.json``.  The README's section Terms defines each symbol.
 
     Raises:
         ValueError: If qLDPC rejects the circuit, such as for a nondeterministic detector.
