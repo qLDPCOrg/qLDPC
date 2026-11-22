@@ -23,6 +23,7 @@ from . import _threads, _tuning
 from . import logical_counts as lc
 from ._brouwer_zimmermann import affine_instance, coset_tables
 from ._code_matrices import get_nested_code_basis
+from ._connected_cluster import search as connected_cluster_search
 from ._information_sets import basis_families
 from .coset_leaders import CosetLeaderSearch
 
@@ -45,6 +46,19 @@ def plain_search_setup() -> None:
     such a function must therefore request this fixture, which pytest then runs first.
     """
     _compilation.set_on_request_functions_compiled(False)
+
+
+@pytest.fixture(autouse=True)
+def compile_few_versions_of_connected_cluster_searches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make connected-cluster searches use a fixed version of their kernel only for one word.
+
+    ``_search_supports`` has a compiled version for each number of words of a syndrome up to
+    ``_MAX_FIXED_WORDS``, and one for any number.  The fixed versions differ only in that number,
+    and each takes seconds to compile, so while code is compiled, tests compile the version for one
+    word and the one for any number.
+    """
+    if not _compilation.is_compilation_disabled():
+        monkeypatch.setattr(connected_cluster_search, "_MAX_FIXED_WORDS", 1)
 
 
 class CostlyStages(NamedTuple):

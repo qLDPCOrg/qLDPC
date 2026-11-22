@@ -2202,11 +2202,11 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
 def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
     monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config, symplectic: bool
 ) -> None:
-    """The version of the search for two-word syndromes and the general version search alike.
+    """The version of the search for one-word syndromes and the general version search alike.
 
     They find the same witnesses and vectors with a syndrome, and visit the same states.  The
-    problems have 70 checks, and the searches add no sums of pairs of checks, so the syndromes have
-    two words.  With ``_MAX_FIXED_WORDS`` set to one, these syndromes are wider than it, so they
+    problems have 40 checks, and the searches add no sums of pairs of checks, so the syndromes have
+    one word.  With ``_MAX_FIXED_WORDS`` set to zero, these syndromes are wider than it, so they
     take the general version.  The limits at and below the distance run on one thread and on three.
     On three threads, they also run the frontier passes and the items of each version.  The queries
     run on one thread.  On one thread, every call of the compiled search returns the same with
@@ -2218,7 +2218,7 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
 
     # Variables 0 and 1 are in every check of a block, and every other variable in one, so the
     # lightest nonzero words act on variables 0 and 1 alone, and weigh 2.  The binary problem has a
-    # block of 70 checks, and the symplectic problem a block of 35 X-type checks and one of 35
+    # block of 40 checks, and the symplectic problem a block of 20 X-type checks and one of 20
     # Z-type checks.
     def get_block(num_checks: int) -> npt.NDArray[np.uint8]:
         """Checks that each hold variables 0 and 1, and one variable of their own."""
@@ -2227,10 +2227,10 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
 
     distance = 2
     if symplectic:
-        block = get_block(35)
+        block = get_block(20)
         checks = np.block([[block, np.zeros_like(block)], [np.zeros_like(block), block]])
     else:
-        checks = get_block(70)
+        checks = get_block(40)
     problem = (checks, np.zeros((0, checks.shape[1]), dtype=np.uint8))
     width = checks.shape[1]
     num_variables = width // 2 if symplectic else width
@@ -2254,7 +2254,7 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
 
     monkeypatch.setattr(cs, "_search_supports", record)
     results = []
-    for max_fixed_words, expected_length in [(cs._MAX_FIXED_WORDS, 2), (1, 0)]:
+    for max_fixed_words, expected_length in [(1, 1), (0, 0)]:
         monkeypatch.setattr(cs, "_MAX_FIXED_WORDS", max_fixed_words)
         for num_threads in (1, 3):
             calls.clear()
