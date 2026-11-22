@@ -1264,6 +1264,7 @@ def test_run_node_environment(directory: pathlib.Path, node: bool) -> None:
     else:
         raise AssertionError("PYTHONOPTIMIZE was accepted")
     run_node.check_environment(environ, ["PYTHONOPTIMIZE"])
+    run_node.check_environment({"PYTHONOPTIMIZE": "0", "NUMBA_DISABLE_JIT": "00"}, [])
     for refused in (
         {"QLDPC_DISABLE_COMPILATION": "1"},
         {"NUMBA_DISABLE_JIT": "1"},

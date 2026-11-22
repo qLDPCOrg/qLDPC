@@ -94,8 +94,8 @@ PARALLEL_RECORD = "_parallel"
 # Python's -O, which strips the acceptance tests' asserts, and paths that can import other code.
 REFUSED_ENVIRONMENT: dict[str, Callable[[str], bool]] = {
     "QLDPC_DISABLE_COMPILATION": lambda value: value == "1",
-    "NUMBA_DISABLE_JIT": lambda value: value not in ("", "0"),
-    "PYTHONOPTIMIZE": lambda value: value != "",
+    "NUMBA_DISABLE_JIT": lambda value: _turned_on(value),
+    "PYTHONOPTIMIZE": lambda value: _turned_on(value),
     "PYTHONPATH": lambda value: True,
     "PYTHONHOME": lambda value: True,
 }
@@ -690,6 +690,11 @@ def _kill_if_same(pid: int, start: str | None, group: bool) -> bool:
     except (ProcessLookupError, PermissionError):
         return False
     return True
+
+
+def _turned_on(value: str) -> bool:
+    """Whether a switch variable is on: set, and not a number equal to 0 (as Python and numba)."""
+    return value.strip() != "" and not (value.strip().isdigit() and int(value) == 0)
 
 
 if __name__ == "__main__":
