@@ -287,7 +287,10 @@ def package_freeze() -> str:
 
 
 def _run(command: list[str]) -> str:
-    """The output of a command, or an empty string if it fails."""
+    """A command's standard output, whatever its exit status.
+
+    Empty if the command cannot start or takes more than 60 seconds.
+    """
     try:
         return subprocess.run(
             command, capture_output=True, text=True, timeout=60, check=False

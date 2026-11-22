@@ -23,8 +23,10 @@ one directory of the same name, with:
 * ``python/``: the pinned python-build-standalone CPython;
 * ``parallel/``: the pinned GNU parallel release, whose ``src/parallel`` is a Perl script;
 * ``SHA256SUMS`` over every file, and ``bundle.json``: the bundle's name, the harness commit and the
-  pinned qLDPC commit, the platforms, every command run, and each requirement built from its sdist
-  (``fallbacks``).
+  pinned qLDPC commit, the platforms, the commands that made the bundle's contents (``commands``:
+  the archive, the resolution, the builds, the wheel downloads that succeeded, and each download
+  that the cache did not serve, but not the checks of the worktree), and each fallback taken
+  (``fallbacks``): a requirement built from its sdist, or a trial bundle (``--unfrozen``).
 
 ``bundle.json`` records the SHA-256 of the resolved requirements, which enters the label of every
 run on the node, so that a label fixes the versions of the third-party packages too.
