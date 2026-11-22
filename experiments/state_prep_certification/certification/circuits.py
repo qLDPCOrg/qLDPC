@@ -585,7 +585,8 @@ def _check_input(entry: dict[str, Any]) -> list[str]:
     ``css_weight`` must both be true.  The record's K must be t + 1, and its noise that of
     ``config.json``.  An input of ``VERIFIED_FAMILIES`` must have a code file that passes
     ``code_files.check_code_file``, which checks, among other things, that the input's state is the
-    code's |0...0>, and n and t against the code file.
+    code's |0...0>, that the record's n agrees with the code file, and that its t does where the
+    family takes t from the distance (``T_FROM_DISTANCE``) and the file gives the distance.
     """
     import stim
 
