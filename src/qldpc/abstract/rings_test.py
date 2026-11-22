@@ -372,9 +372,9 @@ def test_group_members_of_ring_members() -> None:
     assert abstract.RingMember(trivial_ring, trivial.identity) == trivial_ring.one
 
 
-def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+def test_primitive_central_idempotents() -> None:
     """Get primitive central idempotents, sorted by their vectors of coefficients."""
-    ring = ring_cyclic3_gf2
+    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
     x = ring.generators[0]
     assert ring.get_primitive_central_idempotents() == (x**2 + x, x**2 + x + 1)
 
@@ -632,18 +632,28 @@ def test_reading_coefficients() -> None:
 def test_get_transformer_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """Seedless get_transformer calls use the default seed; decompositions are cached by seed."""
     monkeypatch.setattr(abstract.rings, "_DEFAULT_TRANSFORMER_SEED", 1)
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
+    ring = abstract.GroupRing(abstract.TrivialGroup())
     transformer = ring.get_transformer(seed=0)
     assert ring.get_transformer() is ring.get_transformer(seed=1) is not transformer
     assert ring.get_transformer(seed=0) is transformer
 
 
 def test_get_transformer_is_reproducible() -> None:
-    """Without a seed, separately built rings have the same Wedderburn-Artin decomposition."""
-    rings = [abstract.GroupRing(abstract.DihedralGroup(3), field=5) for _ in range(2)]
-    transformer_a, transformer_b = [ring.get_transformer() for ring in rings]
-    for component_a, component_b in zip(transformer_a.transformers, transformer_b.transformers):
+    """Without a seed, separately built rings have the same Wedderburn-Artin decomposition.
+
+    The ring of the alternating group A_4 over GF(5) has a 3x3 matrix component and a component that
+    is a field extension of degree 2, so its decompositions choose both a matrix basis and a power
+    basis at random.
+    """
+    transformer_a, transformer_b = [
+        abstract.GroupRing(abstract.AlternatingGroup(4), field=5).get_transformer()
+        for _ in range(2)
+    ]
+    for component_a, component_b in zip(
+        transformer_a.transformers, transformer_b.transformers, strict=True
+    ):
         assert np.array_equal(component_a.matrix_basis, component_b.matrix_basis)
+        assert np.array_equal(component_a.power_basis, component_b.power_basis)
 
 
 def test_transpose() -> None:

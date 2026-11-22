@@ -158,9 +158,10 @@ def test_overlapping_family_certificates() -> None:
 def test_overlapping_family_guards() -> None:
     """Unhelpful coverage is rejected, and repeated attempts at one pivot set terminate."""
 
-    # Nearly complete disjoint coverage leaves no cheaper family within the size budget.
+    # Nearly complete disjoint coverage leaves no cheaper family within the size budget.  The basis
+    # is C-ordered, as the searches pass it, so that numba compiles no version for another layout.
     basis = np.hstack([np.eye(25, dtype=np.uint8)] * 4)
-    shortened = basis[:, :-1]
+    shortened = np.ascontiguousarray(basis[:, :-1])
     disjoint = basis_families.get_disjoint_family(shortened, None, random_column_orders=ORDERS)
     assert not len(_get_overlapping_family(shortened, None, disjoint, 26, minimum_work=0).ranks)
 

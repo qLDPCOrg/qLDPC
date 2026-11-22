@@ -122,49 +122,31 @@ def vary_default_transformer_seed(pytestconfig: pytest.Config) -> Iterator[None]
 @pytest.fixture(scope="session")
 def ring_cyclic3_gf2() -> abstract.GroupRing:
     """Construct a small ring with a pre-built Wedderburn-Artin transformer."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    ring.get_transformer()
-    return ring
+    return _build_ring("cyclic3_gf2")
 
 
 @pytest.fixture(scope="session")
 def ring_cyclic3_gf4() -> abstract.GroupRing:
     """Construct a ring over a non-prime field with a pre-built Wedderburn-Artin transformer."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
-    ring.get_transformer()
-    return ring
+    return _build_ring("cyclic3_gf4")
 
 
 @pytest.fixture(scope="session")
 def ring_dihedral3_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a pre-built Wedderburn-Artin transformer."""
-    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    ring.get_transformer()
-    return ring
+    return _build_ring("dihedral3_gf5")
 
 
 @pytest.fixture(scope="session")
 def ring_cyclic5_gf2() -> abstract.GroupRing:
     """Construct a ring with a degree-4 field-extension component (over a prime field)."""
-    ring = abstract.GroupRing(abstract.CyclicGroup(5), field=2)
-    ring.get_transformer()
-    return ring
+    return _build_ring("cyclic5_gf2")
 
 
 @pytest.fixture(scope="session")
 def ring_alternating4_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a size-3 matrix component."""
-    ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
-    ring.get_transformer()
-    return ring
-
-
-@pytest.fixture(scope="session")
-def ring_dihedral5_gf3() -> abstract.GroupRing:
-    """Construct a ring with a matrix component over a field extension (size 2, degree 2)."""
-    ring = abstract.GroupRing(abstract.DihedralGroup(5), field=3)
-    ring.get_transformer()
-    return ring
+    return _build_ring("alternating4_gf5")
 
 
 @pytest.fixture(scope="session")
@@ -174,70 +156,60 @@ def ring_dihedral7_gf9() -> abstract.GroupRing:
     In GF(9) with the irreducible polynomial x^2 + 1, the element x is not primitive.  This ring has
     a matrix component over a field extension (size 2, degree 3).
     """
-    field = galois.GF(9, irreducible_poly="x^2 + 1")
-    ring = abstract.GroupRing(abstract.DihedralGroup(7), field=field)
-    ring.get_transformer()
-    return ring
+    return _build_ring("dihedral7_gf9")
 
 
 @pytest.fixture(name="ring", scope="session", params=["cyclic3_gf4", "dihedral3_gf5"])
-def rings_to_test(
-    request: pytest.FixtureRequest,
-    ring_cyclic3_gf4: abstract.GroupRing,
-    ring_dihedral3_gf5: abstract.GroupRing,
-) -> abstract.GroupRing:
+def rings_to_test(request: pytest.FixtureRequest) -> abstract.GroupRing:
     """Retrieve a ring for which we have pre-built a Wedderburn-Artin transformer."""
-    match request.param:
-        case "cyclic3_gf4":
-            return ring_cyclic3_gf4
-        case "dihedral3_gf5":
-            return ring_dihedral3_gf5
-    raise ValueError(f"Invalid fixture name: {request.param}")  # pragma: no cover
+    return _build_ring(request.param)
 
 
 @pytest.fixture(
     name="wa_ring",
     scope="session",
-    params=[
-        "cyclic3_gf4",
-        "dihedral3_gf5",
-        "cyclic5_gf2",
-        "alternating4_gf5",
-        "dihedral5_gf3",
-        "dihedral7_gf9",
-    ],
+    params=["dihedral3_gf5", "cyclic5_gf2", "alternating4_gf5", "dihedral7_gf9"],
 )
-def wedderburn_artin_rings_to_test(
-    request: pytest.FixtureRequest,
-    ring_cyclic3_gf4: abstract.GroupRing,
-    ring_dihedral3_gf5: abstract.GroupRing,
-    ring_cyclic5_gf2: abstract.GroupRing,
-    ring_alternating4_gf5: abstract.GroupRing,
-    ring_dihedral5_gf3: abstract.GroupRing,
-    ring_dihedral7_gf9: abstract.GroupRing,
-) -> abstract.GroupRing:
+def wedderburn_artin_rings_to_test(request: pytest.FixtureRequest) -> abstract.GroupRing:
     """Retrieve a ring for exercising the Wedderburn-Artin machinery.
 
-    These rings jointly cover a commutative field extension (cyclic3_gf4), matrix components of size
-    2 and 3 (dihedral3_gf5, alternating4_gf5), a degree-4 field-extension component (cyclic5_gf2),
-    a matrix component that is itself over a field extension -- size 2 and degree 2, i.e. 2x2
-    matrices over GF(9) (dihedral5_gf3), and a field whose irreducible polynomial is not the default
-    one (dihedral7_gf9).
+    dihedral3_gf5 and alternating4_gf5 have matrix components of size 2 and 3.  alternating4_gf5,
+    dihedral7_gf9, and cyclic5_gf2 have components that are field extensions of degree 2, 3, and 4.
+    cyclic5_gf2 is commutative.  The field of dihedral7_gf9 is not prime, and its irreducible
+    polynomial is not the default one.  dihedral7_gf9 also has a matrix component over a field
+    extension, of 2x2 matrices over GF(9^3).
     """
-    match request.param:
+    return _build_ring(request.param)
+
+
+def _build_ring(name: str) -> abstract.GroupRing:
+    """Construct the ring that a ring-fixture name selects, and pre-build its transformer.
+
+    The parametrized fixtures ``ring`` and ``wa_ring`` call this to build only the ring that each
+    parameter selects, since galois compiles code for the fields of each ring.  Between test files,
+    the coverage check tears down only the fixtures that tests request statically, so these fixtures
+    build their ring rather than request the fixture of that ring with ``getfixturevalue``.
+    """
+    group: abstract.Group
+    field: int | type[galois.FieldArray]
+    match name:
+        case "cyclic3_gf2":
+            group, field = abstract.CyclicGroup(3), 2
         case "cyclic3_gf4":
-            return ring_cyclic3_gf4
+            group, field = abstract.CyclicGroup(3), 4
         case "dihedral3_gf5":
-            return ring_dihedral3_gf5
+            group, field = abstract.DihedralGroup(3), 5
         case "cyclic5_gf2":
-            return ring_cyclic5_gf2
+            group, field = abstract.CyclicGroup(5), 2
         case "alternating4_gf5":
-            return ring_alternating4_gf5
-        case "dihedral5_gf3":
-            return ring_dihedral5_gf3
+            group, field = abstract.AlternatingGroup(4), 5
         case "dihedral7_gf9":
-            return ring_dihedral7_gf9
-    raise ValueError(f"Invalid fixture name: {request.param}")  # pragma: no cover
+            group, field = abstract.DihedralGroup(7), galois.GF(9, irreducible_poly="x^2 + 1")
+        case _:  # pragma: no cover
+            raise ValueError(f"Invalid ring name: {name}")
+    ring = abstract.GroupRing(group, field=field)
+    ring.get_transformer()
+    return ring
 
 
 ####################################################################################################

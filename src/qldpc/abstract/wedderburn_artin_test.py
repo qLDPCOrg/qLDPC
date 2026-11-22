@@ -281,10 +281,10 @@ def test_galois_modes_are_kept(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     original_mode = field.ufunc_mode
     pci = next(cc.pci for cc in ring_cyclic3_gf2.get_transformer().transformers if cc.degree == 2)
     try:
-        field.compile("jit-calculate")
+        field.compile("python-calculate")
         assert abstract.WedderburnArtinComponentTransformer(pci, seed=0).extended_field is field
-        assert field.ufunc_mode == "jit-calculate"
-        abstract.WedderburnArtinComponentTransformer(pci, seed=0, galois_compile="python-calculate")
         assert field.ufunc_mode == "python-calculate"
+        abstract.WedderburnArtinComponentTransformer(pci, seed=0, galois_compile="jit-lookup")
+        assert field.ufunc_mode == "jit-lookup"
     finally:
         field.compile(original_mode)

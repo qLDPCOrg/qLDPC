@@ -17,19 +17,22 @@ from qldpc.decoders.custom._lookup_enumeration import iter_errors_and_syndromes
 from qldpc.math import IntegerArray
 
 
+# Every pytest worker collects this file, and galois compiles code for each field, so each case
+# builds its field when it runs, on the one worker that runs it.
 @pytest.mark.parametrize(
-    "matrix, symplectic",
+    "order, rows, symplectic",
     [
-        (galois.GF2([[1, 1, 0], [0, 1, 1]]), False),
-        (galois.GF(3)([[1, 2, 0], [0, 1, 1]]), False),
-        (galois.GF2([[1, 0, 0, 1], [0, 1, 1, 0]]), True),
+        (2, [[1, 1, 0], [0, 1, 1]], False),
+        (3, [[1, 2, 0], [0, 1, 1]], False),
+        (2, [[1, 0, 0, 1], [0, 1, 1, 0]], True),
     ],
 )
 @pytest.mark.parametrize("max_weight", [0, 1, 2])
 def test_exhaustive_enumeration(
-    matrix: galois.FieldArray, symplectic: bool, max_weight: int
+    order: int, rows: list[list[int]], symplectic: bool, max_weight: int
 ) -> None:
     """Exhaustive enumeration yields each admissible error once, heaviest first."""
+    matrix = galois.GF(order)(rows)
     enumerated = _enumerate(matrix, max_weight, None, symplectic)
     errors = [error for error, _ in enumerated]
     assert len(errors) == len(set(errors))
@@ -45,24 +48,26 @@ def test_exhaustive_enumeration(
 
 
 @pytest.mark.parametrize(
-    "matrix, symplectic, error_channel, probability_cutoff",
+    "order, rows, symplectic, error_channel, probability_cutoff",
     [
-        (galois.GF2([[1, 1, 0, 1], [0, 1, 1, 1]]), False, [0.4, 0.1, 0.02, 0.3], 1e-2),
-        (galois.GF(3)([[1, 2, 1], [0, 1, 2]]), False, [0.3, 0.05, 0.2], 1e-2),
-        (galois.GF2([[1, 0, 1, 1], [0, 1, 1, 0]]), True, [0.2, 0.05, 0.3, 0.1], 5e-3),
+        (2, [[1, 1, 0, 1], [0, 1, 1, 1]], False, [0.4, 0.1, 0.02, 0.3], 1e-2),
+        (3, [[1, 2, 1], [0, 1, 2]], False, [0.3, 0.05, 0.2], 1e-2),
+        (2, [[1, 0, 1, 1], [0, 1, 1, 0]], True, [0.2, 0.05, 0.3, 0.1], 5e-3),
         # a site that is never active, and one that always is
-        (galois.GF2([[1, 1, 1], [0, 1, 1]]), False, [0.0, 1.0, 0.2], 1e-3),
+        (2, [[1, 1, 1], [0, 1, 1]], False, [0.0, 1.0, 0.2], 1e-3),
         # every error has probability exactly equal to the (inclusive) cutoff
-        (galois.GF2([[1, 1]]), False, [0.5, 0.5], 0.25),
+        (2, [[1, 1]], False, [0.5, 0.5], 0.25),
     ],
 )
 def test_probability_cutoff_enumeration(
-    matrix: galois.FieldArray,
+    order: int,
+    rows: list[list[int]],
     symplectic: bool,
     error_channel: list[float],
     probability_cutoff: float,
 ) -> None:
     """A probability cutoff yields exactly the admissible errors at or above the cutoff."""
+    matrix = galois.GF(order)(rows)
     channel = np.asarray(error_channel)
     max_weight = matrix.shape[1]
     enumerated = _enumerate(

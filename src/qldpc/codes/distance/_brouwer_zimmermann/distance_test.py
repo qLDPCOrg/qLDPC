@@ -54,6 +54,17 @@ TABLES_DISABLED = dataclasses.replace(
 # ``TABLES_DISABLED``, with scans that return after each support.
 ONE_SUPPORT_CHUNKS = dataclasses.replace(TABLES_DISABLED, search_chunk_exponent=0)
 
+# Changes to the tuning that make searches use completion tables in every layer of two or more rows,
+# whatever their predicted cost.  Eight-column blocks, and one sample for the cost model, keep the
+# tables and predictions quick to build as plain Python.
+FORCED_TABLES: dict[str, Any] = {
+    "completion_bound_minimum_layer_work": 0,
+    "completion_bound_max_cost_percent": MAX_VALUE,
+    "completion_bound_block_bits": 8,
+    "completion_bound_samples": 1,
+    "completion_bound_min_samples": 1,
+}
+
 
 def test_brouwer_zimmermann_search_state() -> None:
     """Only completed layers advance the certificate, not interrupted ones or ones cut off.
@@ -417,10 +428,10 @@ def test_a_search_of_an_mb_code_takes_overlapping_sets(
 def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> None:
     """A search whose overlapping family has no row as light as the distance still finds it."""
 
-    # Shorten a systematic BCH(31,21) basis to [26,16] and isolate a one-bit quotient.
-    basis = get_independent_rows(np.asarray(qldpc.codes.BCHCode(31, 21).generator, dtype=np.uint8))[
-        5:, 5:
-    ]
+    # Shorten a systematic basis of the cyclic [31, 21] BCH code to [26, 16], and isolate a one-bit
+    # quotient.  Building the basis from the binary polynomial 1 + x + x^2 + x^4 + x^5 + x^7 + x^10
+    # that generates the code needs no field GF(32), which ``qldpc.codes.BCHCode`` builds.
+    basis = get_independent_rows(_get_cyclic_basis("11101101001", 31))[5:, 5:]
     logicals = basis[13:14]
     stabilizers = np.delete(basis, 13, axis=0)
     expected = qldpc.codes.distance.get_distance_from_generators(
@@ -559,14 +570,7 @@ def completion_tables(
     """
     record = CompletionRecord(request.param == "forced", [])
     if record.forced:
-        # Eight-column blocks and the fewest samples of the cost model keep the tables and
-        # predictions quick to build as plain Python.
-        tune(
-            completion_bound_minimum_layer_work=0,
-            completion_bound_max_cost_percent=MAX_VALUE,
-            completion_bound_block_bits=8,
-            completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
-        )
+        tune(**FORCED_TABLES)
     select = completion_bounds.select_completion_tables
     scan_set = affine_search.scan_set
 
@@ -797,7 +801,7 @@ def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
     The work counts the supports of the sets that the next unfinished search plans to scan, an
     upper bound on the supports that it scans.  A layer of an automorphism family scans its one
     set.  The surface code scans several sets per layer, the random code skips the search of a
-    finished sector, and the gross code switches to automorphism families.
+    finished sector, and the bivariate bicycle code switches to automorphism families.
     """
     asked: list[bz._SectorSearch] = []
     scanned: list[tuple[bz._SectorSearch, int]] = []
@@ -816,9 +820,9 @@ def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
     monkeypatch.setattr(bz._SectorSearch, "_scan_set", recording_scan_set)
     layers: list[tuple[int, int, int, bool]] = []
     for code, minimum_layer_work, distance in (
-        (qldpc.codes.SurfaceCode(9), MAX_VALUE, 9),
+        (qldpc.codes.SurfaceCode(5), MAX_VALUE, 5),
         (get_random_css_code(np.random.default_rng(4), 60, 20, 25), MAX_VALUE, 4),
-        (qldpc.codes.GrossCode(), 0, None),
+        (qldpc.codes.BBCode({x: 9, y: 3}, 1 + x + x**6 * y, 1 + y + x**2 * y), 0, None),
     ):
         sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
         with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
@@ -836,7 +840,7 @@ def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
                 layers.append(
                     (work, sum(supports for _, supports in scanned), len(scanned), uses_family)
                 )
-                # Stop the gross code at its first family layer, which keeps the test fast.
+                # Stop the bivariate bicycle code at its first family layer.
                 if uses_family:
                     break
         if distance is not None:
@@ -1173,7 +1177,7 @@ def test_completion_tables_keep_distances_exact(completion_tables: CompletionRec
 
     # A fixed seed, since whether the tables of a search skip anything depends on its columns.
     rng = np.random.default_rng(0)
-    code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
+    code = qldpc.codes.MBCode({x: 12}, x**3 + x**8 + x**10 + x**11, x**5 + x**6 + x**7 + x**8)
     for pauli in PAULIS_XZ:
         expected = qldpc.codes.distance.get_distance_from_generators(
             code.get_logical_ops(pauli),
@@ -1183,10 +1187,10 @@ def test_completion_tables_keep_distances_exact(completion_tables: CompletionRec
         assert expected is not qldpc.codes.NO_DISTANCE
         for upper_bound in (None, expected + 1):
             skipped = completion_tables.skipped
-            # One sixteen-column block covers the tails, which makes the bounds exact, so a bound
-            # that is too high changes the distance.  An overlapping family would hold a word of
-            # weight four, and end the search before any layer.
-            with use_tuning(completion_bound_block_bits=16, overlapping_minimum_work=MAX_VALUE):
+            # The checks of each sector of this [[24, 4, 4]] code have rank ten, so its search basis
+            # has ten tail columns, which one sixteen-column block covers.  That makes the bounds
+            # exact, so a bound that is too high changes the distance.
+            with use_tuning(completion_bound_block_bits=16):
                 distance = bz.get_distance_brouwer_zimmermann(
                     [get_sector(code, pauli)],
                     cutoff=0,
@@ -1198,13 +1202,15 @@ def test_completion_tables_keep_distances_exact(completion_tables: CompletionRec
     # Relabel the columns, and the automorphisms alike: column ``j`` is column ``columns[j]`` of
     # the given sector, so a generator ``g`` maps it to ``inverse[g[columns[j]]]``, for the inverse
     # permutation ``np.argsort(columns)``.  The connected-cluster method also finds the distance 8.
+    # The relabeled basis is C-ordered, as the searches pass it, so that numba compiles no version
+    # for another layout.
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     basis, labels = get_sector(code, Pauli.X)
     columns = rng.permutation(len(code))
     automorphisms = np.asarray(code._get_permutation_automorphisms())
     skipped = completion_tables.skipped
     distance = bz.get_distance_brouwer_zimmermann(
-        [(basis[:, columns], labels)],
+        [(np.ascontiguousarray(basis[:, columns]), labels)],
         cutoff=0,
         get_automorphisms=functools.partial(
             np.array, np.argsort(columns)[automorphisms[:, columns]]
@@ -1408,12 +1414,7 @@ def test_searches_hold_the_tables_of_one_set_at_a_time(
     tune: Tune, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A search frees the tables of one set before it builds the tables of another."""
-    tune(
-        completion_bound_minimum_layer_work=0,
-        completion_bound_max_cost_percent=MAX_VALUE,
-        completion_bound_block_bits=8,
-        completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
-    )
+    tune(**FORCED_TABLES)
     build = completion_bounds.CompletionTables.build
     built: list[weakref.ref[completion_bounds.CompletionTables]] = []
 
@@ -1450,15 +1451,10 @@ def test_searches_take_completion_limits_from_their_tuning(
         return tables
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", recording_select)
-    code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
+    code = qldpc.codes.MBCode({x: 12}, x**3 + x**8 + x**10 + x**11, x**5 + x**6 + x**7 + x**8)
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
-    # An overlapping family would hold a word of weight four, and end the searches before any layer.
-    tune(
-        overlapping_minimum_work=MAX_VALUE,
-        completion_bound_minimum_layer_work=0,
-        completion_bound_max_cost_percent=MAX_VALUE,
-    )
-    # Each set of either sector has 16 tail columns, which the default tables cover with one block.
+    tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=MAX_VALUE)
+    # Each set of either sector has ten tail columns, which the default tables cover with one block.
     # Each of the other limits is far from what any tables of these sets need.
     for limits, expected_block_bits in (
         ({}, {16}),
@@ -1595,13 +1591,13 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
 ) -> None:
     """Threads find the lightest words of searches whose lightest words lie in split layers.
 
-    The searches are of a random [50, 30] classical code, and of the X sector of a [[72, 4, 8]]
-    bivariate bicycle code, and they find the distances of searches on one thread.  Only the
-    search of the bivariate bicycle code tests, on threads, the labels that tell its logical
-    operators from its stabilizers.
+    The searches are of a random [50, 30] classical code and of the X sector of a [[54, 4]]
+    bivariate bicycle code, whose X distance is eight.  Each finds the distance that a search on one
+    thread finds.  The stabilizers of the bivariate bicycle code weigh six, so only its search tests
+    on threads the labels that tell its logical operators from its stabilizers.
     """
     random_code = get_random_full_rank_matrix(np.random.default_rng(1), 30, 50)
-    bicycle = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    bicycle = qldpc.codes.BBCode({x: 9, y: 3}, 1 + x + x**6 * y, 1 + y + x**2 * y)
     method: qldpc.codes.DistanceMethod = "brouwer_zimmermann"
     searches: list[tuple[int, Callable[[], object]]] = [
         (5, functools.partial(distances.get_distance_from_generators, random_code, method=method)),
@@ -1806,16 +1802,12 @@ def test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does(
 ) -> None:
     """The scans of work items count, in total, the supports and lookups of a scan on one thread.
 
-    The search starts at its distance, eight, which it never lowers, so every chunk on any thread
-    starts from the same best weight.  With tables in every layer, the scans skip completions.
+    The search, of the X sector of the [[25, 1, 5]] rotated surface code, starts at its distance,
+    five, which it never lowers, so every chunk on any thread starts from the same best weight.
+    With tables in every layer, the scans skip completions.
     """
     if tables:
-        tune(
-            completion_bound_minimum_layer_work=0,
-            completion_bound_max_cost_percent=MAX_VALUE,
-            completion_bound_block_bits=8,
-            completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
-        )
+        tune(**FORCED_TABLES)
     totals: list[npt.NDArray[np.int64]] = []
     scan_set = affine_search.scan_set
 
@@ -1825,15 +1817,12 @@ def test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does(
         return result
 
     monkeypatch.setattr(affine_search, "scan_set", counting_scan)
-    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    sector = get_sector(qldpc.codes.SurfaceCode(5), Pauli.X)
     for num_threads in (1, 3):
         item_scans.clear()
         totals.append(np.zeros(3, dtype=np.int64))
         tune(num_threads=num_threads)
-        assert (
-            bz.get_distance_brouwer_zimmermann([get_sector(code, Pauli.X)], cutoff=0, upper_bound=8)
-            == 8
-        )
+        assert bz.get_distance_brouwer_zimmermann([sector], cutoff=0, upper_bound=5) == 5
         totals[-1] += np.sum([scan.counts for scan in item_scans], axis=0, dtype=np.int64)
     assert item_scans
     assert totals[0][2] > 0 if tables else totals[0][1] == 0
@@ -1916,7 +1905,7 @@ def test_searches_resolve_their_number_of_threads_once(monkeypatch: pytest.Monke
     monkeypatch.setattr(bz._threads, "run_work_items", recording_run)
     monkeypatch.setattr(bz._threads._num_threads, "NUM_THREADS", None)
     monkeypatch.setattr(bz._threads.numba.config, "NUMBA_NUM_THREADS", 3)
-    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    code = qldpc.codes.SurfaceCode(5)
     search = bz.BrouwerZimmermannSearch([get_sector(code, Pauli.X)], cutoff=0)
     monkeypatch.setattr(bz._threads.numba.config, "NUMBA_NUM_THREADS", 5)
     while not search.finished:
