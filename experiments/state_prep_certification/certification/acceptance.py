@@ -138,6 +138,9 @@ inputs, outputs, and documentation.
   for the largest fault weight k that the search completed, and with m* where it found a violation.
   ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's marks head
   each circuit of ``pruned/``, which still parses.
+* **AT13:** the tasks of the subset ``smoke`` are the arms that apply to its circuits, by the rules
+  of the README, and their ceiling is that of the costs of their runs, by independent arithmetic,
+  as is the worst case of a certification whose fast first run and repeats cost the most.
 
 The expected values of AT1 on C-goto and its weakened variant come from qLDPC: the notebook
 ``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb`` certifies C-goto's circuit up
@@ -1150,6 +1153,54 @@ def at11_code_files(directory: pathlib.Path, node: bool) -> None:
 def at12_application_analysis(directory: pathlib.Path, node: bool) -> None:
     """Analysis of synthetic rows of the margin and deletion arms."""
     _check_application_analysis(directory)
+
+
+@test
+def at13_smoke_tasks(directory: pathlib.Path, node: bool) -> None:
+    """The subset smoke has the tasks of the README's rules, and the ceiling of their costs."""
+    # every arm that applies to the circuits of C-goto, E-chen, and A-ft steane, of which A-ft and
+    # C-goto are verified families, and none is an input of prune_sensitivity
+    expected = set()
+    for entry in _circuits():
+        smoke = entry["family"] in ("C-goto", "E-chen") or entry["id"].startswith("aft.steane.")
+        if entry["status"] != "ok" or not smoke:
+            continue
+        arms = ["cert_bz", "cert_cc", "shadow", "count_accepted", "count_listing"]
+        arms += ["brute_bz"] * entry["brute_force"] + ["ground_truth"] * entry["ground_truth"]
+        arms += ["margin"] * (entry["r"] > entry["t"])
+        arms += ["prune"] * (entry["family"] in ("A-ft", "C-goto"))
+        expected |= {(arm, entry["id"]) for arm in arms}
+    task_list = experiment.tasks(directory, "smoke")
+    assert len(task_list) == len(expected), len(task_list)
+    assert {(task["arm"], task["input"]["id"]) for task in task_list} == expected
+
+    # the ceiling, by independent arithmetic: each run costs at most the start-up cap of 120 s, its
+    # limit, its allowance after the measured call (600 s for the first run of a certification,
+    # otherwise 30 s), and a grace of 30 s.  With the runner's retries, a task costs at most S + 2 W
+    # for its first run's cost S and its worst case with repeats W.  A certification that finishes
+    # in under 60 s gets two repeats with a limit of 600 s; at these limits, that case costs less
+    # than a slow first run, so W = S for every task
+    run_cost = {
+        "cert_bz": 120 + 1800 + 600 + 30,
+        "cert_cc": 120 + 1800 + 600 + 30,
+        "brute_bz": 120 + 1800 + 30 + 30,
+        "shadow": 120 + 3600 + 30 + 30,
+        "count_accepted": 120 + 1800 + 30 + 30,
+        "count_listing": 120 + 1800 + 30 + 30,
+        "ground_truth": 120 + 600 + 30 + 30,
+        "margin": 120 + 600 + 30 + 30,
+        "prune": 120 + 3600 + 30 + 30,
+    }
+    hours = sum(3 * run_cost[arm] for arm, _ in expected) / 3600
+    ceiling = task_store.ceiling_hours(task_list, experiment.worst_case_s)
+    assert ceiling == hours, (ceiling, hours)
+
+    # with a limit of 100 s, the fast case costs more: a first run of just under 60 s and two
+    # repeats
+    cert_task = next(task for task in task_list if task["arm"] == "cert_bz") | {"limit_s": 100.0}
+    fast = (120 + 60 + 600 + 30) + 2 * (120 + 600 + 30 + 30)
+    assert experiment.worst_case_s(cert_task) == fast, experiment.worst_case_s(cert_task)
+    print(f"  {len(task_list)} tasks; ceiling {hours} CPU-hours")
 
 
 def _check_brute_bz(circuit_id: str) -> bool:
