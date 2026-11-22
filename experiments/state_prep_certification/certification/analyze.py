@@ -830,9 +830,9 @@ def _ground_truth_counts_match(
 def _ground_truth(truth_rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     """The result of the first ground-truth run that has one, whatever its status, or None.
 
-    A row of status ``timeout`` can keep the result of a call that returned at or after the limit.
-    A row of status ``memout`` can keep the result of a call whose memory exceeded the cap before
-    the result arrived, as found afterward (``common/runner.py``, and the shared README's Runs).
+    A row of status ``timeout`` can keep the result of a call that returned at or after the limit,
+    and a row of status ``memout`` that of a call whose peak memory, found after the run, exceeded
+    the cap before the result arrived (``common/runner.py``).
     """
     return next(
         (

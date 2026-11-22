@@ -10,10 +10,10 @@ that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz.
 
 The code files follow MQT QECC's definitions of the codes.  Those of the A-ft codes lie in
 ``circuit_data/codes/``, and those of the codes of each family of synthesized circuits beside its
-circuits (``settings.SYNTHESES``).
-``code_file`` gives each circuit of ``settings.VERIFIED_FAMILIES`` its file, ``circuits.py
---build`` records the file and its SHA-256 in ``circuits.json``, and ``circuits.py --check`` checks
-each file against its circuit (``check_code_file``).
+circuits (``settings.SYNTHESES``).  ``code_file`` gives each circuit of
+``settings.VERIFIED_FAMILIES`` its file, ``circuits.py --build`` records the file and its SHA-256
+in ``circuits.json``, and ``circuits.py --check`` checks each file against its circuit
+(``check_code_file``).
 """
 
 from __future__ import annotations

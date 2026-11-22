@@ -631,7 +631,7 @@ def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
     """Store a code's plain matrices, and return its record.
 
     The matrices are ``H_X`` and ``H_Z`` for a CSS code and ``H = [x | z]`` otherwise, stored in
-    ``codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of the stored arrays
+    ``out/codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of the stored arrays
     (``hash_arrays``).
     """
     if isinstance(code, codes.CSSCode):

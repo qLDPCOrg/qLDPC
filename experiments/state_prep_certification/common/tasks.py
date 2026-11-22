@@ -179,7 +179,9 @@ def repeated_worst_case_s(
     W is the larger of a slow first run, which uses its whole limit, and a fast one, which ends
     just under ``below_s`` with status ``ok`` and so calls for the repeats that ``repeat_tasks``
     gives it.  Each run costs at most ``run_cost_s`` of its task.  A task that a fast first run does
-    not repeat costs one run.
+    not repeat costs one run.  W is the worst case only if ``repeat_tasks`` repeats exactly the
+    first runs with status ``ok`` and T under ``below_s``, and the cost of its repeats does not fall
+    as T grows, since this probes it at one T.
 
     Args:
         task: A task of pass 1.

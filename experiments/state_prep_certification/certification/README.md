@@ -111,7 +111,9 @@ It is a trusted input, which `circuits.py` takes from each family's source (`cir
 
 Each A-ft, C-goto, and synthesized entry of `circuits.json` also names its code file, `code_file`, with its SHA-256, `code_sha256`.
 A code file `<code>_code.json` holds the code's `distance` and its matrices: the X- and Z-type checks `Hx` and `Hz`, and the X- and Z-type logical operators `Lx` and `Lz`, with one column per output qubit, in output-qubit order.
-`circuits.py --check` checks each input's state against these matrices, which split the state's Z-type stabilizers into checks Hz and logical operators Lz as the code's definition in MQT QECC does; the state alone does not determine that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz.
+`circuits.py --check` checks each input's state against these matrices.
+They split the state's Z-type stabilizers into checks Hz and logical operators Lz, as the code's definition in MQT QECC does.
+The state alone does not determine that split, since the Z-type stabilizers of |0...0>_L span both Hz and Lz.
 The code files of the A-ft codes, in `codes/`, follow MQT QECC's definitions of the codes at the commit that `config.json` pins, and those of the synthesized codes lie beside their circuits; C-goto uses the Steane code's file.
 MQT's `RotatedSurfaceCode(5)` at that commit has its X checks where the shipped d = 5 circuits have their Z checks, so its file exchanges Hx with Hz and Lx with Lz.
 
@@ -140,7 +142,8 @@ The ground truth (`counting.ground_truth`) requires a CSS state.
 
 [`experiment.py`](experiment.py) says what T includes for each arm, which runs warm up before timing, and which runs get repeats.
 
-The baseline enumerates the accepted fault combinations over the N_0 reduced mechanisms, fault weight by fault weight up to K, and queries them in batches with the certifier's own oracle, built from the same arguments, until the first batch that holds a violation; only the fault search differs from `cert_bz`.
+The baseline enumerates the accepted fault combinations over the N_0 reduced mechanisms, fault weight by fault weight up to K, and queries them in batches with the certifier's own oracle, built from the same arguments, until the first batch that holds a violation.
+Only the fault search differs from `cert_bz`.
 U bounds both the combinations and the oracle rows that it queries, and is fixed by the circuit's parameters, so that a circuit over the cap gets no task, rather than a timeout.
 
 A circuit with margin m* has bounded fault propagation up to exactly m* - 1.

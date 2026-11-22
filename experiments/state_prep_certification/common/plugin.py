@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The plug-in interface of the experiments, and the loader of plug-ins.
+"""The plug-in interface of the experiments, the loader of plug-ins, and the harness's paths.
 
 Each experiment is a subdirectory with an ``experiment.py`` module that defines:
 
@@ -67,6 +67,10 @@ def experiment_dir(name: str) -> pathlib.Path:
 
 
 def run_task_command(label_dir: pathlib.Path, key: str, local: bool) -> list[str]:
-    """The command that runs one task of a label, in local mode if ``local``."""
+    """The command that runs one task of a label, in local mode if ``local``.
+
+    ``tasks.parallel_command`` and ``runner.run_task`` write the other forms of this command: GNU
+    parallel's, with the job slot and CPU, and the runner's, for its child.
+    """
     local_option = ["--local"] if local else []
     return [sys.executable, str(RUN_TASK), "--label-dir", str(label_dir), *local_option, key]

@@ -10,17 +10,17 @@ inputs, outputs, and documentation.
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search
 compares the prior arm with the arm with everything on.  T is the median of the times of an arm's
 first run and repeats on the code, with a repeat that timed out counted as the limit L.  If the
-first run finished with complete timing, and a run that timed out determines the median, as the
-middle one of an odd number of runs or either middle one of an even number, the median timed out:
-the arm has no T, and its status in ``summary.csv`` and its T cell in ``anchors.csv`` are
-``median_timed_out``.  If the first run did not finish, or a repeat ended in an error or memout, T
-is the first run's time.  An arm counts as finished if its first run finished and its median did not
-time out; ``summary.csv`` records the number of unfinished repeats in ``repeats_unfinished``.  A row
-with ``compiled_in_timing`` set (see ``common/runner.py``) enters no T.  A repeat with it is left
-out of the median, as a missing repeat is.  A first run with it leaves the arm without T, and its T
-cell in ``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` counts the flagged
-runs in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The
-cases, in order:
+first run finished with complete timing, no repeat ended in an error or memout, and a run that timed
+out determines the median, as the middle one of an odd number of runs or either middle one of an
+even number, the median timed out: the arm has no T, and its status in ``summary.csv`` and its T
+cell in ``anchors.csv`` are ``median_timed_out``.  If the first run did not finish, or a repeat
+ended in an error or memout, T is the first run's time.  An arm counts as finished if its first run
+finished and its median did not time out; ``summary.csv`` records the number of unfinished repeats
+in ``repeats_unfinished``.  A row with ``compiled_in_timing`` set (see ``common/runner.py``) enters
+no T.  A repeat with it is left out of the median, as a missing repeat is.  A first run with it
+leaves the arm without T, and its T cell in ``anchors.csv`` is "compiled" unless the arm failed.
+``summary.csv`` counts the flagged runs in ``runs_compiled``, and leaves them out of ``repeats``,
+its count of runs, the first included, and of ``repeats_unfinished``.  The cases, in order:
 
 1. **disagreement:** the rows with status ``ok`` of the arms and their repeats report different
    distances, or a distance that differs from the code's reference distance; a distance that a
@@ -54,9 +54,10 @@ does not change the analysis of an earlier run.
 The analysis checks and extracts an archive with ``store.open_archive``, into a temporary directory
 that it removes when it ends, so ``--archive`` requires ``--out``.  The outputs go to ``--out``, by
 default ``analysis/`` in the label directory of ``--label-dir``.  They are ``summary.csv`` (one row
-per code and arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of T, prior
-against on), and ``figure_notes.json`` (the number of codes that ``distances.pdf`` omits, for lack
-of a value, or for a disagreement, a failure, or an incomplete timing).
+per code and arm), ``families.csv``, ``anchors.csv``, ``distances.pdf`` (a log-log plot of the on
+arm's T against the prior arm's), and ``figure_notes.json`` (the number of codes that
+``distances.pdf`` omits, for lack of a value, or for a disagreement, a failure, or an incomplete
+timing).
 
 The analysis refuses a label whose final rows include rows of ``--local`` runs, unless given
 ``--allow-local``.  Where they apply, it marks every output with ``local_rows``, the number of
@@ -375,7 +376,7 @@ def write_outputs(
 
 
 def _median(results: list[dict[str, Any]]) -> str:
-    """The agreement-only median of ratios, marked by the kinds of bounds among them."""
+    """The median of the ratios of cases 5-7, marked by the kinds of bounds among them."""
     values = [r for r in results if r["value"] is not None]
     if not values:
         return "-"

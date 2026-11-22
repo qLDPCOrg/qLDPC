@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The settings and paths that the modules of the certification experiment share.
+"""The settings, paths, and certify options that the modules of the certification experiment share.
 
 ``CONFIG`` is the experiment's ``config.json``.  ``DATA`` is its data directory,
 ``circuit_data/``, which Git ignores, and ``INPUTS`` the directory of the certification inputs in
