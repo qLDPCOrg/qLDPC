@@ -1097,6 +1097,42 @@ def test_cleanup_reused_ids(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_cleanup_unkillable(directory: pathlib.Path, node: bool) -> None:
+    """A process left after a run's grace that outlives --cleanup's SIGKILL keeps its record.
+
+    --cleanup says so, and the run stays live, so that a start still refuses.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    run_node = _run_node_module()
+    survivor = os.getpid()
+    table = {survivor: runner.Process(1, survivor, 0, None, "the recorded start")}
+    record = {
+        "pid": survivor + 1,
+        "pid_start": "gone",
+        "pgid": None,
+        "runner_pid": survivor + 1,
+        "runner_start": "gone",
+        "survivors": [[survivor, "the recorded start"]],
+    }
+    (directory / "active").mkdir()
+    path = directory / "active" / "task.0123abcd"
+    path.write_text(json.dumps(record))
+    killed: list[int] = []
+    with (
+        _patched(runner, "process_table", lambda: table),
+        _patched(run_node.os, "kill", lambda pid, sig: killed.append(pid)),
+        _patched(run_node, "CLEANUP_WAIT_S", 0.0),
+    ):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            run_node.cleanup(directory)
+        assert killed == [survivor], killed
+        assert "survived SIGKILL" in output.getvalue(), output.getvalue()
+        assert path.exists()
+        assert run_node.live_runs(directory) == [path.name]
+
+
+@test
 def test_cleanup_unreadable_records(directory: pathlib.Path, node: bool) -> None:
     """An active record that vanished is skipped; an unreadable one is live until --cleanup."""
     run_node = _run_node_module()

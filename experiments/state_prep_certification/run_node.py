@@ -99,6 +99,8 @@ DEFAULT_RESULTS = ROOT / "experiments" / "state_prep_certification" / "results"
 # GNU parallel's record in a label's active/ directory, beside the runs' records, which task keys
 # name (runner.check_task refuses a task key that starts with "_")
 PARALLEL_RECORD = "_parallel"
+# How long --cleanup waits for a killed survivor of a run's grace to go before it keeps the record
+CLEANUP_WAIT_S = 2.0
 
 # The environment variables that a node start refuses, and when: plain-Python qLDPC or numba,
 # Python's -O, which strips the asserts of the acceptance tests that this script runs, and paths
@@ -625,7 +627,8 @@ def cleanup(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) ->
     reused the id, since nothing tells the two apart: ``cleanup`` lists them, kills none, and keeps
     the record.  A record that a runner kept for the processes left after a run's grace names them
     with their start times (``survivors``), and ``cleanup`` kills exactly those that are still the
-    same processes.  An unreadable record is removed, with a note.  Without records, ``cleanup``
+    same processes; if one of them is still alive ``CLEANUP_WAIT_S`` after the kill, it says so and
+    keeps the record.  An unreadable record is removed, with a note.  Without records, ``cleanup``
     says that there is nothing to clean up.
     """
     attempts = _acceptance_records(label_dir, results_dir)
@@ -650,14 +653,19 @@ def cleanup(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) ->
             continue
         _kill_if_same(record["runner_pid"], record["runner_start"], group=False)
         if "survivors" in record:
-            ended = [
-                pid
-                for pid, start in record["survivors"]
-                if not _kill_if_same(pid, start, group=False)
-            ]
+            survivors = [(pid, start) for pid, start in record["survivors"]]
+            ended = [pid for pid, start in survivors if not _kill_if_same(pid, start, group=False)]
+            alive = _still_alive(survivors)
+            if alive:
+                print(
+                    f"{name}: {runner.describe_processes(alive)} survived SIGKILL, as a process in "
+                    "uninterruptible sleep can, so the record stays and a start refuses until "
+                    "they end; run --cleanup again then"
+                )
+                continue
             print(
                 f"{name}: killed the processes left after its grace that were still alive; "
-                f"of {[pid for pid, _ in record['survivors']]}, {ended or 'none'} had ended"
+                f"of {[pid for pid, _ in survivors]}, {ended or 'none'} had ended"
             )
             path.unlink(missing_ok=True)
             continue
@@ -729,6 +737,21 @@ def _orphaned_members(table: dict[int, runner.Process], record: dict[str, Any]) 
     if record.get("pgid") is None or record["pid"] in table:
         return []
     return [pid for pid, process in table.items() if process.pgid == record["pid"]]
+
+
+def _still_alive(processes: list[tuple[int, str | None]]) -> list[int]:
+    """The processes, by id and start time, that are still the same after ``CLEANUP_WAIT_S``."""
+    deadline = time.monotonic() + CLEANUP_WAIT_S
+    while True:
+        table = runner.process_table()
+        alive = [
+            pid
+            for pid, start in processes
+            if start is not None and pid in table and table[pid].start == start
+        ]
+        if not alive or time.monotonic() >= deadline:
+            return alive
+        time.sleep(0.2)
 
 
 def _kill_tree_if_same(pid: int, start: str | None) -> bool:
