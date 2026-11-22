@@ -1184,6 +1184,7 @@ def test_cleanup_acceptance(directory: pathlib.Path, node: bool) -> None:
     label_dir = results / "selftest" / "label"
     label_dir.mkdir(parents=True)
     attempt = run_node.acceptance_dir(label_dir, results) / "attempt" / "AT1"
+    attempt.mkdir(parents=True)
     tasks.write_pass1(attempt, [_task("hard", [["spawn", 50.75]], limit_s=60.0)])
     process = subprocess.Popen(_run_task_command(attempt, "hard", node=False))
     record = attempt / "active" / "hard"
