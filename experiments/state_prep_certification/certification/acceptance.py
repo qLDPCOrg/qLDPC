@@ -107,7 +107,7 @@
   A run on E-chen delayed past its 5 s limit is a timeout that gives only a lower bound.
 * **AT11:** altered copies of code files (an Lx that anticommutes with a check, a check as Lz, no
   Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
-  that names it.
+  that names it, and the code file of a one-qubit |0>, which has no X checks, passes.
 
 The expected values of AT1 on C-goto and its weakened variant come from qLDPC: the notebook
 ``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb`` certifies C-goto's circuit up
@@ -1052,7 +1052,12 @@ def at11_code_files(directory: pathlib.Path, node: bool) -> None:
     for altered_entry, altered_code, check in alterations:
         problems = code_files.check_code(altered_entry, altered_code)
         assert any(check in problem for problem in problems), (check, problems)
-    print(f"  {len(alterations)} altered code files fail")
+
+    # a code without X checks: the |0> state of one qubit
+    zero = {"id": "zero", "output_qubits": [0], "stabilizers": ["+Z"], "code": [1, 1, 1]}
+    one_qubit = {"distance": 1, "Hx": [], "Hz": [], "Lx": [[1]], "Lz": [[1]]}
+    assert code_files.check_code(zero, one_qubit) == []
+    print(f"  {len(alterations)} altered code files fail, and a code without X checks passes")
 
 
 def _check_brute_bz(circuit_id: str) -> bool:

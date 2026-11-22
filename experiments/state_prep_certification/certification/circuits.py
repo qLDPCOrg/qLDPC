@@ -666,10 +666,11 @@ def _check_rebuilt(recorded: dict[str, Any]) -> list[str]:
 
 
 def _check_code_state(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
-    """The problems of an input whose recorded state is not the code's |0...0>, if any."""
-    qubits = entry["output_qubits"]
-    if len(qubits) != len(code["Hx"][0]):
-        return [f"{entry['id']}: {len(qubits)} output qubits, the code has {len(code['Hx'][0])}"]
+    """The problems of an input whose recorded state is not the code's |0...0>, if any.
+
+    Each row of the code must have one column per output qubit, as ``code_files.check_code`` checks
+    first.
+    """
     expected = []
     for rows, letter in ((code["Hx"], "X"), (code["Hz"], "Z"), (code["Lz"], "Z")):
         for row in rows:
