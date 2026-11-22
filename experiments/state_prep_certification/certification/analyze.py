@@ -1125,8 +1125,10 @@ def check_consistency(
       ``cert_cc``, ``shadow``, or ``margin`` above Phi_m, of ``count_listing`` or else of the
       ground truth, since each row that the fault search submits is a listed fault, also on a
       weight where the run found a violation;
-    * a counterexample whose exact residual weight does not exceed its fault weight, or is below
-      the certifier's lower bound on it;
+    * a counterexample whose exact residual weight does not exceed its fault weight, by its flag
+      ``residual_exceeds_fault_weight`` or against the violating weight of its result, is below the
+      certifier's lower bound on it, or, for CSS weight, is not the larger residual weight of its X
+      and Z parts (``applications.sector_fields``);
     * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose claim
       on its m* disagrees with itself, such as a final m* of at most t or one above a fault weight
       at which its search found a violation, or with that of another deletion task that ends at
@@ -1174,23 +1176,34 @@ def check_consistency(
                 if "rows" in record and m in phi and record["rows"] > phi[m]:
                     contradictions.append(f"{arm}.r{row['repeat']}: Omega_{m} above Phi_{m}")
 
-    # each counterexample's exact residual weight
+    # each counterexample's exact residual weight, against its violating weight, its lower bound,
+    # and, for CSS weight, the larger residual weight of its X and Z parts
     described = [
-        (f"{arm}.r{row['repeat']}", row.get("result") or {})
-        for arm in ("cert_bz", "cert_cc", "margin")
+        (f"{arm}.r{row['repeat']}", row.get("result") or {}, "violation_weight")
+        for arm in ("cert_bz", "cert_cc")
         for row in arms.get(arm) or []
     ]
     described += [
-        (f"{arm} final", (row.get("result") or {}).get("final_margin") or {})
+        (f"margin.r{row['repeat']}", row.get("result") or {}, "margin")
+        for row in arms.get("margin") or []
+    ]
+    described += [
+        (f"{arm} final", (row.get("result") or {}).get("final_margin") or {}, "margin")
         for arm in applications.PRUNE_ORDERS
         for row in arms.get(arm) or []
     ]
-    for source, result in described:
+    for source, result, key in described:
         exact, bound = result.get("residual_weight"), result.get("residual_weight_lower_bound")
-        if result.get("residual_exceeds_fault_weight") is False:
+        weight = result.get(key)
+        if result.get("residual_exceeds_fault_weight") is False or (
+            exact is not None and isinstance(weight, int) and exact <= weight
+        ):
             contradictions.append(f"{source}: residual weight does not exceed the fault weight")
         elif exact is not None and bound is not None and exact < bound:
             contradictions.append(f"{source}: residual weight below its lower bound")
+        sectors = (result.get("sector_weight_x"), result.get("sector_weight_z"))
+        if exact is not None and None not in sectors and exact != max(sectors):
+            contradictions.append(f"{source}: residual weight against those of its X and Z parts")
 
     return claims, contradictions + analyze_applications.final_contradictions(circuit, arms)
 
