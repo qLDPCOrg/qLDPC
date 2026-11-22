@@ -1081,9 +1081,8 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
             assert max(sectors) == result["residual_weight"], (circuit_id, result)
             parts = [name for name, w in zip("XZ", sectors) if w > len(result["fault_indices"])]
             assert result["violating_parts"] == " and ".join(parts), (circuit_id, result)
-            if len(entry["output_qubits"]) <= 15:
-                assert sectors == _enumerated_sectors(entry, result["output_pauli"]), circuit_id
-                sectors_enumerated += 1
+            assert sectors == _enumerated_sectors(entry, result["output_pauli"]), circuit_id
+            sectors_enumerated += 1
 
         # the enumeration to min(m*, r + 1), where it is small enough
         limit = entry["r"] + 1 if margin == "all" else min(margin, entry["r"] + 1)
