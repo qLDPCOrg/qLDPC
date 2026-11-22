@@ -192,15 +192,19 @@ def test_store_archive(directory: pathlib.Path, node: bool) -> None:
     (label_dir / ".manifest.json.123.tmp").write_text("{")
     (label_dir / store.LOCK_FILE).write_text("")
     archive = store.make_archive(label_dir, "label-host-utc")
-    sha256 = (archive.parent / (archive.name + ".sha256")).read_text().split()[0]
-    assert sha256 == store.sha256_file(archive)
+    outer = (archive.parent / (archive.name + ".sha256")).read_text()
+    assert outer == f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n", outer
     with tarfile.open(archive) as tar:
         names = set(tar.getnames())
         sums_file = tar.extractfile("label-host-utc/SHA256SUMS")
         assert sums_file is not None
         sums = sums_file.read().decode()
     expected = {f"label-host-utc/{name}" for name in ("runs.jsonl", "logs/a.txt", "SHA256SUMS")}
-    assert names == expected and "runs.jsonl" in sums and "logs/a.txt" in sums
+    assert names == expected, names
+    assert sums == "".join(
+        f"{hashlib.sha256((label_dir / name).read_bytes()).hexdigest()}  {name}\n"
+        for name in ("logs/a.txt", "runs.jsonl")
+    ), sums
     store.make_archive(label_dir, "second")  # earlier archives never enter a later one
     with tarfile.open(label_dir / "archive" / "second.tar.gz") as tar:
         assert not any("archive/" in name for name in tar.getnames())
@@ -1030,7 +1034,7 @@ def test_parallel_pinning_and_pass2(directory: pathlib.Path, node: bool) -> None
 
 @test
 def test_parallel_stop_and_resume(directory: pathlib.Path, node: bool) -> None:
-    """SIGTERM stops every run without rows; a resume reruns only the stopped tasks."""
+    """SIGTERM stops every run without rows; a resume runs only the tasks without a final row."""
     _require_parallel()
     task_list = [_task("quick", [["sleep", 0.1]])] + [
         _task(f"slow{i}", [["spawn", 50.25 + i], ["value", i]], limit_s=60.0) for i in range(3)
