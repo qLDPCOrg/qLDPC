@@ -113,7 +113,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple, TypeVar
 
 from experiments.state_prep_certification.common import plugin, store
@@ -658,12 +658,7 @@ class _Watcher:
             return
         table = process_table()
         self._members(table)
-        for pid, start in self.seen.items():
-            if pid in table and table[pid].start == start:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+        kill_same(table, self.seen)
 
     def _wait_until_gone(self, child: subprocess.Popen[bytes]) -> list[int]:
         """Reap the child and wait up to the grace for the run's processes; return any left."""
@@ -717,10 +712,8 @@ class _Channel:
         if self.fd is None:
             return
         data = (json.dumps(message, separators=(",", ":"), default=_jsonable) + "\n").encode()
-        view = memoryview(data)
         with self.lock:
-            while view:
-                view = view[os.write(self.fd, view) :]
+            store.write_all(self.fd, data)
 
 
 _CHANNEL = _Channel()
@@ -886,6 +879,16 @@ def descendants(table: dict[int, Process], root: int) -> list[int]:
         members.append(pid)
         stack.extend(children.get(pid, []))
     return members
+
+
+def kill_same(table: dict[int, Process], processes: Mapping[int, str | None]) -> None:
+    """Kill each process, by id and start time, that ``table`` shows is still the same process."""
+    for pid, start in processes.items():
+        if pid in table and table[pid].start == start:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
 
 
 def describe_processes(pids: list[int]) -> str:

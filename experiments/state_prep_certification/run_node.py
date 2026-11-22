@@ -810,11 +810,8 @@ def _kill_tree_if_same(pid: int, start: str | None) -> bool:
     table = runner.process_table()
     if not _same(table, pid, start):
         return False
-    for member in runner.descendants(table, pid):
-        try:
-            os.kill(member, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+    members = runner.descendants(table, pid)
+    runner.kill_same(table, {member: table[member].start for member in members})
     return True
 
 

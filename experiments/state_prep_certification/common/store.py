@@ -61,7 +61,7 @@ def append_row(label_dir: pathlib.Path, row: dict[str, Any]) -> None:
         fcntl.flock(fd, fcntl.LOCK_EX)
         _truncate_incomplete_tail(fd, label_dir)
         os.lseek(fd, 0, os.SEEK_END)
-        _write_all(fd, line)
+        write_all(fd, line)
         os.fsync(fd)
     finally:
         os.close(fd)  # closing releases the lock
@@ -111,6 +111,13 @@ def final_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], list
     return first, problems
 
 
+def write_all(fd: int, data: bytes) -> None:
+    """Write all of ``data`` to a file descriptor."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view) :]
+
+
 def _truncate_incomplete_tail(fd: int, label_dir: pathlib.Path) -> None:
     """Move an incomplete last line, if any, to ``recovered.txt``, and cut it from the file."""
     size = os.lseek(fd, 0, os.SEEK_END)
@@ -140,13 +147,6 @@ def _truncate_incomplete_tail(fd: int, label_dir: pathlib.Path) -> None:
         file.write(b"incomplete line removed before an append: " + fragment + b"\n")
     os.ftruncate(fd, cut)
     os.fsync(fd)
-
-
-def _write_all(fd: int, data: bytes) -> None:
-    """Write all of ``data`` to a file descriptor."""
-    view = memoryview(data)
-    while view:
-        view = view[os.write(fd, view) :]
 
 
 ####################################################################################################

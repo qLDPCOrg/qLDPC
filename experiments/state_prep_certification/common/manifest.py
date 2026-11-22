@@ -37,7 +37,7 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from experiments.state_prep_certification.common import plugin, store
+from experiments.state_prep_certification.common import plugin, runner, store
 
 PINS_FILE = plugin.EXPERIMENTS_DIR / "pins.json"
 BUNDLE_RECORD = plugin.EXPERIMENTS_DIR / "bundle.json"
@@ -261,7 +261,7 @@ def machine_info() -> dict[str, Any]:
         )
         info["mem_total_bytes"] = mem_total_bytes()
     elif sys.platform == "darwin":
-        info["cpu"] = _run(["sysctl", "-n", "machdep.cpu.brand_string"]).strip()
+        info["cpu"] = runner.cpu_model()
         info["physical_cores"] = int(_run(["sysctl", "-n", "hw.physicalcpu"]) or 0)
         info["mem_total_bytes"] = mem_total_bytes()
     return info
