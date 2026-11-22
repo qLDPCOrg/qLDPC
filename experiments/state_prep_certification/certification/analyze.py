@@ -98,11 +98,12 @@ of ``--label-dir``):
   and ``cert_cc`` where both finished.  ``baseline_counts_match`` compares the combinations that the
   first run of ``brute_bz`` enumerated, whether it finished or stopped, with A_m of
   ``count_accepted``, or of the ground truth where ``count_accepted`` did not compute it: they must
-  be equal on each weight that it completed, and at most A_m on one where it found a violation.
-  ``agree_baseline`` is false where they do not match.  Otherwise it compares that first run, if it
-  finished, with each certification whose first run finished, by verdict and smallest violating
-  weight, or else the violations and completed weights that the first run recorded before it
-  stopped.  ``agree_ground_truth`` compares the smallest violating weight of the ground truth's
+  be equal on each weight that it completed, and at most A_m on one where it found a violation.  It
+  is None where no completed weight has a known A_m.  ``agree_baseline`` is false where they do not
+  match.  Otherwise it compares that first run, if it finished, with each certification whose first
+  run finished, by verdict and smallest violating weight, or else the violations and completed
+  weights that the first run recorded before it stopped.  ``agree_ground_truth`` compares the
+  smallest violating weight of the ground truth's
   result, which a ``timeout`` or ``memout`` row can keep, with that of each certification whose
   first run finished, and its Pi, E, Phi, and A with those of ``count_listing`` and
   ``count_accepted`` on the weights of both.  ``agree_prune`` compares the first run of each
@@ -755,8 +756,8 @@ def _agree_baseline(
        brute_bz checks the weights in order.
     3. Otherwise, the result is False if a finished certification's violation is at a weight that
        brute_bz completed without a violation.
-    4. Otherwise, the result is that of the counts: True if they match, and None if none were
-       compared.
+    4. Otherwise, the result is that of the counts: True if they match on a completed weight, and
+       None if no completed weight was compared.
     """
     counts_match = _baseline_counts_match(brute["partial"], counts)
     if counts_match is False:
@@ -779,15 +780,19 @@ def _baseline_counts_match(records: list[dict[str, Any]], counts: dict[str, int]
 
     ``records`` are the run's per-weight records, and ``counts`` holds A_m by weight
     (``_accepted_counts``).  A completed weight must have exactly A_m combinations, and a weight
-    where the run found a violation, which stops its enumeration early, at most A_m.  None if no
-    weight of the records has a known A_m.
+    where the run found a violation, which stops its enumeration early, at most A_m; False if either
+    fails.  Otherwise True if a completed weight has a known A_m, and None if none has, since a
+    violating weight can only contradict A_m.
     """
-    compared = [
-        record["combinations"] <= count if record["violation"] else record["combinations"] == count
+    known = [
+        (record, count)
         for record in records
         if "m" in record and (count := counts.get(str(record["m"]))) is not None
     ]
-    return all(compared) if compared else None
+    if any(record["combinations"] > count for record, count in known if record["violation"]):
+        return False
+    exact = [record["combinations"] == count for record, count in known if not record["violation"]]
+    return all(exact) if exact else None
 
 
 def _accepted_counts(

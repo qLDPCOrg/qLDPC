@@ -55,13 +55,14 @@
 * **AT8:** the analysis (``analyze.py``) of synthetic rows on circuits of ``circuits.json``: six
   B-cat circuits through every output, and others for the cases below.  A ``count_listing`` run that
   timed out after one completed weight gives Pi, E, Phi, q, q_h, and h from its partial results.  A
-  ground-truth count that differs from the counters', and a baseline whose enumerated combinations
-  differ from A_m, or exceed it on a weight where it found a violation, in a first run or a repeat,
-  and of ``count_accepted`` or else of the ground truth, each make their circuit a disagreement, as
-  does a baseline stopped after a violation at weight m against a finished certification whose
-  smallest violation is not at m.  An expected task without a row is reported as ``missing``.  Rows
-  with ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and times
-  that ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one
+  ground-truth count that differs from the counters' makes its circuit a disagreement.  So does a
+  baseline, in a first run or a repeat, whose enumerated combinations differ from A_m, or exceed it
+  on a weight where it found a violation, with A_m of ``count_accepted`` or else of the ground
+  truth.  So does a baseline stopped after a violation at weight m against a finished certification
+  whose smallest violation is not at m.  A baseline whose only record is a violation within A_m
+  leaves ``agree_baseline`` unknown.  An expected task without a row is reported as ``missing``.
+  Rows with ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and
+  times that ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one
   circuit, whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a
   repeat; and a first run that finished.  With two of the synthetic rows marked as rows of
   ``--local`` runs, ``analyze.py`` refuses the label without ``--allow-local``; with it, every
@@ -718,6 +719,9 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     }
     assert analyze._agree_baseline(miscounted, [], accepted) is False
     assert analyze._agree_baseline(dict(miscounted, partial=[]), [], accepted) is None
+    # a violation within A_m, with no completed weight, leaves the counts unconfirmed
+    violated_at_1 = [{"m": 1, "combinations": 7, "violation": True}]
+    assert analyze._agree_baseline(dict(miscounted, partial=violated_at_1), [], accepted) is None
     matched = dict(miscounted, partial=[{"m": 1, "combinations": 30, "violation": False}])
     assert analyze._agree_baseline(matched, [], accepted) is True
     violating_at_1 = {"status": "ok", "result": {"certified": False, "violation_weight": 1}}
