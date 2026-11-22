@@ -444,10 +444,13 @@ def _write_anchors(
     """Write anchors.csv: one row per anchor, with n, k, the reference d, the d found, and Ts.
 
     ``d_found`` is the distance that the arms' runs on the anchor report, or the list of their
-    distances if they report none or several.  An arm's T cell is its T to three significant digits,
-    or else "n/a" where the arm has no runs on the anchor, "compiled" where its first run, finished
-    or timed out, has ``compiled_in_timing`` set, "> L" where it timed out, and otherwise its
-    status, such as "error", "memout", "missing", or "median_timed_out".
+    distances if they report none or several.  An arm's T cell is "n/a" where the label has neither
+    a task nor a row of the arm on the anchor.  Otherwise it follows the arm's status
+    (``_timed_summary``): "compiled" where the status is ``ok`` or ``timeout`` and the first run has
+    ``compiled_in_timing`` set; else T to three significant digits for ``ok``, "> L" for
+    ``timeout``, and the status itself for any other, such as "missing" (no row of the arm's first
+    run), "median_timed_out", or "error" or "memout", which a failed repeat gives the arm even where
+    its first run was flagged.
     """
     arms = [ON, PRIOR]
     path = out / "anchors.csv"
