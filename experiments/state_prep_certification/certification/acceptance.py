@@ -7,151 +7,24 @@ inputs, outputs, and documentation.
 
     python acceptance.py [--local] [--only AT1 AT3 ...] [--results-dir R]
 
-* **AT1:** C-goto certifies at K = 2; its weakened variant, which deletes the flag, violates at
-  weight 1; on E-chen, BZ and CC give the same verdict and smallest violating weight at K = 3.
-* **AT2:** the listing counter (up to K') and the accepted-combination counter (up to K) equal brute
-  force on the ground-truth circuits of the d = 3 A-ft codes and on 20 random DEMs (N_0 <= 25,
-  p <= 8, K <= 4), including DEMs where a light class precedes a heavy one in DEM order; the listing
-  counter gives the same counts when its compiled search returns one class codeword at a time; the
-  accepted-combination counter gives no A_m with a cap of no entries, even without flagged
-  mechanisms; and the rows submitted to the oracle never exceed the listed faults on completed
-  weights.  Through the task runner, ``count_listing`` on E-chen and ``ground_truth`` on W(A-ft
-  Shor) and C-goto finish without ``compiled_in_timing``.  The compiled functions of ``counting.py``
-  and ``baseline.py`` call by name no compiled function of another file.
-* **AT3:** instrumented and uninstrumented certification give identical certificates on C-goto,
-  its variant, and A-ft steane; every wrapped name exists; an instrumentation installed around
-  another wrapper of the oracle class subclasses it and restores it; on a CSS circuit with a
-  violation, each query of the fault search is counted once, against an independent spy of the
-  calls that the fault search makes.  On E-chen, the shadow oracle answers each query that the
-  counters count, with one threshold-1 query per reduced zero-flag mechanism and one per distinct
-  syndrome of the flagged ones, and an oracle whose answers are shifted raises
-  ``ShadowDisagreement``.
-* **AT4:** ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on a
-  B-cat circuit with t = 2 and K = 3, and sleeps 2 s after it reports each completed weight
-  (``weight_delay_s``).  The limit falls 1 s after the end of the next-to-last weight of a full run,
-  which compiles nothing in its measured call.  The stopped run ends as a timeout with T at least
-  the limit, reports its completed weights as consecutive weights from 2 without a violation, and is
-  not rerun when its task is run again.
-  A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance of
-  1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
-  its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
-  exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
-  ``post_s``, and a repeat ends without post-processing or certificate text.
-* **AT5:** every input matches its SHA-256 and prepares a CSS state, its recomputed DEM
-  parameters, prepared state, and output qubits equal those of ``circuits.json``, and each code
-  file passes ``code_files.check_code_file``: the checks of ``circuits.py --check``.  A copy of
-  E-chen's record with another state, other output qubits, ``css_weight`` false, or ``css_weight``
-  set in its options fails exactly the check of that field.  A copy of the record of an A-ft
-  circuit with another t, n, and noise fails exactly the checks of K = t + 1, n, t against the
-  distance of its code file, and the noise.
-  Every noisy input has only the expected noise, with every measurement noisy.
-* **AT6:** neither ``mqt`` nor ``qiskit`` is loaded by the node's modules.
-* **AT7:** the brute-force baseline, on the ground-truth circuits and on C-goto, its variant, and
-  E-chen: it receives the arguments of ``cert_bz``'s fault search and builds one BZ oracle by the
-  fault search's name; its verdict and smallest violating weight equal those of ``cert_bz`` and the
-  ground truth; and on each completed weight, the combinations enumerated and the rows queried equal
-  A_m of the counter and of the ground truth.  The ``brute_bz`` arm runs through the task runner on
-  E-chen.  On the 20 random DEMs of AT2, with syndromes of Steane's |0>, the baseline finds a
-  violation of the same weight as qLDPC's ``find_smallest_violation`` and the ground truth, also
-  with small batches.
-* **AT8:** the analysis (``analyze.py``) of synthetic rows on circuits of ``circuits.json``: six
-  B-cat circuits through every output, and others for the cases below.  A ``count_listing`` run that
-  timed out after one completed weight gives Pi, E, Phi, q, q_h, and h from its partial results.  A
-  ground-truth count that differs from the counters' makes its circuit a disagreement.  So does a
-  baseline, in a first run or a repeat, whose enumerated combinations differ from A_m, or exceed it
-  on a weight where it found a violation, with A_m of ``count_accepted`` or else of the ground
-  truth.  So does a baseline stopped after a violation at weight m against a finished certification
-  whose smallest violation is not at m.  With no finished certification, a baseline whose only
-  record is a violation within A_m leaves ``agree_baseline`` unknown.  An expected task without a
-  row is reported as ``missing``.
-  Rows with ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and
-  times that ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one
-  circuit, whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a
-  repeat; and a first run that finished.  With two of the synthetic rows marked as rows of
-  ``--local`` runs, ``analyze.py`` refuses the label without ``--allow-local``; with it, every
-  output gives the number of these rows, and the name of the refused environment variable that a
-  start, here a dry run, accepted with ``--allow-env``.  The analysis of the label's archive
-  requires ``--out``, writes its outputs there, and leaves no extraction of the archive, or of the
-  archive of ``check``, behind, whether it succeeds or refuses the rows.  ``analyze.py`` warns of a
-  label whose hash does not match its ``circuits.json``, the working tree's other frozen files, and
-  the commit and requirements of its manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0)
-  circuit give the example counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m)
-  from the circuit's N_0 in place of an A_m that ``count_accepted`` did not compute where z >= m,
-  and gives no ratio where z < m.  ``shadow.csv`` gives the totals of a finished shadow run by
-  threshold, and the calls that a timed-out run wrote, without a last line cut off, and leaves out a
-  run with ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before
-  its last is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes
-  its circuit a disagreement:
+* **AT1:** C-goto certifies at K = 2, its variant violates at 1, and BZ and CC agree on E-chen.
+* **AT2:** Counters equal brute force; two arms run through the runner without compiled_in_timing.
+* **AT3:** Instrumentation changes no certificate, counts each query once, and shadows each query.
+* **AT4:** Limits, the post-processing allowance, repeats, and resume.
+* **AT5:** Inputs, their hashes, states, and noise.
+* **AT6:** The node's modules, all imported by this script, load neither MQT nor qiskit.
+* **AT7:** The baseline agrees with the certifier, the counters, and the ground truth.
+* **AT8:** Analysis of synthetic rows: partial counts, contradictions, missing and local rows.
+* **AT9:** The deletion arm against hand counts, the DEM, and the enumeration, and its timeout.
+* **AT10:** The margin arm against cert_bz, the enumeration, and its sectors, and its timeout.
+* **AT11:** Altered copies of code files fail the check that they break; AT5 checks the files.
+* **AT12:** Analysis of synthetic rows of the margin and deletion arms.
+* **AT13:** The subset smoke has the tasks of experiment.tasks, and the ceiling of their costs.
 
-  - a shadow run, kept or discarded by the runner because it compiled, that ended in
-    ``ShadowDisagreement``;
-  - against another exact result: a finished shadow run, a repeat, a deletion parent, the final m*
-    of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
-    recorded by an unfinished certification, and the result that a certification of status memout
-    kept;
-  - a final circuit whose m* is at most t, above the weight of a violation that the search of its
-    m* reported, or other than that of another deletion task that ends at the same final circuit;
-  - Phi_m of the listing or the ground truth above A_m;
-  - Omega_m of ``shadow`` or ``cert_cc`` above Phi_m, of the listing or the ground truth, on a
-    completed weight or one where the run found a violation;
-  - the ground truth's heavy mechanisms against h, also from a ground truth of status memout that
-    kept its result;
-  - a counterexample's residual weight, of ``cert_bz`` or ``margin``: not above its fault weight, by
-    its field ``residual_exceeds_fault_weight`` or its result's fault weight; below its lower bound;
-    or other than the larger of those of its X and Z parts.
-
-  A circuit whose claims of every kind agree gets their m*.
-* **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
-  acceptance estimate is within five standard errors of the exact probability from the DEM.
-  Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
-  accepts their detectors (a flipped sign, a rotated qubit), and one with an added random
-  measurement, are rejected for those reasons.  ``prune`` runs twice through the task runner on
-  C-goto, steane, and ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial
-  results, and then its final checks, with the final circuit, and the fault weights of the search of
-  its final m*: at least one.  Only the record at the final m* violates, and none where it is "all".
-  Each step and each final circuit, rebuilt, has its recorded outcome: by Stim's simulator, by
-  certification, and, where small enough, by the enumeration of the ground truth.  The final m*
-  agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final circuit
-  agree with the exact probabilities from their DEMs.  The enumeration also checks every step on the
-  d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are delayed
-  past its 5 s limit (``step_delay_s``) is a timeout that keeps its steps.
-* **AT10:** the margin gives "all" on C-goto and steane, 3 on E-chen, and 1 on W(C-goto).  On these
-  and every ground-truth circuit with r > t, it agrees with ``cert_bz``, with the enumeration up to
-  min(m*, r + 1) where small enough, and its sectors with an enumeration of the stabilizer group; of
-  its records of fault weights from 2 up, only that of m* violates, and none where m* is "all" or 1,
-  since the threshold-1 checks leave no record.  A run on E-chen delayed past its 5 s limit is a
-  timeout that gives only a lower bound.
-* **AT11:** altered copies of code files (an Lx that anticommutes with a check, a check as Lz, no
-  Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
-  that names it, and the code file of a one-qubit |0>, which has no X checks, passes.
-* **AT12:** the analysis of the applications (``analyze_applications.py``) on synthetic rows.  Every
-  case of the combined margin gives its value, its bound, or a disagreement, and a margin of at most
-  t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
-  with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
-  and agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in
-  the partial results of a killed task.  The margin counts of one family are checked, and
-  ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
-  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
-  unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
-  but list its task, list an uncertified parent, give a timeout and a flagged timeout their
-  statuses, and keep the rows of two tasks killed during the search of their final m*: with m* > k
-  for the largest fault weight k that the search completed, and with m* where it found a violation.
-  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's marks head
-  each circuit of ``pruned/``, which still parses.
-* **AT13:** the tasks of the subset ``smoke`` are the arms that apply to its circuits, by the rules
-  of the README, and their ceiling is that of the costs of their runs, by independent arithmetic,
-  as is the worst case of a certification whose fast first run and repeats cost the most.
-
-The expected values of AT1 on C-goto and its weakened variant come from qLDPC: the notebook
-``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb`` certifies C-goto's circuit up
-to any fault weight when it post-selects on the flag, and finds a violation at fault weight 1 when
-it does not, and ``test_steane_preparation_meets_css_weight_but_not_physical_weight`` of
-``src/qldpc/circuits/certification/fault_propagation_test.py`` certifies the circuit with its flag.
-A failure of AT1 means that the experiment disagrees with these results: find the cause, rather than
-change a rule of the experiment until AT1 passes.  Each test prints PASS or FAIL; the script exits
-with status 1 if any failed.  The tests are the same on the node and on a workstation: ``--local``
-and the ``node`` argument of each test exist because the plug-in interface passes whether the tests
-run on the node.
+Each test's docstring gives its details.  Each test prints PASS or FAIL; the script exits with
+status 1 if any failed.  The tests are the same on the node and on a workstation: ``--local`` and
+the ``node`` argument of each test exist because the plug-in interface passes whether the tests run
+on the node.
 """
 
 from __future__ import annotations
@@ -227,7 +100,20 @@ def _certify(circuit_id: str, method: CosetMethod, max_weight: int | None = None
 
 @test
 def at1_known_circuits(directory: pathlib.Path, node: bool) -> None:
-    """C-goto certifies at K = 2, its variant violates at 1, and BZ and CC agree on E-chen."""
+    """C-goto certifies at K = 2, its variant violates at 1, and BZ and CC agree on E-chen.
+
+    C-goto (``cgoto``) certifies at K = 2; its weakened variant (``w.cgoto``), which deletes the
+    flag, violates at fault weight 1; on E-chen (``echen``), BZ and CC give the same verdict and
+    smallest violating weight at K = 3.
+
+    The expected values on C-goto and its weakened variant come from qLDPC.  The notebook
+    ``examples/logical_error_rates/5_fault_tolerance_certificates.ipynb`` certifies C-goto's circuit
+    up to any fault weight when it post-selects on the flag, and finds a violation at fault weight 1
+    when it does not.  ``test_steane_preparation_meets_css_weight_but_not_physical_weight`` of
+    ``src/qldpc/circuits/certification/fault_propagation_test.py`` certifies the circuit with its
+    flag.  A failure of this test means that the experiment disagrees with these results: find the
+    cause, rather than change a rule of the experiment until it passes.
+    """
     for method in experiment.METHODS.values():
         goto = _certify("cgoto", method, max_weight=2)
         assert goto.certified, (method, str(goto))
@@ -246,7 +132,19 @@ def at1_known_circuits(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at2_counters(directory: pathlib.Path, node: bool) -> None:
-    """Counters equal brute force; two arms run through the runner without compiled_in_timing."""
+    """Counters equal brute force; two arms run through the runner without compiled_in_timing.
+
+    The listing counter (up to K') and the accepted-combination counter (up to K) equal brute force
+    on the ground-truth circuits of the d = 3 A-ft codes and on 20 random DEMs (N_0 <= 25, p <= 8, K
+    <= 4), including DEMs where a light class precedes a heavy one in DEM order.  The listing
+    counter gives the same counts when its compiled search returns one class codeword at a time.
+    The accepted-combination counter gives no A_m with a cap of no entries, even without flagged
+    mechanisms.  The rows submitted to the oracle never exceed the listed faults on completed
+    weights.  Through the task runner, ``count_listing`` on ``echen`` and ``ground_truth`` on
+    ``w.aft.shor.opt_opt`` and ``cgoto`` finish without ``compiled_in_timing``.  The compiled
+    functions of ``counting.py`` and ``baseline.py`` call by name no compiled function of another
+    file.
+    """
     # the compiled functions of counting.py and baseline.py call only compiled functions of their
     # own file, as the cache of their compiled code requires (see counting.py)
     for module in (counting, baseline):
@@ -332,7 +230,17 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
-    """Instrumentation changes no certificate, counts each query once, and shadows each query."""
+    """Instrumentation changes no certificate, counts each query once, and shadows each query.
+
+    Instrumented and uninstrumented certification give identical certificates on ``cgoto``,
+    ``w.cgoto``, and the A-ft circuits of the Steane code (``aft.steane.*``).  Every wrapped name
+    exists.  An instrumentation installed around another wrapper of the oracle class subclasses it
+    and restores it.  On a CSS circuit with a violation, each query of the fault search is counted
+    once, against an independent spy of the calls that the fault search makes.  On ``echen``, the
+    shadow oracle answers each query that the counters count, with one threshold-1 query per reduced
+    zero-flag mechanism and one per distinct syndrome of the flagged ones, and an oracle whose
+    answers are shifted raises ``ShadowDisagreement``.
+    """
     assert hasattr(fault_propagation, "find_smallest_violation")
     for name in ("CosetLeaderSearch", "FaultLister", "_check_fault"):
         assert hasattr(_fault_search, name), name
@@ -429,7 +337,21 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
-    """Limits, the post-processing allowance, repeats, and resume."""
+    """Limits, the post-processing allowance, repeats, and resume.
+
+    ``cert_bz`` is stopped by its limit after it completes a fault weight.  It runs on the B-cat
+    circuit ``bcat.w13.t2``, with t = 2 and K = 3, and sleeps 2 s after it reports each completed
+    weight (``weight_delay_s``).  The limit falls 1 s after the end of the next-to-last weight of a
+    full run, which compiles nothing in its measured call.  The stopped run ends as a timeout with T
+    at least the limit, reports its completed weights as consecutive weights from 2 without a
+    violation, and is not rerun when its task is run again.
+
+    A ``cert_bz`` run on ``w.cgoto``, which violates, gets a post-processing allowance of 1 s, and
+    its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and its
+    verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on ``cgoto`` gets
+    exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
+    ``post_s``, and a repeat ends without post-processing or certificate text.
+    """
     # a circuit with t = 2, so that weight 2 has no violation, and K = 3, so that the full run
     # reports two weights.  Each run sleeps after reporting each weight, and the limit falls in the
     # middle of the sleep after the next-to-last weight.  The runner checks the limit every 0.2 s or
@@ -491,7 +413,17 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at5_circuit_data(directory: pathlib.Path, node: bool) -> None:
-    """Inputs, their hashes, states, and noise."""
+    """Inputs, their hashes, states, and noise.
+
+    Every input matches its SHA-256 and prepares a CSS state, its recomputed DEM parameters,
+    prepared state, and output qubits equal those of ``circuits.json``, and each code file passes
+    ``code_files.check_code_file``: the checks of ``circuits.py --check``.  A copy of the record of
+    ``echen`` with another state, other output qubits, ``css_weight`` false, or ``css_weight`` set
+    in its options fails exactly the check of that field.  A copy of the record of
+    ``aft.steane.heuristic_opt`` with another t, n, and noise fails exactly the checks of K = t + 1,
+    n, t against the distance of its code file, and the noise.  Every noisy input has only the
+    expected noise, with every measurement noisy.
+    """
     circuits.check_inputs()
     allowed = {"DEPOLARIZE1", "DEPOLARIZE2", "X_ERROR", "Z_ERROR"}
     entries = _circuits()
@@ -540,14 +472,27 @@ def at5_circuit_data(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at6_node_imports(directory: pathlib.Path, node: bool) -> None:
-    """The node's modules, all imported by this script, load neither MQT nor qiskit."""
+    """The node's modules, all imported by this script, load neither MQT nor qiskit.
+
+    Neither ``mqt`` nor ``qiskit`` is loaded by the node's modules.
+    """
     loaded = [name for name in sys.modules if name.split(".")[0] in ("mqt", "qiskit")]
     assert not loaded, loaded
 
 
 @test
 def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
-    """The baseline agrees with the certifier, the counters, and the ground truth."""
+    """The baseline agrees with the certifier, the counters, and the ground truth.
+
+    The brute-force baseline runs on the ground-truth circuits and on ``cgoto``, ``w.cgoto``, and
+    ``echen``.  It receives the arguments of ``cert_bz``'s fault search and builds one BZ oracle
+    through the fault search's name ``_fault_search.CosetLeaderSearch``.  Its verdict and smallest
+    violating weight equal those of ``cert_bz`` and the ground truth.  On each completed weight, the
+    combinations enumerated and the rows queried equal A_m of the counter and of the ground truth.
+    The ``brute_bz`` arm runs through the task runner on ``echen``.  On the 20 random DEMs of AT2,
+    with syndromes of Steane's |0>, the baseline finds a violation of the same weight as qLDPC's
+    ``find_smallest_violation`` and the ground truth, also with small batches.
+    """
     entries = _circuits()
     ids = {e["id"] for e in entries if e["status"] == "ok" and e["ground_truth"]}
     ids |= {"cgoto", "w.cgoto", "echen"}
@@ -576,7 +521,61 @@ def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at8_analysis(directory: pathlib.Path, node: bool) -> None:
-    """Analysis of synthetic rows: partial counts, disagreements, missing tasks, flagged rows."""
+    """Analysis of synthetic rows: partial counts, contradictions, missing and local rows.
+
+    The analysis (``analyze.py``) runs on synthetic rows of circuits of ``circuits.json``: six B-cat
+    circuits through every output, and others for the cases below.
+
+    A ``count_listing`` run that timed out after one completed weight gives Pi, E, Phi, q, q_h, and
+    h from its partial results.  A ground-truth count that differs from the counters' makes its
+    circuit a disagreement.  So does a baseline, in a first run or a repeat, whose enumerated
+    combinations differ from A_m, or exceed it on a weight where it found a violation, with A_m of
+    ``count_accepted`` or else of the ground truth.  So does a baseline stopped after a violation at
+    weight m against a finished certification whose smallest violation is not at m.  With no
+    finished certification, a baseline whose only record is a violation within A_m leaves
+    ``agree_baseline`` unknown.  An expected task without a row is reported as ``missing``.
+
+    Rows with ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and
+    times that ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of
+    one circuit, whose ``cert_cc`` timeout does not have it set, against another circuit's plain
+    timeouts; a repeat; and a first run that finished.  With two of the synthetic rows marked as
+    rows of ``--local`` runs, ``analyze.py`` refuses the label without ``--allow-local``; with it,
+    every output gives the number of these rows, and the name of the refused environment variable
+    that a start, here a dry run, accepted with ``--allow-env``.  The analysis of the label's
+    archive requires ``--out``, writes its outputs there, and leaves no extraction of the archive,
+    or of the archive of ``check``, behind, whether it succeeds or refuses the rows.  ``analyze.py``
+    warns of a label whose hash does not match its ``circuits.json``, the working tree's other
+    frozen files, and the commit and requirements of its manifest, and of no other.
+
+    ``w.cgoto`` and ``dsynth190.bb72.naive`` give the example counterexamples of their groups.
+    ``listing_table.csv`` takes C(N_0, m) from the circuit's N_0 in place of an A_m that
+    ``count_accepted`` did not compute where z >= m, and gives no ratio where z < m.  ``shadow.csv``
+    gives the totals of a finished shadow run by threshold, and the calls that a timed-out run
+    wrote, without a last line cut off, and leaves out a run with ``compiled_in_timing`` set and a
+    disagreement.  A calls file with a malformed line before its last is an error.
+
+    Each kind of contradiction that ``analyze.check_consistency`` lists makes its circuit a
+    disagreement:
+
+    - a shadow run, kept or discarded by the runner because it compiled, that ended in
+      ``ShadowDisagreement``;
+    - against another exact result: a finished shadow run, a repeat, a deletion parent, the final m*
+      of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
+      recorded by an unfinished certification, and the result that a certification of status memout
+      kept;
+    - a final circuit whose m* is at most t, above the weight of a violation that the search of its
+      m* reported, or other than that of another deletion task that ends at the same final circuit;
+    - Phi_m of the listing or the ground truth above A_m;
+    - Omega_m of ``shadow`` or ``cert_cc`` above Phi_m, of the listing or the ground truth, on a
+      completed weight or one where the run found a violation;
+    - the ground truth's heavy mechanisms against h, also from a ground truth of status memout that
+      kept its result;
+    - a counterexample's residual weight, of ``cert_bz`` or ``margin``: not above its fault weight,
+      by its field ``residual_exceeds_fault_weight`` or its result's fault weight; below its lower
+      bound; or other than the larger of those of its X and Z parts.
+
+    A circuit whose claims of every kind agree gets their m*.
+    """
     # six B-cat circuits with t = 2 and K = 3: the first violates at 2 and its listing count
     # times out; the ground truth of the second and the baseline of the third disagree on a count,
     # and both violate at 3, so the example counterexample of their group would be either of them,
@@ -928,7 +927,25 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at9_prune(directory: pathlib.Path, node: bool) -> None:
-    """The deletion arm against hand counts, the DEM, and the enumeration, and its timeout."""
+    """The deletion arm against hand counts, the DEM, and the enumeration, and its timeout.
+
+    The deletion orders and gate counts of a small circuit equal those written by hand.  An
+    acceptance estimate is within five standard errors of the exact probability from the DEM.
+    Candidate deletions of ``cgoto`` whose prepared state changed are rejected for that, also where
+    the certifier does not reject their detectors (a flipped sign and a rotated qubit).  One with an
+    added random measurement, which prepares the same state, is rejected for its detectors.
+
+    ``prune`` runs twice through the task runner on ``cgoto``, ``aft.steane.heuristic_opt``, and
+    ``aft.cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial results, and
+    then its final checks, with the final circuit, and the fault weights of the search of its final
+    m*: at least one.  Only the record at the final m* violates, and none where it is "all".  Each
+    step and each final circuit, rebuilt, has its recorded outcome: by Stim's simulator, by
+    certification, and, where small enough, by the enumeration of the ground truth.  The final m*
+    agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final circuit
+    agree with the exact probabilities from their DEMs.  The enumeration also checks every step on
+    the d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are
+    delayed past its 5 s limit (``step_delay_s``) is a timeout that keeps its steps.
+    """
     # both orders and the counts of a circuit with a repeated and a two-target measurement, whose
     # tie is broken against target order, and one encoder and one verification gate, whose measured
     # qubit is its second target
@@ -1047,7 +1064,15 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at10_margin(directory: pathlib.Path, node: bool) -> None:
-    """The margin arm against cert_bz, the enumeration, and its sectors, and its timeout."""
+    """The margin arm against cert_bz, the enumeration, and its sectors, and its timeout.
+
+    The margin gives "all" on ``cgoto`` and ``aft.steane.heuristic_opt``, 3 on ``echen``, and 1 on
+    ``w.cgoto``.  On these and every ground-truth circuit with r > t, it agrees with ``cert_bz``,
+    with the enumeration up to min(m*, r + 1) where small enough, and its sectors with an
+    enumeration of the stabilizer group.  Of its records of fault weights from 2 up, only that of m*
+    violates, and none where m* is "all" or 1, since the threshold-1 checks leave no record.  A run
+    on ``echen`` delayed past its 5 s limit is a timeout that gives only a lower bound.
+    """
     expected: dict[str, int | str] = {
         "cgoto": "all",
         "aft.steane.heuristic_opt": "all",
@@ -1117,7 +1142,12 @@ def at10_margin(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at11_code_files(directory: pathlib.Path, node: bool) -> None:
-    """Altered copies of code files fail the check that they break; AT5 checks the files."""
+    """Altered copies of code files fail the check that they break; AT5 checks the files.
+
+    Altered copies of code files (an Lx that anticommutes with a check, a check as Lz, no Lx,
+    another k, and the d = 5 surface code without its exchange of X and Z) each fail the check that
+    names it, and the code file of a one-qubit |0>, which has no X checks, passes.
+    """
     entry = experiment._entry("aft.steane.heuristic_opt")
     code = json.loads((settings.HERE / entry["code_file"]).read_text())
     surface = experiment._entry("aft.rotated_surface_d5.heuristic_opt")
@@ -1154,14 +1184,38 @@ def at11_code_files(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at12_application_analysis(directory: pathlib.Path, node: bool) -> None:
-    """Analysis of synthetic rows of the margin and deletion arms."""
+    """Analysis of synthetic rows of the margin and deletion arms.
+
+    The analysis of the applications (``analyze_applications.py``) runs on synthetic rows.  Every
+    case of the combined margin gives its value, its bound, or a disagreement, and a margin of at
+    most t keeps the arm and sector of its counterexample.  A margin or a deletion parent that
+    disagrees with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a
+    disagreement, and agreeing deletion tasks do not.  A disagreeing parent does so also when its
+    verdict is only in the partial results of a killed task.  The margin counts of one family are
+    checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.
+
+    The deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256,
+    leave the rebuild unchecked for an input that is not the label's, exclude a disagreement from
+    ``deletion_table.csv`` but list its task, and list an uncertified parent.  They give the
+    statuses of two timeouts, one with ``compiled_in_timing`` set, and keep the rows of two tasks
+    killed during the search of their final m*: with m* > k for the largest fault weight k that the
+    search completed, and with m* where it found a violation.  ``deletion_table.csv`` lists its
+    circuits in the order of their ids, and an analysis's marks head each circuit of ``pruned/``,
+    which still parses.
+    """
     _check_application_analysis(directory)
 
 
 @test
 def at13_smoke_tasks(directory: pathlib.Path, node: bool) -> None:
-    """The subset smoke has the tasks of the README's rules, and the ceiling of their costs."""
-    # every arm that applies to the circuits of C-goto, E-chen, and A-ft steane, of which A-ft and
+    """The subset smoke has the tasks of experiment.tasks, and the ceiling of their costs.
+
+    The tasks of the subset ``smoke`` are the arms that apply to its circuits, by the rules of
+    ``experiment.tasks``, and their ceiling is that of the costs of their runs, by independent
+    arithmetic, as is the worst case of a certification whose fast first run and repeats cost the
+    most.
+    """
+    # every arm that applies to the circuits of C-goto, E-chen, and aft.steane.*, of which A-ft and
     # C-goto are verified families, and none is an input of prune_sensitivity
     expected = set()
     for entry in _circuits():
