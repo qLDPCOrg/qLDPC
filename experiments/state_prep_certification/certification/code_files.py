@@ -72,7 +72,9 @@ def check_code(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
     commute.  The number k = n - rank(Hx) - rank(Hz) of logical qubits must equal the k of the
     circuit's [[n, k, d]], and Lx and Lz must have k rows each.  Over GF(2), Hz Lx^T must vanish,
     and Lx Lz^T must be nonsingular.  Together, these checks imply that the rows of Hx, Hz, and Lz
-    generate the state's stabilizer group.  The ``distance`` of the file is not checked.
+    generate the state's stabilizer group.  The n of the circuit's [[n, k, d]] must be the n of the
+    matrices.  For a circuit of ``circuits.T_FROM_DISTANCE``, whose t is (d - 1) // 2, t must be
+    that of the file's ``distance``, if it gives one.  Nothing checks the ``distance`` itself.
     """
     name = entry["id"]
     n = len(entry["output_qubits"])
@@ -84,6 +86,15 @@ def check_code(entry: dict[str, Any], code: dict[str, Any]) -> list[str]:
         np.array(code[key], dtype=np.int64).reshape(-1, n) for key in ("Hx", "Hz", "Lx", "Lz")
     )
     problems = circuits._check_code_state(entry, code)
+    if entry["code"][0] != n:
+        problems.append(f"{name}: the code's n is {entry['code'][0]}, not n = {n}")
+    distance = code.get("distance")
+    if (
+        entry["family"] in circuits.T_FROM_DISTANCE
+        and distance is not None
+        and entry["t"] != (distance - 1) // 2
+    ):
+        problems.append(f"{name}: t is {entry['t']}, not (d - 1) // 2 for d = {distance}")
     k = n - _rank(hx) - _rank(hz)
     expected_k = entry["code"][1]
     if k != expected_k:

@@ -97,9 +97,9 @@ def parse_args() -> argparse.Namespace:
     commands.add_argument(
         "--check",
         action="store_true",
-        help="check the inputs' hashes, DEM parameters, states, output qubits, and code files, and "
-        "that the states are CSS; where circuit_data/mqt/ is present, also rebuild the inputs from "
-        "its sources",
+        help="check the inputs' hashes, DEM parameters, states, output qubits, K = t + 1, noise, "
+        "and code files, and that the states are CSS; where circuit_data/mqt/ is present, also "
+        "rebuild the inputs from its sources",
     )
     return parser.parse_args()
 
@@ -171,6 +171,9 @@ RESET_GATES = {"R", "RX"}
 
 # The families of verified circuits: each gets a weakened variant, a code file, and deletion tasks.
 VERIFIED_FAMILIES = ("A-ft", "C-goto", *SYNTHESES)
+
+# The families whose design t is (d - 1) // 2 for the distance d of their code (``_sources``).
+T_FROM_DISTANCE = ("A-ft", "A-unv", *SYNTHESES)
 
 
 def build_inputs() -> None:
@@ -579,9 +582,10 @@ def _check_input(entry: dict[str, Any]) -> list[str]:
     ``circuits.json``.  So must the input's prepared state and output qubits.  The input must
     prepare a CSS state: with ``css_weight`` None in its options, qLDPC sets ``css_weight`` true
     exactly for a CSS state, so the options must leave it None, and qLDPC's choice and the recorded
-    ``css_weight`` must both be true.  An input of
-    ``VERIFIED_FAMILIES`` must have a code file that passes ``code_files.check_code_file``, which
-    checks, among other things, that the input's state is the code's |0...0>.
+    ``css_weight`` must both be true.  The record's K must be t + 1, and its noise that of
+    ``config.json``.  An input of ``VERIFIED_FAMILIES`` must have a code file that passes
+    ``code_files.check_code_file``, which checks, among other things, that the input's state is the
+    code's |0...0>, and n and t against the code file.
     """
     import stim
 
@@ -610,6 +614,10 @@ def _check_input(entry: dict[str, Any]) -> list[str]:
         problems.append(f"{name}: the input does not prepare a CSS state")
     if entry["css_weight"] is not True:
         problems.append(f"{name}: css_weight is {entry['css_weight']}, not True")
+    if entry["options"]["max_weight"] != entry["t"] + 1:
+        problems.append(f"{name}: max_weight is {entry['options']['max_weight']}, not t + 1")
+    if entry["options"]["noise"] != CONFIG["noise"]:
+        problems.append(f"{name}: its noise is not that of config.json")
     if "code_file" in entry:
         problems += code_files.check_code_file(entry)
     elif entry["family"] in VERIFIED_FAMILIES:

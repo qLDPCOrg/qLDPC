@@ -108,7 +108,8 @@ python experiments/state_prep_certification/run_node.py certification --local --
 
 `--fetch` downloads MQT QECC's circuits, and `--build` writes the inputs, with the licenses and `circuits.json`, to `circuit_data/inputs/`.
 `--check` recomputes each input's hash, DEM parameters, prepared state, and output qubits, which must match `circuits.json`, and refuses an input that does not prepare a CSS state.
-It also checks each code file as `code_files.check_code_file` describes, such as that the code's |0...0> is the input's state.
+It checks that each record's K is t + 1, and that its noise is that of `config.json`.
+It also checks each code file as `code_files.check_code_file` describes, such as that the code's |0...0> is the input's state, and that the code's n, and t where the family takes t from the distance, agree with the code file.
 Where the fetched sources are present, as on the workstation, it also rebuilds the inputs from them in a scratch directory and compares.
 On the node, the experiment runs the same check before any task, copies `circuits.json` into the label directory, and never imports MQT or qiskit.
 

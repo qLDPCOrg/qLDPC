@@ -37,7 +37,9 @@
   parameters, prepared state, and output qubits equal those of ``circuits.json``, and each code
   file passes ``code_files.check_code_file``: the checks of ``circuits.py --check``.  A copy of
   E-chen's record with another state, other output qubits, ``css_weight`` false, or ``css_weight``
-  set in its options fails exactly the check of that field.
+  set in its options fails exactly the check of that field.  A copy of the record of an A-ft
+  circuit with another t, n, and noise fails exactly the checks of K = t + 1, n, t against the
+  distance of its code file, and the noise.
   Every noisy input has only the expected noise, with every measurement noisy.
 * **AT6:** neither ``mqt`` nor ``qiskit`` is loaded by the node's modules.
 * **AT7:** the brute-force baseline, on the ground-truth circuits and on C-goto, its variant, and
@@ -467,6 +469,18 @@ def at5_circuit_data(directory: pathlib.Path, node: bool) -> None:
     for message, change in changes.items():
         problems = circuits._check_input(entry | change)
         assert len(problems) == 1 and message in problems[0], (message, problems)
+
+    # a record with a code file whose K, n, t, and noise disagree fails exactly these four checks
+    steane = next(entry for entry in entries if entry["id"] == "aft.steane.heuristic_opt")
+    altered = steane | {
+        "t": 2,
+        "code": [8, *steane["code"][1:]],
+        "options": steane["options"] | {"noise": steane["options"]["noise"] | {"p": 0.002}},
+    }
+    problems = circuits._check_input(altered)
+    messages = ("max_weight is 2, not t + 1", "noise is not", "code's n is 8", "t is 2, not")
+    assert len(problems) == len(messages), problems
+    assert all(any(text in problem for problem in problems) for text in messages), problems
     checked = [entry for entry in entries if entry["status"] == "ok"]
     for entry in checked:
         circuit_id = entry["id"]
@@ -1054,7 +1068,14 @@ def at11_code_files(directory: pathlib.Path, node: bool) -> None:
         assert any(check in problem for problem in problems), (check, problems)
 
     # a code without X checks: the |0> state of one qubit
-    zero = {"id": "zero", "output_qubits": [0], "stabilizers": ["+Z"], "code": [1, 1, 1]}
+    zero = {
+        "id": "zero",
+        "family": "A-ft",
+        "t": 0,
+        "output_qubits": [0],
+        "stabilizers": ["+Z"],
+        "code": [1, 1, 1],
+    }
     one_qubit = {"distance": 1, "Hx": [], "Hz": [], "Lx": [[1]], "Lz": [[1]]}
     assert code_files.check_code(zero, one_qubit) == []
     print(f"  {len(alterations)} altered code files fail, and a code without X checks passes")
