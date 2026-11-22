@@ -1201,8 +1201,10 @@ def check_consistency(
             contradictions.append(f"{source}: residual weight does not exceed the fault weight")
         elif exact is not None and bound is not None and exact < bound:
             contradictions.append(f"{source}: residual weight below its lower bound")
-        sectors = (result.get("sector_weight_x"), result.get("sector_weight_z"))
-        if exact is not None and None not in sectors and exact != max(sectors):
+        sectors = [
+            result[name] for name in ("sector_weight_x", "sector_weight_z") if name in result
+        ]
+        if exact is not None and len(sectors) == 2 and exact != max(sectors):
             contradictions.append(f"{source}: residual weight against those of its X and Z parts")
 
     return claims, contradictions + analyze_applications.final_contradictions(circuit, arms)

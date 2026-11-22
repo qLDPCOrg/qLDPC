@@ -157,6 +157,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc import circuits as qldpc_circuits
+from qldpc._compilation import is_compilation_disabled
 from qldpc.codes.distance import CosetLeaderSearch, CosetMethod, MinWeightBound
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -226,7 +227,8 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
             for value in vars(module).values()
             if getattr(getattr(value, "py_func", None), "__module__", None) == module.__name__
         ]
-        assert compiled, module.__name__
+        disabled = ", since qLDPC's compilation is disabled" if is_compilation_disabled() else ""
+        assert compiled, f"{module.__name__} has no compiled function{disabled}"
         for function in compiled:
             for name in function.py_func.__code__.co_names:
                 called = getattr(function.py_func.__globals__.get(name), "py_func", None)
