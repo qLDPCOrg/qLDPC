@@ -3,7 +3,7 @@
 """The brute-force baseline of the certification experiment, with the certifier's own oracle.
 
 The baseline measures what the listing of irreducible accepted faults saves over checking every
-accepted fault combination with the same oracle.  ``brute_force_smallest_violation`` takes the
+accepted fault combination with the same oracle.  ``BruteForce.find_smallest_violation`` takes the
 arguments of qLDPC's ``find_smallest_violation`` (``qldpc.circuits.certification._fault_search``)
 and returns its result, a ``Violation`` of the smallest fault weight or None.  Like it, the
 baseline keeps one mechanism per distinct nonzero (flags, syndrome) signature, the N_0 reduced
@@ -249,25 +249,6 @@ class BruteForce:
         if self.progress is not None:
             self.progress(record)
         return violation
-
-
-def brute_force_smallest_violation(
-    flags: Sequence[int],
-    syndromes: Sequence[int],
-    stabilizers: npt.ArrayLike,
-    max_weight: int | None,
-    css_weight: bool,
-    memory_limit: int = 2**30,
-    method: CosetMethod = "auto",
-) -> Violation | None:
-    """Find a violating accepted fault of the smallest fault weight by brute force, or None.
-
-    The arguments and the result are those of qLDPC's ``find_smallest_violation``; see
-    ``BruteForce.find_smallest_violation``.
-    """
-    return BruteForce().find_smallest_violation(
-        flags, syndromes, stabilizers, max_weight, css_weight, memory_limit, method=method
-    )
 
 
 def enumeration_size(num_reduced: int, max_weight: int) -> int:

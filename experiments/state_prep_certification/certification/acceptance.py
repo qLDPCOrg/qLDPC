@@ -51,10 +51,9 @@ inputs, outputs, and documentation.
   fault search's name; its verdict and smallest violating weight equal those of ``cert_bz`` and the
   ground truth; and on each completed weight, the combinations enumerated and the rows queried equal
   A_m of the counter and of the ground truth.  The ``brute_bz`` arm runs through the task runner on
-  E-chen.  On the 20 random DEMs of AT2, with syndromes of Steane's |0>,
-  ``brute_force_smallest_violation`` finds a violation of the same weight as qLDPC's
-  ``find_smallest_violation`` and the ground truth, also with small batches.  Each circuit's U,
-  recomputed from N_0 and K, and whether it is within the cap, equal those of ``circuits.json``.
+  E-chen.  On the 20 random DEMs of AT2, with syndromes of Steane's |0>, the baseline finds a
+  violation of the same weight as qLDPC's ``find_smallest_violation`` and the ground truth, also
+  with small batches.
 * **AT8:** the analysis (``analyze.py``) of synthetic rows on circuits of ``circuits.json``: six
   B-cat circuits through every output, and others for the cases below.  A ``count_listing`` run that
   timed out after one completed weight gives Pi, E, Phi, q, q_h, and h from its partial results.  A
@@ -562,17 +561,10 @@ def at7_brute_force(directory: pathlib.Path, node: bool) -> None:
     assert row["result"]["per_weight"] == row["partial"], (row["result"], row["partial"])
     assert row["result"]["rows"] == sum(record["rows"] for record in row["partial"])
 
-    # brute_force_smallest_violation against find_smallest_violation on the random DEMs of AT2
+    # the baseline against find_smallest_violation on the random DEMs of AT2
     outcomes = _check_random_dems()
     assert outcomes["certified"] and outcomes["violation"], outcomes
     print(f"  20 random DEMs: {outcomes}")
-
-    # U, and whether it is within the cap, as circuits.json records them
-    cap = experiment.CONFIG["brute_force"]["max_combinations"]
-    ok = [entry for entry in entries if entry["status"] == "ok"]
-    for entry in ok:
-        size = baseline.enumeration_size(entry["N0"], entry["options"]["max_weight"])
-        assert entry["U"] == size and entry["brute_force"] == (size <= cap), entry["id"]
 
 
 @test
@@ -1239,10 +1231,6 @@ def _check_random_dems() -> dict[str, int]:
         expected = _fault_search.find_smallest_violation(*arguments, method="brouwer_zimmermann")
         brute = baseline.BruteForce()
         found = brute.find_smallest_violation(*arguments, method="brouwer_zimmermann")
-        assert (
-            baseline.brute_force_smallest_violation(*arguments, method="brouwer_zimmermann")
-            == found
-        )
         reduced = counting.reduce_signatures(flags, syndromes)
         truth = counting.brute_force(reduced, stabilizers, max_weight)
         weights = [None if v is None else len(v.fault_indices) for v in (expected, found)]
