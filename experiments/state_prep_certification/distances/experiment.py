@@ -20,6 +20,7 @@ from typing import Any
 from experiments.state_prep_certification.common import runner
 from experiments.state_prep_certification.common.tasks import repeated_worst_case_s
 from experiments.state_prep_certification.distances import arms, codes
+from qldpc.codes.distance import _tuning
 
 NAME = "distances"
 EXTRA_WHEELS = ["matplotlib"]
@@ -75,8 +76,6 @@ def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, An
 
 def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     """Run the arm's distance call once, timed."""
-    from qldpc.codes.distance import _tuning
-
     arm, entry = task["arm"], task["input"]
     stored = codes.load_code(label_dir, entry["code_hash"])
     with _tuning.use_tuning(**arms.tuning_changes(arm)):

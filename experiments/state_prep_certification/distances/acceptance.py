@@ -65,7 +65,6 @@ import sys
 from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
-sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
 from experiments.state_prep_certification.common import (
     acceptance,
