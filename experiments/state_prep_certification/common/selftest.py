@@ -1836,6 +1836,26 @@ def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_manifest_optimize_level(directory: pathlib.Path, node: bool) -> None:
+    """``optimize_level`` reads the child's last line, and exits if the child fails.
+
+    A ``sitecustomize`` that prints a line first leaves the level readable; a ``PYTHONHOME`` that
+    does not exist ends the start with the child's error.
+    """
+    from experiments.state_prep_certification.common import manifest
+
+    (directory / "sitecustomize.py").write_text('print("site")\n')
+    environ = {**os.environ, "PYTHONPATH": str(directory), "PYTHONOPTIMIZE": "1"}
+    assert manifest.optimize_level(environ) == max(sys.flags.optimize, 1)
+    try:
+        manifest.optimize_level({**os.environ, "PYTHONHOME": str(directory / "missing")})
+    except SystemExit as error:
+        assert "fails" in str(error.code), error.code
+    else:
+        raise AssertionError("no error")
+
+
+@test
 def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
     """A label covers the pins, frozen files, harness commit, and the requirements it is given.
 
