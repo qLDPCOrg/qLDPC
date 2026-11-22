@@ -810,7 +810,7 @@ def test_tasks_refused(directory: pathlib.Path, node: bool) -> None:
         {"key": "_parallel"},
     ):
         try:
-            tasks.write_pass1(directory, [_task("bad", [], **bad)])
+            tasks.write_pass1(directory, [_task("bad", []) | bad])
         except ValueError:
             pass
         else:
