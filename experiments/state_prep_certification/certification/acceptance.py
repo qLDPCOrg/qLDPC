@@ -1230,7 +1230,230 @@ def at12_application_analysis(directory: pathlib.Path, node: bool) -> None:
     circuits in the order of their ids, and an analysis's marks head each circuit of ``pruned/``,
     which still parses.
     """
-    _check_application_analysis(directory)
+
+    def run(status: str, result: dict[str, Any] | None = None, partial: Any = None) -> Any:
+        return {"status": status, "repeat": 0, "result": result or {}, "partial": partial or []}
+
+    def bz(weight: int | None) -> dict[str, Any]:
+        return run("ok", {"certified": weight is None, "violation_weight": weight, "K": 3})
+
+    # every case of the combined margin for t = 2 and K = 3, as (cert_bz, cert_cc, margin arm,
+    # flag rank r, expected margin or "> k" or "disagreement")
+    not_run = run("not run")
+    weights = [{"m": m, "violation": False} for m in (2, 3, 4)]
+    sector = {"sector_weight_x": 0, "sector_weight_z": 2, "violating_parts": "Z"}
+    cases: list[tuple[Any, Any, Any, int, Any]] = [
+        (run("ok", bz(1)["result"] | sector), not_run, None, 7, 1),
+        (bz(3), bz(3), None, 7, 3),
+        (run("timeout"), bz(3), None, 7, 3),
+        (bz(None), not_run, None, 2, "all"),
+        (bz(None), not_run, [run("ok", {"margin": 5})], 7, 5),
+        (bz(None), not_run, [run("ok", {"margin": "all"})], 7, "all"),
+        (bz(None), not_run, [run("timeout", None, weights)], 7, "> 4"),
+        (bz(None), not_run, [run("timeout", None, weights[:1])], 7, "> 3"),
+        (run("timeout", None, weights[:1]), not_run, None, 7, "> 2"),
+        (
+            bz(None),
+            not_run,
+            [run("timeout", None, [*weights[:2], {"m": 4, "violation": True}])],
+            7,
+            4,
+        ),
+        (not_run, not_run, None, 7, None),
+        (bz(3), not_run, [run("ok", {"margin": 4})], 7, "disagreement"),
+        (bz(None), not_run, [run("ok", {"margin": 3})], 7, "disagreement"),
+    ]
+    for bz_run, cc_run, margin_rows, r, expected in cases:
+        circuit = {"t": 2, "r": r, "options": {"max_weight": 3}}
+        arms = {"cert_bz": [bz_run], "cert_cc": [cc_run], "margin": margin_rows or []}
+        arms = {arm: rows for arm, rows in arms.items() if rows and rows[0] is not not_run}
+        claims = analyze_applications.margin_claims(circuit, arms)
+        fields = analyze_applications.margin_fields(arms, claims)
+        if expected == "disagreement":
+            assert fields["agree_margin"] is False and fields["margin"] is None, fields
+        elif isinstance(expected, str) and expected.startswith(">"):
+            assert fields["margin"] is None, fields
+            assert fields["margin_lower_bound"] == int(expected[2:]), (expected, fields)
+        else:
+            assert fields["margin"] == expected and fields["agree_margin"] is not False, fields
+        if expected == 1:
+            copied = {key: fields[f"counterexample_{key.replace('_weight', '')}"] for key in sector}
+            assert copied == sector and fields["counterexample_arm"] == "cert_bz", fields
+
+    # in summarize, a margin and a deletion parent that disagree with cert_bz, and a final circuit
+    # that CC does not certify, each make a disagreement; a consistent deletion task does not
+    def certification(weight: int | None, K: int) -> dict[str, Any]:
+        calls = {"calls": 1}
+        return bz(weight)["result"] | {"K": K, "zero_flag_checks": calls, "classification": calls}
+
+    parent = {"parent_certified": True, "parent_violation_weight": None}
+    synthetic = {
+        "echen": {"cert_bz": certification(3, 3) | {"batches": {}}, "margin": {"margin": 4}},
+        "cgoto": {
+            "cert_bz": certification(None, 2) | {"batches": {}},
+            "prune": {"parent_certified": False, "parent_violation_weight": 1},
+        },
+        "aft.steane.heuristic_opt": {
+            "cert_bz": certification(None, 2) | {"batches": {}},
+            "prune": parent | {"final_certified_cc": False},
+        },
+        "aft.steane.opt_opt": {
+            "cert_bz": certification(2, 2) | {"batches": {}},
+            "prune": parent | {"final_certified_cc": True},
+        },
+        "aft.steane.heuristic_heuristic": {
+            "cert_bz": certification(None, 2) | {"batches": {}},
+            "prune": parent | {"final_certified_cc": True},
+        },
+        "aft.shor.opt_opt": {
+            "cert_bz": certification(1, 2) | {"batches": {}},
+            "prune": {"parent_certified": False, "parent_violation_weight": 1},
+        },
+        # a killed task whose certified parent, known from its partial results, cert_bz refutes
+        "aft.shor.heuristic_opt": {
+            "cert_bz": certification(1, 2) | {"batches": {}},
+            "prune": run("timeout", None, [parent]),
+        },
+    }
+    rows = []
+    task_list = {}
+    for circuit_id, results in synthetic.items():
+        for arm, result in results.items():
+            task = experiment._task(arm, experiment._entry(circuit_id))
+            task_list[task["key"]] = task
+            rows.append(
+                {"task_key": task["key"], "arm": arm, "repeat": 0, "post_status": None}
+                | {"T": 1.0, "peak_rss_gib": 0.5}
+                | (result if "status" in result else run("ok", result))
+            )
+    entries = {circuit_id: experiment._entry(circuit_id) for circuit_id in synthetic}
+    summary, _ = analyze.summarize(analyze.collect(rows, entries, task_list))
+    disagreements = {row["id"] for row in summary if row["verdict"] == "disagreement"}
+    expected = {"echen", "cgoto", "aft.steane.heuristic_opt", "aft.shor.heuristic_opt"}
+    assert disagreements == expected, disagreements
+
+    # the margin counts of one family with t = 2, as (m*, lower bound, verdict)
+    margin_cases = [
+        (2, None, "certified"),
+        (3, None, "certified"),
+        (4, None, "certified"),
+        ("all", None, "certified"),
+        (None, 5, "certified"),
+        (None, None, "certified"),
+        (1, None, "disagreement"),
+    ]
+    keys = ("margin", "margin_lower_bound", "verdict")
+    margin_rows = [{"t": 2} | dict(zip(keys, row)) for row in margin_cases]
+    assert analyze_applications.margin_counts(margin_rows) == {
+        "margin_at_most_t": 1,
+        "margin_t_plus_1": 1,
+        "margin_at_least_t_plus_2": 1,
+        "margin_at_least_t_plus_2_values": "4/2: 1",
+        "margin_all": 1,
+        "margin_unresolved": 1,
+        "margin_unresolved_k_range": "5-5",
+        "margin_unknown": 1,
+    }
+
+    # the deletion outputs: a reduced circuit rebuilt from its input, a wrong final SHA-256, an
+    # input that is not the one the label ran on, a disagreement, a parent not certified at K = t,
+    # a timeout with final checks that do not hold the final circuit, and two timeouts during the
+    # search of the final m*, one after it found a violation; deletion_table.csv is ordered by
+    # circuit id, so the finished task of BB [[72,12,6]], whose input is missing, comes last
+    reduced_id = "aft.cc_4_8_8.heuristic_opt"
+    reduced = applications.prune(
+        _input(reduced_id), experiment._entry(reduced_id), "last_measured_first", 0
+    )
+    assert any(record["outcome"] == "accepted" for record in reduced["steps"]), reduced
+    inputs = directory / "inputs"
+    inputs.mkdir(parents=True, exist_ok=True)
+    for circuit_id in (reduced_id, "aft.steane.heuristic_opt"):
+        (inputs / f"{circuit_id}.stim").write_text(applications.circuit_text(_input(circuit_id)))
+    (inputs / "aft.shor.heuristic_opt.stim").write_text(
+        applications.circuit_text(_input(reduced_id))
+    )
+    checks = {"final_certified_cc": True}
+    final_keys = ("parent_counts", "final_counts", "final_certified_cc", "acceptance")
+    final_checks = {key: reduced[key] for key in (*final_keys, "final_circuit", "final_sha256")}
+    searched = [{"m": m, "violation": False} for m in (2, 3)]
+    killed = [parent, *reduced["steps"], {"final_checks": final_checks}, *searched]
+    found = [*killed[:-1], {"m": 3, "violation": True}]
+    arms = {
+        reduced_id: [run("ok", reduced, reduced["steps"])],
+        "aft.steane.heuristic_opt": [run("ok", reduced | {"final_sha256": "0" * 64})],
+        "aft.shor.heuristic_opt": [run("ok", reduced)],
+        "aft.steane.opt_opt": [run("ok", reduced)],
+        "dsynth190.bb72.naive": [run("ok", reduced)],
+        "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
+        "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
+        "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
+        "aft.steane.heuristic_heuristic": [run("timeout", None, killed)],
+        "aft.carbon.heuristic_opt": [run("timeout", None, found)],
+    }
+    per_circuit = {
+        circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
+        for circuit_id, arm_rows in arms.items()
+    }
+    # margin_violations.csv lists m* = t, and leaves out m* = t + 1 and a disagreement
+    margins = {reduced_id: (2, "certified"), "aft.steane.heuristic_opt": (3, "certified")}
+    margins["aft.steane.opt_opt"] = (1, "disagreement")
+    summary_rows = [
+        {"id": circuit_id, "family": "F", "t": 2, "counterexample_violating_parts": "Z"}
+        | dict(zip(("margin", "verdict"), margins.get(circuit_id, (None, "certified"))))
+        for circuit_id in arms
+    ]
+    out = directory / "analysis"
+    (out / "pruned").mkdir(parents=True, exist_ok=True)
+    (out / "pruned" / "prune.stale.stim").write_text("H 0\n")  # of an earlier analysis
+    paths = analyze_applications.write_applications(per_circuit, summary_rows, out, inputs)
+    assert not (out / "pruned" / "prune.stale.stim").exists(), "pruned/ was not written whole"
+    with open(out / "deletion_table.csv") as file:
+        table_rows = list(csv.DictReader(file))
+    ids = [row["id"] for row in table_rows]
+    assert ids == sorted(ids), ids
+    table = {row["id"]: row["rebuild_matches"] for row in table_rows}
+    expected_table = {
+        reduced_id: "True",
+        "aft.steane.heuristic_opt": "False",
+        "aft.shor.heuristic_opt": "",
+        "aft.steane.heuristic_heuristic": "",
+        "aft.carbon.heuristic_opt": "",
+        "dsynth190.bb72.naive": "",
+    }
+    assert table == expected_table, table
+    # the tasks killed during the search of their final m* give m* > 3, and m* = 3 where the
+    # search found a violation at 3
+    killed_rows = {
+        row["id"]: (row["final_margin"], row["final_margin_lower_bound"], row["attempted"])
+        for row in table_rows
+        if row["status"] == "timeout"
+    }
+    attempted = str(len(reduced["steps"]))
+    assert killed_rows == {
+        "aft.steane.heuristic_heuristic": ("", "3", attempted),
+        "aft.carbon.heuristic_opt": ("3", "", attempted),
+    }, killed_rows
+    with open(out / "deletion_tasks.csv") as file:
+        tasks = {row["id"]: row["disagreement"] for row in csv.DictReader(file)}
+    assert tasks == dict.fromkeys(table, "False") | {"aft.steane.opt_opt": "True"}, tasks
+    notes = json.loads((out / "deletion_notes.json").read_text())
+    assert [entry["id"] for entry in notes["not_certified_at_t"]] == ["cgoto"], notes
+    assert notes["unfinished"][0]["final_checks"] == checks, notes
+    # a deletion run's plain and flagged timeouts
+    statuses = {entry["id"]: entry["status"] for entry in notes["unfinished"]}
+    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, notes
+    assert notes["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], notes
+    mismatches = notes["rebuild_mismatches"]
+    assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], notes
+    with open(out / "margin_violations.csv") as file:
+        assert [row["id"] for row in csv.DictReader(file)] == [reduced_id]
+    stim.Circuit((out / "pruned" / f"prune.{reduced_id}.stim").read_text())
+
+    # an analysis's marks head each circuit of pruned/, which still parses
+    store.mark_outputs(paths, {"local_rows": 2})
+    pruned = (out / "pruned" / f"prune.{reduced_id}.stim").read_text()
+    assert pruned.startswith("# local_rows: 2\n"), pruned[:80]
+    stim.Circuit(pruned)
 
 
 @test
@@ -1303,7 +1526,7 @@ def _check_brute_bz(circuit_id: str) -> bool:
         recorded.update(zip(names + ("memory_limit", "method"), args, strict=True), **kwargs)
         return original(*args, **kwargs)
 
-    with mock.patch.object(fault_propagation, "find_smallest_violation", recorder):
+    with baseline.fault_search_replaced(recorder):
         certified = _certify(circuit_id, "brouwer_zimmermann")
 
     brute = baseline.BruteForce()
@@ -1775,234 +1998,6 @@ def _check_consistency() -> None:
     (row,) = [row for row in summary if row["id"] == consistent]
     assert row["verdict"] == "certified" and row["margin"] == 4, row
     assert row["contradictions"] is None, row
-
-
-def _check_application_analysis(directory: pathlib.Path) -> None:
-    """The combined margin, and the deletion outputs, on synthetic rows (AT12)."""
-
-    def run(status: str, result: dict[str, Any] | None = None, partial: Any = None) -> Any:
-        return {"status": status, "repeat": 0, "result": result or {}, "partial": partial or []}
-
-    def bz(weight: int | None) -> dict[str, Any]:
-        return run("ok", {"certified": weight is None, "violation_weight": weight, "K": 3})
-
-    # every case of the combined margin for t = 2 and K = 3, as (cert_bz, cert_cc, margin arm,
-    # flag rank r, expected margin or "> k" or "disagreement")
-    not_run = run("not run")
-    weights = [{"m": m, "violation": False} for m in (2, 3, 4)]
-    sector = {"sector_weight_x": 0, "sector_weight_z": 2, "violating_parts": "Z"}
-    cases: list[tuple[Any, Any, Any, int, Any]] = [
-        (run("ok", bz(1)["result"] | sector), not_run, None, 7, 1),
-        (bz(3), bz(3), None, 7, 3),
-        (run("timeout"), bz(3), None, 7, 3),
-        (bz(None), not_run, None, 2, "all"),
-        (bz(None), not_run, [run("ok", {"margin": 5})], 7, 5),
-        (bz(None), not_run, [run("ok", {"margin": "all"})], 7, "all"),
-        (bz(None), not_run, [run("timeout", None, weights)], 7, "> 4"),
-        (bz(None), not_run, [run("timeout", None, weights[:1])], 7, "> 3"),
-        (run("timeout", None, weights[:1]), not_run, None, 7, "> 2"),
-        (
-            bz(None),
-            not_run,
-            [run("timeout", None, [*weights[:2], {"m": 4, "violation": True}])],
-            7,
-            4,
-        ),
-        (not_run, not_run, None, 7, None),
-        (bz(3), not_run, [run("ok", {"margin": 4})], 7, "disagreement"),
-        (bz(None), not_run, [run("ok", {"margin": 3})], 7, "disagreement"),
-    ]
-    for bz_run, cc_run, margin_rows, r, expected in cases:
-        circuit = {"t": 2, "r": r, "options": {"max_weight": 3}}
-        arms = {"cert_bz": [bz_run], "cert_cc": [cc_run], "margin": margin_rows or []}
-        arms = {arm: rows for arm, rows in arms.items() if rows and rows[0] is not not_run}
-        claims = analyze_applications.margin_claims(circuit, arms)
-        fields = analyze_applications.margin_fields(arms, claims)
-        if expected == "disagreement":
-            assert fields["agree_margin"] is False and fields["margin"] is None, fields
-        elif isinstance(expected, str) and expected.startswith(">"):
-            assert fields["margin"] is None, fields
-            assert fields["margin_lower_bound"] == int(expected[2:]), (expected, fields)
-        else:
-            assert fields["margin"] == expected and fields["agree_margin"] is not False, fields
-        if expected == 1:
-            copied = {key: fields[f"counterexample_{key.replace('_weight', '')}"] for key in sector}
-            assert copied == sector and fields["counterexample_arm"] == "cert_bz", fields
-
-    # in summarize, a margin and a deletion parent that disagree with cert_bz, and a final circuit
-    # that CC does not certify, each make a disagreement; a consistent deletion task does not
-    def certification(weight: int | None, K: int) -> dict[str, Any]:
-        calls = {"calls": 1}
-        return bz(weight)["result"] | {"K": K, "zero_flag_checks": calls, "classification": calls}
-
-    parent = {"parent_certified": True, "parent_violation_weight": None}
-    synthetic = {
-        "echen": {"cert_bz": certification(3, 3) | {"batches": {}}, "margin": {"margin": 4}},
-        "cgoto": {
-            "cert_bz": certification(None, 2) | {"batches": {}},
-            "prune": {"parent_certified": False, "parent_violation_weight": 1},
-        },
-        "aft.steane.heuristic_opt": {
-            "cert_bz": certification(None, 2) | {"batches": {}},
-            "prune": parent | {"final_certified_cc": False},
-        },
-        "aft.steane.opt_opt": {
-            "cert_bz": certification(2, 2) | {"batches": {}},
-            "prune": parent | {"final_certified_cc": True},
-        },
-        "aft.steane.heuristic_heuristic": {
-            "cert_bz": certification(None, 2) | {"batches": {}},
-            "prune": parent | {"final_certified_cc": True},
-        },
-        "aft.shor.opt_opt": {
-            "cert_bz": certification(1, 2) | {"batches": {}},
-            "prune": {"parent_certified": False, "parent_violation_weight": 1},
-        },
-        # a killed task whose certified parent, known from its partial results, cert_bz refutes
-        "aft.shor.heuristic_opt": {
-            "cert_bz": certification(1, 2) | {"batches": {}},
-            "prune": run("timeout", None, [parent]),
-        },
-    }
-    rows = []
-    task_list = {}
-    for circuit_id, results in synthetic.items():
-        for arm, result in results.items():
-            task = experiment._task(arm, experiment._entry(circuit_id))
-            task_list[task["key"]] = task
-            rows.append(
-                {"task_key": task["key"], "arm": arm, "repeat": 0, "post_status": None}
-                | {"T": 1.0, "peak_rss_gib": 0.5}
-                | (result if "status" in result else run("ok", result))
-            )
-    entries = {circuit_id: experiment._entry(circuit_id) for circuit_id in synthetic}
-    summary, _ = analyze.summarize(analyze.collect(rows, entries, task_list))
-    disagreements = {row["id"] for row in summary if row["verdict"] == "disagreement"}
-    expected = {"echen", "cgoto", "aft.steane.heuristic_opt", "aft.shor.heuristic_opt"}
-    assert disagreements == expected, disagreements
-
-    # the margin counts of one family with t = 2, as (m*, lower bound, verdict)
-    margin_cases = [
-        (2, None, "certified"),
-        (3, None, "certified"),
-        (4, None, "certified"),
-        ("all", None, "certified"),
-        (None, 5, "certified"),
-        (None, None, "certified"),
-        (1, None, "disagreement"),
-    ]
-    keys = ("margin", "margin_lower_bound", "verdict")
-    margin_rows = [{"t": 2} | dict(zip(keys, row)) for row in margin_cases]
-    assert analyze_applications.margin_counts(margin_rows) == {
-        "margin_at_most_t": 1,
-        "margin_t_plus_1": 1,
-        "margin_at_least_t_plus_2": 1,
-        "margin_at_least_t_plus_2_values": "4/2: 1",
-        "margin_all": 1,
-        "margin_unresolved": 1,
-        "margin_unresolved_k_range": "5-5",
-        "margin_unknown": 1,
-    }
-
-    # the deletion outputs: a reduced circuit rebuilt from its input, a wrong final SHA-256, an
-    # input that is not the one the label ran on, a disagreement, a parent not certified at K = t,
-    # a timeout with final checks that do not hold the final circuit, and two timeouts during the
-    # search of the final m*, one after it found a violation; deletion_table.csv is ordered by
-    # circuit id, so the finished task of BB [[72,12,6]], whose input is missing, comes last
-    reduced_id = "aft.cc_4_8_8.heuristic_opt"
-    reduced = applications.prune(
-        _input(reduced_id), experiment._entry(reduced_id), "last_measured_first", 0
-    )
-    assert any(record["outcome"] == "accepted" for record in reduced["steps"]), reduced
-    inputs = directory / "inputs"
-    inputs.mkdir(parents=True, exist_ok=True)
-    for circuit_id in (reduced_id, "aft.steane.heuristic_opt"):
-        (inputs / f"{circuit_id}.stim").write_text(applications.circuit_text(_input(circuit_id)))
-    (inputs / "aft.shor.heuristic_opt.stim").write_text(
-        applications.circuit_text(_input(reduced_id))
-    )
-    checks = {"final_certified_cc": True}
-    final_keys = ("parent_counts", "final_counts", "final_certified_cc", "acceptance")
-    final_checks = {key: reduced[key] for key in (*final_keys, "final_circuit", "final_sha256")}
-    searched = [{"m": m, "violation": False} for m in (2, 3)]
-    killed = [parent, *reduced["steps"], {"final_checks": final_checks}, *searched]
-    found = [*killed[:-1], {"m": 3, "violation": True}]
-    arms = {
-        reduced_id: [run("ok", reduced, reduced["steps"])],
-        "aft.steane.heuristic_opt": [run("ok", reduced | {"final_sha256": "0" * 64})],
-        "aft.shor.heuristic_opt": [run("ok", reduced)],
-        "aft.steane.opt_opt": [run("ok", reduced)],
-        "dsynth190.bb72.naive": [run("ok", reduced)],
-        "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
-        "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
-        "w.cgoto": [run("timeout", None, [parent]) | {"compiled_in_timing": True}],
-        "aft.steane.heuristic_heuristic": [run("timeout", None, killed)],
-        "aft.carbon.heuristic_opt": [run("timeout", None, found)],
-    }
-    per_circuit = {
-        circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
-        for circuit_id, arm_rows in arms.items()
-    }
-    # margin_violations.csv lists m* = t, and leaves out m* = t + 1 and a disagreement
-    margins = {reduced_id: (2, "certified"), "aft.steane.heuristic_opt": (3, "certified")}
-    margins["aft.steane.opt_opt"] = (1, "disagreement")
-    summary_rows = [
-        {"id": circuit_id, "family": "F", "t": 2, "counterexample_violating_parts": "Z"}
-        | dict(zip(("margin", "verdict"), margins.get(circuit_id, (None, "certified"))))
-        for circuit_id in arms
-    ]
-    out = directory / "analysis"
-    (out / "pruned").mkdir(parents=True, exist_ok=True)
-    (out / "pruned" / "prune.stale.stim").write_text("H 0\n")  # of an earlier analysis
-    paths = analyze_applications.write_applications(per_circuit, summary_rows, out, inputs)
-    assert not (out / "pruned" / "prune.stale.stim").exists(), "pruned/ was not written whole"
-    with open(out / "deletion_table.csv") as file:
-        table_rows = list(csv.DictReader(file))
-    ids = [row["id"] for row in table_rows]
-    assert ids == sorted(ids), ids
-    table = {row["id"]: row["rebuild_matches"] for row in table_rows}
-    expected_table = {
-        reduced_id: "True",
-        "aft.steane.heuristic_opt": "False",
-        "aft.shor.heuristic_opt": "",
-        "aft.steane.heuristic_heuristic": "",
-        "aft.carbon.heuristic_opt": "",
-        "dsynth190.bb72.naive": "",
-    }
-    assert table == expected_table, table
-    # the tasks killed during the search of their final m* give m* > 3, and m* = 3 where the
-    # search found a violation at 3
-    killed_rows = {
-        row["id"]: (row["final_margin"], row["final_margin_lower_bound"], row["attempted"])
-        for row in table_rows
-        if row["status"] == "timeout"
-    }
-    attempted = str(len(reduced["steps"]))
-    assert killed_rows == {
-        "aft.steane.heuristic_heuristic": ("", "3", attempted),
-        "aft.carbon.heuristic_opt": ("3", "", attempted),
-    }, killed_rows
-    with open(out / "deletion_tasks.csv") as file:
-        tasks = {row["id"]: row["disagreement"] for row in csv.DictReader(file)}
-    assert tasks == dict.fromkeys(table, "False") | {"aft.steane.opt_opt": "True"}, tasks
-    notes = json.loads((out / "deletion_notes.json").read_text())
-    assert [entry["id"] for entry in notes["not_certified_at_t"]] == ["cgoto"], notes
-    assert notes["unfinished"][0]["final_checks"] == checks, notes
-    # a deletion run's plain and flagged timeouts
-    statuses = {entry["id"]: entry["status"] for entry in notes["unfinished"]}
-    assert statuses == {"echen": "timeout", "w.cgoto": "timeout_compiled"}, notes
-    assert notes["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], notes
-    mismatches = notes["rebuild_mismatches"]
-    assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], notes
-    with open(out / "margin_violations.csv") as file:
-        assert [row["id"] for row in csv.DictReader(file)] == [reduced_id]
-    stim.Circuit((out / "pruned" / f"prune.{reduced_id}.stim").read_text())
-
-    # an analysis's marks head each circuit of pruned/, which still parses
-    store.mark_outputs(paths, {"local_rows": 2})
-    pruned = (out / "pruned" / f"prune.{reduced_id}.stim").read_text()
-    assert pruned.startswith("# local_rows: 2\n"), pruned[:80]
-    stim.Circuit(pruned)
 
 
 def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps: bool) -> int:

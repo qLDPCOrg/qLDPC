@@ -25,13 +25,10 @@ DATA = HERE / "circuit_data"
 INPUTS = DATA / "inputs"
 CIRCUITS_JSON = INPUTS / "circuits.json"
 
-SYNTHESIZED = DATA / "synthesized"
-SYNTHESIZED_MQT_1_9_0 = DATA / "synthesized_mqt_1.9.0"
-
 # The families of synthesized circuits: the prefix of their ids, and the folder of their circuits.
 SYNTHESES = {
-    "D-synth": ("dsynth", SYNTHESIZED),
-    "D-synth (MQT 1.9.0)": ("dsynth190", SYNTHESIZED_MQT_1_9_0),
+    "D-synth": ("dsynth", DATA / "synthesized"),
+    "D-synth (MQT 1.9.0)": ("dsynth190", DATA / "synthesized_mqt_1.9.0"),
 }
 
 # The families of verified circuits: each gets a weakened variant, a code file, and deletion tasks.
