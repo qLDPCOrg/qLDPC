@@ -33,15 +33,17 @@ SMOKE = ("golay", "bb72", "surface9", "five_five")
 
 
 def prepare(label_dir: pathlib.Path) -> None:
-    """Regenerate the codes into the label directory, and stop if any differs from the sample.
+    """Regenerate the codes into the label directory, and stop on any difference from the sample.
 
-    Then copy the sample into the label directory, where ``analyze.py`` reads it, so that the run
-    keeps the sample that it ran with.
+    The comparison covers the codes and the draws' metadata, such as the endpoints and each code's
+    family, parameters, and seed (``codes.compare_with_sample``).  Then copy the sample into the
+    label directory, where ``analyze.py`` reads it, so that the run keeps the sample that it ran
+    with.
     """
     sample = codes.generate(label_dir)
     problems = codes.compare_with_sample(sample)
     if problems:
-        raise SystemExit("The regenerated codes differ from sample.json:\n" + "\n".join(problems))
+        raise SystemExit("The regenerated sample differs from sample.json:\n" + "\n".join(problems))
     shutil.copyfile(codes.SAMPLE, label_dir / codes.SAMPLE.name)
 
 

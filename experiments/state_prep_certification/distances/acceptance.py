@@ -12,15 +12,16 @@
   are reported rather than checked.
 * **AT2:** ``q_bz_prior`` with a limit of 5 s on pp170 is a timeout with T >= 5 s and no process
   left, while a concurrent run on another code finishes unaffected, without ``compiled_in_timing``.
-* **AT5:** regenerated codes match ``sample.json``, and ``prepare`` copies it into the label
+* **AT5:** the regenerated sample matches ``sample.json``, and ``prepare`` copies it into the label
   directory, where ``analyze.py`` reads it: changing golay's reference distance in the copy makes
   the analysis of a run on golay a disagreement.  AT5's runs are local, so the analysis refuses
   their rows without ``--allow-local``; with it, every output gives the number of these rows, the
   refused environment variables that a start accepted with ``--allow-env``, ``PYTHONOPTIMIZE`` for
   a start under -O, which sets no variable, and the recorded variable that a resume changed,
   ``distances.pdf`` in its metadata.  ``compare_with_sample`` reports a sample in which one
-  reference distance differs from that of ``sample.json``.  Each row's tuning is the shipped
-  default, with ``BZ_PRIOR`` for ``q_bz_prior``.
+  reference distance differs from that of ``sample.json``, and one with another endpoint and another
+  family of a code.  Each row's tuning is the shipped default, with ``BZ_PRIOR`` for
+  ``q_bz_prior``.
 * **AT6:** both arms agree on the AT1 codes and on the smallest drawn code of each family, and none
   fails; arms that time out are reported rather than compared.  Locally, runs are limited to
   ``LOCAL_LIMIT_S``.
@@ -204,6 +205,14 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
     changed = copy.deepcopy(_sample())
     next(entry for entry in changed["anchors"] if entry["name"] == "qr79")["reference_d"] = 13
     assert codes.compare_with_sample(changed) == ["anchors: qr79 has another reference_d"]
+    # the draws' metadata too: an endpoint, and a code's family
+    changed = copy.deepcopy(_sample())
+    changed["endpoints"]["lp"]["n_lo"] += 1
+    changed["codes"][0]["family"] = "gb"
+    assert codes.compare_with_sample(changed) == [
+        "endpoints differs",
+        f"codes: {changed['codes'][0]['name']} has another family",
+    ]
 
     defaults = dataclasses.asdict(_tuning.SearchTuning())
     prior = dict(defaults, **EXPECTED_BZ_PRIOR)
