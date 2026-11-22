@@ -314,16 +314,28 @@ def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None
 
 @test
 def test_runner_timeout_before_memout(directory: pathlib.Path, node: bool) -> None:
-    """A run whose T reached its limit is a timeout, even if a memory kill followed."""
+    """A run whose T reached its limit is a timeout, even if a memory kill followed.
+
+    So is a run that a memory poll killed during its measured call at or past the limit, as after
+    a slow poll; before the limit, the kill is a memout.
+    """
     from experiments.state_prep_certification.common import runner
 
-    task = _task("late", [], limit_s=1.0)
-    watcher = runner._Watcher(
-        directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
-    )
-    watcher._receive({"type": "measured", "T": 1.5, "T_cpu": 1.5})
-    row = watcher._row("memout", None, "", "")
+    def watcher() -> Any:
+        task = _task("late", [], limit_s=1.0)
+        return runner._Watcher(
+            directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+        )
+
+    returned = watcher()
+    returned._receive({"type": "measured", "T": 1.5, "T_cpu": 1.5})
+    row = returned._row("memout", None, "", "")
     assert row["status"] == "timeout" and row["T"] == 1.5, row
+    for killed_at, status, T in ((1.5, "timeout", 1.5), (0.5, "memout", None)):
+        killed = watcher()
+        killed.timing_started_at, killed.killed_at = 10.0, 10.0 + killed_at
+        row = killed._row("memout", None, "", "")
+        assert (row["status"], row["T"]) == (status, T), (killed_at, row)
 
 
 @test

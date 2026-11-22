@@ -16,8 +16,9 @@ run until after its row is appended, and watches the child:
 * **Limit:** the measured call gets ``limit_s`` from the moment that the child reports its start.
   The parent kills the child as soon as the limit has passed, and the run is a ``timeout``
   whenever the measured time T is at least the limit, even if the call returned later or a memory
-  kill followed.  The T of a killed timeout is the time from the start to the kill, a censoring
-  time.
+  kill followed, and whenever a memory kill during the measured call came at or after the limit,
+  as after a slow poll.  The T of a killed timeout is the time from the start to the kill, a
+  censoring time.
 * **After the measured call:** once it has ended, the child has ``post_s`` (by default
   ``FINISH_S``) to send its result and exit.  An experiment with untimed post-processing, such as
   describing a counterexample, sends its measured result first with ``send_result`` and declares a
@@ -502,17 +503,22 @@ class _Watcher:
         if self.measured is not None:
             T, T_cpu = float(self.measured["T"]), float(self.measured["T_cpu"])
 
-        # the status, from the measured call first
+        # the status, from the measured call first; a kill during the measured call at or past its
+        # limit, by the limit or by a memory poll that crossed it, makes a timeout
+        started, killed = self.timing_started_at, self.killed_at
+        killed_T = None
+        if self.measured is None and started is not None and killed is not None:
+            killed_T = killed - started
         if T is not None and T >= self.limit_s:
             status = "timeout"
+        elif killed_T is not None and (
+            kill_reason == "timeout" or (kill_reason == "memout" and killed_T >= self.limit_s)
+        ):
+            status, T = "timeout", max(self.limit_s, killed_T)
         elif kill_reason == "memout" and self.result is None:
             status = "memout"
         elif kill_reason == "startup":
             status, error = "error", f"start-up cap of {self.startup_cap_s:g} s exceeded"
-        elif self.measured is None and kill_reason == "timeout":
-            status = "timeout"
-            assert self.timing_started_at is not None and self.killed_at is not None
-            T = max(self.limit_s, self.killed_at - self.timing_started_at)
         elif self.measured is not None and self.result is not None:
             status = "ok"
         elif kill_reason == "post_timeout":

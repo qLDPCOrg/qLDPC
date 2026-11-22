@@ -39,7 +39,7 @@ The analyses of certification and distances name in every output each such varia
 
 Each run of a task is a fresh process pinned to one core, with the thread variables of numerical libraries set to 1; the runner that watches it runs on the reserved cores (see below).
 The runner times one call of the task's code, the measured call, whose wall time is T.
-A run is a `timeout` if T reaches the task's limit, even if a memory kill followed.
+A run is a `timeout` if T reaches the task's limit, even if a memory kill followed, or if a memory kill during the measured call came only at or after the limit.
 Otherwise it is `ok` if the measured call returns and its result reaches the runner, a `memout` if its memory exceeds the task's memory cap before its result arrives, and an `error` otherwise.
 For example, a run is an `error` if process start, imports, and untimed preparation exceed the task's start-up cap.
 The runner polls the run's summed memory every second.
