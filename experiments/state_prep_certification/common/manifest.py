@@ -217,9 +217,11 @@ def optimize_level(environ: Mapping[str, str] | None = None) -> int:
         env=dict(environ),
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
-    return max(sys.flags.optimize, int(child.stdout))
+    if child.returncode != 0 or not child.stdout.split():
+        sys.exit(f"a Python started with this environment fails:\n{child.stderr}")
+    return max(sys.flags.optimize, int(child.stdout.split()[-1]))
 
 
 def recorded_environment(environ: Mapping[str, str]) -> dict[str, str]:

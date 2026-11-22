@@ -95,8 +95,8 @@ def main() -> None:
     allowed = store.allowed_environment(label_dir)
     if allowed:
         print(
-            f"note: a start ran with {', '.join(allowed)}, which a node start refuses; "
-            "every output says so"
+            f"note: a start ran with, or accepted, settings that a node start refuses: "
+            f"{', '.join(allowed)}; every output names them"
         )
         marks["allowed_environment"] = " ".join(allowed)
     changed = store.changed_environment(label_dir)

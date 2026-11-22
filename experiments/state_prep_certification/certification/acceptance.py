@@ -726,7 +726,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         command + ["--allow-local"], capture_output=True, text=True, check=False
     )
     assert analysis.returncode == 0, analysis.stderr
-    assert "ran with PYTHONPATH, which a node start refuses" in analysis.stdout, analysis.stdout
+    assert "settings that a node start refuses: PYTHONPATH;" in analysis.stdout, analysis.stdout
     assert "different NUMBA_OPT" in analysis.stdout, analysis.stdout
     assert "warning" not in analysis.stdout, analysis.stdout
     # the analysis marks only the files that it wrote, not those of an earlier analysis beside them

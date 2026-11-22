@@ -230,7 +230,7 @@ def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
         command + ["--allow-local"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
-    assert "ran with PYTHONOPTIMIZE, PYTHONPATH, which a node start refuses" in result.stdout, (
+    assert "settings that a node start refuses: PYTHONOPTIMIZE, PYTHONPATH;" in result.stdout, (
         result.stdout
     )
     assert "different NUMBA_OPT" in result.stdout, result.stdout
