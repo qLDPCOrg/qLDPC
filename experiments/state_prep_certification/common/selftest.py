@@ -1196,6 +1196,7 @@ def test_cleanup(directory: pathlib.Path, node: bool) -> None:
     tasks.write_pass1(directory, [task])
     process = subprocess.Popen(plugin.run_task_command(directory, "hard", local=not node))
     pid = _started(grandchild)
+    _wait_for((directory / "active" / "hard").exists, timeout=120)  # written atomically
     record = json.loads((directory / "active" / "hard").read_text())
     assert record["host"] == socket.gethostname(), record
     process.kill()
@@ -1230,6 +1231,7 @@ def test_cleanup_acceptance(directory: pathlib.Path, node: bool) -> None:
     process = subprocess.Popen(plugin.run_task_command(attempt, "hard", local=True))
     record = attempt / "active" / "hard"
     pid = _started(grandchild)
+    _wait_for(record.exists, timeout=120)
     process.kill()
     process.wait()
     assert _running(pid)
@@ -1770,6 +1772,13 @@ def test_acceptance_limit(directory: pathlib.Path, node: bool) -> None:
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous if previous is not None else signal.SIG_DFL)
+
+
+@test
+def test_plugin_name(directory: pathlib.Path, node: bool) -> None:
+    """``load_experiment`` refuses a plug-in whose ``NAME`` is not the name that loads it."""
+    with mock.patch.dict(plugin.PLUGINS, {"other": plugin.PLUGINS["selftest"]}):
+        acceptance.raises(ValueError, lambda: plugin.load_experiment("other"))
 
 
 @test
