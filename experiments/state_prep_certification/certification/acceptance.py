@@ -56,19 +56,21 @@
   ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
   whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
   first run that finished.  With two of the synthetic rows marked as rows of ``--local`` runs,
-  ``analyze.py`` refuses the label without ``--allow-local``; with it, every output gives the
-  number of these rows, and the name of the refused environment variable that a start accepted with
-  ``--allow-env``.  Every case of the combined margin of ``analyze_applications.py`` gives its
-  value, its bound, or a disagreement, and a margin of at most t keeps its sector.  A margin or
-  a deletion parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify,
-  makes its circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does
-  so also when its verdict is only in the partial results of a killed task.  The margin counts of
-  one family are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a
-  disagreement.
+  ``analyze.py`` refuses the label without ``--allow-local``; with it, every output gives the number
+  of these rows, and the name of the refused environment variable that a start accepted with
+  ``--allow-env``.  ``analyze.py`` warns of a label whose hash does not match its ``circuits.json``,
+  the working tree's other frozen files, and the commit and requirements of its manifest, and of no
+  other.  Every case of the combined margin of ``analyze_applications.py`` gives its value, its
+  bound, or a disagreement, and a margin of at most t keeps its sector.  A margin or a deletion
+  parent that disagrees with ``cert_bz``, or a final circuit that CC does not certify, makes its
+  circuit a disagreement, and agreeing deletion tasks do not.  A disagreeing parent does so also
+  when its verdict is only in the partial results of a killed task.  The margin counts of one family
+  are checked, and ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.
   The deletion outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave
   the rebuild unchecked for an input that is not the label's, exclude a disagreement from
   ``deletion_table.csv`` but list its task, list an uncertified parent, and give a timeout and a
-  flagged timeout their statuses.
+  flagged timeout their statuses.  ``deletion_table.csv`` lists its circuits in the order of their
+  ids, and an analysis's marks head each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -103,8 +105,10 @@ run on the node.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import hashlib
+import io
 import json
 import math
 import pathlib
@@ -131,7 +135,7 @@ from experiments.state_prep_certification.certification import (
     experiment,
     instrument,
 )
-from experiments.state_prep_certification.common import acceptance, local_runs, store
+from experiments.state_prep_certification.common import acceptance, local_runs, manifest, store
 
 SUITE = acceptance.Suite("spc-cert-")
 test = SUITE.test
@@ -681,6 +685,24 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
         store.append_row(label_dir, dict(row, local=number < 2))
     start = {"allowed_environment": ["PYTHONPATH"], "environment": {"PYTHONPATH": "/elsewhere"}}
     (label_dir / "starts.jsonl").write_text(json.dumps(start) + "\n")
+
+    # the label check: a label made with the working tree's frozen files, of which the label's
+    # circuits.json is a copy, and a bundle's requirements matches; any other label warns
+    frozen = [experiment.HERE / name for name in experiment.FROZEN_FILES]
+    commit, requirements = "c" * 40, "0" * 64
+    label = manifest.compute_label(
+        experiment.NAME, manifest.label_files(frozen), commit, requirements
+    )
+    for name, warns in ((label[:-1] + ("1" if label[-1] == "0" else "0"), True), (label, False)):
+        record = {
+            "label": f"{name}-local",
+            "harness": {"commit": commit},
+            "bundle": {"requirements_sha256": requirements},
+        }
+        (label_dir / "manifest.json").write_text(json.dumps(record))
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            analyze.check_frozen_files(label_dir)
+        assert ("does not match" in output.getvalue()) == warns, (name, output.getvalue())
     command = [sys.executable, analyze.__file__, "--label-dir", str(label_dir)]
     analysis = subprocess.run(command, capture_output=True, text=True, check=False)
     assert analysis.returncode != 0 and "--allow-local" in analysis.stderr, analysis.stderr
@@ -689,6 +711,7 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     )
     assert analysis.returncode == 0, analysis.stderr
     assert "accepted PYTHONPATH with --allow-env" in analysis.stdout, analysis.stdout
+    assert "warning" not in analysis.stdout, analysis.stdout
     marks = {"local_rows": 2, "allowed_environment": "PYTHONPATH"}
     others = acceptance.check_marked(label_dir / "analysis", marks)
     assert not others, others  # no deletion run, so no circuit in pruned/
@@ -1224,7 +1247,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     assert disagreements == expected, disagreements
 
     # the margin counts of one family with t = 2, as (m*, lower bound, verdict)
-    column = [
+    margin_cases = [
         (2, None, "certified"),
         (3, None, "certified"),
         (4, None, "certified"),
@@ -1234,8 +1257,8 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         (1, None, "disagreement"),
     ]
     keys = ("margin", "margin_lower_bound", "verdict")
-    column_rows = [{"t": 2} | dict(zip(keys, row)) for row in column]
-    assert analyze_applications.margin_counts(column_rows) == {
+    margin_rows = [{"t": 2} | dict(zip(keys, row)) for row in margin_cases]
+    assert analyze_applications.margin_counts(margin_rows) == {
         "margin_at_most_t": 1,
         "margin_t_plus_1": 1,
         "margin_at_least_t_plus_2": 1,
@@ -1287,7 +1310,10 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     analyze_applications.write_applications(per_circuit, summary_rows, out, inputs)
     with open(out / "deletion_table.csv") as file:
-        table = {row["id"]: row["rebuild_matches"] for row in csv.DictReader(file)}
+        table_rows = list(csv.DictReader(file))
+    ids = [row["id"] for row in table_rows]
+    assert ids == sorted(ids), ids
+    table = {row["id"]: row["rebuild_matches"] for row in table_rows}
     expected_table = {
         reduced_id: "True",
         "aft.steane.heuristic_opt": "False",
@@ -1309,6 +1335,12 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     with open(out / "margin_violations.csv") as file:
         assert [row["id"] for row in csv.DictReader(file)] == [reduced_id]
     stim.Circuit((out / "pruned" / f"prune.{reduced_id}.stim").read_text())
+
+    # an analysis's marks head each circuit of pruned/, which still parses
+    store.mark_outputs(out, {"local_rows": 2})
+    pruned = (out / "pruned" / f"prune.{reduced_id}.stim").read_text()
+    assert pruned.startswith("# local_rows: 2\n"), pruned[:80]
+    stim.Circuit(pruned)
 
 
 def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps: bool) -> int:
