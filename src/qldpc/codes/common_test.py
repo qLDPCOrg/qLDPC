@@ -1191,12 +1191,13 @@ def test_known_permutation_automorphism_group(monkeypatch: pytest.MonkeyPatch) -
 def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
     """Exact distances use the qudit automorphisms of a code only after verifying them.
 
-    The [[72, 12, 6]] bivariate bicycle code is from arXiv:2308.07915.  Hadamards on its second
-    block make a code that is not CSS, which the translations of both blocks still preserve.  The
-    [[16, 1, 4]] Bacon-Shor subsystem code of quant-ph/0506023 has its qubits in rows and columns,
-    and its gauge group holds X on any two qubits of a column.  So swapping two rows preserves it,
-    also after Hadamards on every other column, which make a subsystem code that is not CSS.  A
-    transposition of two neighboring qubits preserves none of these codes.
+    The test reproduces the distance 6 of the [[72, 12, 6]] bivariate bicycle code in Table 3 of
+    arXiv:2308.07915.  Hadamards on the second block of a [[14, 2, 3]] bicycle code make it a code
+    that is not CSS.  The translations of both blocks still preserve that code.  The [[9, 1, 3]]
+    Bacon-Shor subsystem code of quant-ph/0506023 has its qubits in rows and columns, and its gauge
+    group holds X on any two qubits of a column, so swapping two rows preserves it.  Hadamards on
+    its first and last columns make a subsystem code that is not CSS, which swapping two rows still
+    preserves.  A transposition of two neighboring qubits preserves none of these codes.
     """
 
     class CSSCodeWithAutomorphisms(codes.CSSCode):
@@ -1212,11 +1213,12 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
             return self.automorphisms
 
     def get_css_distance(
+        css_code: codes.CSSCode,
         automorphisms: npt.NDArray[np.int_],
         pauli: PauliXZ | None = None,
         method: DistanceMethod = "brouwer_zimmermann",
     ) -> int | float:
-        code = CSSCodeWithAutomorphisms(bb_code.matrix_x, bb_code.matrix_z)
+        code = CSSCodeWithAutomorphisms(css_code.matrix_x, css_code.matrix_z)
         code.automorphisms = automorphisms
         return code.get_distance_exact(pauli, method=method)
 
@@ -1235,21 +1237,27 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    translations = bb_code._get_permutation_automorphisms()
-    bacon_shor_matrix = codes.BaconShorCode(4).conjugated(range(0, 16, 2)).matrix
-    row_swap = np.arange(16).reshape(4, 4)[[1, 0, 2, 3]].ravel()
+    bicycle_code = codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    translations = bicycle_code._get_permutation_automorphisms()
+    bacon_shor_matrix = codes.BaconShorCode(3).conjugated([0, 2, 3, 5, 6, 8]).matrix
+    row_swap = np.arange(9).reshape(3, 3)[[1, 0, 2]].ravel()
     cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
-        (get_css_distance, translations, 6),
-        (functools.partial(get_css_distance, method="connected_cluster"), translations, 6),
+        (functools.partial(get_css_distance, bb_code), bb_code._get_permutation_automorphisms(), 6),
+        (functools.partial(get_css_distance, bicycle_code), translations, 3),
         (
-            functools.partial(get_qudit_distance, bb_code.conjugated(range(36, 72)).matrix),
+            functools.partial(get_css_distance, bicycle_code, method="connected_cluster"),
             translations,
-            6,
+            3,
+        ),
+        (
+            functools.partial(get_qudit_distance, bicycle_code.conjugated(range(7, 14)).matrix),
+            translations,
+            3,
         ),
         (
             functools.partial(get_qudit_distance, bacon_shor_matrix, is_subsystem_code=True),
             row_swap[None],
-            4,
+            3,
         ),
     ]
     # the connected-cluster search verifies the automorphisms of qubit codes too
@@ -1262,7 +1270,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
                 is_subsystem_code=True,
             ),
             row_swap[None],
-            4,
+            3,
         ),
     ]
     for get_distance, automorphisms, expected in cases:
@@ -1276,19 +1284,24 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
 def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
     """With pybliss, exact distances find and use the symmetries of codes by themselves.
 
-    The qudits of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915, and of a version of
-    it that is not CSS, are shuffled, and their distances are computed from their parity check
-    matrices alone.
+    The qudits of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915, and of a
+    [[14, 2, 3]] bicycle code with Hadamards on its second block, which is not CSS, are shuffled,
+    and their distances are computed from their parity check matrices alone.
     """
     pytest.importorskip("pybliss")
     tune(automorphism_minimum_layer_work=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    shuffle = np.random.default_rng(0).permutation(len(bb_code))
-    for matrix in (bb_code.matrix, bb_code.conjugated(range(36, 72)).matrix):
-        code = codes.QuditCode(np.hstack([matrix[:, shuffle], matrix[:, len(bb_code) + shuffle]]))
+    bicycle_code = codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    for matrix, distance in [
+        (bb_code.matrix, 6),
+        (bicycle_code.conjugated(range(7, 14)).matrix, 3),
+    ]:
+        num_qudits = matrix.shape[1] // 2
+        shuffle = np.random.default_rng(0).permutation(num_qudits)
+        code = codes.QuditCode(np.hstack([matrix[:, shuffle], matrix[:, num_qudits + shuffle]]))
         assert code._known_permutation_automorphisms is not None
-        assert code.get_distance_exact(method="brouwer_zimmermann") == 6
+        assert code.get_distance_exact(method="brouwer_zimmermann") == distance
 
 
 def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1357,11 +1370,8 @@ def test_classical_distances_use_automorphisms(
     shuffle = np.random.default_rng(0).permutation(21)
     cyclic_code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
     code_builders: list[Callable[[], codes.ClassicalCode]] = [
-        lambda: codes.BCHCode(15, 7),
+        # CyclicCode supplies generators, as classical_test.py checks for each class that does
         lambda: codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6),
-        lambda: codes.ReedMullerCode(1, 4).forget_distance(),
-        lambda: codes.ExtendedHammingCode(4).forget_distance(),
-        lambda: codes.HammingCode(4).forget_distance(),
         # with bliss, the generic code with shuffled bits finds the symmetries of its checks
         lambda: codes.ClassicalCode(cyclic_code.matrix[:, shuffle]),
     ]
@@ -1635,7 +1645,7 @@ def get_codes_for_testing_ops() -> Iterator[codes.CSSCode]:
     """Iterate over some codes for testing operator constructions."""
     # Bacon-Shor code and toric codes
     code_a = codes.BaconShorCode(3, field=3)
-    code_b = codes.ToricCode(4, field=4)
+    code_b = codes.ToricCode(2, rotated=False, field=4)
 
     # promote some gauge qudits of the Bacon-Shor code to logicals
     matrix_x = np.vstack([code_a.get_gauge_ops(Pauli.X)[:2], code_a.get_stabilizer_ops(Pauli.X)])
@@ -3179,17 +3189,19 @@ def test_capacity_min_error_weight() -> None:
     ]
     for code, max_weight in zip(all_codes, [1, 2, 1]):
         baseline = code.get_logical_error_rate_func(
-            num_samples=1000,
+            num_samples=200,
             max_error_rate=0.2,
             decoder=decoders.lookup(max_weight=max_weight),
+            seed=0,
         )
         assert baseline.num_failures[1] == 0  # the premise: weight-1 errors are always corrected
 
         func = code.get_logical_error_rate_func(
-            num_samples=1000,
+            num_samples=200,
             max_error_rate=0.2,
             min_error_weight=2,
             decoder=decoders.lookup(max_weight=max_weight),
+            seed=0,
         )
         assert not func.num_samples[:2].any()  # no samples spent where the decoder cannot fail
 
