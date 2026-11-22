@@ -2,7 +2,7 @@
 
 This directory holds research scripts that use `qldpc`.
 They are not part of the installed `qldpc` package, and the default test and coverage runs do not cover them.
-The code-annealing experiment and the shared code of `state_prep_certification/` have offline tests that you can run locally, but they do not run in CI.
+The code-annealing experiment has offline tests that you can run locally, but they do not run in CI.
 
 | Directory | What it does | Entry points |
 | --- | --- | --- |
@@ -11,10 +11,8 @@ The code-annealing experiment and the shared code of `state_prep_certification/`
 | [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS and SWEL codes, scored exactly | `python -m experiments.code_annealing.reproduce_paper`; or `write_jobs`, its jobs, `collect_data`, and `make_figures` (see its guide) |
 | [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and checks of the heuristics behind their tuning | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
-| [`state_prep_certification/`](state_prep_certification/) | Prototype, subject to change. Exact certification of fault-tolerant state preparation circuits, the exact distance searches that certification relies on, and an exploratory ranking of the certified circuits, which `certification/` and `distances/` do not use; all run offline on a Linux node | `node.sh` on the node; `bundle.py` on a workstation |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
-`state_prep_certification/node.sh` describes itself in its header comment, which `--help` prints.
 The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro-Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
 If GAP cannot be called, `abstract.SmallGroup` retrieves groups from GroupNames.org instead.
 The generators of a group from GroupNames.org can differ from those of GAP, so the same file names can then save different codes, which fail verification on a machine that uses GAP.
@@ -29,9 +27,9 @@ Commands below are written relative to the repository root.
 ## Results
 
 Every experiment that saves results stores them in a `results/` directory beside its scripts, which Git ignores.
-Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment (`state_prep_certification/node.sh` takes the variable `FTSP_RESULTS` instead).
+Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
 The [code standard](../docs/source/contributing/standards/code.rst) says which data files an experiment may commit.
-To ignore a data directory that is a symlink, name it in `.gitignore` without a trailing slash, as the root `.gitignore` does for `results` and [`state_prep_certification/.gitignore`](state_prep_certification/.gitignore) does for its data.
+To ignore a data directory that is a symlink, name it in `.gitignore` without a trailing slash, as the root `.gitignore` does for `results`.
 Each experiment in the table below holds a CSV summary in its results directory, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |
@@ -40,7 +38,6 @@ Each experiment in the table below holds a CSV summary in its results directory,
 | Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
 | Distance tuning | `results/trials.jsonl`: one line per trial of a comparison; `results/constants/`: the measurements of `constants.py` | `results/summary-<tag>.csv`: times of both arms of a comparison on each workload, and their ratios |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
-| State preparation certification | `results/<experiment>/<label>/runs.jsonl`: one row per task | the CSV summaries that each experiment's `analyze.py` writes to its `--out` directory, which can lie outside `results/` |
 
 [The code-annealing guide](code_annealing/README.md#what-the-scripts-write) lists its results.
 
@@ -247,12 +244,3 @@ python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6
 `collect_ler.py --preset PRESET` runs one of the presets `bb72`, `bb18`, or `steane-joint`, and writes aggregate sample counts, from which its logical error rates follow, to `results/{preset}.csv`.
 Collection is resumable, and some presets take hours to days at publication scale.
 See the [lattice-surgery README](lattice_surgery/README.md) for example commands, provenance tracking, and costs.
-
-## State preparation certification
-
-**Prototype.** Everything in `state_prep_certification/` is a prototype, subject to change: its code, interfaces, inputs, outputs, and documentation.
-[`state_prep_certification/`](state_prep_certification/) holds experiments on the exact certification of fault-tolerant state preparation circuits, on the exact distance searches that certification relies on, and on an exploratory ranking of the certified circuits, which `certification/` and `distances/` do not use.
-They run offline on a Linux node.
-A workstation builds one offline bundle with `bundle.py`.
-The node runs an experiment with `node.sh` and GNU parallel, and one archive comes back for analysis.
-See the [`state_prep_certification` README](state_prep_certification/README.md), which lists the experiments and describes their shared workflow.
