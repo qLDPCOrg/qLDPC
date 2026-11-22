@@ -80,15 +80,15 @@
   circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, also one that the
   runner discarded because it compiled, a finished shadow run, a repeat, a deletion parent, the
   final m* of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
-  recorded by an unfinished certification, or the result of a certification that exceeded its memory
-  cap after it returned, against another exact result; a final circuit whose m* is at most t, above
-  the weight of a violation that the search of its m* reported, or other than that of another
-  deletion task that ends at the same final circuit; Phi_m of the listing or the ground truth above
-  A_m; Omega_m above Phi_m, of the listing or the ground truth, on a completed weight or one where
-  the run found a violation; the ground truth's heavy mechanisms against h, also where the ground
-  truth exceeded its memory cap after it returned; and a counterexample's residual weight against
-  its fault weight, by its flag or its violating weight, its lower bound, or its X and Z parts.  A
-  circuit whose claims of every kind agree gets their m*.  Every case of the combined margin of
+  recorded by an unfinished certification, or the result that a certification of status memout kept,
+  against another exact result; a final circuit whose m* is at most t, above the weight of a
+  violation that the search of its m* reported, or other than that of another deletion task that
+  ends at the same final circuit; Phi_m of the listing or the ground truth above A_m; Omega_m above
+  Phi_m, of the listing or the ground truth, on a completed weight or one where the run found a
+  violation; the ground truth's heavy mechanisms against h, also from a ground truth of status
+  memout that kept its result; and a counterexample's residual weight against its fault weight, by
+  its flag or its violating weight, its lower bound, or its X and Z parts.  A circuit whose claims
+  of every kind agree gets their m*.  Every case of the combined margin of
   ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
   t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
   with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
@@ -1551,14 +1551,13 @@ def _check_consistency() -> None:
             "cert_bz": [("ok", certified, [], None)],
             "cert_cc": [("timeout", {}, [{"m": 2, "violation": True}], None)],
         },
-        # the result of a certification that exceeded its memory cap after it returned, against a
-        # finished one
+        # the result that a certification of status memout kept, against a finished one
         {
             "cert_bz": [("ok", certified, [], None)],
             "cert_cc": [("memout", violating(1), [], None)],
         },
         # the ground truth's heavy mechanisms against h of the listing, also from a ground truth
-        # that exceeded its memory cap after it returned
+        # of status memout that kept its result
         {
             "ground_truth": [("ok", {"smallest_violation": None, "heavy": [True, True]}, [], None)],
             "count_listing": [("ok", {"h": 1}, [], None)],

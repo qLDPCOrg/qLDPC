@@ -33,18 +33,20 @@ An arm's first run that timed out with ``compiled_in_timing`` set (see ``common/
 status ``timeout_compiled`` in every output, not ``timeout``, since it may have timed out only
 because it compiled.  A circuit's verdict is that of ``cert_bz``, or of ``cert_cc`` where
 ``cert_bz`` did not finish.  Where neither finished, it is ``undecided``, or ``timeout_compiled`` if
-either arm's status is ``timeout_compiled``.  It is a disagreement where any two of its exact
-results contradict each other, as ``check_consistency`` lists: its verdicts, smallest violating
-weights, and margins from every run, repeats included, its counts, and its counterexamples.  The
-column ``contradictions`` of summary.csv names them.  A disagreement enters no count of verdicts or
-margins and no median, maximum, or ratio of ``families.csv``, nor ``listing_table.csv``,
-``shadow.csv``, ``margin_violations.csv``, ``deletion_table.csv``, or the example counterexamples.
-The status counts and agreements count it.  T of a certification arm is the median of its first run
-and repeats.  Its timing is incomplete if the first run did not finish, if a repeat that the first
-run calls for did not finish or is missing, or if the row of any of its runs has
-``compiled_in_timing`` set; an incomplete timing enters no median or maximum.  The same holds for
-the brute-force baseline ``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its
-per-weight times are left empty.
+either arm's status is ``timeout_compiled``.  The verdicts, T, and ``counterexamples.json`` use only
+rows with status ``ok``, while the margins and the contradictions use every result that a row kept,
+so that ``margin`` can be exact where the verdict is ``undecided``.  It is a disagreement where any
+two of its exact results contradict each other, as ``check_consistency`` lists: its verdicts,
+smallest violating weights, and margins from every run, repeats included, its counts, and its
+counterexamples.  The column ``contradictions`` of summary.csv names them.  A disagreement enters no
+count of verdicts or margins and no median, maximum, or ratio of ``families.csv``, nor
+``listing_table.csv``, ``shadow.csv``, ``margin_violations.csv``, ``deletion_table.csv``, or the
+example counterexamples.  The status counts and agreements count it.  T of a certification arm is
+the median of its first run and repeats.  Its timing is incomplete if the first run did not finish,
+if a repeat that the first run calls for did not finish or is missing, or if the row of any of its
+runs has ``compiled_in_timing`` set; an incomplete timing enters no median or maximum.  The same
+holds for the brute-force baseline ``brute_bz``.  If an arm's first run has ``compiled_in_timing``
+set, its per-weight times are left empty.
 
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
@@ -831,8 +833,9 @@ def _ground_truth_counts_match(
 def _ground_truth(truth_rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     """The result of the first ground-truth run that has one, whatever its status, or None.
 
-    A run that timed out or exceeded its memory cap after its call returned keeps its result
-    (``common/runner.py``).
+    A row of status ``timeout`` keeps the result of a call that returned at or after the limit, and
+    a row of status ``memout`` that of a call whose memory exceeded the cap before its result, as
+    found after the result arrived (``common/runner.py``, and the shared README's Runs).
     """
     return next(
         (
