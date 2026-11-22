@@ -72,23 +72,23 @@
   not match its ``circuits.json``, the working tree's other frozen files, and the commit and
   requirements of its manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0) circuit give
   the example counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m) from the
-  circuit's N_0 in place of an A_m that was not computed where z >= m, and gives no ratio where z <
-  m.  ``shadow.csv`` gives the totals of a finished shadow run by threshold, and the calls that a
-  timed-out run wrote, without a last line cut off, and leaves out a run with ``compiled_in_timing``
-  set and a disagreement.  A calls file with a malformed line before its last is an error.  Each
-  kind of contradiction that ``analyze.check_consistency`` lists makes its circuit a disagreement: a
-  shadow run that ended in ``ShadowDisagreement``, also one that the runner discarded because it
-  compiled, a finished shadow run, a repeat, a deletion parent, the final m* of a deletion task with
-  no accepted deletion, the ground truth, the baseline, a violation recorded by an unfinished
-  certification, or the result of a certification that exceeded its memory cap after it returned,
-  against another exact result; a final circuit whose m* is at most t, above the weight of a
-  violation that the search of its m* reported, or other than that of another deletion task that
-  ends at the same final circuit; Phi_m of the listing or the ground truth above A_m; Omega_m above
-  Phi_m, of the listing or the ground truth, on a completed weight or one where the run found a
-  violation; the ground truth's heavy mechanisms against h, also where the ground truth exceeded its
-  memory cap after it returned; and a counterexample's residual weight against its fault weight, by
-  its flag or its violating weight, its lower bound, or its X and Z parts.  A circuit whose claims
-  of every kind agree gets their m*.  Every case of the combined margin of
+  circuit's N_0 in place of an A_m that was not computed where z >= m, and gives no ratio where
+  z < m.  ``shadow.csv`` gives the totals of a finished shadow run by threshold, and the calls that
+  a timed-out run wrote, without a last line cut off, and leaves out a run with
+  ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before its last
+  is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes its
+  circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, also one that the
+  runner discarded because it compiled, a finished shadow run, a repeat, a deletion parent, the
+  final m* of a deletion task with no accepted deletion, the ground truth, the baseline, a violation
+  recorded by an unfinished certification, or the result of a certification that exceeded its memory
+  cap after it returned, against another exact result; a final circuit whose m* is at most t, above
+  the weight of a violation that the search of its m* reported, or other than that of another
+  deletion task that ends at the same final circuit; Phi_m of the listing or the ground truth above
+  A_m; Omega_m above Phi_m, of the listing or the ground truth, on a completed weight or one where
+  the run found a violation; the ground truth's heavy mechanisms against h, also where the ground
+  truth exceeded its memory cap after it returned; and a counterexample's residual weight against
+  its fault weight, by its flag or its violating weight, its lower bound, or its X and Z parts.  A
+  circuit whose claims of every kind agree gets their m*.  Every case of the combined margin of
   ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
   t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
   with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
@@ -109,12 +109,13 @@
   measurement, are rejected for those reasons.  ``prune`` runs twice through the task runner on
   C-goto, steane, and ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial
   results, and then its final checks, with the final circuit, and the fault weights of the search of
-  its final m*.  Each step and each final circuit, rebuilt, has its recorded outcome: by Stim's
-  simulator, by certification, and, where small enough, by the enumeration of the ground truth.  The
-  final m* agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final
-  circuit agree with the exact probabilities from their DEMs.  The enumeration also checks every
-  step on the d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are
-  delayed past its 5 s limit (``step_delay_s``) is a timeout that keeps its steps.
+  its final m*: at least one, of which only that of the final m* violates.  Each step and each final
+  circuit, rebuilt, has its recorded outcome: by Stim's simulator, by certification, and, where
+  small enough, by the enumeration of the ground truth.  The final m* agrees with ``cert_bz`` at
+  K = t + 1, and the acceptance estimates of parent and final circuit agree with the exact
+  probabilities from their DEMs.  The enumeration also checks every step on the d = 3 A-ft circuits
+  that pass at K = t.  C-goto keeps its flag.  A run whose steps are delayed past its 5 s limit
+  (``step_delay_s``) is a timeout that keeps its steps.
 * **AT10:** the margin gives "all" on C-goto and steane, 3 on E-chen, and 1 on W(C-goto).  On these
   and every ground-truth circuit with r > t, it agrees with ``cert_bz``, with the enumeration up to
   min(m*, r + 1) where small enough, and its sectors with an enumeration of the stabilizer group.
@@ -985,8 +986,14 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
         partial = runs[0]["partial"]
         (index,) = [i for i, record in enumerate(partial) if "final_checks" in record]
         assert partial[index] == {"final_checks": {k: first[k] for k in keys}}, circuit_id
-        searched = [record["m"] for record in partial[index + 1 :]]
-        assert searched == list(range(2, 2 + len(searched))), (circuit_id, searched)
+        # each of these circuits makes the search of its final m* visit a fault weight, and only
+        # the weight of the final m* violates
+        searched = partial[index + 1 :]
+        weights = [record["m"] for record in searched]
+        assert weights and weights == list(range(2, 2 + len(weights))), (circuit_id, weights)
+        margin = first["final_margin"]["margin"]
+        found = [record["m"] for record in searched if record["violation"]]
+        assert found == ([] if margin == "all" else [margin]), (circuit_id, searched, margin)
         kept = sum(record["outcome"] == "accepted" for record in first["steps"])
         print(f"  {circuit_id}: {kept} of {len(first['steps'])} deletions accepted")
 
