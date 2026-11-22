@@ -136,7 +136,8 @@ Check that the label directory that they print is the run's.
 The archive that the start prints at its end, with the `.sha256` file beside it, is what to copy back.
 A start writes the archive only once both passes leave every task with a row; for a run that cannot get there, copy back the label directory itself, which `analyze.py --label-dir` accepts.
 Its analysis prints a note when tasks have no row.
-Certification reports each such task as `missing`; distances reports an arm as `missing` if its first run has no row, and leaves absent repeats out of its timing summary, as `distances/analyze.py`'s docstring describes.
+Certification reports each such task as `missing`.
+Distances reports an arm as `missing` if its first run has no row, and leaves absent repeats out of its timing summary, as the docstring of [`distances/analyze.py`](distances/analyze.py) describes.
 On the workstation, analyze the archive with the experiment's `analyze.py --archive PATH --out DIR`.
 The analyses of certification and distances check the archive against the `.sha256` file and extract it into a temporary directory, which they remove when they end, so with `--archive` they write their outputs only to `--out`, which they then require ([`common/store.py`](common/store.py)'s `open_archive`).
 The experiment's README gives the analysis's other options and its outputs.
