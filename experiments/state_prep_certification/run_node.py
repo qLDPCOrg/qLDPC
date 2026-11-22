@@ -83,7 +83,7 @@ RUN_TASK = ROOT / "experiments" / "state_prep_certification" / "common" / "run_t
 SELFTEST = ROOT / "experiments" / "state_prep_certification" / "common" / "selftest.py"
 DEFAULT_RESULTS = ROOT / "experiments" / "state_prep_certification" / "results"
 # GNU parallel's record in a label's active/ directory, beside the runs' records, which task keys
-# name (no task key starts with "_")
+# name (runner.check_task refuses a task key that starts with "_")
 PARALLEL_RECORD = "_parallel"
 
 # The environment variables that a node start refuses, and when: plain-Python qLDPC or numba,
@@ -383,8 +383,8 @@ def run_pass(label_dir: pathlib.Path, name: str, jobs: int, local: bool) -> None
 def run_parallel(label_dir: pathlib.Path, command: list[str]) -> int:
     """Run GNU parallel from the qLDPC root, passing SIGTERM on to it; return its exit status.
 
-    While it runs, ``active/_parallel`` records its process id, start time, process group, and
-    host, so that after a hard kill of this script, ``live_runs`` and ``cleanup`` find it.
+    While it runs, ``active/_parallel`` records its process id, start time, and host, so that after
+    a hard kill of this script, ``live_runs`` and ``cleanup`` find it.
     """
     print("+ " + shlex.join(command), flush=True)
     process = subprocess.Popen(command, cwd=ROOT)
@@ -394,7 +394,6 @@ def run_parallel(label_dir: pathlib.Path, command: list[str]) -> int:
         fields = {
             "pid": process.pid,
             "pid_start": runner.process_start(process.pid),
-            "process_group": os.getpgid(process.pid),
             "host": socket.gethostname(),
         }
         store.write_atomic(record, json.dumps(fields), label_dir)

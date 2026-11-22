@@ -140,11 +140,14 @@ _ReturnType = TypeVar("_ReturnType")
 
 
 def check_task(task: dict[str, Any]) -> None:
-    """Raise ValueError if a task's limits cannot be enforced, such as a grace that is too long.
+    """Raise ValueError if a task's limits cannot be enforced, or if its key is reserved.
 
     Each limit must be finite and positive, since a comparison with NaN, or with infinity, never
-    triggers a kill.
+    triggers a kill.  A key must not start with ``_``, which names GNU parallel's record in a
+    label's ``active/`` directory (see ``run_node.py``).
     """
+    if task["key"].startswith("_"):
+        raise ValueError(f"{task['key']}: a task key must not start with '_'")
     limits = {
         "limit_s": task["limit_s"],
         "mem_cap_gib": task["mem_cap_gib"],

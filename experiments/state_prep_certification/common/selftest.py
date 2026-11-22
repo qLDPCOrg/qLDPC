@@ -728,16 +728,6 @@ def test_tasks_ceiling_and_cores(directory: pathlib.Path, node: bool) -> None:
     assert tasks.choose_cpus(lscpu, 48 * 2**30, 8)[0] == [2, 3, 4, 5]  # (48 - 16) / 8 = 4 jobs
     assert tasks.choose_cpus(lscpu, 128 * 2**30, 8, jobs=2)[0] == [2, 3]
 
-    # a task whose limits cannot be enforced is rejected when written
-    for bad in ({"grace_s": 40.0}, {"limit_s": 0.0}, {"mem_cap_gib": -1.0}):
-        try:
-            tasks.write_pass1(directory, [_task("bad", [], **bad)])
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"a task with {bad} was written")
-    assert not (directory / tasks.TASKS_FILE).exists()
-
     # a task whose memory cap exceeds a job slot's is refused
     tasks.check_memory_caps([_task("fits", [], mem_cap_gib=8.0)], 8.0)
     try:
@@ -758,16 +748,20 @@ def test_stand_in_worst_case(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
-def test_tasks_finite_limits(directory: pathlib.Path, node: bool) -> None:
-    """A task with a limit that is not finite and positive, or a non-finite approval, is refused."""
+def test_tasks_refused(directory: pathlib.Path, node: bool) -> None:
+    """A task with a limit that cannot be enforced, or a reserved key, is refused when written.
+
+    So is a non-finite approval.  Each limit must be finite and positive, and the grace short enough
+    for GNU parallel's signal sequence.
+    """
     nan, inf = float("nan"), float("inf")
     for bad in (
         {"limit_s": nan},
         {"mem_cap_gib": inf},
-        {"startup_cap_s": nan},
-        {"post_s": inf},
-        {"grace_s": 0.0},
-        {"startup_cap_s": -1.0},
+        {"startup_cap_s": 0.0},
+        {"post_s": -1.0},
+        {"grace_s": 40.0},
+        {"key": "_parallel"},
     ):
         try:
             tasks.write_pass1(directory, [_task("bad", [], **bad)])
