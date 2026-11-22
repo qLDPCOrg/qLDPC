@@ -66,11 +66,15 @@ run until after its row is appended, and watches the child:
   T include a compilation that numba reports.  That happens for code whose compilation was lost when
   the discarded run was killed at its limit or memory cap or ended in an error, for code that the
   discarded run never reached, and for code that numba does not cache on disk, such as galois's
-  arithmetic when a task does not compile it first.  It can also happen when processes compile
-  different versions of one function at once, since one can overwrite the cache entry that another
-  wrote (numba/numba#10862).  Such a row is kept so that it is visible.  ``compiled_in_timing`` is
-  the flag that the analyses test, and ``compiled_function`` names the first function compiled, to
-  show what to look into.
+  arithmetic when a task does not compile it first.  Such a row is kept so that it is visible.
+  ``compiled_in_timing`` is the flag that the analyses test, and ``compiled_function`` names the
+  first function compiled, to show what to look into.
+
+  numba saves to its disk cache without a lock across processes, so processes that first compile
+  different signatures of one function at once can lose a cache entry, so that a later run
+  compiles again, which ``compiled_in_timing`` can show, or leave an entry that loads the code
+  compiled for another signature (numba/numba#10862), which can give wrong results or fail when
+  the code is called.  No row records such a load.
 
 ``run_task`` appends exactly one final row to the store and returns 0, or, on SIGTERM or SIGINT
 during or between its runs, kills any current run, waits up to the grace for its processes to go,
