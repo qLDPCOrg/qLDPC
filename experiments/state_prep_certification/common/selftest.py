@@ -819,6 +819,35 @@ def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_late_signal(directory: pathlib.Path, node: bool) -> None:
+    """A signal after a run's process has ended discards the run, unless the task's row is built.
+
+    A SIGTERM after the process has ended, but before the runner has built the run's row, makes
+    ``run_task`` return 2 without a row.  One after the row of the task's last run is built is
+    ignored: the runner appends the row and returns 0.
+    """
+    late, last = _task("late", [["value", 1]]), _task("last", [["value", 1]])
+    tasks.write_pass1(directory, [late, last])
+    keep_tail, run = runner._keep_tail, runner._Watcher.run
+
+    def signal_after_tail(path: pathlib.Path) -> None:
+        keep_tail(path)
+        signal.raise_signal(signal.SIGTERM)
+
+    def signal_after_row(watcher: Any, command: list[str]) -> dict[str, Any] | None:
+        row = run(watcher, command)
+        signal.raise_signal(signal.SIGTERM)
+        return row
+
+    with mock.patch.object(runner, "_keep_tail", signal_after_tail):
+        assert runner.run_task(directory, late, local=not node) == 2
+    with mock.patch.object(runner._Watcher, "run", signal_after_row):
+        assert runner.run_task(directory, last, local=not node) == 0
+    rows, problems = store.read_rows(directory)
+    assert [row["task_key"] for row in rows] == ["last"] and not problems, rows
+
+
+@test
 def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
     """A runner that fails kills its run, removes its active file, and writes no row."""
     tasks.write_pass1(directory, [_task("broken", [["garbage", 52.25]], limit_s=60.0)])
