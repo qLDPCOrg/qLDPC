@@ -108,6 +108,11 @@ class HGPCode(CSSCode):
     with nonbinary fields.  The placement of this sign is chosen for consistency with the tensor
     product of chain complexes.
 
+    If ``H1`` and ``H2`` have ranks ``r1`` and ``r2``, the hypergraph product code encodes
+    ``(n1 - r1) (n2 - r2) + (m1 - r1) (m2 - r2)`` logical qudits: the product of the dimensions of
+    the seed codes, plus that of their transpose codes, whose parity check matrices are ``H1.T`` and
+    ``H2.T`` (arXiv:0903.0566).
+
     References:
 
     - https://errorcorrectionzoo.org/c/hypergraph_product
@@ -163,6 +168,12 @@ class HGPCode(CSSCode):
             field,
         )
         self._is_subsystem_code = False  # known by construction
+
+        # take the dimension of this code from the seed codes (see the class docstring), rather than
+        # from the rank of its much larger parity check matrices
+        self._dimension = self.code_a.dimension * self.code_b.dimension + (
+            self.code_a.num_checks - self.code_a.rank
+        ) * (self.code_b.num_checks - self.code_b.rank)
         if set_logicals:
             logical_ops_xz = HGPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
@@ -519,6 +530,10 @@ class SHPCode(CSSCode):
         stab_ops_z = np.kron(-self.code_a.generator, self.code_b.matrix)
         self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(field)
 
+        # take the dimension of this code from the seed codes (see the class docstring), rather than
+        # from the ranks of its much larger checks and stabilizers
+        self._dimension = self.code_a.dimension * self.code_b.dimension
+
         if set_logicals:
             logical_ops_xz = SHPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
@@ -628,8 +643,6 @@ class SHYPSCode(SHPCode):
         code_x = SimplexCode(dim_x, field)
         code_z = SimplexCode(dim_z, field)
         super().__init__(code_x, code_z, set_logicals=set_logicals)
-
-        self._dimension = dim_x * dim_z
 
 
 def _check_same_ring(matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray) -> None:
