@@ -960,9 +960,9 @@ def _utc_now() -> str:
 
 
 def _jsonable(value: Any) -> Any:
-    """Convert NumPy scalars and arrays, and other simple objects, for JSON."""
+    """Convert a NumPy scalar or array, or a set, which JSON lacks; refuse any other object."""
     if hasattr(value, "tolist"):
         return value.tolist()
-    if isinstance(value, (set, frozenset, tuple)):
-        return list(value)
-    return str(value)
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    raise TypeError(f"an object of type {type(value).__name__} is not JSON serializable")
