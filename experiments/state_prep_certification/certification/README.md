@@ -120,6 +120,7 @@ The runner's retries add to this, as [`common/tasks.py`](../common/tasks.py) exp
 On the workstation, run `analyze.py --archive PATH --check-archive PATH`.
 Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `listing_table.csv`.
 `listing_table.csv` compares the listed faults and oracle rows with all accepted combinations, per family and weight.
+`shadow.csv` gives the cost of the two weight oracles on identical queries: for each circuit and threshold of the queries of its `shadow` run, the calls, the rows that they submit, and the seconds of BZ and of CC, from the run's result or, for a run that did not finish, from the calls that it wrote to `oracle_calls/` in the label directory; it leaves out runs with `compiled_in_timing` set and circuits with a disagreement.
 `counterexamples.json` holds every counterexample under `all`, and up to three examples under `examples`, one for each group of families that has one; `analyze.py`'s docstring names the groups and the rule.
 Without the archive of `check`, the outputs report the ground truth as not run.
 The analysis takes the circuits and their parameters from the label's copy of `circuits.json`, and stops if the label of `check` ran with another one.

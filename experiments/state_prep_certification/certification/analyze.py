@@ -111,6 +111,11 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   with Phi_m, of the parameters that the listing depends on: the heavy share h / N_0, the unflagged
   share z / N_0, the start classes q_h, and the flag rank r.  ``listing_table.csv`` describes when
   Phi_m is small against A_m; it fits nothing.
+* ``shadow.csv``, the cost of the two weight oracles on identical queries, one row per circuit and
+  threshold m of the queries of its ``shadow`` run: the calls, their rows, and the seconds of BZ
+  and CC (``shadow_table``).  A run that did not finish gives the calls that it wrote to
+  ``oracle_calls/`` in the label directory.  Runs with ``compiled_in_timing`` set and circuits
+  with a disagreement are left out.
 * The margins and deletions (``analyze_applications.py``): the combined margin m* of each circuit
   and its agreement in ``summary.csv`` (``margin``, ``margin_lower_bound``, ``agree_margin``, and
   the sector of its counterexample), with ``agree_prune`` for its deletion tasks; the margin counts
@@ -227,7 +232,9 @@ def main() -> None:
         print(f"note: the starts ran with different {', '.join(changed)}; every output says so")
         marks["environment_changed"] = " ".join(changed)
     circuits = {e["id"]: e for e in json.loads(circuits_text)["circuits"]}
-    write_outputs(collect(rows, circuits, expected), circuits, out, marks)
+    write_outputs(
+        collect(rows, circuits, expected), circuits, out, marks, label_dir / "oracle_calls"
+    )
     print(f"wrote {out}")
 
 
@@ -236,10 +243,13 @@ def write_outputs(
     circuits: dict[str, dict[str, Any]],
     out: pathlib.Path,
     marks: dict[str, Any] | None = None,
+    calls_dir: pathlib.Path | None = None,
 ) -> None:
     """Write every output of the circuits that ``collect`` gives, as the module docstring lists.
 
-    Every output takes each circuit's verdict from the rows of summary.csv.  Every output that this
+    ``calls_dir``, if given, holds the files of oracle calls of the ``shadow`` runs, as a label's
+    ``oracle_calls/`` does (see ``shadow_table``).  Every output takes each circuit's verdict from
+    the rows of summary.csv.  Every output that this
     call writes carries ``marks``, if any, such as the number of rows of ``--local`` runs
     (``store.mark_outputs``).  The directory ``out/pruned/`` is deleted with everything in it and
     written again, so that it holds only this call's circuits; other files in ``out`` are left as
@@ -248,6 +258,7 @@ def write_outputs(
     summary_rows, weight_rows = summarize(per_circuit)
     paths = write_tables(summary_rows, weight_rows, out)
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
+    paths.append(_write_csv(out / "shadow.csv", shadow_table(per_circuit, verdicts, calls_dir)))
     paths.append(write_counterexamples(per_circuit, verdicts, circuits, out))
     paths += analyze_applications.write_applications(per_circuit, summary_rows, out)
     if marks:
@@ -935,6 +946,71 @@ def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> pathlib.Path:
         writer.writeheader()
         writer.writerows(rows)
     return path
+
+
+####################################################################################################
+# shadow.csv
+
+
+def shadow_table(
+    per_circuit: dict[str, dict[str, Any]],
+    verdicts: dict[str, str],
+    calls_dir: pathlib.Path | None,
+) -> list[dict[str, Any]]:
+    """The rows of shadow.csv: both weight oracles on identical queries, by circuit and threshold.
+
+    Each first run of ``shadow`` gives one row per threshold m of the fault search's queries, m = 1
+    for the threshold-1 checks and classifications and m >= 2 for the batches: the calls, the rows
+    that they submit, and the seconds of the BZ and the CC oracle on them.  A finished run
+    gives the totals of its result (``instrument.py``), and a run that did not finish gives the
+    sums of the calls that it wrote to its file in ``calls_dir`` before it stopped; ``status`` is
+    the run's.  The runs whose rows have ``compiled_in_timing`` set, and the circuits with a
+    disagreement, are left out.
+    """
+    table = []
+    for circuit_id, entry in sorted(per_circuit.items()):
+        runs = entry["arms"].get("shadow")
+        if not runs or runs[0].get("compiled_in_timing") or verdicts[circuit_id] == "disagreement":
+            continue
+        run = runs[0]
+        totals: dict[int, dict[str, Any]] = {}
+        if run["status"] == "ok":
+            calls = [
+                {"m": int(key.split(":")[1])} | value
+                for key, value in run["result"]["shadow"]["by_threshold"].items()
+            ]
+        else:
+            calls = [
+                call | {"calls": 1, "bz_seconds": call["bz"], "cc_seconds": call["cc"]}
+                for call in _read_calls(calls_dir, run["task_key"])
+            ]
+        for call in calls:
+            total = totals.setdefault(
+                call["m"], {"calls": 0, "rows": 0, "bz_seconds": 0.0, "cc_seconds": 0.0}
+            )
+            for key in total:
+                total[key] += call[key]
+        table += [
+            {"id": circuit_id, "family": entry["circuit"]["family"], "status": _status(runs)}
+            | {"m": m}
+            | total
+            for m, total in sorted(totals.items())
+        ]
+    return table
+
+
+def _read_calls(calls_dir: pathlib.Path | None, task_key: str) -> list[dict[str, Any]]:
+    """The oracle calls that a shadow run wrote, without a last line cut off by a kill."""
+    path = calls_dir / f"{task_key}.jsonl" if calls_dir else None
+    if path is None or not path.exists():
+        return []
+    calls = []
+    for line in path.read_text().splitlines():
+        try:
+            calls.append(json.loads(line))
+        except json.JSONDecodeError:
+            break
+    return calls
 
 
 ####################################################################################################
