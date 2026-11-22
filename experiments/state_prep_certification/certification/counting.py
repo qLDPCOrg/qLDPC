@@ -50,7 +50,8 @@ _BUFFER = 4096
 # globals that the function reads.  Neither the hash nor numba's check covers the experiment's other
 # files or config.json.  So each of these functions calls only functions of its own file and NumPy,
 # and reads only NumPy and globals that its file's text fixes, such as literal constants; otherwise,
-# a change elsewhere would leave stale code or values in the cache.  AT2 checks the calls.
+# a change elsewhere would leave stale code or values in the cache.  AT2 checks that they call by
+# name no compiled function of another file.
 
 
 ####################################################################################################

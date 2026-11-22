@@ -6,15 +6,15 @@
 
 * **AT1:** C-goto certifies at K = 2; its weakened variant, which deletes the flag, violates at
   weight 1; on E-chen, BZ and CC give the same verdict and smallest violating weight at K = 3.
-* **AT2:** the listing counter (up to K') and the accepted-combination counter (up to K) equal
-  brute force on the ground-truth circuits of the d = 3 A-ft codes and on 20 random DEMs
-  (N_0 <= 25, p <= 8, K <= 4), including DEMs where a light class precedes a heavy one in DEM
-  order; the listing counter gives the same counts when its compiled search returns one class
-  codeword at a time; the accepted-combination counter gives no A_m with a cap of no entries, even
-  without flagged mechanisms; and the rows submitted to the oracle never exceed the listed faults
-  on completed weights.  Through the task runner, ``count_listing`` on E-chen and
-  ``ground_truth`` on W(A-ft Shor) and C-goto finish without ``compiled_in_timing``.  The compiled
-  functions of ``counting.py`` and ``baseline.py`` call no compiled function of another file.
+* **AT2:** the listing counter (up to K') and the accepted-combination counter (up to K) equal brute
+  force on the ground-truth circuits of the d = 3 A-ft codes and on 20 random DEMs (N_0 <= 25,
+  p <= 8, K <= 4), including DEMs where a light class precedes a heavy one in DEM order; the listing
+  counter gives the same counts when its compiled search returns one class codeword at a time; the
+  accepted-combination counter gives no A_m with a cap of no entries, even without flagged
+  mechanisms; and the rows submitted to the oracle never exceed the listed faults on completed
+  weights.  Through the task runner, ``count_listing`` on E-chen and ``ground_truth`` on W(A-ft
+  Shor) and C-goto finish without ``compiled_in_timing``.  The compiled functions of ``counting.py``
+  and ``baseline.py`` call by name no compiled function of another file.
 * **AT3:** instrumented and uninstrumented certification give identical certificates on C-goto,
   its variant, and A-ft steane; every wrapped name exists; an instrumentation installed around
   another wrapper of the oracle class subclasses it and restores it; on a CSS circuit with a
@@ -52,52 +52,52 @@
   ``brute_force_smallest_violation`` finds a violation of the same weight as qLDPC's
   ``find_smallest_violation`` and the ground truth, also with small batches.  Each circuit's U,
   recomputed from N_0 and K, and whether it is within the cap, equal those of ``circuits.json``.
-* **AT8:** the analysis (``analyze.py``) of synthetic rows on six B-cat circuits.  A
-  ``count_listing`` run that timed out after one completed weight gives Pi, E, Phi, q, q_h, and h
-  from its partial results.  A ground-truth count that differs from the counters', and a baseline
-  whose enumerated combinations differ from A_m, in a first run or a repeat, and of
-  ``count_accepted`` or else of the ground truth, each make their circuit a disagreement, as does a
-  baseline stopped after a violation at weight m against a finished certification whose smallest
-  violation is not at m.  An expected task without a row is reported as ``missing``.  Rows with
-  ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and times that
-  ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one circuit,
-  whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a repeat; and a
-  first run that finished.  With two of the synthetic rows marked as rows of ``--local`` runs,
-  ``analyze.py`` refuses the label without ``--allow-local``; with it, every output gives the number
-  of these rows, and the name of the refused environment variable that a start, here a dry run,
-  accepted with ``--allow-env``.  The analysis of the label's archive requires ``--out``, and leaves
-  no extraction of the archive, or of the archive of ``check``, behind, whether it succeeds or
-  refuses the rows.  ``analyze.py`` warns of a label whose hash does not match its
-  ``circuits.json``, the working tree's other frozen files, and the commit and requirements of its
-  manifest, and of no other.  W(C-goto) and a D-synth (MQT 1.9.0) circuit give the example
-  counterexamples of their groups.  ``listing_table.csv`` takes C(N_0, m) from ``circuits.json`` in
-  place of an A_m that was not computed where z >= m, and gives no ratio where z < m.
-  ``shadow.csv`` gives the totals of a finished shadow run by threshold, and the calls that a
-  timed-out run wrote, without a last line cut off, and leaves out a run with ``compiled_in_timing``
-  set and a disagreement.  A calls file with a malformed line before its last is an error.  Each
-  kind of contradiction that ``analyze.check_consistency`` lists makes its circuit a disagreement: a
-  shadow run that ended in ``ShadowDisagreement``, a finished shadow run, a repeat, a deletion
-  parent, the final m* of a deletion task with no accepted deletion, the ground truth, the baseline,
-  a violation recorded by an unfinished certification, or the result of a certification that
-  exceeded its memory cap after it returned, against another exact result; a final circuit whose m*
-  is at most t, or above the weight of a violation that the search of its m* reported; Phi_m above
-  A_m; Omega_m of a completed weight above Phi_m; the ground truth's heavy mechanisms against h,
-  also where the ground truth exceeded its memory cap after it returned; and a counterexample's
-  residual weight against its fault weight or lower bound.  A circuit whose claims of every kind
-  agree gets their m*.  Every case of the combined margin of ``analyze_applications.py`` gives its
-  value, its bound, or a disagreement, and a margin of at most t keeps the arm and sector of its
-  counterexample.  A margin or a deletion parent that disagrees with ``cert_bz``, or a final circuit
-  that CC does not certify, makes its circuit a disagreement, and agreeing deletion tasks do not.  A
-  disagreeing parent does so also when its verdict is only in the partial results of a killed task.
-  The margin counts of one family are checked, and ``margin_violations.csv`` lists m* = t, but not
-  m* = t + 1 or a disagreement.  The deletion outputs rebuild a reduced circuit from its input,
-  report a wrong final SHA-256, leave the rebuild unchecked for an input that is not the label's,
-  exclude a disagreement from ``deletion_table.csv`` but list its task, list an uncertified parent,
-  give a timeout and a flagged timeout their statuses, and keep the rows of two tasks killed during
-  the search of their final m*: with m* > k for the largest fault weight k that the search
-  completed, and with m* where it found a violation.  ``deletion_table.csv`` lists its circuits in
-  the order of their ids, and an analysis's marks head each circuit of ``pruned/``, which still
-  parses.
+* **AT8:** the analysis (``analyze.py``) of synthetic rows on circuits of ``circuits.json``: six
+  B-cat circuits through every output, and others for the cases below.  A ``count_listing`` run that
+  timed out after one completed weight gives Pi, E, Phi, q, q_h, and h from its partial results.  A
+  ground-truth count that differs from the counters', and a baseline whose enumerated combinations
+  differ from A_m, in a first run or a repeat, and of ``count_accepted`` or else of the ground
+  truth, each make their circuit a disagreement, as does a baseline stopped after a violation at
+  weight m against a finished certification whose smallest violation is not at m.  An expected task
+  without a row is reported as ``missing``.  Rows with ``compiled_in_timing`` set give the statuses,
+  verdict, counts of ``families.csv``, and times that ``analyze.py``'s docstring gives them: the
+  ``cert_bz`` and ``brute_bz`` timeouts of one circuit, whose ``cert_cc`` timeout is unflagged,
+  against another circuit's plain timeouts; a repeat; and a first run that finished.  With two of
+  the synthetic rows marked as rows of ``--local`` runs, ``analyze.py`` refuses the label without
+  ``--allow-local``; with it, every output gives the number of these rows, and the name of the
+  refused environment variable that a start, here a dry run, accepted with ``--allow-env``.  The
+  analysis of the label's archive requires ``--out``, and leaves no extraction of the archive, or of
+  the archive of ``check``, behind, whether it succeeds or refuses the rows.  ``analyze.py`` warns
+  of a label whose hash does not match its ``circuits.json``, the working tree's other frozen files,
+  and the commit and requirements of its manifest, and of no other.  W(C-goto) and a D-synth (MQT
+  1.9.0) circuit give the example counterexamples of their groups.  ``listing_table.csv`` takes
+  C(N_0, m) from the circuit's N_0 in place of an A_m that was not computed where z >= m, and gives
+  no ratio where z < m.  ``shadow.csv`` gives the totals of a finished shadow run by threshold, and
+  the calls that a timed-out run wrote, without a last line cut off, and leaves out a run with
+  ``compiled_in_timing`` set and a disagreement.  A calls file with a malformed line before its last
+  is an error.  Each kind of contradiction that ``analyze.check_consistency`` lists makes its
+  circuit a disagreement: a shadow run that ended in ``ShadowDisagreement``, a finished shadow run,
+  a repeat, a deletion parent, the final m* of a deletion task with no accepted deletion, the ground
+  truth, the baseline, a violation recorded by an unfinished certification, or the result of a
+  certification that exceeded its memory cap after it returned, against another exact result; a
+  final circuit whose m* is at most t, or above the weight of a violation that the search of its m*
+  reported; Phi_m above A_m; Omega_m of a completed weight above Phi_m; the ground truth's heavy
+  mechanisms against h, also where the ground truth exceeded its memory cap after it returned; and a
+  counterexample's residual weight against its fault weight or lower bound.  A circuit whose claims
+  of every kind agree gets their m*.  Every case of the combined margin of
+  ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
+  t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
+  with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
+  and agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in
+  the partial results of a killed task.  The margin counts of one family are checked, and
+  ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
+  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
+  unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
+  but list its task, list an uncertified parent, give a timeout and a flagged timeout their
+  statuses, and keep the rows of two tasks killed during the search of their final m*: with m* > k
+  for the largest fault weight k that the search completed, and with m* where it found a violation.
+  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's marks head
+  each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -805,8 +805,8 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     )
     assert weight["T_m_bz"] is None and weight["T_m_cc"] == 1.0, weight
 
-    # listing_table.csv: C(N_0, m) from circuits.json in place of an A_m that count_accepted did
-    # not compute, where z >= m, and no ratio where z < m, since A_m may then be 0
+    # listing_table.csv: C(N_0, m) from the circuit's N_0 in place of an A_m that count_accepted
+    # did not compute, where z >= m, and no ratio where z < m, since A_m may then be 0
     circuit = {"options": {"max_weight": 2}, "N0": 10}
     runs = (first_flagged, first_flagged, first_flagged)
     (_, weight) = analyze._per_weight("x", circuit, *runs, {"Phi": {"2": 9}}, {})
