@@ -1306,7 +1306,10 @@ def test_cleanup_unkillable(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_cleanup_unreadable_records(directory: pathlib.Path, node: bool) -> None:
-    """An active record that vanished is skipped; an unreadable one is live until --cleanup."""
+    """An active record that vanished is skipped; an unreadable one is live until --cleanup.
+
+    ``--status`` says that the record is unreadable, not that its run is alive.
+    """
     run_node = _run_node_module()
     active = directory / "active"
     active.mkdir()
@@ -1314,6 +1317,9 @@ def test_cleanup_unreadable_records(directory: pathlib.Path, node: bool) -> None
     (active / "torn").write_text('{"pid": 1')
     run_node.refuse_other_hosts(directory)
     assert run_node.live_runs(directory) == ["torn"]
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        run_node.print_status(directory)
+    assert "\n  torn: unreadable (" in output.getvalue(), output.getvalue()
     with contextlib.redirect_stdout(io.StringIO()) as output:
         run_node.cleanup(directory)
     assert "torn: unreadable" in output.getvalue(), output.getvalue()
@@ -1476,7 +1482,8 @@ def test_run_node_missing_row(directory: pathlib.Path, node: bool) -> None:
 def test_run_node_other_host(directory: pathlib.Path, node: bool) -> None:
     """A start and --cleanup refuse a label whose ``active/`` lists runs of other hosts.
 
-    The refusal names every such record.
+    The refusal names every such record, and ``--status`` names each record's host, not whether its
+    run is alive.
     """
     label_dir, command = _local_label(directory)
     (label_dir / "active").mkdir(parents=True)
@@ -1490,6 +1497,9 @@ def test_run_node_other_host(directory: pathlib.Path, node: bool) -> None:
             assert f"active/{name} (host {host})" in refused.stderr, refused.stderr
     assert (label_dir / "active" / "t").exists()
     assert not (label_dir / tasks.TASKS_FILE).exists()
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        _run_node_module().print_status(label_dir)
+    assert "\n  t: on host elsewhere.example," in output.getvalue(), output.getvalue()
 
 
 @test

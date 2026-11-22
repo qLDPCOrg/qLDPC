@@ -54,8 +54,9 @@ it once with ``--cleanup``, which kills GNU parallel, every run still listed in 
 processes are still the ones recorded; the node self-tests run in temporary directories without such
 records, so after a hard kill during them, wait for ``common/selftest.py`` to end.  ``--cleanup``
 names, and leaves alive, the processes of a run's group whose leader is gone (see ``cleanup``).
-``--status`` prints the label directory, its progress, and whether each recorded run is alive, and
-``--cleanup`` prints the label directory and what it kills, or that it has nothing to clean up.
+``--status`` prints the label directory, its progress, and whether each recorded run is alive, or
+that its record is unreadable or of another host, and ``--cleanup`` prints the label directory and
+what it kills, or that it has nothing to clean up.
 Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose
 uncommitted changes name a dirty label's directory: run them with the run's options and before any
 change to the tree, and check that the label directory that they print is the run's.
@@ -587,7 +588,8 @@ def print_status(label_dir: pathlib.Path, results_dir: pathlib.Path | None = Non
 
     Each record of a run, in the label's ``active/`` directory or, given the results directory,
     under the label directory's acceptance attempts, is said to be alive or ended, as
-    ``live_runs`` finds it.
+    ``live_runs`` finds it, or else to be unreadable or of another host, whose processes this host
+    cannot check.
     """
     print(f"label directory: {label_dir}")
     problems: list[str] = []
@@ -609,24 +611,24 @@ def print_status(label_dir: pathlib.Path, results_dir: pathlib.Path | None = Non
                 print(f"  {len(lost)} of them ended the pass without a final row: see {missing}")
     else:
         print("no task list yet")
+    host = socket.gethostname()
     live = set(live_runs(label_dir, results_dir))
-    records = _active_records(label_dir) + _acceptance_records(label_dir, results_dir)
-    names = [_record_name(label_dir, path) for path, _ in records]
-    if PARALLEL_RECORD in names:
-        names.remove(PARALLEL_RECORD)
-        print(
-            f"GNU parallel: recorded in active/{PARALLEL_RECORD}, "
-            + (
-                "still running"
-                if PARALLEL_RECORD in live
-                else "no longer running (--cleanup removes the record)"
-            )
-        )
-    ended = "ended (--cleanup removes the record)"
-    print(
-        f"recorded runs: {len(names)}"
-        + "".join(f"\n  {name}: {'alive' if name in live else ended}" for name in names)
-    )
+    runs = []
+    for path, record in _active_records(label_dir) + _acceptance_records(label_dir, results_dir):
+        name = _record_name(label_dir, path)
+        if record is None:
+            state = "unreadable (--cleanup removes the record)"
+        elif record.get("host", host) != host:
+            state = f"on host {record['host']}, which this host cannot check"
+        elif name in live:
+            state = "alive"
+        else:
+            state = "ended (--cleanup removes the record)"
+        if name == PARALLEL_RECORD:
+            print(f"GNU parallel: recorded in active/{PARALLEL_RECORD}, {state}")
+        else:
+            runs.append(f"\n  {name}: {state}")
+    print(f"recorded runs: {len(runs)}" + "".join(runs))
     for problem in problems:
         print(f"note: {problem}")
 
