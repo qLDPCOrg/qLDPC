@@ -5,7 +5,7 @@
     python codes.py --out DIR [--write-sample] [--check]
 
 **Families and sizes.**  Each family has endpoints n_lo and n_hi from its published source,
-recorded with their sources in ``code_data/endpoints.json``.  The four target lengths are
+recorded in ``code_data/endpoints.json``; the README cites each source.  The four target lengths are
 n_j = n_lo (n_hi / n_lo)^(j / 3) for j = 0, ..., 3, and each target goes to the family's
 admissible parameters whose length is nearest in log n; ties go to the smaller n, then to the
 family's tie-break.  Targets that land on the same parameters merge; in the ``ladders`` of
@@ -322,7 +322,7 @@ def draw_qt(params: dict[str, Any], rng: np.random.Generator) -> codes.CSSCode:
         group: abstract.Group = abstract.DihedralGroup(order // 2)
     else:
         group = abstract.CyclicGroup(order)
-    # the row-reduced checks that qldpc built when sample.json was fixed
+    # the row-reduced checks, which the frozen sample records
     code = workloads.get_row_reduced_qt_code(
         codes.QTCode.random(group, local_code(length), seed=int(rng.integers(2**31)))
     )

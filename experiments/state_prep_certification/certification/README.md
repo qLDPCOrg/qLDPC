@@ -3,7 +3,7 @@
 This experiment shows what exact certification of bounded fault propagation makes possible on published state preparation circuits, and how its cost behaves against the size of the problem.
 It measures which circuits certify within the time limit, the number of faults that the listing considers against all accepted fault combinations, the smallest counterexamples where violations exist, and the cost of the two weight oracles on identical queries.
 Its one baseline is internal: brute force that queries every accepted fault combination with the certifier's own oracle.
-It compares with no other tool; its internal checks are the agreement of the Brouwer-Zimmermann (BZ) and connected-cluster (CC) oracles, the agreement of the certifier with the baseline, and brute force on small circuits.
+It compares with no other tool; its internal checks are the agreement of the Brouwer-Zimmermann (BZ) and connected-cluster (CC) oracles (qLDPC's [BZ guide](../../../src/qldpc/codes/distance/brouwer_zimmermann.md) and [connected-cluster guide](../../../src/qldpc/codes/distance/connected_cluster.md)), the agreement of the certifier with the baseline, and brute force on small circuits.
 Two applications of the certifier use the same circuits: the exact margin of each circuit, and the deletion of verification measurements under exact certification.
 
 ## Circuits
