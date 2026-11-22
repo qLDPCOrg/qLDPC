@@ -204,8 +204,8 @@ It also treats as contradictions:
 These agreement columns of `summary.csv` compare first runs:
 
 - `agree_bz_cc`: the verdicts of the first runs of `cert_bz` and `cert_cc`, where both finished.
-- `baseline_counts_match`: the combinations that the first run of the baseline recorded, whether it finished or stopped, against A_m as above: equal on each completed weight, and at most A_m on a weight where the run found a violation.
-  Otherwise the column is empty where no completed weight has a known A_m.
+- `baseline_counts_match`: the combinations that the first run of the baseline recorded, whether it finished or stopped, against A_m as above.
+  It is false where they differ on a completed weight, or exceed A_m on a weight where the run found a violation; otherwise true where a completed weight has a known A_m, and empty where none has.
 - `agree_baseline`: false where `baseline_counts_match` is, and equal to it where no certification finished.
   Otherwise it compares the verdict and smallest violating weight of the baseline's first run, or, if that run stopped, its recorded violations and completed weights, with those of each certification whose first run finished.
 - `agree_ground_truth`: the smallest violating weight of the ground truth against that of each certification whose first run finished, and its counts against those of the counters (`ground_truth_counts_match`).

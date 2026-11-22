@@ -101,8 +101,9 @@ of ``--label-dir``):
     finished.
   - ``baseline_counts_match``: the combinations that the first run of ``brute_bz`` recorded,
     whether it finished or stopped, against A_m of ``count_accepted``, or else of the ground truth.
-    They must be equal on each completed weight, and at most A_m on a weight where the run found a
-    violation.  Otherwise it is empty where no completed weight has a known A_m.
+    It is false where they differ on a completed weight, or exceed A_m on a weight where the run
+    found a violation; otherwise true where a completed weight has a known A_m, and empty where none
+    has.
   - ``agree_baseline``: false where ``baseline_counts_match`` is, and equal to it where no
     certification finished.  Otherwise it compares the verdict and smallest violating weight of
     that first run, or, if it stopped, its recorded violations and completed weights, with those of
