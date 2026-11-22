@@ -163,7 +163,8 @@ def at1_anchors(directory: pathlib.Path, node: bool) -> None:
         arrays = codes.load_code(label_dir, entry["code_hash"])
         if "matrix" in arrays:
             continue
-        plain = qldpc_codes.CSSCode(arrays["matrix_x"], arrays["matrix_z"], is_subsystem_code=False)
+        plain = arms.plain_code(arrays)
+        assert isinstance(plain, qldpc_codes.CSSCode), entry["name"]
         equal = entry["name"] in EQUAL_SECTORS
         assert bool(plain._equal_distance_xz) == equal, entry["name"]
         assert entry["equal_distance_xz"] == equal, entry["name"]

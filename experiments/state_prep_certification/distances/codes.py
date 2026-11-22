@@ -67,6 +67,7 @@ from sympy.abc import x, y
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 sys.path.insert(1, str(pathlib.Path(__file__).resolve().parents[2] / "distance_tuning"))
 
+from experiments.state_prep_certification.distances import arms
 from qldpc import abstract, codes
 
 # Scripts in distance_tuning/ import each other as top-level modules.  mypy knows these files only
@@ -673,18 +674,11 @@ def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
             "matrix_x": np.asarray(code.matrix_x, dtype=np.uint8),
             "matrix_z": np.asarray(code.matrix_z, dtype=np.uint8),
         }
-        plain_css = codes.CSSCode(
-            arrays["matrix_x"].astype(np.int_),
-            arrays["matrix_z"].astype(np.int_),
-            is_subsystem_code=False,
-        )
-        # whether the plain code has equal X and Z distances because H_X = H_Z, which AT1 checks
-        equal_sectors = bool(plain_css._equal_distance_xz)
-        plain: codes.QuditCode = plain_css
     else:
         arrays = {"matrix": np.asarray(code.matrix, dtype=np.uint8)}
-        plain = codes.QuditCode(arrays["matrix"].astype(np.int_))
-        equal_sectors = False
+    plain = arms.plain_code(arrays)
+    # whether the plain code has equal X and Z distances because H_X = H_Z, which AT1 checks
+    equal_sectors = isinstance(plain, codes.CSSCode) and bool(plain._equal_distance_xz)
     code_hash = hash_arrays(arrays)
     np.savez(out / "codes" / f"{code_hash}.npz", **arrays)
     return {
