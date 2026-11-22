@@ -122,19 +122,19 @@ On the workstation, run `analyze.py --archive PATH --check-archive PATH`.
 Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `listing_table.csv`.
 `listing_table.csv` compares the listed faults and oracle rows with all accepted combinations, per family and weight.
 `shadow.csv` gives the cost of the two weight oracles on identical queries: for each circuit and threshold of the queries of its `shadow` run, the calls, the rows that they submit, and the seconds of BZ and of CC, from the run's result or, for a run that did not finish, from the calls that it wrote to `oracle_calls/` in the label directory; it leaves out runs with `compiled_in_timing` set and circuits with a disagreement.
-`counterexamples.json` holds every counterexample under `all`, and up to three examples under `examples`, one for each group of families that has one; `analyze.py`'s docstring names the groups and the rule.
+`counterexamples.json` holds every counterexample under `all`, and up to three examples under `examples`, one for each group of families that has one, by a rule that `analyze.py`'s docstring gives.
 The groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth families with their W variants.
 Without the archive of `check`, the outputs report the ground truth as not run.
 The analysis takes the circuits and their parameters from the label's copy of `circuits.json`, and stops if the label of `check` ran with another one.
 If a label does not match its `circuits.json` and the working tree's `config.json` and `pins.json`, it prints a warning and analyzes the label anyway.
-It reports every task without a row as missing, and leaves every circuit with a disagreement out of the verdict counts, medians and maxima, `listing_table.csv`, `deletion_table.csv`, and the example counterexamples.
+It reports every task without a row as missing, and leaves every circuit with a disagreement out of the counts of verdicts and margins, medians and maxima, `listing_table.csv`, `shadow.csv`, `deletion_table.csv`, and the example counterexamples.
 A circuit is a disagreement if any two of its exact results contradict each other, and `summary.csv`'s column `contradictions` names them (`check_consistency` in `analyze.py`).
 The analysis compares, as claims on the circuit's margin m* (see below), the result of every run of `cert_bz`, `cert_cc`, `shadow`, `brute_bz`, `margin`, and `ground_truth`, repeats included, each fault weight that a run completed or found a violation at, even if it did not finish, each deletion task's parent verdict at K = t, and the final m* of a deletion task that accepted no deletion.
 It also compares the baseline's enumerated combinations with A_m, and the ground truth's counts and heavy mechanisms with those of the counters.
 It treats as contradictions a `shadow` run that ended in `ShadowDisagreement`, a counterexample whose exact residual weight does not exceed its fault weight or is below the certifier's lower bound on it, and a deletion task's final circuit that CC does not certify at K = t or whose final m* is at most t.
 Where A_m was not computed, `listing_table.csv` divides by C(N_0, m) instead, if z >= m, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
 Where z < m, A_m may be 0, and the column `ratio_unknown` counts the circuit instead, as it does a circuit with A_m = 0.
-The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, each kind of contradiction, a task without a row, rows with `compiled_in_timing` set, and rows of `--local` runs, which the analysis refuses without `--allow-local`, as the [shared README](../README.md#workflow) says.
+The acceptance test AT8 runs the analysis on synthetic rows: a listing count that timed out, each kind of contradiction, shadow runs, a task without a row, rows with `compiled_in_timing` set, and rows of `--local` runs, which the analysis refuses without `--allow-local`, as the [shared README](../README.md#workflow) says.
 
 `analyze_applications.py` adds the margins and the deletions.
 `summary.csv` gives each circuit's combined margin: the column `margin` holds the m* or "all" that the claims listed above determine; if none determines it, the column `margin_lower_bound` holds the largest fault weight k up to which a run found no violation, meaning m* > k.

@@ -80,9 +80,11 @@
   ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
   outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
   unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
-  but list its task, list an uncertified parent, and give a timeout and a flagged timeout their
-  statuses.  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's
-  marks head each circuit of ``pruned/``, which still parses.
+  but list its task, list an uncertified parent, give a timeout and a flagged timeout their
+  statuses, and keep the row of a task killed during the search of its final m*, with m* > k for the
+  largest fault weight k that the search completed.  ``deletion_table.csv`` lists its circuits in
+  the order of their ids, and an analysis's marks head each circuit of ``pruned/``, which still
+  parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier

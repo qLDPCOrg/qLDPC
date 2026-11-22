@@ -35,14 +35,15 @@ because it compiled.  A circuit's verdict is that of ``cert_bz``, or of ``cert_c
 either arm's status is ``timeout_compiled``.  It is a disagreement where any two of its exact
 results contradict each other, as ``check_consistency`` lists: its verdicts, smallest violating
 weights, and margins from every run, repeats included, its counts, and its counterexamples.  The
-column ``contradictions`` of summary.csv names them.  A disagreement enters no count of verdicts
-or margins and no median, maximum, or ratio of ``families.csv``, nor ``listing_table.csv``,
-``deletion_table.csv``, or the example counterexamples.  The status counts and agreements count
-it.  T of a certification arm is the median of its first run and repeats.  Its timing is
-incomplete if the first run did not finish, if a repeat that the first run calls for did not finish
-or is missing, or if the row of any of its runs has ``compiled_in_timing`` set; an incomplete
-timing enters no median or maximum.  The same holds for the brute-force baseline ``brute_bz``.  If
-an arm's first run has ``compiled_in_timing`` set, its per-weight times are left empty.
+column ``contradictions`` of summary.csv names them.  A disagreement enters no count of verdicts or
+margins and no median, maximum, or ratio of ``families.csv``, nor ``listing_table.csv``,
+``shadow.csv``, ``deletion_table.csv``, or the example counterexamples.  The status counts and
+agreements count it.  T of a certification arm is the median of its first run and repeats.  Its
+timing is incomplete if the first run did not finish, if a repeat that the first run calls for did
+not finish or is missing, or if the row of any of its runs has ``compiled_in_timing`` set; an
+incomplete timing enters no median or maximum.  The same holds for the brute-force baseline
+``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its per-weight times are left
+empty.
 
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
