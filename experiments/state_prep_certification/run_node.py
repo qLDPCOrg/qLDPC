@@ -2,6 +2,9 @@
 
 """Run one experiment: acceptance tests, task lists, the two passes, and the archive.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python experiments/state_prep_certification/run_node.py EXPERIMENT --approved-cpu-hours H \
         [options]
 

@@ -2,6 +2,9 @@
 
 """The codes of the distance experiment: families drawn by a fixed size rule, and named anchors.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python codes.py --out DIR [--write-sample] [--check]
 
 **Families and sizes.**  Each family has endpoints n_lo and n_hi from its published source,

@@ -2,6 +2,9 @@
 
 """Acceptance tests of the distance experiment.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python acceptance.py [--local] [--only AT1 AT5 ...] [--results-dir R]
 
 * **AT1:** both arms on fast anchors (bb72, pp110, the quantum Golay code, qr47, the five-qubit

@@ -1,5 +1,7 @@
 # Exact certification of bounded fault propagation
 
+**Prototype.** Everything in `state_prep_certification/` is a prototype, subject to change: its code, interfaces, inputs, outputs, and documentation.
+
 This experiment measures exact certification of bounded fault propagation on published state preparation circuits, and how its cost grows with the size of the problem.
 It measures which circuits certify within the time limit, the number of faults that the listing considers against all accepted fault combinations, the smallest counterexamples where violations exist, and the cost of the two weight oracles on identical queries.
 Its one baseline is internal: brute force that queries every accepted fault combination with the certifier's own oracle.

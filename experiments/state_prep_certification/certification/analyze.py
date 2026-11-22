@@ -2,6 +2,9 @@
 
 """Analyze a run of the certification experiment: its CSV files and counterexamples.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python analyze.py (--archive PATH --out DIR | --label-dir DIR [--out DIR])
         [--check-archive PATH | --check-label-dir DIR] [--allow-local]
 

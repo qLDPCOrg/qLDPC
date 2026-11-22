@@ -2,6 +2,9 @@
 
 """Run one task of a label: the command that GNU parallel invokes once per task.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python experiments/state_prep_certification/common/run_task.py --label-dir D [--local] \
         [--job-slot S] [--cpu C] KEY
 

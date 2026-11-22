@@ -2,6 +2,9 @@
 
 """Acceptance tests of the ranking experiment.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python acceptance.py [--local] [--only RT1 RT3 ...] [--results-dir R]
 
 On the node, before the run, only RT1, RT2, and RT8 run; with ``--local``, every test runs.  Each

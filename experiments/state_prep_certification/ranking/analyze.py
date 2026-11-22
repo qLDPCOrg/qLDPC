@@ -2,6 +2,9 @@
 
 """Analyze a run of the ranking experiment: admission, scores, agreement, the gate, and costs.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python analyze.py (--archive PATH | --label-dir DIR) --certification-archive PATH [--out DIR]
 
 The analysis is descriptive: tables with first-order standard errors, which are not confidence

@@ -3,6 +3,9 @@
 #
 # The single node entry point of the experiments of state_prep_certification.
 #
+# Everything in state_prep_certification/ is a prototype, subject to change: its code, interfaces,
+# inputs, outputs, and documentation.
+#
 #   bash experiments/state_prep_certification/node.sh EXPERIMENT --approved-cpu-hours H [--jobs N]
 #   bash experiments/state_prep_certification/node.sh --check
 #   bash experiments/state_prep_certification/node.sh EXPERIMENT --status | --cleanup [--subset S]

@@ -2,6 +2,9 @@
 
 """Analyze a run of the distance experiment: summary.csv, families.csv, anchors.csv, distances.pdf.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python analyze.py (--archive PATH --out DIR | --label-dir DIR [--out DIR]) [--allow-local]
 
 The analysis is descriptive.  For each code, the time ratio R_T = T_prior / T_on of the BZ search

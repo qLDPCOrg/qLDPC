@@ -1,5 +1,7 @@
 # Exact code distances
 
+**Prototype.** Everything in `state_prep_certification/` is a prototype, subject to change: its code, interfaces, inputs, outputs, and documentation.
+
 This experiment measures how much four extensions of the exact Brouwer-Zimmermann (BZ) distance search that qLDPC implements change the wall time of the search, together.
 The "on" arm runs qLDPC's BZ search with everything on, at its defaults.
 The "prior" arm runs the same search with all four extensions turned off at once by qLDPC's tuning fields.

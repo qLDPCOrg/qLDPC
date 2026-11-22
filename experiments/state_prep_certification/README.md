@@ -1,5 +1,7 @@
 # State preparation certification
 
+**Prototype.** Everything in `state_prep_certification/` is a prototype, subject to change: its code, interfaces, inputs, outputs, and documentation.
+
 This directory holds experiments on the exact certification of fault-tolerant state preparation circuits, and on the exact distance searches that it relies on.
 Each experiment is a subdirectory that plugs into shared code at this level:
 

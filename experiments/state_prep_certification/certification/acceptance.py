@@ -2,6 +2,9 @@
 
 """Acceptance tests of the certification experiment.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python acceptance.py [--local] [--only AT1 AT3 ...] [--results-dir R]
 
 * **AT1:** C-goto certifies at K = 2; its weakened variant, which deletes the flag, violates at

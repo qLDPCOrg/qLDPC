@@ -2,6 +2,9 @@
 
 """Acquire, build, and check the circuits of the certification experiment.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python circuits.py --fetch                          (workstation)
     python circuits.py --build                          (workstation)
     python circuits.py --check                          (both machines)

@@ -2,6 +2,9 @@
 
 """Build the offline bundle that carries the experiments of this directory to the node.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python experiments/state_prep_certification/bundle.py EXPERIMENT... --out DIR [--unfrozen]
 
 The node has no practical network access, so everything that it needs travels in one file,

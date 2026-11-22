@@ -2,6 +2,9 @@
 
 """Tests of the shared code of the experiments, with a stand-in experiment.
 
+Everything in ``state_prep_certification/`` is a prototype, subject to change: its code, interfaces,
+inputs, outputs, and documentation.
+
     python experiments/state_prep_certification/common/selftest.py [--node] [--only NAME ...] \
         [--keep]
 

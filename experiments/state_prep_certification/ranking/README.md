@@ -1,5 +1,7 @@
 # Ranking certified preparations against direct simulation
 
+**Prototype.** Everything in `state_prep_certification/` is a prototype, subject to change: its code, interfaces, inputs, outputs, and documentation.
+
 This experiment asks whether two decoder-free scores of state preparation circuits order certified circuits as direct simulation does, and at what cost relative to it.
 Both scores combine a circuit's residual-weight histogram, the distribution of the residual weight R of an accepted shot, with a model of the consumer (see [Consumer and noise](#consumer-and-noise)).
 Phi_unc assumes that the consumer fails when R plus its own fault weight exceeds the weight t that the code corrects, and Phi_cal uses a calibration of the consumer by simulation (qLDPC's `ResidualWeightHistogram` and `ConsumerCalibration`).
