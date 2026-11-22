@@ -71,6 +71,11 @@ def joblog_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
     return label_dir / f"joblog-pass{name}.tsv"
 
 
+def missing_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
+    """The keys of the tasks of a pass that ended its last run without a final row, if any."""
+    return label_dir / f"missing-pass{name}.txt"
+
+
 def write_pass1(label_dir: pathlib.Path, tasks: Sequence[dict[str, Any]]) -> list[str]:
     """Write ``tasks.json`` and the shuffled ``tasks-pass1.txt`` once; return the keys in order."""
     keys = [task["key"] for task in tasks]

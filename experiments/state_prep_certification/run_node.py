@@ -31,8 +31,9 @@ experiment (``common/manifest.py``), it
    cores;
 6. runs pass 1 with GNU parallel, one task per job slot, whose child process pins itself to its
    slot's CPU, then the repeats of pass 2; while GNU parallel runs, ``active/_parallel`` records
-   it, and after each pass, the script stops if a task of the pass has no final row, and prints
-   the command that reruns it, with its runner and child pinned as GNU parallel's are;
+   it, and after each pass, the script stops if a task of the pass has no final row, lists such
+   tasks in ``missing-pass<N>.txt``, and says how to rerun them through a start (see
+   ``run_pass``);
 7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz``: the one file to copy back.
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
@@ -193,10 +194,10 @@ def main() -> None:
         return
 
     # 6. the passes
-    run_pass(label_dir, "1", jobs, args.local, reserved)
+    run_pass(label_dir, "1", jobs, args.local)
     final, _ = store.final_rows(label_dir)
     tasks.write_pass2(label_dir, final, module.repeat_tasks)
-    run_pass(label_dir, "2", jobs, args.local, reserved)
+    run_pass(label_dir, "2", jobs, args.local)
     final, problems = store.final_rows(label_dir)
     if reserved:
         problems += [
@@ -450,48 +451,41 @@ def refuse_other_cpu(label_dir: pathlib.Path) -> None:
 # passes
 
 
-def run_pass(
-    label_dir: pathlib.Path,
-    name: str,
-    jobs: int,
-    local: bool,
-    runner_cpus: Sequence[int] = (),
-) -> None:
+def run_pass(label_dir: pathlib.Path, name: str, jobs: int, local: bool) -> None:
     """Run one pass, and stop if a task of the pass has no final row after it.
 
     ``run_task.py`` exits with status 0 only once a task has a final row, and GNU parallel's
-    ``--resume-failed`` never reruns a task that exited with status 0.  So a task without a row
-    after the pass has lost it, such as to a damaged ``runs.jsonl``, and needs a rerun by hand.
-    The printed command runs it as GNU parallel would on the node: its runner on the reserved CPUs
-    ``runner_cpus`` (by ``taskset``), its child on the CPU of the first job slot, and with this
-    start's numba cache, if ``NUMBA_CACHE_DIR`` is set.
+    ``--resume-failed`` never reruns a task whose line in the job log has status 0.  So a task
+    without a row after the pass has lost it, such as to a damaged ``runs.jsonl``.  The keys of such
+    tasks go to ``missing-pass<N>.txt``, and the message says how to rerun them through a start,
+    under all of its checks: on the node, delete their lines from the pass's job log, since GNU
+    parallel reruns a task whose sequence number the job log lacks, and repeat the start; locally,
+    repeat the start, which runs every task of the pass whose row is missing.  A task that has a
+    final row ends at once.
     """
     keys = tasks.pass_keys(label_dir, name)
     _run_keys(label_dir, name, keys, jobs, local)
     final, _ = store.final_rows(label_dir)
     missing = [key for key in keys if key not in final]
-    if missing:
-        command = [sys.executable, str(RUN_TASK), "--label-dir", str(label_dir)]
-        if local:
-            command.append("--local")
-        else:
-            command += ["--cpu", (label_dir / tasks.CORES_FILE).read_text().split()[0]]
-        if "NUMBA_CACHE_DIR" in os.environ:
-            command = ["env", f"NUMBA_CACHE_DIR={os.environ['NUMBA_CACHE_DIR']}"] + command
-        if runner_cpus and not local:
-            command = ["taskset", "-c", ",".join(str(cpu) for cpu in runner_cpus)] + command
-        pinned = (
-            ""
-            if local
-            else ", which pins the task's runner to the reserved CPUs and its child to the first "
-            "job slot's CPU, as GNU parallel's runs are pinned"
-        )
-        sys.exit(
-            f"{len(missing)} tasks of pass {name} ended without a readable final row, such as "
-            f"{', '.join(missing[:3])}; see the notes of --status.  Rerun each with this "
-            f"command{pinned}:\n  " + shlex.join(command + [missing[0]]) + "\nthen run this "
-            "command again."
-        )
+    path = tasks.missing_file(label_dir, name)
+    if not missing:
+        path.unlink(missing_ok=True)
+        return
+    store.write_atomic(path, "".join(f"{key}\n" for key in missing))
+    joblog = tasks.joblog_file(label_dir, name)
+    rerun = (
+        ""
+        if local
+        else f"delete the lines of these tasks from GNU parallel's job log {joblog}, whose last "
+        "column is each task's command, ending in its key, since --resume-failed never reruns a "
+        "task whose line has status 0; then "
+    )
+    sys.exit(
+        f"{len(missing)} tasks of pass {name} ended without a readable final row, as listed in "
+        f"{path}; --status notes the problems found in {store.RUNS_FILE}.  To rerun them, "
+        f"{rerun}repeat this start with the same options, which reruns them under all of its "
+        "checks; the tasks that have a final row end at once."
+    )
 
 
 def run_parallel(label_dir: pathlib.Path, command: list[str]) -> int:
@@ -561,6 +555,11 @@ def print_status(label_dir: pathlib.Path) -> None:
             status = final[key]["status"] if key in final else "pending"
             counts[status] = counts.get(status, 0) + 1
         print(f"pass {name}: {len(keys)} tasks; {counts}")
+        missing = tasks.missing_file(label_dir, name)
+        listed = missing.read_text().split() if missing.exists() else []
+        lost = [key for key in listed if key not in final]
+        if lost:
+            print(f"  {len(lost)} of them ended the pass without a final row: see {missing}")
     active = sorted(path.name for path in (label_dir / "active").glob("*"))
     if PARALLEL_RECORD in active:
         active.remove(PARALLEL_RECORD)
