@@ -83,7 +83,7 @@ of ``--label-dir``):
   - ``agreement_bz_cc`` (verdicts), ``agreement_baseline`` (the verdict and smallest violating
     weight of a finished ``brute_bz`` against those of each finished certification, and, finished
     or not, its enumerated combinations on each weight that it completed against A_m of
-    ``count_accepted``), and
+    ``count_accepted``, or of the ground truth where ``count_accepted`` did not compute it), and
     ``agreement_ground_truth`` (the smallest violating weight of ``ground_truth`` against that of
     every finished certification, and its Pi, E, Phi, and A against those of ``count_listing`` and
     ``count_accepted`` on the weights that both completed).
@@ -514,7 +514,8 @@ def summarize(
         accepted = _first_result(arms.get("count_accepted"))
         finished = [run for run in (bz, cc) if run["status"] == "ok"]
         code = circuit.get("code") or [None, None, None]
-        agree_baseline = _agree_baseline(brute, finished, accepted)
+        counts = _accepted_counts(accepted, arms.get("ground_truth"))
+        agree_baseline = _agree_baseline(brute, finished, counts)
         agree_ground_truth = _agree_ground_truth(
             arms.get("ground_truth"), finished, listing, accepted
         )
@@ -568,7 +569,7 @@ def summarize(
                 "rows_brute_bz": brute["result"].get("rows") if brute["status"] == "ok" else None,
                 "agree_bz_cc": _agree(bz, cc),
                 "agree_baseline": agree_baseline,
-                "baseline_counts_match": _baseline_counts_match(brute, accepted),
+                "baseline_counts_match": _baseline_counts_match(brute["partial"], counts),
                 "agree_ground_truth": agree_ground_truth,
                 "ground_truth_counts_match": _ground_truth_counts_match(
                     arms.get("ground_truth"), listing, accepted
@@ -724,12 +725,13 @@ def _agree(first: dict[str, Any], second: dict[str, Any]) -> bool | None:
 
 
 def _agree_baseline(
-    brute: dict[str, Any], finished: list[dict[str, Any]], accepted: dict[str, Any]
+    brute: dict[str, Any], finished: list[dict[str, Any]], counts: dict[str, int]
 ) -> bool | None:
     """Whether brute_bz agrees with A_m and with the verdict of each finished certification.
 
-    The counts are compared on the weights that brute_bz completed, where A_m was computed, and a
-    mismatch is a disagreement even if no certification finished.  Otherwise:
+    ``counts`` holds A_m by weight (``_accepted_counts``).  The counts are compared on the weights
+    that brute_bz completed, where A_m is known, and a mismatch is a disagreement even if no
+    certification finished.  Otherwise:
 
     1. If brute_bz and a certification finished, the result is whether their verdicts agree.
     2. Otherwise, if brute_bz recorded a violation before it was stopped and a certification
@@ -741,8 +743,8 @@ def _agree_baseline(
     4. Otherwise, the result is that of the counts: True if they match, and None if none were
        compared.
     """
-    counts = _baseline_counts_match(brute, accepted)
-    if counts is False:
+    counts_match = _baseline_counts_match(brute["partial"], counts)
+    if counts_match is False:
         return False
     if brute["status"] == "ok" and finished:
         return all(verdict(brute["result"]) == verdict(run["result"]) for run in finished)
@@ -754,21 +756,33 @@ def _agree_baseline(
     completed = [record["m"] for record in records if not record["violation"]]
     if any(weight is not None and weight <= max(completed, default=0) for weight in violations):
         return False
-    return counts
+    return counts_match
 
 
-def _baseline_counts_match(brute: dict[str, Any], accepted: dict[str, Any]) -> bool | None:
-    """Whether brute_bz enumerated A_m combinations on each weight that it completed.
+def _baseline_counts_match(records: list[dict[str, Any]], counts: dict[str, int]) -> bool | None:
+    """Whether a run of brute_bz enumerated A_m combinations on each weight that it completed.
 
-    None if no completed weight has a computed A_m.
+    ``records`` are the run's per-weight records, and ``counts`` holds A_m by weight
+    (``_accepted_counts``).  None if no completed weight has a known A_m.
     """
-    computed = accepted.get("A") or {}
     compared = [
-        record["combinations"] == computed[str(record["m"])]
-        for record in brute["partial"]
-        if "m" in record and not record["violation"] and str(record["m"]) in computed
+        record["combinations"] == counts[str(record["m"])]
+        for record in records
+        if "m" in record and not record["violation"] and str(record["m"]) in counts
     ]
     return all(compared) if compared else None
+
+
+def _accepted_counts(
+    accepted: dict[str, Any], truth_rows: list[dict[str, Any]] | None
+) -> dict[str, int]:
+    """A_m by weight: of ``count_accepted``, or of the ground truth where that did not compute it.
+
+    ``accepted`` is the result of ``count_accepted`` (``_first_result``), and ``truth_rows`` the
+    rows of ``ground_truth``.
+    """
+    truth = (_ground_truth(truth_rows) or {}).get("A") or {}
+    return truth | (accepted.get("A") or {})
 
 
 def _agree_ground_truth(
@@ -1095,7 +1109,9 @@ def check_consistency(
       smallest violating weights that differ between runs, repeats included, or a violation at a
       fault weight that another run completed;
     * a ``shadow`` run that ended in ``ShadowDisagreement``, by its row's error;
-    * the combinations that ``brute_bz`` enumerated on a completed weight, against A_m;
+    * the combinations that each run of ``brute_bz``, repeats included, enumerated on a completed
+      weight, against A_m of ``count_accepted``, or of the ground truth where ``count_accepted`` did
+      not compute it (``_accepted_counts``);
     * the ground truth's Pi, E, Phi, and A against the counters' on the weights of both, and its
       number of heavy mechanisms against h of ``count_listing``;
     * a counterexample whose exact residual weight does not exceed its fault weight, or is below
@@ -1116,9 +1132,11 @@ def check_consistency(
                 f"shadow.r{row['repeat']}: BZ and CC answered a query differently"
             )
 
-    # the counts of the baseline and the ground truth
-    if _baseline_counts_match(summarize_certification(arms.get("brute_bz")), accepted) is False:
-        contradictions.append("brute_bz: combinations against A_m")
+    # the counts of every run of the baseline, and of the ground truth
+    counts = _accepted_counts(accepted, arms.get("ground_truth"))
+    for row in arms.get("brute_bz") or []:
+        if _baseline_counts_match(row.get("partial") or [], counts) is False:
+            contradictions.append(f"brute_bz.r{row['repeat']}: combinations against A_m")
     if _ground_truth_counts_match(arms.get("ground_truth"), listing, accepted) is False:
         contradictions.append("ground_truth: counts against count_listing or count_accepted")
     heavy = (_ground_truth(arms.get("ground_truth")) or {}).get("heavy")

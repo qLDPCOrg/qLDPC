@@ -55,7 +55,8 @@
 * **AT8:** the analysis (``analyze.py``) of synthetic rows on six B-cat circuits.  A
   ``count_listing`` run that timed out after one completed weight gives Pi, E, Phi, q, q_h, and h
   from its partial results.  A ground-truth count that differs from the counters', and a baseline
-  whose enumerated combinations differ from A_m, each make their circuit a disagreement, as does a
+  whose enumerated combinations differ from A_m, in a first run or a repeat, and of
+  ``count_accepted`` or else of the ground truth, each make their circuit a disagreement, as does a
   baseline stopped after a violation at weight m against a finished certification whose smallest
   violation is not at m.  An expected task without a row is reported as ``missing``.  Rows with
   ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and times that
@@ -697,33 +698,32 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
 
     # the baseline disagrees with any finished certification, here cert_cc alone, and its counts
     # disagree with A_m on its completed weights even if it and every certification timed out
-    accepted_counts = {"A": accepted}
     brute = {"status": "ok", "result": {"certified": True, "violation_weight": None}, "partial": []}
     violating = {"status": "ok", "result": {"certified": False, "violation_weight": 3}}
-    assert analyze._agree_baseline(brute, [violating], accepted_counts) is False
-    assert analyze._agree_baseline(brute, [brute], accepted_counts) is True
+    assert analyze._agree_baseline(brute, [violating], accepted) is False
+    assert analyze._agree_baseline(brute, [brute], accepted) is True
     miscounted = {
         "status": "timeout",
         "result": {},
         "partial": [{"m": 1, "combinations": 31, "violation": False}],
     }
-    assert analyze._agree_baseline(miscounted, [], accepted_counts) is False
-    assert analyze._agree_baseline(dict(miscounted, partial=[]), [], accepted_counts) is None
+    assert analyze._agree_baseline(miscounted, [], accepted) is False
+    assert analyze._agree_baseline(dict(miscounted, partial=[]), [], accepted) is None
     matched = dict(miscounted, partial=[{"m": 1, "combinations": 30, "violation": False}])
-    assert analyze._agree_baseline(matched, [], accepted_counts) is True
+    assert analyze._agree_baseline(matched, [], accepted) is True
     violating_at_1 = {"status": "ok", "result": {"certified": False, "violation_weight": 1}}
-    assert analyze._agree_baseline(matched, [violating_at_1], accepted_counts) is False
-    assert analyze._agree_baseline(matched, [violating], accepted_counts) is True
+    assert analyze._agree_baseline(matched, [violating_at_1], accepted) is False
+    assert analyze._agree_baseline(matched, [violating], accepted) is True
     # a baseline stopped after it recorded a violation, at weight 2, its smallest
     stopped = dict(
         matched,
         partial=[*matched["partial"], {"m": 2, "combinations": 5, "violation": True}],
     )
     violating_at_2 = {"status": "ok", "result": {"certified": False, "violation_weight": 2}}
-    assert analyze._agree_baseline(stopped, [violating_at_2], accepted_counts) is True
-    assert analyze._agree_baseline(stopped, [violating], accepted_counts) is False
-    assert analyze._agree_baseline(stopped, [brute], accepted_counts) is False
-    assert analyze._agree_baseline(stopped, [], accepted_counts) is True
+    assert analyze._agree_baseline(stopped, [violating_at_2], accepted) is True
+    assert analyze._agree_baseline(stopped, [violating], accepted) is False
+    assert analyze._agree_baseline(stopped, [brute], accepted) is False
+    assert analyze._agree_baseline(stopped, [], accepted) is True
 
     # the disagreements, whose counterexamples are listed but are not the group's example
     assert [summary[e["id"]]["verdict"] for e in (second, third)] == ["disagreement"] * 2, summary
@@ -1438,6 +1438,22 @@ def _check_consistency() -> None:
             "margin": [("ok", {"margin": 4}, [], None)],
             "ground_truth": [("ok", {"smallest_violation": 3}, [], None)],
         },
+        # a repeat of the baseline whose enumerated combinations differ from A_m
+        {
+            "brute_bz": [
+                ("ok", certified, [{"m": 1, "combinations": count, "violation": False}], None)
+                for count in (3, 2)
+            ],
+            "count_accepted": [("ok", {"A": {"1": 3}}, [], None)],
+        },
+        # the baseline's enumerated combinations against the ground truth's A_m, where
+        # count_accepted did not compute it
+        {
+            "brute_bz": [
+                ("ok", certified, [{"m": 1, "combinations": 2, "violation": False}], None)
+            ],
+            "ground_truth": [("ok", {"smallest_violation": None, "A": {"1": 3}}, [], None)],
+        },
         # the ground truth against the baseline, where no certification finished
         {
             "cert_bz": [("timeout", {}, [], None)],
@@ -1515,7 +1531,7 @@ def _check_consistency() -> None:
     summary, _ = analyze.summarize(analyze.collect(rows, entries))
     verdicts = {row["id"]: row["verdict"] for row in summary}
     *contradicting, consistent = entries
-    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 15, verdicts
+    assert [verdicts[circuit_id] for circuit_id in contradicting] == ["disagreement"] * 17, verdicts
     (row,) = [row for row in summary if row["id"] == consistent]
     assert row["verdict"] == "certified" and row["margin"] == 4, row
     assert row["contradictions"] is None, row
