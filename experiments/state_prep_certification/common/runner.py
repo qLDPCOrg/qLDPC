@@ -77,9 +77,9 @@ around the measured call, may call ``send_partial`` with partial results as they
 ``send_result`` with the measured result before it starts post-processing, and returns the rest of
 the row's ``result``: all of it, or, after ``send_result``, the fields of its post-processing.
 These results hold only values that JSON encodes, NumPy scalars and arrays, and sets, which the
-child sends as sorted lists.  JSON turns tuples into lists and dictionary keys into strings.  Any
-other object, or a set whose elements do not compare, raises TypeError, which ends the child with
-an error.
+child sends as sorted lists.  JSON turns tuples into lists, and dictionary keys that are strings,
+numbers, booleans, or None into strings.  Any other object or key, or a set whose elements do not
+compare, raises TypeError, which ends the child with an error.
 
 On the node, the child runs in a new session, so that its process group holds the whole run, and
 the runner watches and kills that group.  In local mode (``local=True``, ``run_node.py --local``),

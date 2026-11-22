@@ -30,7 +30,7 @@ These are the terms of qLDPC's guide [`fault_propagation.md`](../../../src/qldpc
   The **listing** is the certifier's enumeration, at each fault weight from 2 to the cutoff K' (below), of the irreducible accepted faults that contain a heavy mechanism, the **listed faults**; at fault weight 1, the certifier checks each mechanism with zero flags.
 - A **weight oracle** decides whether a syndrome has a Pauli error of weight at most a threshold: qLDPC has a BZ and a CC oracle.
   The certifier's **fault search** submits the syndromes of listed faults to the oracle in batches, whose entries are **oracle rows**.
-- A circuit's **design t** is the number of faults that its source designed it to tolerate; it sets the fault weight K at which certification and the deletions run (see [Circuits](#circuits)).
+- A circuit's **design t** is the number of faults that its source designed it to tolerate; it sets the fault weights at which certification (K = t + 1) and the deletions (K = t) run (see [Circuits](#circuits)).
 - The **margin** m* of a circuit is the smallest fault weight of a counterexample, or "all" if none exists (see [Arms](#arms)).
 
 The outputs use the following symbols for counts of a circuit's DEM.
