@@ -76,8 +76,8 @@ def harness_commit() -> dict[str, Any]:
             "diff_sha256": None,
             "source": "bundle.json",
         }
-    commit = _git("rev-parse", "HEAD")
-    dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
+    commit = git("rev-parse", "HEAD")
+    dirty = bool(tracked_changes())
     diff = None
     if dirty:
         diff = subprocess.run(
@@ -101,6 +101,18 @@ def harness_commit() -> dict[str, Any]:
         "diff_sha256": None if diff is None else hashlib.sha256(diff).hexdigest(),
         "source": "git",
     }
+
+
+def tracked_changes() -> str:
+    """The uncommitted changes to tracked files of the qLDPC tree, staged or not, one per line."""
+    return git("status", "--porcelain", "--untracked-files=no")
+
+
+def git(*args: str) -> str:
+    """The output of a Git command in the qLDPC tree, without surrounding white space."""
+    return subprocess.run(
+        ["git", "-C", str(plugin.ROOT), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 def compute_label(
@@ -268,13 +280,6 @@ def package_freeze() -> str:
     """The installed packages of this interpreter, from ``uv pip freeze`` or ``pip freeze``."""
     output = _run(["uv", "pip", "freeze", "--offline", "--python", sys.executable])
     return output or _run([sys.executable, "-m", "pip", "freeze"])
-
-
-def _git(*args: str) -> str:
-    """The output of a Git command in the repository."""
-    return subprocess.run(
-        ["git", "-C", str(plugin.ROOT), *args], capture_output=True, text=True, check=True
-    ).stdout.strip()
 
 
 def _run(command: list[str]) -> str:

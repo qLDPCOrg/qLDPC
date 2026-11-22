@@ -236,10 +236,10 @@ def check_frozen_files(tree: pathlib.Path, modules: list[Any]) -> None:
 
 def check_tree(pins: dict[str, Any], unfrozen: bool) -> str:
     """Check the worktree and the qLDPC pin; return the harness commit."""
-    status = _git("status", "--porcelain", "--untracked-files=no")
+    status = manifest.tracked_changes()
     if status:
         sys.exit(f"The worktree has uncommitted changes:\n{status}")
-    head = _git("rev-parse", "HEAD")
+    head = manifest.git("rev-parse", "HEAD")
     frozen = pins["qldpc_commit"]
     if frozen is None:
         if not unfrozen:
@@ -250,7 +250,7 @@ def check_tree(pins: dict[str, Any], unfrozen: bool) -> str:
         ["git", "-C", str(plugin.ROOT), "merge-base", "--is-ancestor", frozen, head], check=False
     ).returncode:
         sys.exit(f"HEAD does not descend from the pinned qLDPC commit {frozen}")
-    if _git("diff", "--name-only", frozen, head, "--", "src", "pyproject.toml"):
+    if manifest.git("diff", "--name-only", frozen, head, "--", "src", "pyproject.toml"):
         sys.exit(f"src/ or pyproject.toml changed since the pinned qLDPC commit {frozen}")
     return head
 
@@ -468,13 +468,6 @@ def _run(command: list[str]) -> None:
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode:
         sys.exit(f"failed: {' '.join(command)}\n{result.stdout}\n{result.stderr}")
-
-
-def _git(*args: str) -> str:
-    """The output of a Git command in this worktree."""
-    return subprocess.run(
-        ["git", "-C", str(plugin.ROOT), *args], capture_output=True, text=True, check=True
-    ).stdout.strip()
 
 
 def _normalized(name: str) -> str:
