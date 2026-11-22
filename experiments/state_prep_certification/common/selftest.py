@@ -662,6 +662,52 @@ def test_runner_survivors(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_survivors_unrecorded(directory: pathlib.Path, node: bool) -> None:
+    """A runner that cannot write the record of a run's survivors keeps the task's record.
+
+    The write fails as on a full disk, and the runner fails, so that the task's record in
+    ``active/`` still shows that the run may live.
+    """
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("unrecorded", [["spawn", 56.75]], limit_s=3.0, grace_s=1.0)
+    tasks.write_pass1(directory, [task])
+
+    def kill_root_only(watcher: Any) -> None:  # as for a grandchild in D state
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(watcher.root, signal.SIGKILL)
+
+    write_atomic = store.write_atomic
+    survivors: list[list[Any]] = []
+
+    def failing_write(path: pathlib.Path, text: str, *args: Any) -> None:
+        if path.name == task["key"]:
+            write_atomic(path, text, *args)
+            return
+        survivors.extend(json.loads(text)["survivors"])
+        raise OSError("no space left on the device")
+
+    try:
+        with (
+            _patched(runner._Watcher, "_kill", kill_root_only),
+            _patched(store, "write_atomic", failing_write),
+        ):
+            try:
+                runner.run_task(directory, task, local=not node)
+            except OSError:
+                pass
+            else:
+                raise AssertionError("the record of the survivors was written")
+        assert survivors, "no process survived the grace"
+        assert (directory / "active" / task["key"]).exists()
+    finally:
+        for pid, start in survivors:
+            if start is not None and runner.process_start(pid) == start:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+
+
+@test
 def test_local_runs_reject_compiled(directory: pathlib.Path, node: bool) -> None:
     """``local_runs.run_locally`` fails if a row with status ok has ``compiled_in_timing`` set.
 
@@ -742,11 +788,11 @@ def test_runner_failure(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
-def test_runner_blind(directory: pathlib.Path, node: bool) -> None:
+def test_runner_failed_process_table(directory: pathlib.Path, node: bool) -> None:
     """A runner whose process table fails kills its run's own process and keeps the run's record.
 
     The runner cannot tell whether other processes of the run live, so the record stays in
-    ``active/`` for --cleanup.
+    ``active/``: on the node, a start and --cleanup find members of the run's group that survive.
     """
     from experiments.state_prep_certification.common import runner
 

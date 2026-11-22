@@ -81,7 +81,11 @@ run until after its row is appended, and watches the child:
 during or between its runs, kills any current run, waits up to the grace for its processes to go,
 and returns 2 without a row; ``run_task.py`` exits with that status.  If the parent itself fails, it
 kills the run before it exits.  If it cannot tell that the run's processes are gone, as when ``ps``
-fails, it kills the run's own process and keeps the run's record in ``active/`` for ``--cleanup``.
+fails, it kills the run's own process, if it has not reaped it, and keeps the run's record in
+``active/``.  On the node, where the kill reached the run's process group, the record lets a start
+and ``--cleanup`` find members of the group that survive it; locally, the run's other processes
+may survive unrecorded.  If it cannot write the record of the processes left after a run's grace,
+the task's record stays as it was.
 
 The child side is ``child_main``.  The experiment's ``run(task, label_dir)`` calls ``timed`` once
 around the measured call, may call ``send_partial`` with partial results as they arrive and
@@ -221,7 +225,8 @@ def run_task(
         sig: signal.signal(sig, on_signal) for sig in (signal.SIGTERM, signal.SIGINT)
     }
     # each run writes the task's active file, which stays between the runs and until the row is in,
-    # or, if the runner failed before it knew that the run was gone, for --cleanup
+    # or, if the runner failed before it knew that the run was gone or had kept the record of the
+    # processes left after its grace, for a start and --cleanup
     active_file = label_dir / "active" / task["key"]
     watcher: _Watcher | None = None
     try:
@@ -375,9 +380,9 @@ class _Watcher:
                 self._keep_record(active_file, self._wait_until_gone(child))
                 self.may_live = False
             finally:
-                # if the run may live on, as when ps fails, kill at least its own process; its
-                # record stays (see run_task)
-                if self.may_live:
+                # if the run may live on, as when ps fails, kill at least its own process, unless
+                # it was reaped, when its id may have been reused; its record stays (see run_task)
+                if self.may_live and child.returncode is None:
                     with contextlib.suppress(ProcessLookupError):
                         os.kill(child.pid, signal.SIGKILL)
             raise
@@ -404,15 +409,18 @@ class _Watcher:
 
         The kept record adds ``survivors``, the id and start time of each process left, so that
         ``live_runs`` and ``--cleanup`` of ``run_node.py`` find them after this runner has exited,
-        and the next run of the task cannot overwrite the record.
+        and the next run of the task cannot overwrite the record.  Until it is written, the run
+        may live (``may_live``), so that if the write fails, the task's record stays.
         """
         if stray:
+            self.may_live = True
             record = json.loads(active_file.read_text())
             record["survivors"] = [[pid, self.seen.get(pid) or process_start(pid)] for pid in stray]
             store.write_atomic(
                 active_file.with_name(self.run_id), json.dumps(record), self.label_dir
             )
             active_file.unlink()
+            self.may_live = False
 
     def _watch(
         self, child: subprocess.Popen[bytes], read_fd: int, launch: float
