@@ -12,7 +12,8 @@ this session.  With ``--node`` (Linux only), the tests of the runner, of GNU par
 child pinned to a CPU and its runner on other CPUs; ``run_node.py`` runs them before the node's
 acceptance tests.  The tests that need git, of ``bundle.check_tree`` and of a dirty tree's label,
 run only without ``--node``.  The tests of GNU parallel need ``parallel`` on the ``PATH``, and the
-test of ``node.sh`` runs a copy of it with ``bash``.
+test of ``node.sh`` runs copies of it with ``bash``: through its install on Linux x86-64, with
+stand-ins of uv, GNU parallel, and a bundle's interpreter, and up to its preflight elsewhere.
 
 The script prints one line per test and exits with status 1 if any test failed.  Any exception
 that a test raises fails that test only, and ``--only`` refuses an unknown test name.
@@ -29,6 +30,8 @@ import json
 import multiprocessing
 import os
 import pathlib
+import platform
+import shlex
 import shutil
 import signal
 import socket
@@ -1389,6 +1392,23 @@ def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
+    """Each start records its environment in ``starts.jsonl``; ``manifest.json`` keeps the first's.
+
+    So a resume under a changed environment is recorded.
+    """
+    from experiments.state_prep_certification.common import manifest
+
+    for value in ("1", "2"):
+        with _environment("NUMBA_OPT", value):
+            manifest.write_manifest(directory, directory, {"start": value})
+    record = json.loads((directory / "manifest.json").read_text())
+    assert (record["start"], record["environment"]["NUMBA_OPT"]) == ("1", "1"), record
+    starts = [json.loads(line) for line in (directory / "starts.jsonl").read_text().splitlines()]
+    assert [start["environment"]["NUMBA_OPT"] for start in starts] == ["1", "2"], starts
+
+
+@test
 def test_manifest_label(directory: pathlib.Path, node: bool) -> None:
     """A label covers the pins, frozen files, harness commit, and the requirements it is given.
 
@@ -1502,8 +1522,14 @@ def test_manifest_dirty_digest(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
-def test_node_sh_refusals(directory: pathlib.Path, node: bool) -> None:
-    """node.sh stops with a message on a missing pin, a missing bundle, or a misplaced option."""
+def test_node_sh(directory: pathlib.Path, node: bool) -> None:
+    """node.sh stops with a message on a missing pin, a missing bundle, or a misplaced option.
+
+    On Linux x86-64, where its preflight passes, two bundles that share a results directory each
+    install and record their own CPython and GNU parallel, also on a later start, and the preflight
+    record is JSON where a value needs escaping.  Stand-ins of uv, GNU parallel, and the bundle's
+    interpreter replace the real tools.
+    """
     shutil.copy(ROOT / "experiments" / "state_prep_certification" / "node.sh", directory)
     pins = {"python": {"version": "3.12"}, "platform": {}, "gnu_parallel": {"version": "20240122"}}
     (directory / "pins.json").write_text(json.dumps(pins))
@@ -1524,6 +1550,38 @@ def test_node_sh_refusals(directory: pathlib.Path, node: bool) -> None:
         assert result.returncode == 1 and message in output, (arguments, result)
         # neither the system's python nor run_node.py ran
         assert "/bin/python:" not in output and "can't open file" not in output, (arguments, result)
+
+    if not (sys.platform.startswith("linux") and platform.machine() == "x86_64"):
+        return
+    stubs, results = directory / "stubs", directory / "results"
+    uv_version = 'uv 0.0 "quoted" \\back'
+    _write_script(
+        stubs / "uv",
+        f"""case "$1" in
+    --version) printf '%s\\n' {shlex.quote(uv_version)} ;;
+    python) exit 1 ;;
+    venv) mkdir -p "$5/bin" && printf '%s\\n' "$4" > "$5/built_with" &&
+        printf '#!/bin/sh\\nexit 0\\n' > "$5/bin/python" && chmod +x "$5/bin/python" ;;
+esac""",
+    )
+    _write_script(stubs / "parallel", "echo 'GNU parallel 20000101'")  # older than the pin
+    environment = {"PATH": f"{stubs}:/usr/bin:/bin", "FTSP_RESULTS": str(results), "HOME": "/"}
+    for name in ("a", "b", "a"):
+        script = _node_sh_bundle(directory / name, name)
+        result = subprocess.run(
+            ["bash", str(script), "selftest", "--approved-cpu-hours", "1"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+        )
+        assert result.returncode == 0, (name, result)
+        preflight = json.loads((results / f"preflight-{name}.json").read_text())
+        assert preflight["uv"] == uv_version, preflight
+        parallel = f"{results / f'ext-{name}' / 'bin' / 'parallel'} GNU parallel 20240122 {name}"
+        assert preflight["parallel_used"] == parallel, preflight
+        built_with = (results / f"venv-{name}" / "built_with").read_text().strip()
+        assert built_with == str(results / f"python-{name}" / "bin" / "python3.12"), built_with
 
 
 @test
@@ -1767,6 +1825,51 @@ def _patched(owner: Any, name: str, value: Any) -> Iterator[None]:
         yield
     finally:
         setattr(owner, name, previous)
+
+
+def _write_script(path: pathlib.Path, body: str) -> None:
+    """Write an executable shell script."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\n{body}\n")
+    path.chmod(0o755)
+
+
+def _node_sh_bundle(root: pathlib.Path, name: str) -> pathlib.Path:
+    """Make an unpacked stand-in bundle, once, and return the path of its ``node.sh``.
+
+    The bundle's CPython and GNU parallel are shell scripts, and its GNU parallel names the bundle.
+    """
+    experiments_dir = root / "qLDPC" / "experiments" / "state_prep_certification"
+    if experiments_dir.exists():
+        return experiments_dir / "node.sh"
+    experiments_dir.mkdir(parents=True)
+    shutil.copy(ROOT / "experiments" / "state_prep_certification" / "node.sh", experiments_dir)
+    pins = {
+        "python": {"version": "3.12.7", "standalone_asset": "cpython.tar.gz"},
+        "platform": {"min_glibc": "2.17"},
+        "gnu_parallel": {"version": "20240122"},
+    }
+    (experiments_dir / "pins.json").write_text(json.dumps(pins))
+    (experiments_dir / "bundle.json").write_text(json.dumps({"name": name}))
+    (root / "wheels").mkdir()
+    (root / "requirements-node.txt").write_text("")
+    for path in ("python", "parallel"):
+        (root / path).mkdir()
+    with tarfile.open(root / "python" / "cpython.tar.gz", "w:gz") as tar:
+        _add_text(tar, "python/bin/python3.12", "#!/bin/sh\n")
+    with tarfile.open(root / "parallel" / "parallel-20240122.tar.bz2", "w:bz2") as tar:
+        script = f"#!/bin/sh\necho 'GNU parallel 20240122 {name}'\n"
+        _add_text(tar, "parallel-20240122/src/parallel", script)
+    pins_path = "qLDPC/experiments/state_prep_certification/pins.json"
+    (root / "SHA256SUMS").write_text(f"{store.sha256_file(root / pins_path)}  {pins_path}\n")
+    return experiments_dir / "node.sh"
+
+
+def _add_text(tar: tarfile.TarFile, name: str, text: str) -> None:
+    """Add an executable file with the given text to an archive."""
+    info = tarfile.TarInfo(name)
+    info.size, info.mode = len(text.encode()), 0o755
+    tar.addfile(info, io.BytesIO(text.encode()))
 
 
 def _run_node_module() -> Any:
