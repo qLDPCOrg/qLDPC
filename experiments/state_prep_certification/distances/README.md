@@ -82,7 +82,7 @@ So `--archive` requires `--out`: the default output directory, `analysis/` in th
 The docstring of [`analyze.py`](analyze.py) says how to read the timings and the outputs, including a median that a timed-out run determines, an arm without a first run, and a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
 The distances that the arms report are exact, from qLDPC's exact BZ search.
-A code whose arms or repeats report different distances, or a distance other than its reference distance, is a disagreement, which `analyze.py` reports.
+A code whose arms or repeats report different distances in their rows with status `ok`, or a distance other than its reference distance, is a disagreement, which `analyze.py` reports.
 The anchors' reference distances and the families' endpoints are trusted inputs, from the sources that this README and `codes.py` cite.
 The times are measurements of runs on the node; the docstring of `analyze.py` says how the analysis compares them.
 

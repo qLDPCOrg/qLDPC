@@ -22,8 +22,9 @@ cell in ``anchors.csv`` is "compiled" unless the arm failed.  ``summary.csv`` co
 runs in ``runs_compiled``, and leaves them out of ``repeats`` and ``repeats_unfinished``.  The
 cases, in order:
 
-1. **disagreement:** the arms or their repeats report different distances, or a distance that
-   differs from the code's reference distance; no ratio;
+1. **disagreement:** the rows with status ``ok`` of the arms and their repeats report different
+   distances, or a distance that differs from the code's reference distance; a distance that a
+   ``timeout`` or ``memout`` row kept is not compared; no ratio;
 2. **failure:** either arm's first run or one of its repeats ended in an error or memout, or its
    first run has no final row although ``tasks.json`` lists it or a repeat has one; no ratio.  A
    repeat without a final row only leaves the median with fewer runs, which ``repeats`` in
@@ -270,8 +271,9 @@ def _timed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     runs or either middle one of an even number, the status is ``median_timed_out`` and T is None.
     A row with ``compiled_in_timing`` set enters no T and is left out of ``repeats`` and
     ``repeats_unfinished``: a repeat with it is left out of the median, and a first run with it
-    makes T None and the timing incomplete.  Repeats that report different distances make the arm's
-    distance a list, which ``ratio`` treats as a disagreement.
+    makes T None and the timing incomplete.  The arm's distance is that of its rows with status
+    ``ok``; if they report different distances, it is a list, which ``ratio`` treats as a
+    disagreement.
     """
     distances = sorted({row["result"].get("distance") for row in rows if row["status"] == "ok"})
     distance = distances[0] if len(distances) == 1 else (distances or None)
