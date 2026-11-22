@@ -6,7 +6,7 @@ Each experiment is a subdirectory that plugs into shared code at this level:
 | Experiment | What it measures | Inputs |
 | --- | --- | --- |
 | [`certification/`](certification/) | Exact certification of bounded fault propagation in published state preparation circuits: feasibility, listed faults against all accepted fault combinations, smallest counterexamples, and the cost of the two weight oracles | MQT QECC's shipped and synthesized circuits, the hand-translated circuits of Goto and of Chen et al. (referenced in certification's README), and weakened variants |
-| [`distances/`](distances/) | Exact code distances by qLDPC's Brouwer-Zimmermann search with everything on, against the same search with four of its extensions turned off | Codes drawn by a fixed rule with fixed seeds, and named anchors |
+| [`distances/`](distances/) | Exact code distances by qLDPC's Brouwer-Zimmermann search ([guide](../../src/qldpc/codes/distance/brouwer_zimmermann.md)) with everything on, against the same search with four of its extensions turned off | Codes drawn by a fixed rule with fixed seeds, and named anchors |
 | [`ranking/`](ranking/) | Exploratory; certification and distances do not use it. Whether decoder-free scores of certified preparation circuits order them as stratified direct simulation of a fixed consumer does, and at what cost | The certified t = 1 circuits of the certification experiment, with its code files |
 
 The experiments run only qLDPC and its Python dependencies, so that they can run on a Linux node without practical network access.

@@ -26,7 +26,7 @@ rule that produced the frozen ``sample.json``.  Every draw and its outcome goes 
 unexpected exception stops the script.
 
 **Anchors.**  The named codes of ``ANCHORS``, from ``experiments/distance_tuning/workloads.py``,
-qLDPC's constructors, and the vendored constructions below, with a reference distance where an
+qLDPC's constructors, and the constructions below, with a reference distance where an
 independent source gives one.
 
 **Storage.**  Every code is stored as plain matrices, ``H_X`` and ``H_Z`` for a CSS code and
