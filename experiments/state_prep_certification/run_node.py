@@ -341,7 +341,8 @@ def run_acceptance(
 ) -> bool:
     """Run the self-tests (on the node) and the acceptance tests, unless they passed before.
 
-    A pass in local mode does not count for node mode.  Each attempt runs the experiment's
+    A pass in local mode does not count for node mode, nor a pass on another CPU model.  Each
+    attempt runs the experiment's
     acceptance tests in a fresh directory, ``acceptance/<label directory>/<UTC>-<random>/`` in the
     results directory, which ``acceptance.json`` records, so that no attempt reuses the rows of
     another; the node self-tests run in temporary directories, which they remove.  Every attempt's
@@ -350,7 +351,8 @@ def run_acceptance(
     record = label_dir / "acceptance.json"
     if record.exists():
         previous = json.loads(record.read_text())
-        if previous["passed"] and (previous["node"] or not node):
+        same_cpu = previous.get("cpu_model") == runner.cpu_model()
+        if previous["passed"] and (previous["node"] or not node) and same_cpu:
             print("acceptance tests: passed before for this label", flush=True)
             return True
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -364,7 +366,15 @@ def run_acceptance(
     passed = passed and bool(module.acceptance(node, directory))
     store.write_atomic(
         record,
-        json.dumps({"passed": passed, "node": node, "at": time.time(), "directory": str(directory)})
+        json.dumps(
+            {
+                "passed": passed,
+                "node": node,
+                "cpu_model": runner.cpu_model(),
+                "at": time.time(),
+                "directory": str(directory),
+            }
+        )
         + "\n",
     )
     return passed

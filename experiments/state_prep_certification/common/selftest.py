@@ -1574,6 +1574,12 @@ def test_acceptance_attempts(directory: pathlib.Path, node: bool) -> None:
     record = json.loads((label_dir / "acceptance.json").read_text())
     assert record["directory"] == str(second), record
 
+    # a pass recorded on another CPU model does not count: the tests run again
+    record["cpu_model"] = "another CPU model"
+    (label_dir / "acceptance.json").write_text(json.dumps(record) + "\n")
+    assert run_node.run_acceptance(module, label_dir, directory / "results", node=False)
+    assert len(attempts) == 3, "a pass on another CPU model was reused"
+
 
 @test
 def test_acceptance_suite(directory: pathlib.Path, node: bool) -> None:
