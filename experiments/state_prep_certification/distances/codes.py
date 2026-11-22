@@ -7,43 +7,41 @@ inputs, outputs, and documentation.
 
     python codes.py --out DIR [--write-sample] [--check]
 
-**Families and sizes.**  Each family has endpoints n_lo and n_hi from its published source,
-recorded in ``code_data/endpoints.json``; the README cites each source and gives the rule by which
-the endpoints were read from it.  The four target lengths are n_j = n_lo (n_hi / n_lo)^(j / 3)
-for j = 0, ..., 3, and each target goes to the family's admissible parameters whose length is
-nearest in log n; ties go to the smaller n, then to the family's tie-break.  Targets that land on
-the same parameters merge; in the ``ladders`` of ``code_data/sample.json``, a target that lands on
-the parameters of an earlier one has ``merged`` set to true.  No timing of any kind enters this
-rule.
+**Families and sizes.**  Each family of ``FAMILIES`` has endpoints n_lo and n_hi from its published
+source, recorded in ``code_data/endpoints.json``; the README cites each source and gives the rule
+by which the endpoints were read from it.  The family has four sizes, j = 0, ..., 3, each with the
+target length n_j = n_lo (n_hi / n_lo)^(j / 3).  Each target goes to the family's admissible
+parameters whose length is nearest in log n; ties go to the smaller n, then to the family's
+tie-break, a value that each family's ``admissible`` gives with its parameters.  Targets that land
+on the same parameters merge into one size.  The sample's ``ladders`` list each family's targets
+and the parameters that they land on, with ``merged`` set to true for a target that lands on the
+parameters of an earlier one.  No timing of any kind enters this rule.
 
-**Draws.**  For each size, draws i = 0, 1, ... are made until 4 are kept or 100 are made.  Draw i
-of parameters ``params`` of family ``f`` uses ``numpy.random.default_rng(seed)`` with
-``seed = int.from_bytes(sha256(json.dumps(["ftsp-distances-1", f, params, i], sort_keys=True,
-separators=(",", ":"))).digest()[:8], "big") >> 1``.  A draw is kept unless the construction
-rejects it, it has ``k = 0``, or it duplicates an earlier code.  Two codes are duplicates if the
-reduced row echelon forms of their check matrices have the same SHA-256.  The earlier codes are
-the kept codes, the anchors, the CSS codes of ``trial.WARM_UP_CODES``, and the Hadamard variants of
-those CSS codes.  ``trial.WARM_UP_CODES`` are the codes on which ``experiments/distance_tuning``
-warms up; no run of this experiment warms up on them, but the screen against them is part of the
-rule that produced the frozen ``sample.json``.  Every draw and its outcome goes to
-``draws.jsonl``, a size with fewer than 4 kept draws goes to ``shortfalls`` of the sample, and an
-unexpected exception stops the script.
+**Draws.**  For each size, draws i = 0, 1, ... are made until ``CODES_PER_SIZE`` are kept or
+``MAX_DRAWS`` are made.  Draw i of a family's parameters uses ``numpy.random.default_rng`` with the
+seed ``draw_seed``.  A draw is kept unless the construction rejects it, it has ``k = 0``, or it
+duplicates an earlier code (``duplicate_key``).  The earlier codes are the kept codes, the anchors,
+the CSS codes of ``trial.WARM_UP_CODES``, and their Hadamard variants, which apply Hadamards to the
+second half of their qubits (``workloads.get_hadamard_code``).  ``trial.WARM_UP_CODES`` are the
+codes on which ``experiments/distance_tuning`` warms up; no run of this experiment warms up on
+them, but the screen against them is part of the rule that produced the frozen ``sample.json``.
+Every draw and its outcome goes to ``draws.jsonl``.  A size with fewer kept draws is a shortfall,
+which goes to ``shortfalls`` of the sample, such as a bivariate bicycle size where every draw has
+k = 0.  An unexpected exception stops the script.
 
 **Anchors.**  The named codes of ``ANCHORS``, from ``experiments/distance_tuning/workloads.py``,
 qLDPC's constructors, and the constructions below, with a reference distance where an
 independent source gives one.
 
-**Storage.**  Every code is stored as plain matrices, ``H_X`` and ``H_Z`` for a CSS code and
-``H = [x | z]`` otherwise, in ``codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of
-the stored arrays.  ``--write-sample`` writes ``code_data/sample.json``, with ``qldpc_src_tree``,
-the Git tree of this checkout's ``src/`` at ``HEAD``.  That tree is the qLDPC source that generated
-the sample only if the imported ``qldpc`` is this checkout's ``src/``, with no uncommitted or
+**Storage.**  Every code is stored as plain matrices in ``codes/<code_hash>.npz`` (``store_code``).
+``--write-sample`` writes ``code_data/sample.json``, with ``qldpc_src_tree``, the Git tree of this
+checkout's ``src/`` at ``HEAD``.  That tree is the qLDPC source that generated the sample under two
+conditions: the imported ``qldpc`` is this checkout's ``src/``, and ``src/`` has no uncommitted or
 untracked changes.  It covers nothing outside ``src/``, such as this experiment's code,
 ``experiments/distance_tuning/``, or other packages.  ``--check`` regenerates the codes and
-compares the regenerated sample with ``sample.json`` in every field but ``qldpc_src_tree`` and the
-codes' ``constructor`` (see ``compare_with_sample``).  These fields include the anchors' reference
-distances and the codes' families, which the analysis reads from the sample.  Git ignores
-``code_data/``, which the offline bundle carries.
+compares the regenerated sample with ``sample.json`` (``compare_with_sample``), including the
+anchors' reference distances and the codes' families, which the analysis reads from the sample.
+Git ignores ``code_data/``, which the offline bundle carries.
 """
 
 from __future__ import annotations
@@ -83,7 +81,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 CODE_DATA = HERE / "code_data"
 ENDPOINTS = CODE_DATA / "endpoints.json"
 SAMPLE = CODE_DATA / "sample.json"
-# part of every draw's seed: changing it redraws every code and invalidates sample.json
+# part of every draw's seed: changing it redraws every code and invalidates sample.json.  It is a
+# frozen string, in which "ftsp" abbreviates fault-tolerant state preparation.
 SEED_TAG = "ftsp-distances-1"
 CODES_PER_SIZE = 4
 MAX_DRAWS = 100
@@ -200,7 +199,8 @@ def size_ladder(
     family: Family, n_lo: int, n_hi: int
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """The parameters of the family's sizes, and a record of each target and where it went."""
-    # admissible lengths up to 4 n_hi include the nearest one to every target, which is <= n_hi
+    # every target is at most n_hi, so the admissible lengths up to 4 n_hi include the nearest one
+    # to each target
     candidates = list(family.admissible(4 * n_hi))
     chosen: list[dict[str, Any]] = []
     record = []
@@ -633,7 +633,12 @@ def generate(out: pathlib.Path) -> dict[str, Any]:
 
 
 def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
-    """Store a code's plain matrices, and return its record."""
+    """Store a code's plain matrices, and return its record.
+
+    The matrices are ``H_X`` and ``H_Z`` for a CSS code and ``H = [x | z]`` otherwise, stored in
+    ``codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of the stored arrays
+    (``hash_arrays``).
+    """
     if isinstance(code, codes.CSSCode):
         arrays: dict[str, Any] = {
             "matrix_x": np.asarray(code.matrix_x, dtype=np.uint8),
@@ -642,7 +647,7 @@ def store_code(out: pathlib.Path, code: Any) -> dict[str, Any]:
     else:
         arrays = {"matrix": np.asarray(code.matrix, dtype=np.uint8)}
     plain = arms.plain_code(arrays)
-    # whether the plain code has equal X and Z distances because H_X = H_Z, which AT1 checks
+    # whether the plain code has H_X = H_Z, and so equal X and Z distances
     equal_sectors = isinstance(plain, codes.CSSCode) and bool(plain._equal_distance_xz)
     code_hash = hash_arrays(arrays)
     np.savez(out / "codes" / f"{code_hash}.npz", **arrays)

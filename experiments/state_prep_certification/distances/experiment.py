@@ -29,7 +29,7 @@ FROZEN_FILES = ["config.json", "code_data/endpoints.json", "code_data/sample.jso
 CONFIG = arms.CONFIG
 JOB_MEM_GIB = float(CONFIG["mem_cap_gib"])
 
-# The codes of the ``smoke`` subset: small anchors of each kind.
+# The codes of the ``smoke`` subset: four small anchors of different constructions.
 SMOKE = ("golay", "bb72", "surface9", "five_five")
 
 

@@ -433,7 +433,14 @@ def _write_families(pairs: list[dict[str, Any]], out: pathlib.Path) -> pathlib.P
 def _write_anchors(
     by_code: dict[str, dict[str, dict[str, Any]]], sample: dict[str, Any], out: pathlib.Path
 ) -> pathlib.Path:
-    """Write anchors.csv: one row per anchor, with n, k, the reference d, the d found, and Ts."""
+    """Write anchors.csv: one row per anchor, with n, k, the reference d, the d found, and Ts.
+
+    ``d_found`` is the distance that the arms' runs on the anchor report, or the list of their
+    distances if they report none or several.  An arm's T cell is its T to three significant digits,
+    or else "n/a" where the arm has no runs on the anchor, "compiled" where its first run, finished
+    or timed out, has ``compiled_in_timing`` set, "> L" where it timed out, and otherwise its
+    status, such as "error", "memout", "missing", or "median_timed_out".
+    """
     arms = [ON, PRIOR]
     path = out / "anchors.csv"
     with open(path, "w", newline="") as file:

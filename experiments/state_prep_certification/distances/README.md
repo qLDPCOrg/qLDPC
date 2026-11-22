@@ -25,7 +25,7 @@ The prior arm is thus an ablation of the four extensions within qLDPC; its name 
 | `q_bz_prior` | the same call inside `use_tuning(**BZ_PRIOR)` | all |
 
 `config.json` holds the prior tuning (`bz_prior`, which [`arms.py`](arms.py) reads as `BZ_PRIOR` and says what each setting turns off), the time limit, the memory cap, and the repeat rule.
-Every arm builds a plain `CSSCode` or `QuditCode` from stored matrices inside its timer, so that no arm benefits from a family class.
+Every arm builds a plain `CSSCode` or `QuditCode` from stored matrices inside its timer, so that no arm uses structure that the class of a code's construction can supply to the search, such as symmetries.
 Both arms make the same call, so they search the same sectors: one sector of a plain `CSSCode` whenever qLDPC finds a sector map, and both otherwise.
 qLDPC finds one for codes with equal check matrices and, with bliss, which the bundle installs (`qldpc_extras` of [`pins.json`](../pins.json)), also for some codes whose check matrices differ, such as the anchors `surface9` and `toric10`.
 The connected-cluster (CC) search is not compared here: the certification experiment measures it as an oracle of the certifier, on the certifier's own queries.
@@ -34,31 +34,32 @@ The connected-cluster (CC) search is not compared here: the certification experi
 
 [`codes.py`](codes.py) generates every code from fixed rules and seeds, with no timing of any kind:
 
-- the families of `FAMILIES` in `codes.py`, each at sizes from published endpoints by geometric spacing, with a fixed number of codes per size (see the docstring of `codes.py`);
-- the named anchors of `ANCHORS` in `codes.py`, most with a reference distance.
+- the families of `FAMILIES` in `codes.py`, each at sizes between its endpoints n_lo and n_hi (below) by geometric spacing, with a fixed number of codes per size;
+- the anchors of `ANCHORS` in `codes.py`: named codes, most with a reference distance from an independent source.
+
+The docstring of `codes.py` gives the rule that draws the codes of the families, with its sizes, draws, merges, and shortfalls, and the sources of the anchors.
+The analysis checks each arm's distance on an anchor against the anchor's reference distance, and reports each anchor on its own, in `anchors.csv`, never pooled with the families.
 
 The data directory `code_data/` holds two files, which are not committed: the experiment reads them from that directory, which Git ignores, and the offline bundle carries it.
 `code_data/endpoints.json` records each family's endpoints with their source, as in the table below; it is an input that no script of the experiment makes, which the experiment takes as given.
-`code_data/sample.json` fixes the name, parameters, seed, and hashes of every code and anchor; `codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, and `codes.py --check` checks a regenerated sample against it.
+`code_data/sample.json` fixes every code: a drawn code by its name, family, parameters, draw, seed, and hash, and an anchor by its name, source, hash, and reference distance, if any.
+`codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, and `codes.py --check` checks a regenerated sample against it.
 For each family, n_lo and n_hi are the smallest and largest lengths among the published instances of its source.
 For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at least 6, and n_hi the largest n <= 256 whose upper bound on d is at most 20, in Grassl's table of qubit stabilizer codes with k = 2.
 
-| Family | n_lo, n_hi | Source |
-| --- | --- | --- |
-| `bb` | 72, 756 | S. Bravyi, A. W. Cross, J. M. Gambetta, D. Maslov, P. Rall, and T. J. Yoder, "High-threshold and low-overhead fault-tolerant quantum memory", Nature 627, 778-782 (2024), doi:10.1038/s41586-024-07107-7, arXiv:2308.07915, Table 3 of arXiv:2308.07915v2 |
-| `gb` | 46, 900 | P. Panteleev and G. Kalachev, "Degenerate Quantum LDPC Codes With Good Finite Length Performance", Quantum 5, 585 (2021), doi:10.22331/q-2021-11-22-585, arXiv:1904.02703, Appendix B |
-| `hgp` | 240, 1922 | A. Aydin, N. Delfosse, and E. Tham, "Cyclic Hypergraph Product Code" (2025), arXiv:2511.09683, Table 3 |
-| `lp` | 544, 1428 | Q. Xu, J. P. Bonilla Ataides, C. A. Pattison, N. Raveendran, D. Bluvstein, J. Wurtz, B. Vasić, M. D. Lukin, L. Jiang, and H. Zhou, "Constant-overhead fault-tolerant quantum computation with reconfigurable atom arrays", Nature Physics 20, 1084-1090 (2024), doi:10.1038/s41567-024-02479-z, arXiv:2308.08648, Methods |
-| `pp` | 110, 3122 | Okada and Kasai (2026) and Lee et al. (2026), cited under [Attributions](#attributions) |
-| `qt` | 144, 576 | A. Leverrier, W. Rozendaal, and G. Zémor, "Small quantum Tanner codes from left-right Cayley complexes" (2025), arXiv:2512.20532, Table 1(b) |
-| `css_walk`, `rstab` | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de, qubit stabilizer codes with k = 2 |
+| Family | Codes | n_lo, n_hi | Source |
+| --- | --- | --- | --- |
+| `bb` | bivariate bicycle | 72, 756 | S. Bravyi, A. W. Cross, J. M. Gambetta, D. Maslov, P. Rall, and T. J. Yoder, "High-threshold and low-overhead fault-tolerant quantum memory", Nature 627, 778-782 (2024), doi:10.1038/s41586-024-07107-7, arXiv:2308.07915, Table 3 of arXiv:2308.07915v2 |
+| `gb` | generalized bicycle | 46, 900 | P. Panteleev and G. Kalachev, "Degenerate Quantum LDPC Codes With Good Finite Length Performance", Quantum 5, 585 (2021), doi:10.22331/q-2021-11-22-585, arXiv:1904.02703, Appendix B |
+| `hgp` | hypergraph products of random (3, 4)-regular LDPC codes | 240, 1922 | A. Aydin, N. Delfosse, and E. Tham, "Cyclic Hypergraph Product Code" (2025), arXiv:2511.09683, Table 3 |
+| `lp` | lifted products | 544, 1428 | Q. Xu, J. P. Bonilla Ataides, C. A. Pattison, N. Raveendran, D. Bluvstein, J. Wurtz, B. Vasić, M. D. Lukin, L. Jiang, and H. Zhou, "Constant-overhead fault-tolerant quantum computation with reconfigurable atom arrays", Nature Physics 20, 1084-1090 (2024), doi:10.1038/s41567-024-02479-z, arXiv:2308.08648, Methods |
+| `pp` | pair-partition codes of published arrays | 110, 3122 | Okada and Kasai (2026) and Lee et al. (2026), cited under [Attributions](#attributions) |
+| `qt` | quantum Tanner | 144, 576 | A. Leverrier, W. Rozendaal, and G. Zémor, "Small quantum Tanner codes from left-right Cayley complexes" (2025), arXiv:2512.20532, Table 1(b) |
+| `css_walk`, `rstab` | dense CSS codes from random walks of CNOT gates, and dense random stabilizer codes, both with k = 2 | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de, qubit stabilizer codes with k = 2 |
 
 `codes.py --write-sample` overwrites the frozen `sample.json`, so run it only to refreeze the sample; use `--check` otherwise.
 The node regenerates the sample and stops on any difference from the frozen one, in the codes or in the metadata of their draws, such as the endpoints and each code's family, parameters, and seed (`codes.compare_with_sample`).
 It ignores the name of the class that built each code and the qLDPC source tree that `sample.json` records.
-Each size has 4 target codes and at most 100 draws.
-A size where fewer than 4 draws are kept (see the docstring of `codes.py`) keeps fewer codes and is reported as a shortfall, such as a bivariate bicycle size where every draw has k = 0.
-Sizes whose target lengths land on the same parameters merge (see the docstring of `codes.py`); in the sample's `ladders`, a target that repeats an earlier one has `merged` set to true.
 
 ## Commands
 
@@ -69,6 +70,9 @@ python experiments/state_prep_certification/run_node.py distances --local --subs
 python experiments/state_prep_certification/distances/analyze.py --label-dir experiments/state_prep_certification/results/distances/<label>-local-smoke --allow-local
 ```
 
+`codes.py --check` writes the regenerated codes and `draws.jsonl` to `--out`, a scratch directory, and compares the regenerated sample with `sample.json`.
+The subset `smoke` runs both arms on four small anchors.
+Its runs take minutes, but its ceiling is about 24 CPU-hours, which the approval of 25 covers; `run_node.py distances --local --subset smoke --dry-run` without an approval prints the ceiling.
 The local run's label directory, which `run_node.py` prints, ends in `-local-smoke`, and its rows were not timed as on the node, so the analysis refuses them without `--allow-local`, and with it marks every output with their number.
 
 On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as the [shared README](../README.md) describes.
@@ -77,7 +81,12 @@ It checks the archive against its `.sha256` file and its inner `SHA256SUMS`, and
 So `--archive` requires `--out`: the default output directory, `analysis/` in the label directory, would be removed with the extraction.
 The docstring of [`analyze.py`](analyze.py) says how to read the timings and the outputs, including a median that a timed-out run determines, an arm without a first run, and a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
+The distances that the arms report are exact, from qLDPC's exact BZ search.
+A code whose arms or repeats report different distances, or a distance other than its reference distance, is a disagreement, which `analyze.py` reports.
+The anchors' reference distances and the families' endpoints are trusted inputs, from the sources that this README and `codes.py` cite.
+The times are measurements of runs on the node; the docstring of `analyze.py` says how the analysis compares them.
+
 ## Attributions
 
-Pair-partition arrays and several anchors come from [`experiments/distance_tuning/workloads.py`](../../distance_tuning/workloads.py), whose instances come from J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes" (2026), arXiv:2609.30069, and K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes" (2026), arXiv:2607.14091.
+The pair-partition arrays of the `pp` family and several anchors come from [`experiments/distance_tuning/workloads.py`](../../distance_tuning/workloads.py), whose instances come from J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes" (2026), arXiv:2609.30069, and K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes" (2026), arXiv:2607.14091.
 The [Codes](#codes) section cites the sources of the families' endpoints, and `codes.py` cites those of the anchors.
