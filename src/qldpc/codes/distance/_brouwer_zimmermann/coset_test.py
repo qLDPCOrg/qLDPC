@@ -516,9 +516,11 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
             )
         )
 
-    wide = np.hstack([np.eye(4, dtype=np.uint8), rng.integers(0, 2, (4, 64), dtype=np.uint8)])
+    # A fixed seed, for which the wide searches with tables skip words.
+    wide_rng = np.random.default_rng(0)
+    wide = np.hstack([np.eye(4, dtype=np.uint8), wide_rng.integers(0, 2, (4, 64), dtype=np.uint8)])
     checks = get_kernel(wide)
-    syndromes = [int.from_bytes(rng.bytes(9), "little") % (1 << len(checks)) for _ in range(8)]
+    syndromes = [int.from_bytes(wide_rng.bytes(9), "little") % (1 << len(checks)) for _ in range(8)]
     searches.append(
         (
             (
