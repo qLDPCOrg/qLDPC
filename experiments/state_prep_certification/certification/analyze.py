@@ -102,7 +102,7 @@ of ``--label-dir``):
   - ``baseline_counts_match``: the combinations that the first run of ``brute_bz`` recorded,
     whether it finished or stopped, against A_m of ``count_accepted``, or else of the ground truth.
     They must be equal on each completed weight, and at most A_m on a weight where the run found a
-    violation.  It is empty where no completed weight has a known A_m.
+    violation.  Otherwise it is empty where no completed weight has a known A_m.
   - ``agree_baseline``: false where ``baseline_counts_match`` is, and equal to it where no
     certification finished.  Otherwise it compares the verdict and smallest violating weight of
     that first run, or, if it stopped, its recorded violations and completed weights, with those of
@@ -113,12 +113,12 @@ of ``--label-dir``):
     It uses the first ground-truth result, which a ``timeout`` or ``memout`` row can keep.
   - ``agree_prune``: the first run of each deletion task (``analyze_applications.agree_prune``).
 
-  ``agree_margin`` instead compares the claims on m* of every run, as ``contradictions`` and the
-  verdict ``disagreement`` do: repeats, the results that ``timeout`` and ``memout`` rows kept, and
-  the ``shadow`` run.  These are the runs that the runner kept: it keeps no result of a run that it
-  discarded because it compiled.  So a circuit can agree on its first runs and still be a
-  disagreement.  The counts of a ``count_listing`` run that did not finish are those of its partial
-  results: q, q_h, and h, and Pi, E, and Phi of the weights that it completed.
+  ``agree_margin`` instead compares the claims on m* of every run that the runner kept, as
+  ``contradictions`` does: repeats, the results that ``timeout`` and ``memout`` rows kept, and the
+  ``shadow`` run.  The runner keeps no result of a run that it discarded because it compiled.  So a
+  circuit can agree on its first runs and still be a disagreement.  The counts of a
+  ``count_listing`` run that did not finish are those of its partial results: q, q_h, and h, and Pi,
+  E, and Phi of the weights that it completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m of ``count_accepted``,
   C(N_0, m) (from N_0 of ``circuits.json`` where ``count_accepted`` did not finish),
   ``naive_prefixes_m_minus_1`` (Pi_(m-1) of ``counting.py``: the prefixes of a naive enumeration of

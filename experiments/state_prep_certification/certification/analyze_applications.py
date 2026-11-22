@@ -543,8 +543,8 @@ def _table_row(
 
     ``checks`` and ``steps`` are the task's final checks and steps (``_final_checks``, ``_steps``).
     Where the claim on the final m* (``final_claim``) does not determine it, as when its search did
-    not finish, ``final_margin_lower_bound`` is k, the largest of t, at which the final circuit is
-    certified, and the fault weights that the search completed, meaning m* > k.
+    not finish, ``final_margin_lower_bound`` is k, the largest of t and the fault weights that the
+    search completed, meaning m* > k (the final circuit is certified at K = t).
     """
     from experiments.state_prep_certification.certification import applications
 

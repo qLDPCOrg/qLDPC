@@ -175,14 +175,14 @@ The column `contradictions` of `summary.csv` names the contradictions (`check_co
 The analysis compares, as claims on the circuit's margin m* (see [Arms](#arms)):
 
 - the result of every run of `cert_bz`, `cert_cc`, `shadow`, `brute_bz`, `margin`, and `ground_truth` that returned one, repeats included;
-- each fault weight that such a run completed or found a violation at, even if it did not finish;
+- each fault weight that a run of these arms completed or found a violation at, even if it did not finish or returned no result;
 - each deletion task's parent verdict at K = t;
 - the final m* of a deletion task that accepted no deletion, with the fault weights that its search reported.
 
 A result counts whatever the status of its row.
 A `timeout` row can keep the result of a call that returned at or after the limit.
 A `memout` row can keep the result of a call whose memory exceeded the cap before the result arrived, as found afterward (see the shared README's [Runs](../README.md#runs)).
-The runner keeps no result of a run that it discarded because it compiled, only its status and error, so the analysis compares no claim of such a run.
+The runner keeps no result of a run that it discarded because it compiled, so the analysis compares no claim of such a run.
 The verdicts, T, and `counterexamples.json` instead use only rows with status `ok`, so `margin` can be exact where the verdict is `undecided`.
 The analysis also compares A_m, from `count_accepted` or else from the ground truth, with the combinations that each run of the baseline, repeats included, enumerated on each weight.
 They must be equal on a weight that the run completed.
@@ -201,11 +201,11 @@ It also treats as contradictions:
 - a deletion task whose final m*, the fault weights that its search reported, and its certification at K = t disagree with each other;
 - two deletion tasks that end at the same final circuit, by its SHA-256, whose final m*, fault weights, or certifications at K = t disagree.
 
-The agreement columns of `summary.csv` compare first runs:
+These agreement columns of `summary.csv` compare first runs:
 
 - `agree_bz_cc`: the verdicts of the first runs of `cert_bz` and `cert_cc`, where both finished.
 - `baseline_counts_match`: the combinations that the first run of the baseline recorded, whether it finished or stopped, against A_m as above: equal on each completed weight, and at most A_m on a weight where the run found a violation.
-  The column is empty where no completed weight has a known A_m.
+  Otherwise the column is empty where no completed weight has a known A_m.
 - `agree_baseline`: false where `baseline_counts_match` is, and equal to it where no certification finished.
   Otherwise it compares the verdict and smallest violating weight of the baseline's first run, or, if that run stopped, its recorded violations and completed weights, with those of each certification whose first run finished.
 - `agree_ground_truth`: the smallest violating weight of the ground truth against that of each certification whose first run finished, and its counts against those of the counters (`ground_truth_counts_match`).
@@ -213,7 +213,7 @@ The agreement columns of `summary.csv` compare first runs:
 - `agree_prune`: the first run of each deletion task, by its parent verdict at K = t against the first run of `cert_bz`, or of `cert_cc` where `cert_bz` did not finish, and by whether CC certifies its final circuit at K = t (`agree_prune` in `analyze_applications.py`).
 
 The columns `agreement_bz_cc`, `agreement_baseline`, and `agreement_ground_truth` of `families.csv` count the circuits where these agree.
-`agree_margin` instead compares the claims on m* of every run that the runner kept, as `contradictions` and the verdict `disagreement` do, so a circuit can agree on its first runs and still be a disagreement.
+`agree_margin` instead compares the claims on m* of every run that the runner kept, as `contradictions` does, so a circuit can agree on its first runs and still be a disagreement.
 
 Where `count_accepted` did not compute A_m, `listing_table.csv` divides by C(N_0, m) instead, if z >= m, so that its ratios are lower bounds on those over A_m, as its column `ratio_is_lower_bound` marks.
 Where z < m, A_m may be 0, and the column `ratio_unknown` counts the circuit instead, as it does a circuit with A_m = 0.

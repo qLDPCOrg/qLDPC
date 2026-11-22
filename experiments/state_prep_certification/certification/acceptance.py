@@ -59,8 +59,9 @@
   baseline, in a first run or a repeat, whose enumerated combinations differ from A_m, or exceed it
   on a weight where it found a violation, with A_m of ``count_accepted`` or else of the ground
   truth.  So does a baseline stopped after a violation at weight m against a finished certification
-  whose smallest violation is not at m.  A baseline whose only record is a violation within A_m
-  leaves ``agree_baseline`` unknown.  An expected task without a row is reported as ``missing``.
+  whose smallest violation is not at m.  With no finished certification, a baseline whose only
+  record is a violation within A_m leaves ``agree_baseline`` unknown.  An expected task without a
+  row is reported as ``missing``.
   Rows with ``compiled_in_timing`` set give the statuses, verdict, counts of ``families.csv``, and
   times that ``analyze.py``'s docstring gives them: the ``cert_bz`` and ``brute_bz`` timeouts of one
   circuit, whose ``cert_cc`` timeout is unflagged, against another circuit's plain timeouts; a
