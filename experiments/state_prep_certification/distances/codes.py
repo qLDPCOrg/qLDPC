@@ -57,7 +57,7 @@ import pathlib
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 import galois
 import numpy as np
@@ -615,48 +615,13 @@ def generate(out: pathlib.Path) -> dict[str, Any]:
             n_lo, n_hi = endpoints[family_name]["n_lo"], endpoints[family_name]["n_hi"]
             sizes, ladders[family_name] = size_ladder(family, n_lo, n_hi)
             for params in sizes:
-                kept = 0
-                for index in range(MAX_DRAWS):
-                    seed = draw_seed(family_name, params, index)
-                    record: dict[str, Any] = {
-                        "family": family_name,
-                        "params": params,
-                        "index": index,
-                        "seed": seed,
-                    }
-                    try:
-                        code = family.draw(params, np.random.default_rng(seed))
-                    except Rejected as error:
-                        record["outcome"] = f"rejected: {error}"
-                    else:
-                        key = duplicate_key(code)
-                        if code.dimension == 0:
-                            record["outcome"] = "rejected: k = 0"
-                        elif key in seen:
-                            record["outcome"] = f"rejected: duplicate of {seen[key]}"
-                        else:
-                            stored = store_code(out, code)
-                            name = f"{family_name}.{_params_label(params)}.i{index}"
-                            seen[key] = name
-                            record["outcome"] = "kept"
-                            record["code_hash"] = stored["code_hash"]
-                            drawn.append(
-                                {
-                                    "name": name,
-                                    "family": family_name,
-                                    "params": params,
-                                    "index": index,
-                                    "seed": seed,
-                                    **stored,
-                                }
-                            )
-                            kept += 1
-                    draws.write(json.dumps(record, sort_keys=True) + "\n")
-                    if kept == CODES_PER_SIZE:
-                        break
-                if kept < CODES_PER_SIZE:
-                    print(f"shortfall: {family_name} {params}: {kept} codes in {MAX_DRAWS} draws")
-                    shortfalls.append({"family": family_name, "params": params, "kept": kept})
+                kept = _draw_size(out, family_name, params, seen, draws)
+                drawn += kept
+                if len(kept) < CODES_PER_SIZE:
+                    print(
+                        f"shortfall: {family_name} {params}: {len(kept)} codes in {MAX_DRAWS} draws"
+                    )
+                    shortfalls.append({"family": family_name, "params": params, "kept": len(kept)})
     return {
         "seed_tag": SEED_TAG,
         "endpoints": endpoints,
@@ -759,6 +724,62 @@ def compare_with_sample(sample: dict[str, Any]) -> list[str]:
                 if not _same(new[name].get(field), old[name].get(field)):
                     problems.append(f"{kind}: {name} has another {field}")
     return problems
+
+
+def _draw_size(
+    out: pathlib.Path,
+    family_name: str,
+    params: dict[str, Any],
+    seen: dict[str, str],
+    draws: TextIO,
+) -> list[dict[str, Any]]:
+    """Draw codes of one family's parameters until ``CODES_PER_SIZE`` are kept; return them.
+
+    At most ``MAX_DRAWS`` codes are drawn.  A draw is kept unless the family rejects it, its k is
+    0, or it duplicates a code of ``seen``, which maps the ``duplicate_key`` of each code so far to
+    its name and gains each kept code.  Each kept code is stored under ``out``, and the record of
+    each draw is written to ``draws``.
+    """
+    family = FAMILIES[family_name]
+    kept: list[dict[str, Any]] = []
+    for index in range(MAX_DRAWS):
+        seed = draw_seed(family_name, params, index)
+        record: dict[str, Any] = {
+            "family": family_name,
+            "params": params,
+            "index": index,
+            "seed": seed,
+        }
+        try:
+            code = family.draw(params, np.random.default_rng(seed))
+        except Rejected as error:
+            record["outcome"] = f"rejected: {error}"
+        else:
+            key = duplicate_key(code)
+            if code.dimension == 0:
+                record["outcome"] = "rejected: k = 0"
+            elif key in seen:
+                record["outcome"] = f"rejected: duplicate of {seen[key]}"
+            else:
+                stored = store_code(out, code)
+                name = f"{family_name}.{_params_label(params)}.i{index}"
+                seen[key] = name
+                record["outcome"] = "kept"
+                record["code_hash"] = stored["code_hash"]
+                kept.append(
+                    {
+                        "name": name,
+                        "family": family_name,
+                        "params": params,
+                        "index": index,
+                        "seed": seed,
+                        **stored,
+                    }
+                )
+        draws.write(json.dumps(record, sort_keys=True) + "\n")
+        if len(kept) == CODES_PER_SIZE:
+            break
+    return kept
 
 
 def _same(new: Any, old: Any) -> bool:
