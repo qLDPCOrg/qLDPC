@@ -57,7 +57,7 @@ For `css_walk` and `rstab`, n_lo is the smallest n whose lower bound on d is at 
 | `lp` | lifted products | 544, 1428 | Q. Xu, J. P. Bonilla Ataides, C. A. Pattison, N. Raveendran, D. Bluvstein, J. Wurtz, B. Vasić, M. D. Lukin, L. Jiang, and H. Zhou, "Constant-overhead fault-tolerant quantum computation with reconfigurable atom arrays", Nature Physics 20, 1084-1090 (2024), doi:10.1038/s41567-024-02479-z, arXiv:2308.08648, Methods |
 | `pp` | pair-partition codes of published arrays | 110, 3122 | Okada and Kasai (2026) and Lee et al. (2026), cited under [Attributions](#attributions) |
 | `qt` | quantum Tanner | 144, 576 | A. Leverrier, W. Rozendaal, and G. Zémor, "Small quantum Tanner codes from left-right Cayley complexes" (2025), arXiv:2512.20532, Table 1(b) |
-| `css_walk`, `rstab` | dense CSS codes from random walks of CNOT gates, and dense random stabilizer codes, both with k = 2 | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de (accessed 2026), qubit stabilizer codes with k = 2 |
+| `css_walk`, `rstab` | dense CSS codes from random walks of CNOT gates, and dense random stabilizer codes, both with k = 2 | 16, 61 | M. Grassl, "Bounds on the minimum distance of linear codes and quantum codes", http://www.codetables.de, qubit stabilizer codes with k = 2 |
 
 
 ## Commands
