@@ -1812,7 +1812,8 @@ def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
     """Each start records its environment and Python's optimization level in ``starts.jsonl``.
 
     So a resume under a changed environment is recorded.  ``manifest.json`` keeps the first start's
-    line.  Each start's line gets its job slots.
+    line.  Each start's line gets its job slots.  The recorded level is that of the start's children
+    when it is higher, as under ``PYTHONOPTIMIZE``, which this interpreter has already read.
     """
     from experiments.state_prep_certification.common import manifest
 
@@ -1827,6 +1828,10 @@ def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
     assert [start["environment"]["NUMBA_OPT"] for start in starts] == ["1", "2"], starts
     assert [start["jobs"] for start in starts] == [1, 2], starts
     assert [start["python_optimize"] for start in starts] == [sys.flags.optimize] * 2, starts
+    with _environment("PYTHONOPTIMIZE", "1"):
+        manifest.record_start(directory, directory, {"start": "optimized", "dry_run": False})
+    last = json.loads((directory / "starts.jsonl").read_text().splitlines()[-1])
+    assert last["python_optimize"] == max(sys.flags.optimize, 1), last
 
 
 @test

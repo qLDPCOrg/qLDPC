@@ -107,8 +107,8 @@ CLEANUP_WAIT_S = 2.0
 # The environment variables that a node start refuses, and when: plain-Python qLDPC or numba,
 # Python's -O, which strips the asserts of the acceptance tests that this script runs, and paths
 # that can import other code.  numba reads NUMBA_DISABLE_JIT with int(), and a value that does not
-# parse leaves the JIT on.  PYTHONOPTIMIZE is refused when this interpreter runs with -O, as Python
-# reads the variable (see check_environment), not by its value.
+# parse leaves the JIT on.  PYTHONOPTIMIZE is refused when this interpreter, or a Python that it
+# starts, runs with -O, as Python reads the variable (see check_environment), not by its value.
 REFUSED_ENVIRONMENT: dict[str, Callable[[str], bool]] = {
     "QLDPC_DISABLE_COMPILATION": lambda value: value == "1",
     "NUMBA_DISABLE_JIT": lambda value: _nonzero_integer(value),

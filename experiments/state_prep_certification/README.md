@@ -34,7 +34,7 @@ Each attempt runs the experiment's acceptance tests in a fresh directory, `resul
 The node self-tests that an attempt runs first use temporary directories, which they remove.
 The manifest records the machine, the installed package versions, Python's optimization level, and the environment variables that can change a run, such as `PYTHONPATH` and `NUMBA_*`.
 A node start refuses a few of them, such as `PYTHONPATH`, unless `--allow-env NAME` accepts one, as [`run_node.py`](run_node.py) says.
-The analyses of certification and distances name in every output each such variable that a start accepted, `PYTHONOPTIMIZE` if a start ran Python with -O, and each recorded variable whose value differs among the label's starts.
+The analyses of certification and distances name in every output each such variable that a start accepted, `PYTHONOPTIMIZE` if a start, or a Python that it started, ran with -O, and each recorded variable whose value differs among the label's starts.
 
 ### Runs
 
