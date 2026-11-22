@@ -914,9 +914,9 @@ def test_tasks_ceiling_and_cores(directory: pathlib.Path, node: bool) -> None:
         _task(f"u{i}", [], limit_s=1800.0, startup_cap_s=60.0, post_s=600.0) for i in range(5)
     ]
     ceiling = tasks.ceiling_hours(task_list, lambda task: 3 * (120 + task["limit_s"] + 30))
-    # each task costs S, the most that one run at its first run's limit can take, plus twice its
-    # worst case of three runs.  S is the sum of its start-up cap, limit, post-processing allowance,
-    # and grace of 5 s, where the runner's defaults are STARTUP_CAP_S = 120 and FINISH_S = 30.
+    # each task costs S + 2 W, with W its worst case of three runs, and S the sum of its start-up
+    # cap, limit, post-processing allowance, and grace of 5 s, with the runner's defaults
+    # STARTUP_CAP_S = 120 and FINISH_S = 30
     default_cost = (120 + 1800 + 30 + 5) + 2 * 3 * 1950
     own_cost = (60 + 1800 + 600 + 5) + 2 * 3 * 1950
     assert abs(ceiling - (10 * default_cost + 5 * own_cost) / 3600) < 1e-9

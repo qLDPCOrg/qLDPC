@@ -22,58 +22,58 @@ experiment (``common/manifest.py``), it
    directory under ``acceptance/<label directory>/`` of the results directory, which
    ``acceptance.json`` records, and the self-tests in temporary directories, which they remove;
 3. refuses a task list in which a task's memory cap exceeds a job slot's memory (``JOB_MEM_GIB``),
-   computes the ceiling of CPU-hours of the task list of pass 1, and refuses to go on unless
-   ``--approved-cpu-hours`` covers it;
+   prints the number of tasks of pass 1 and their ceiling of CPU-hours (``tasks.ceiling_hours``),
+   and stops with exit status 1 unless ``--approved-cpu-hours`` covers the ceiling;
 4. prepares the inputs (``prepare``), which checks them against the experiment's frozen files, and
    writes the task list;
-5. writes ``cores.txt``, adds the job slots to the start's line of ``starts.jsonl``, and writes the
-   manifest at the label's first start that is not a dry run: the number of job slots is the
-   smallest of the number of free physical cores, the number of ``JOB_MEM_GIB`` slots that fit in
-   memory, and ``--jobs``, if given, with ``tasks.RESERVED_CORES`` physical cores and
-   ``tasks.RESERVED_MEM_GIB`` of memory reserved, and the script stops if no slot fits; it also
-   pins this script, and so GNU parallel and the task runners, to the logical CPUs of the reserved
-   cores;
-6. runs pass 1 with GNU parallel, one task per job slot, whose child process pins itself to its
-   slot's CPU, then the repeats of pass 2; while GNU parallel runs, ``active/_parallel`` records
-   it, and after each pass, the script stops if a task of the pass has no final row, lists such
-   tasks in ``missing-pass<N>.txt``, and says how to rerun them through a start (see
-   ``run_pass``);
+5. chooses the job slots (``tasks.choose_cpus``), at most ``--jobs`` if given, and stops if no
+   slot fits.  It writes ``cores.txt``, adds the job slots to the start's line of
+   ``starts.jsonl``, and writes the manifest at the label's first start that is not a dry run.  It
+   also pins this script, and so GNU parallel and the task runners, to the logical CPUs of the
+   reserved cores;
+6. runs pass 1 with GNU parallel, one task at a time per job slot, each run pinned to its slot's
+   CPU, then the repeats of pass 2.  While GNU parallel runs, ``active/_parallel`` records it.
+   After each pass, the script stops if a task of the pass has no final row, lists such tasks in
+   ``missing-pass<N>.txt``, and says how to rerun them through a start (see ``run_pass``);
 7. writes the archive ``archive/<label>-<host>-<UTC>.tar.gz`` and its ``.sha256`` file: the files
    to copy back.
 
 Repeating the command resumes the run: GNU parallel's ``--resume-failed`` skips the tasks that ended
-with status 0, and the task runner skips tasks that already have a final row.  One start, or
-``--cleanup``, owns a label directory at a time: it holds an exclusive lock on the label's ``lock``
-file until it exits, and another refuses to begin.  The script refuses to start while GNU parallel
-or a run of an earlier start is still alive, including a run of the label directory's acceptance
-attempts on this host, whose runners record it under the attempt's directory.  It also refuses to
-start, and ``--cleanup`` refuses to act, while the label's ``active/`` directory lists a run of
-another host, which this host can neither see nor stop.  A start refuses a machine whose CPU model
-differs from the one in the label's manifest, which the label's first start that runs tasks writes,
-so that one label never mixes the times of two CPU models; another host with the same CPU model may
-resume, since a machine's hostname can change between its allocations, and ``starts.jsonl`` records
-each start's host and number of job slots.  After a hard kill of this script or of GNU parallel, run
-it once with ``--cleanup``, which kills GNU parallel, every run still listed in the label's
-``active/`` directory, and this host's runs of the label directory's acceptance attempts, if their
-processes are still the ones recorded; the node self-tests run in temporary directories without such
-records, so after a hard kill during them, wait for ``common/selftest.py`` to end.  ``--cleanup``
-names, and leaves alive, the processes of a run's group whose leader is gone (see ``cleanup``).
-``--status`` prints the label directory, its progress, and whether each recorded run is alive, or
-that its record is unreadable or of another host, and ``--cleanup`` prints the label directory and
-what it kills, or that it has nothing to clean up.
-Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the tree, whose
-uncommitted changes name a dirty label's directory: run them with the run's options and before any
-change to the tree, and check that the label directory that they print is the run's.
+with status 0, and the task runner skips tasks that already have a final row, whatever its status,
+so that resuming never reruns a task whose row is a ``timeout``, ``memout``, or ``error``.
 
-``--local`` runs the tasks one at a time without GNU parallel, keeps every run in this session, and
-skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves development on a
-workstation.  A local run has its own label directory, so ``--status`` and ``--cleanup`` of a local
-run need ``--local`` too, and the analyses of certification and distances refuse its rows unless
-given ``--allow-local``.  ``--dry-run`` stops after step 5, without writing ``manifest.json``
-(``starts.jsonl`` records it as a dry run), and prints the GNU parallel command.  ``--subset NAME``
-selects a subset of the tasks, such as ``smoke``; a subset other than ``main`` or ``acceptance``
-gets its own label directory (see ``common/manifest.py``).  ``--subset acceptance`` runs only the
-acceptance tests.
+One start, or ``--cleanup``, owns a label directory at a time: it holds an exclusive lock on the
+label's ``lock`` file until it exits, and another refuses to begin.  The script refuses to start
+while GNU parallel or a run of an earlier start is still alive, including a run of the label
+directory's acceptance attempts on this host, whose runners record it under the attempt's directory.
+It also refuses to start, and ``--cleanup`` refuses to act, while the label's ``active/`` directory
+lists a run of another host, which this host can neither see nor stop.  A start refuses a machine
+whose CPU model differs from the one in the label's manifest, which the label's first start that
+runs tasks writes, so that one label never mixes the times of two CPU models; another host with the
+same CPU model may resume, since a machine's hostname can change between its allocations, and
+``starts.jsonl`` records each start's host and number of job slots.
+
+After a hard kill of this script or of GNU parallel, run it once with ``--cleanup``, which kills GNU
+parallel, every run still listed in the label's ``active/`` directory, and this host's runs of the
+label directory's acceptance attempts, if their processes are still the ones recorded; the node
+self-tests run in temporary directories without such records, so after a hard kill during them, wait
+for ``common/selftest.py`` to end.  ``--cleanup`` names, and leaves alive, the processes of a run's
+group whose leader is gone (see ``cleanup``).  ``--status`` prints the label directory, its
+progress, and whether each recorded run is alive, or that its record is unreadable or of another
+host, and ``--cleanup`` prints the label directory and what it kills, or that it has nothing to
+clean up.  Both act on the label directory of ``--subset``, ``--local``, ``--results-dir``, and the
+tree, whose uncommitted changes name a dirty label's directory: run them with the run's options and
+before any change to the tree, and check that the label directory that they print is the run's.
+
+``--local`` runs the tasks one at a time without GNU parallel, keeps every run in the session of the
+command, and skips the acceptance tests unless ``--subset acceptance`` asks for them; it serves
+development on a workstation.  A local run has its own label directory, so ``--status`` and
+``--cleanup`` of a local run need ``--local`` too, and the analyses of certification and distances
+refuse its rows unless given ``--allow-local``.  ``--dry-run`` stops after step 5, without writing
+``manifest.json`` (``starts.jsonl`` records it as a dry run), and prints the GNU parallel command.
+``--subset NAME`` selects a subset of the tasks, such as ``smoke``; a subset other than ``main`` or
+``acceptance`` gets its own label directory (see ``common/manifest.py``).  ``--subset acceptance``
+runs only the acceptance tests.
 """
 
 from __future__ import annotations
@@ -479,7 +479,7 @@ def refuse_other_cpu(label_dir: pathlib.Path) -> None:
 
 
 def _unfrozen_bundle() -> bool:
-    """Whether this tree comes from a bundle built without a frozen qLDPC commit."""
+    """Whether this tree comes from a bundle built without a pinned qLDPC commit."""
     bundle = manifest.bundle_record()
     return bool(bundle and bundle.get("unfrozen"))
 

@@ -16,7 +16,8 @@ Each experiment is a subdirectory with an ``experiment.py`` module that defines:
 * ``worst_case_s(task)``: the worst-case CPU seconds of a task of pass 1, with its repeats, but
   without the runner's retries, which ``tasks.ceiling_hours`` adds;
 * ``repeat_tasks(task, row)``: the tasks of pass 2 that a task of pass 1 and its row call for;
-* ``run(task, label_dir)``: run one task in the child process, calling ``runner.timed`` once;
+* ``run(task, label_dir)``: run one task in the child process, calling ``runner.timed`` once, and
+  return the fields of the row's ``result`` (see ``runner.py``);
 * ``acceptance(node, results_dir)``: run the acceptance tests, writing their runs into
   ``results_dir``, a fresh directory of each attempt, and return whether they passed.
 

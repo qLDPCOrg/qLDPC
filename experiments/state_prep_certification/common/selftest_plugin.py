@@ -2,7 +2,9 @@
 
 """A stand-in experiment with which ``selftest.py`` tests the shared code of the experiments.
 
-Each task's ``input`` is a list of steps that ``run`` performs in order:
+Each task's ``input`` is a list of steps.  ``run`` first performs the ``startup`` steps, then times
+one call, the measured call, that performs the other steps in order, and then performs a ``post``
+step, if any:
 
 * ``["startup", s]``: sleep s seconds before timing starts;
 * ``["sleep", s]``: the measured call sleeps s seconds;
@@ -28,8 +30,9 @@ Each task's ``input`` is a list of steps that ``run`` performs in order:
   after it (after ``send_result``, if there is a ``post`` step);
 * ``["die"]``: the measured call kills its own process with SIGKILL.
 
-Every result also holds the child's process id and the wall-clock interval of its measured call,
-with which the tests check that concurrent runs use different CPUs.
+Every result also holds the child's process id and the wall-clock interval from just before its
+call of ``runner.timed`` to just after it, with which the tests check that concurrent runs use
+different CPUs.
 """
 
 from __future__ import annotations

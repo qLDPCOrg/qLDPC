@@ -16,23 +16,21 @@ one directory of the same name, with:
   (their inputs that are not committed, as each experiment's README describes) and
   ``experiments/state_prep_certification/bundle.json``;
 * ``wheels/``: wheels for the pinned CPython and Linux platform of ``pins.json``.  They cover
-  qLDPC's runtime requirements with the extras of ``qldpc_extras``, each experiment's
-  ``EXTRA_WHEELS``, and qLDPC itself, built from the archive;
+  qLDPC's runtime requirements with the extras that ``qldpc_extras`` of ``pins.json`` names, each
+  experiment's ``EXTRA_WHEELS``, and qLDPC itself, built from the archive;
 * ``requirements-node.txt``: the resolved requirements with exact versions and hashes, including
   qLDPC's own wheel;
 * ``python/``: the pinned python-build-standalone CPython;
 * ``parallel/``: the pinned GNU parallel release, whose ``src/parallel`` is a Perl script;
-* ``SHA256SUMS`` over every file, and ``bundle.json``: the bundle's name, the commits, the platform,
-  every command run, and every fallback taken.
+* ``SHA256SUMS`` over every file, and ``bundle.json``: the bundle's name, the harness commit and the
+  pinned qLDPC commit, the platforms, every command run, and each requirement built from its sdist
+  (``fallbacks``).
 
 ``bundle.json`` records the SHA-256 of the resolved requirements, which enters the label of every
 run on the node, so that a label fixes the versions of the third-party packages too.
 
-A requirement without a wheel for the platform is built into a wheel here, from its sdist checked
-against the resolution's hash, if it is pure Python (``py3-none-any`` or ``py2.py3-none-any``); the
-lockfile's hash for it is then replaced by the hash of that wheel, since an install with
-``--require-hashes`` would otherwise reject it.  Any other requirement without a wheel stops the
-script.
+A requirement without a wheel for the platform is built into a wheel here from its sdist if it is
+pure Python, and any other requirement without a wheel stops the script (``download_wheels``).
 
 The script refuses a named experiment whose frozen files (``FROZEN_FILES``) are not all in the
 staged tree, before any download, so that an experiment whose frozen files lie in another
@@ -333,7 +331,8 @@ def download_wheels(
 ) -> str:
     """Download a wheel of every requirement, or build a pure-Python one; return the requirements.
 
-    The hash of a requirement whose wheel was built here is replaced by the hash of that wheel.
+    The hash of a requirement whose wheel was built here is replaced by the hash of that wheel,
+    since an install with ``--require-hashes`` would otherwise reject it.
     """
     entries = _split_requirements(requirements)
     lines = []
@@ -377,8 +376,8 @@ def build_pure_python_wheel(
 ) -> pathlib.Path:
     """Build a wheel from a requirement's sdist, and stop unless it is pure Python.
 
-    The sdist is downloaded through the hashed requirement file ``hashed``, so that it must match
-    a hash of the resolution.
+    A pure-Python wheel is tagged ``py3-none-any`` or ``py2.py3-none-any``.  The sdist is downloaded
+    through the hashed requirement file ``hashed``, so that it must match a hash of the resolution.
     """
     sdists = cache / "sdists"
     sdists.mkdir(exist_ok=True)
@@ -422,7 +421,7 @@ def build_pure_python_wheel(
 
 
 def _split_requirements(requirements: str) -> list[tuple[str, str, str]]:
-    """The name, version, and full hashed entry of each requirement of a compiled file."""
+    """The name, version, and full hashed entry of each requirement of a resolved file."""
     entries: list[tuple[str, str, str]] = []
     current: list[str] = []
     for line in requirements.splitlines():
@@ -438,7 +437,7 @@ def _split_requirements(requirements: str) -> list[tuple[str, str, str]]:
 
 
 def _entry(lines: list[str]) -> tuple[str, str, str]:
-    """The name, version, and text of one compiled requirement."""
+    """The name, version, and text of one requirement of a resolved file."""
     match = re.match(r"([A-Za-z0-9_.-]+)==([^ ;\\]+)", lines[0])
     if match is None:
         raise ValueError(f"Cannot parse the requirement {lines[0]!r}")

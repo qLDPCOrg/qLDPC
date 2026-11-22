@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The label of a run, and the version manifest of the machine and software that made it.
+"""The label of an experiment, and the manifest of the machine and software of its first start.
+
+The manifest (``write_manifest``) describes the label's first start that runs tasks, and
+``starts.jsonl`` holds a line for every start (``record_start``).
 
 The label of an experiment is ``<experiment>-`` followed by the first 12 hexadecimal digits of the
 SHA-256 of ``pins.json``, the experiment's frozen files, the harness commit, and, in a bundle, the
@@ -16,12 +19,13 @@ in this order:
 * ``-local`` for a ``--local`` run, so that its rows never mix with those of the node;
 * ``-<subset>`` for a subset other than ``main`` or ``acceptance``.
 
-The harness commit is the Git commit of the qLDPC tree that holds the experiments.  On the node,
-whose tree is a ``git archive`` without history, ``bundle.py`` records it in
-``experiments/state_prep_certification/bundle.json``, with the SHA-256 of the bundle's
-requirements; ``bundle_record`` reads that record.  ``compute_label`` reads no file: its callers
-pass the contents of the files and the requirements' SHA-256.  An analysis that checks the label of
-a results archive passes the requirements' SHA-256 that the archive's ``manifest.json`` records.
+The harness commit is HEAD of the whole qLDPC checkout that holds the experiments, so that any
+commit, even one that changes only documentation, gives a new label.  On the node, whose tree is a
+``git archive`` without history, ``bundle.py`` records it in
+``experiments/state_prep_certification/bundle.json``, with the SHA-256 of the bundle's requirements;
+``bundle_record`` reads that record.  ``compute_label`` reads no file: its callers pass the contents
+of the files and the requirements' SHA-256.  An analysis that checks the label of a results archive
+passes the requirements' SHA-256 that the archive's ``manifest.json`` records.
 """
 
 from __future__ import annotations
@@ -121,7 +125,7 @@ def compute_label(
     commit: str,
     requirements_sha256: str | None,
 ) -> str:
-    """The label of a run: its pins, frozen files, harness commit, and a bundle's requirements.
+    """An experiment's label: its pins, frozen files, harness commit, and a bundle's requirements.
 
     Args:
         experiment: The experiment's name.

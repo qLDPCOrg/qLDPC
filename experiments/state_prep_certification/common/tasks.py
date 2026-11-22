@@ -4,28 +4,21 @@
 
 A task is a JSON object with a unique ``key``, the ``experiment``, ``arm``, ``mode``, ``repeat``,
 ``limit_s``, and ``mem_cap_gib``.  It may also set ``post_s``, ``startup_cap_s``, and ``grace_s``,
-which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Each limit
-must be finite and positive, and ``grace_s`` at most ``runner.TERM_WAIT_S`` less 2 s, so that GNU
-parallel's signal sequence leaves the runner its grace.  A key must not start with ``_``, which
-names GNU parallel's record beside the runs' records in a label's ``active/`` directory (see
-``run_node.py``).  ``runner.check_task`` refuses a task that breaks one of these rules.  Beyond
-these, a task holds whatever the experiment needs to run it, such as an input.  ``write_pass1``
-writes every task of pass 1 to ``tasks.json`` and their keys, shuffled with a fixed seed, to
-``tasks-pass1.txt``.  ``write_pass2`` writes the repeats that the experiment's repeat policy asks
-for, once every task of pass 1 has a final row, to ``tasks-pass2.json`` and ``tasks-pass2.txt``, in
-the order of pass 1; their keys must be unique and differ from those of pass 1.  A task file is
-written once and never changed, since GNU parallel's resumption depends on its order; writing it
-again with other contents is an error, because a changed input must give a new label.  ``cores.txt``
-lists the logical CPU of each job slot.
+which default to ``runner.FINISH_S``, ``runner.STARTUP_CAP_S``, and ``runner.GRACE_S``.  Beyond
+these, a task holds whatever the experiment needs to run it, such as an input.
+``runner.check_task`` refuses a task whose limits cannot be enforced or whose key is reserved.
 
-The ceiling is the worst-case CPU time of the task list, with the runner's retries.  For each task
-of pass 1, the experiment's ``worst_case_s`` W counts its first run and the repeats that it can
-cause, without the runner's retries.  The runner runs each of these at most twice
-(``runner.RUNS_PER_TASK``), so they cost at most 2 W.  One more run at the first run's limit, S
-(``run_cost_s``), covers a first run that is discarded after its whole limit, while its retry
-finishes fast and calls for repeats.  So the task costs at most S + 2 W.  The bound is loose for a
-task without repeats, which costs at most 2 S.  ``check_approval`` refuses a list whose ceiling
-exceeds the approved CPU-hours.
+The task lists of a label directory are ``tasks.json`` and ``tasks-pass1.txt`` for pass 1
+(``write_pass1``), and ``tasks-pass2.json`` and ``tasks-pass2.txt`` for the repeats of pass 2
+(``write_pass2``); ``cores.txt`` lists the logical CPU of each job slot (``write_cores``).  A task
+file is written once and never changed, since GNU parallel's resumption depends on its order;
+writing it again with other contents is an error, because a changed input must give a new label.
+
+The ceiling of a task list bounds the single-core time, in CPU-hours, of the runs of its tasks: the
+first run of each task of pass 1, the repeats that it can cause, and the runner's retries
+(``ceiling_hours``).  It excludes the cores reserved for the runners (``RESERVED_CORES``), the
+self-tests and acceptance tests, idle job slots, reruns after a hard kill, and resumes.
+``check_approval`` refuses a list whose ceiling exceeds the approved CPU-hours.
 """
 
 from __future__ import annotations
@@ -78,7 +71,10 @@ def missing_file(label_dir: pathlib.Path, name: str) -> pathlib.Path:
 
 
 def write_pass1(label_dir: pathlib.Path, tasks: Sequence[dict[str, Any]]) -> list[str]:
-    """Write ``tasks.json`` and the shuffled ``tasks-pass1.txt`` once; return the keys in order."""
+    """Write ``tasks.json`` and ``tasks-pass1.txt`` once; return the keys in order.
+
+    ``tasks-pass1.txt`` lists the keys in an order shuffled with the fixed seed ``SHUFFLE_SEED``.
+    """
     keys = [task["key"] for task in tasks]
     if len(set(keys)) != len(keys):
         raise ValueError("Task keys must be unique")
@@ -97,6 +93,8 @@ def write_pass2(
     repeat_tasks: Callable[[dict[str, Any], dict[str, Any]], list[dict[str, Any]]],
 ) -> list[str]:
     """Write the repeats of pass 2 once, in the order of pass 1; return their keys.
+
+    The repeats' keys must be unique and differ from those of pass 1.
 
     Args:
         label_dir: The label's directory.
@@ -140,10 +138,14 @@ def pass_keys(label_dir: pathlib.Path, name: str) -> list[str]:
 def ceiling_hours(
     tasks: Iterable[dict[str, Any]], worst_case_s: Callable[[dict[str, Any]], float]
 ) -> float:
-    """The worst-case CPU-hours of the tasks of pass 1, with their repeats and retries.
+    """The ceiling: the worst-case CPU-hours of the tasks of pass 1, with their repeats and retries.
 
-    Each task costs at most S + 2 W, where S is ``run_cost_s(task)`` and W is
-    ``worst_case_s(task)``, since the runner runs each run at most twice (see the module docstring).
+    For each task of pass 1, the experiment's ``worst_case_s`` W counts its first run and the
+    repeats that it can cause, without the runner's retries.  The runner runs each of these at most
+    twice (``runner.RUNS_PER_TASK``), so they cost at most 2 W.  One more run, of at most S =
+    ``run_cost_s(task)``, covers a first run that is discarded after its whole limit while its
+    retry finishes fast and calls for repeats.  So the task costs at most S + 2 W.  The bound is
+    loose for a task without repeats, which costs at most 2 S.
     """
     assert runner.RUNS_PER_TASK == 2, "the ceiling allows one retry per run"
     return sum(run_cost_s(task) + 2 * worst_case_s(task) for task in tasks) / 3600

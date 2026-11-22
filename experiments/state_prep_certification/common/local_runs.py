@@ -9,9 +9,10 @@ sends the task's runner SIGTERM, as GNU parallel does.  The runner then kills it
 within ``runner.TERM_WAIT_S``, before ``run_locally`` re-raises the exception.
 
 ``run_locally`` fails if a row with status ``ok`` has ``compiled_in_timing`` set (see
-``runner.py``), which checks that the disk caches and any untimed preparation keep every compilation
-that numba reports out of the measured call.  Rows of other statuses are not checked, since the
-retry of a run killed at its limit can compile code that the discarded run never reached.
+``runner.py``).  An acceptance test thereby checks that numba's disk caches and the experiment's
+untimed preparation keep every compilation that numba reports out of the measured call.  Rows of
+other statuses are not checked, since the retry of a run killed at its limit can compile code that
+the discarded run never reached.
 """
 
 from __future__ import annotations

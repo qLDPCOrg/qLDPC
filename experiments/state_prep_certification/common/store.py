@@ -2,13 +2,12 @@
 
 """The JSONL result store of a label, and the archive that carries it back from the node.
 
-Each task runner appends one final row per task to ``runs.jsonl`` with ``append_row``: one write of
-a whole line under an exclusive ``flock``, followed by a flush and an fsync.  A runner that dies in
-the middle of a write can leave an incomplete last line.  The next append, under the same lock,
-moves that fragment to ``recovered.txt`` and truncates the file to its last complete line before it
-writes, so that a new row never joins a fragment.  ``read_rows`` ignores an incomplete last line and
-reports it, and ``final_rows`` keeps the first final row of each task and reports every duplicate,
-such as a second row of a task that two runners ran at once.
+Each task runner appends one final row per task to ``runs.jsonl`` with ``append_row``, which other
+runners appending at once cannot interleave.  A runner that dies in the middle of a write can leave
+an incomplete last line, which the next append moves to ``recovered.txt``, so that a new row never
+joins it.  ``read_rows`` ignores an incomplete last line and reports it, and ``final_rows`` keeps
+the first final row of each task and reports every duplicate, such as a second row of a task that
+two runners ran at once.
 
 ``write_atomic`` writes the label's other records, such as ``acceptance.json``, ``manifest.json``,
 and the runner's ``active/`` files, whole or not at all, so that a kill during a write never
@@ -56,7 +55,12 @@ _UNARCHIVED = ("archive", LOCK_FILE)
 
 
 def append_row(label_dir: pathlib.Path, row: dict[str, Any]) -> None:
-    """Append one row to the label's ``runs.jsonl``, atomically with respect to other runners."""
+    """Append one row to the label's ``runs.jsonl``, atomically with respect to other runners.
+
+    The row is one write of a whole line under an exclusive ``flock``, followed by an fsync.  Under
+    the same lock, an incomplete last line that a dead runner left goes to ``recovered.txt`` first,
+    and the file is truncated to its last complete line.
+    """
     line = (json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n").encode()
     path = label_dir / RUNS_FILE
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
