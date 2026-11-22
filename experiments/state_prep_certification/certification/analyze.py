@@ -547,11 +547,10 @@ def summarize(
                 "t": circuit["t"],
                 "K": circuit["options"]["max_weight"],
                 **{
-                    key: listing.get(
-                        key, accepted.get(key, circuit.get(CIRCUIT_FIELDS.get(key, key)))
-                    )
-                    for key in ("p", "N", "N0", "z", "r", "K_prime", "q", "q_h", "h")
+                    key: circuit.get(CIRCUIT_FIELDS.get(key, key))
+                    for key in ("p", "N", "N0", "z", "r", "K_prime")
                 },
+                **{key: listing.get(key) for key in ("q", "q_h", "h")},
                 "U": circuit.get("U"),
                 "brute_within_cap": circuit.get("brute_force"),
                 "verdict": circuit_verdict,
@@ -865,7 +864,7 @@ def _per_weight(
     cc_weights = {record["m"]: record for record in cc["partial"] if "m" in record}
     brute_weights = {record["m"]: record for record in brute["partial"] if "m" in record}
     max_weight = circuit["options"]["max_weight"]
-    weight_limit = listing.get("K_prime", circuit.get("K_prime"))
+    weight_limit = circuit.get("K_prime")
     certified_bz = bz["status"] == "ok" and bool(bz["result"].get("certified"))
     rows = []
     for m in range(1, max_weight + 1):
