@@ -25,23 +25,23 @@ The prior arm is thus an ablation of the four extensions within qLDPC; its name 
 | `q_bz_prior` | the same call inside `use_tuning(**BZ_PRIOR)` | all |
 
 `config.json` holds the prior tuning (`bz_prior`, which [`arms.py`](arms.py) reads as `BZ_PRIOR` and says what each setting turns off), the time limit, the memory cap, and the rule for repeats (`repeat_below_s` and `repeats`; see [`experiment.py`](experiment.py)).
-Every arm builds a plain `CSSCode` or `QuditCode` from stored matrices inside its timer, so that the search cannot use structure, such as symmetries, that the class of a code's construction, such as `BBCode`, could supply.
-Both arms make the same call, so they search the same sectors: one sector of a plain `CSSCode` whenever qLDPC finds a sector map, and both otherwise.
-qLDPC finds one for codes with equal check matrices.
-With its optional `bliss` extra for graph automorphisms, which the bundle installs (`qldpc_extras` of [`pins.json`](../pins.json)), it also finds one for some codes whose check matrices differ, such as the anchors (named codes; see [Codes](#codes)) `surface9` and `toric10`.
-The connected-cluster (CC) search is not compared here: the certification experiment measures it as an oracle of the certifier, on the certifier's own queries.
+Every arm builds a plain `CSSCode` or `QuditCode` from the stored matrices inside its timer.
+It does not build a family's class, such as `BBCode`, which could give the search extra structure, such as symmetries.
+[`arms.py`](arms.py) says which sectors the arms search, and why the connected-cluster (CC) search is not compared here.
 
 ## Codes
 
 [`codes.py`](codes.py) generates every code from fixed rules and seeds, with no timing of any kind:
 
-- the families of `FAMILIES` in `codes.py`, each at up to four sizes: the admissible lengths nearest to four targets spaced geometrically from its endpoints n_lo to n_hi (below), which can lie outside the endpoints; a size has at most `CODES_PER_SIZE` codes, and can have none;
+- the families of `FAMILIES` in `codes.py`, each at up to four sizes, with at most `CODES_PER_SIZE` codes per size, and possibly none;
 - the anchors of `ANCHORS` in `codes.py`: named codes, most with a reference distance from an independent source.
 
+Four targets are spaced geometrically from a family's endpoint n_lo to its endpoint n_hi (below).
+Each size is the length, among those that the family's construction allows, nearest to a target, and can lie outside the endpoints.
 The docstring of `codes.py` gives the rule that draws the codes of the families: its sizes, draws, merges, and shortfalls.
-The analysis checks each arm's distance on an anchor against the anchor's reference distance, and reports each anchor on its own, in `anchors.csv`, never pooled with the families.
+The analysis reports each anchor on its own, in `anchors.csv`, never pooled with the families.
 
-The data directory `code_data/` holds two files, which are not committed: the experiment reads them from that directory, which Git ignores, and the offline bundle carries it.
+The data directory `code_data/`, which Git ignores and the offline bundle carries, holds two files that are not committed.
 `code_data/endpoints.json` records each family's endpoints with their source, as in the table below; it is an input that no script of the experiment makes.
 `code_data/sample.json` fixes every code: a drawn code by its name, family, parameters, draw, seed, and hash, and an anchor by its name, source, hash, and reference distance, if any.
 `codes.py --write-sample` writes it from `endpoints.json` and the rules of `codes.py`, overwriting the frozen sample, so run it only to refreeze the sample.
@@ -78,8 +78,10 @@ On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as 
 `analyze.py --archive PATH --out DIR` reads the archive that comes back, and writes `summary.csv`, `families.csv`, `anchors.csv`, `distances.pdf`, and `figure_notes.json`.
 The docstring of [`analyze.py`](analyze.py) says how to read the timings and the outputs, including a median that a timed-out run determines, an arm without a first run, and a row with `compiled_in_timing` set (see the [shared README](../README.md#runs)).
 
+## Exact results and timings
+
 The distances that the arms report are exact, from qLDPC's exact BZ search.
-A code whose arms or repeats report different distances in their rows with status `ok`, or a distance other than its reference distance, is a disagreement, which `analyze.py` reports.
+A code is a disagreement if, among its rows with status `ok`, two report different distances, or one reports a distance other than the code's reference distance; `analyze.py` reports it (case 1 of its docstring).
 The anchors' reference distances and the families' endpoints are trusted inputs, from the sources that this README and `codes.py` cite.
 The times are measurements of runs on the node.
 

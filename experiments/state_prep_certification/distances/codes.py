@@ -8,8 +8,8 @@ inputs, outputs, and documentation.
     python codes.py --out DIR [--write-sample] [--check]
 
 **Families and sizes.**  Each family of ``FAMILIES`` has endpoints n_lo and n_hi from its published
-source, recorded in ``code_data/endpoints.json``; the README cites each source and gives the rule
-by which the endpoints were read from it.  The family has four target lengths
+source, recorded in ``code_data/endpoints.json``; ``distances/README.md`` cites each source and
+gives the rule by which the endpoints were read from it.  The family has four target lengths
 n_j = n_lo (n_hi / n_lo)^(j / 3), j = 0, ..., 3.  Each target goes to the family's admissible
 parameters whose length is nearest in log n, which can lie outside [n_lo, n_hi]; ties go to the
 smaller n, then to the smaller tie-break, a value that each family's ``admissible`` gives with its
