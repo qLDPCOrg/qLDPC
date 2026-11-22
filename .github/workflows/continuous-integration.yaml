@@ -128,6 +128,9 @@ jobs:
         run: |
           test "${{ strategy.job-total }}" = "$SHARDS"
           test "${{ matrix.shard }}" = "$(( ${{ strategy.job-index }} + 1 ))"
+      - name: Print the model of the runner's CPU
+        # The job's time depends on the speed of the runner's CPU, which varies between runners.
+        run: lscpu | sed -n 's/^Model name:[[:space:]]*//p'
       - uses: actions/checkout@v6
       - name: Set up Python
         id: setup-uv
@@ -175,6 +178,9 @@ jobs:
           - name: "Compiled run: distance tests with compiled set-up code"
             args: src/qldpc/codes/distance --compile-search-setup
     steps:
+      - name: Print the model of the runner's CPU
+        # As in the coverage job.
+        run: lscpu | sed -n 's/^Model name:[[:space:]]*//p'
       - uses: actions/checkout@v6
       - name: Set up Python
         id: setup-uv
