@@ -1123,7 +1123,8 @@ def check_consistency(
       the certifier's lower bound on it;
     * a deletion task's final circuit that the CC oracle does not certify at K = t, or whose claim
       on its m* disagrees with itself, such as a final m* of at most t or one above a fault weight
-      at which its search found a violation (``analyze_applications.final_contradictions``).
+      at which its search found a violation, or with that of another deletion task that ends at
+      the same final circuit (``analyze_applications.final_contradictions``).
     """
     from experiments.state_prep_certification.certification import applications
 

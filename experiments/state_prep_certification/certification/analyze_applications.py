@@ -16,16 +16,16 @@ which is the parent (``final_claim``).  All values that determine m* must be equ
 lower bound; otherwise the circuit is a disagreement.  The combined margin is the determined value,
 in the column ``margin``, or else the largest lower bound k, in the column ``margin_lower_bound``,
 meaning m* > k.
-
-**Deletions.**  Each final circuit must be certified at K = t by the connected-cluster oracle, by
+ **Deletions.**  Each final circuit must be certified at K = t by the connected-cluster oracle, by
 the task's result or, for a run killed during the search of its final m*, by the final checks that
-it sent as a partial result.  The claim on its m* (``final_claim``) holds m* > t, since BZ
-certified it at K = t, the m* of the task's result, and each fault weight that the search of its
-final m* reported, and its parts must agree.  A completed weight of a final circuit other than the
-parent gives only a lower bound, since its flag rank is not recorded.  A failure of either check
-makes the circuit a disagreement (``final_contradictions``).  The final circuit is rebuilt from the
-parent's input in ``circuit_data/inputs/`` and the accepted deletions, and compared with its
-recorded SHA-256, if that input is the one that the label ran on.
+it sent as a partial result.  The claim on its m* (``final_claim``) holds m* > t, since BZ certified
+it at K = t, the m* of the task's result, and each fault weight that the search of its final m*
+reported, and its parts must agree.  A completed weight of a final circuit other than the parent
+gives only a lower bound, since its flag rank is not recorded.  The claims of the deletion tasks
+that end at the same final circuit, by its SHA-256, must agree too.  A failure of any of these
+checks makes the circuit a disagreement (``final_contradictions``).  The final circuit is rebuilt
+from the parent's input in ``circuit_data/inputs/`` and the accepted deletions, and compared with
+its recorded SHA-256, if that input is the one that the label ran on.
 
 Outputs, besides the margin fields of ``summary.csv`` and the margin counts of ``families.csv``:
 
@@ -329,13 +329,15 @@ def final_contradictions(
 ) -> list[str]:
     """The contradictions of the final circuits of a circuit's deletion tasks.
 
-    A final circuit must be certified at K = t by the CC oracle, and the parts of the claim on its
-    m* (``final_claim``) must agree.  The final circuit of a task that accepted no deletion is the
-    parent, whose claims ``margin_claims`` compares instead.
+    A final circuit must be certified at K = t by the CC oracle, and the claims on its m*
+    (``final_claim``) must agree: the parts of each task's claim, and the claims of the tasks that
+    end at the same final circuit, by its ``final_sha256``.  The final circuit of a task that
+    accepted no deletion is the parent, whose claims ``margin_claims`` compares instead.
     """
     from experiments.state_prep_certification.certification import applications
 
     contradictions = []
+    by_final_circuit: dict[str, dict[str, Claim]] = {}
     for arm in applications.PRUNE_ORDERS:
         if not arms.get(arm):
             continue
@@ -347,7 +349,11 @@ def final_contradictions(
             contradictions.append(f"{arm} final: not certified by CC at t")
         claim = final_claim(circuit, run)
         if claim is not None and _accepted_deletion(run):
-            contradictions += combine_claims({f"{arm} final": claim})[2]
+            final_circuit = checks.get("final_sha256") or arm
+            by_final_circuit.setdefault(final_circuit, {})[f"{arm} final"] = claim
+    for claims in by_final_circuit.values():
+        _, _, conflicts = combine_claims(claims)
+        contradictions += conflicts
     return contradictions
 
 
