@@ -142,9 +142,10 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
     The accepted-combination counter gives no A_m with a cap of no entries, even without flagged
     mechanisms.  The rows submitted to the oracle never exceed the listed faults on completed
     weights.  Through the task runner, ``count_listing`` on ``echen`` and ``ground_truth`` on
-    ``w.aft.shor.opt_opt`` and ``cgoto`` finish without ``compiled_in_timing``.  The compiled
-    functions of ``counting.py`` and ``baseline.py`` call by name no compiled function of another
-    file.
+    ``w.aft.shor.opt_opt`` and ``cgoto`` finish without ``compiled_in_timing``, and their rows give
+    the DEM parameters N, p, N_0, z, r, and K' of ``circuits.json``, which the analysis reports.
+    The compiled functions of ``counting.py`` and ``baseline.py`` call by name no compiled function
+    of another file.
     """
     # the compiled functions of counting.py and baseline.py call only compiled functions of their
     # own file, as the cache of their compiled code requires (see counting.py)
@@ -218,15 +219,21 @@ def at2_counters(directory: pathlib.Path, node: bool) -> None:
     # three tasks through the runner, whose rows run_locally checks for compiled_in_timing.  The
     # listing count on E-chen reaches the disk-cached search of counting.py.  The ground truth uses
     # galois's arithmetic, which counting._compile_galois compiles first, and on C-goto it also
-    # reaches, at fault weight 2, more of counting.py's disk-cached functions.
+    # reaches, at fault weight 2, more of counting.py's disk-cached functions.  Each row's DEM
+    # parameters, computed from the DEM of a certification at weight 1, are those of circuits.json.
+    parameters = {"N": "num_mechanisms", "p": "num_post_selection_detectors"}
+    parameters |= {name: name for name in ("N0", "z", "r", "K_prime")}
     for arm, circuit_id in (
         ("count_listing", "echen"),
         ("ground_truth", "w.aft.shor.opt_opt"),
         ("ground_truth", "cgoto"),
     ):
-        task = experiment._task(arm, experiment._entry(circuit_id))
+        entry = experiment._entry(circuit_id)
+        task = experiment._task(arm, entry)
         row = local_runs.run_locally(directory / task["key"], [task])[task["key"]]
         assert row["status"] == "ok", (task["key"], row["status"])
+        recorded = {field: entry[name] for field, name in parameters.items()}
+        assert {field: row["result"][field] for field in parameters} == recorded, task["key"]
 
 
 @test
