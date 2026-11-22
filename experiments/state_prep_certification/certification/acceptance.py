@@ -73,16 +73,16 @@
   a counterexample's residual weight against its fault weight or lower bound.  A circuit whose
   claims of every kind agree gets their m*.  Every case of the combined margin of
   ``analyze_applications.py`` gives its value, its bound, or a disagreement, and a margin of at most
-  t keeps its sector.  A margin or a deletion parent that disagrees with ``cert_bz``, or a final
-  circuit that CC does not certify, makes its circuit a disagreement, and agreeing deletion tasks do
-  not.  A disagreeing parent does so also when its verdict is only in the partial results of a
-  killed task.  The margin counts of one family are checked, and ``margin_violations.csv`` lists m*
-  = t, but not m* = t + 1 or a disagreement.  The deletion outputs rebuild a reduced circuit from
-  its input, report a wrong final SHA-256, leave the rebuild unchecked for an input that is not the
-  label's, exclude a disagreement from ``deletion_table.csv`` but list its task, list an uncertified
-  parent, and give a timeout and a flagged timeout their statuses.  ``deletion_table.csv`` lists its
-  circuits in the order of their ids, and an analysis's marks head each circuit of ``pruned/``,
-  which still parses.
+  t keeps the arm and sector of its counterexample.  A margin or a deletion parent that disagrees
+  with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a disagreement,
+  and agreeing deletion tasks do not.  A disagreeing parent does so also when its verdict is only in
+  the partial results of a killed task.  The margin counts of one family are checked, and
+  ``margin_violations.csv`` lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
+  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
+  unchecked for an input that is not the label's, exclude a disagreement from ``deletion_table.csv``
+  but list its task, list an uncertified parent, and give a timeout and a flagged timeout their
+  statuses.  ``deletion_table.csv`` lists its circuits in the order of their ids, and an analysis's
+  marks head each circuit of ``pruned/``, which still parses.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
   acceptance estimate is within five standard errors of the exact probability from the DEM.
   Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
@@ -1450,8 +1450,8 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
         else:
             assert fields["margin"] == expected and fields["agree_margin"] is not False, fields
         if expected == 1:
-            copied = {key: fields[f"margin_{key.replace('_weight', '')}"] for key in sector}
-            assert copied == sector, fields
+            copied = {key: fields[f"counterexample_{key.replace('_weight', '')}"] for key in sector}
+            assert copied == sector and fields["counterexample_arm"] == "cert_bz", fields
 
     # in summarize, a margin and a deletion parent that disagree with cert_bz, and a final circuit
     # that CC does not certify, each make a disagreement; a consistent deletion task does not
@@ -1567,7 +1567,7 @@ def _check_application_analysis(directory: pathlib.Path) -> None:
     margins = {reduced_id: (2, "certified"), "aft.steane.heuristic_opt": (3, "certified")}
     margins["aft.steane.opt_opt"] = (1, "disagreement")
     summary_rows = [
-        {"id": circuit_id, "family": "F", "t": 2, "margin_violating_parts": "Z"}
+        {"id": circuit_id, "family": "F", "t": 2, "counterexample_violating_parts": "Z"}
         | dict(zip(("margin", "verdict"), margins.get(circuit_id, (None, "certified"))))
         for circuit_id in arms
     ]

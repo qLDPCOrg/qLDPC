@@ -25,8 +25,8 @@ that input is the one that the label ran on.
 
 Outputs, besides the margin fields of ``summary.csv`` and the margin counts of ``families.csv``:
 
-* ``margin_violations.csv``: each circuit with m* <= t, with the residual weights of the X and Z
-  parts of its counterexample and the parts that exceed its fault weight.
+* ``margin_violations.csv``: each circuit with m* <= t, with the ``counterexample_*`` fields of
+  ``margin_fields``, which describe one counterexample of weight m*.
 * ``deletion.csv``: every step of every deletion task, with its outcome.
 * ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every deletion task that
   reached its final checks, with whether its circuit is a disagreement.
@@ -162,12 +162,15 @@ def combine_claims(claims: dict[str, Claim]) -> tuple[int | str | None, int | No
 def margin_fields(
     arms: dict[str, list[dict[str, Any]]], claims: dict[str, Claim]
 ) -> dict[str, Any]:
-    """The combined margin of a circuit, its agreement, and the sector of its counterexample.
+    """The combined margin of a circuit, its agreement, and the sector of one counterexample.
 
     ``claims`` are those of ``margin_claims``.  ``margin`` is an integer m*, "all", or None if
     unresolved or a disagreement, and ``margin_lower_bound`` is k where m* > k is all that is known.
     ``agree_margin`` is whether the claims agree, and None if they come from fewer than two
-    sources and agree.
+    sources and agree.  For an integer m*, the ``counterexample_*`` fields describe the
+    counterexample of the first of ``cert_bz``, ``cert_cc``, and ``margin`` that described one of
+    weight m*, named by ``counterexample_arm``: the residual weights of its X and Z parts, and the
+    parts whose own residual weight exceeds its fault weight.
     """
     value, bound, conflicts = combine_claims(claims)
     fields: dict[str, Any] = {
@@ -176,16 +179,17 @@ def margin_fields(
         "agree_margin": False if conflicts else (True if len(claims) > 1 else None),
     }
 
-    # the sector of the smallest violation, from the first run that describes it
+    # the sector of one counterexample of weight m*, from the first run that describes one
     if isinstance(value, int):
         for arm in ("cert_bz", "cert_cc", "margin"):
             result = (arms.get(arm) or [{}])[0].get("result") or {}
             found = result.get("margin" if arm == "margin" else "violation_weight")
             if found == value and "sector_weight_x" in result:
                 fields |= {
-                    "margin_sector_x": result["sector_weight_x"],
-                    "margin_sector_z": result["sector_weight_z"],
-                    "margin_violating_parts": result["violating_parts"],
+                    "counterexample_arm": arm,
+                    "counterexample_sector_x": result["sector_weight_x"],
+                    "counterexample_sector_z": result["sector_weight_z"],
+                    "counterexample_violating_parts": result["violating_parts"],
                 }
                 break
     return fields
@@ -324,9 +328,10 @@ def write_applications(
                 "family",
                 "t",
                 "margin",
-                "margin_sector_x",
-                "margin_sector_z",
-                "margin_violating_parts",
+                "counterexample_arm",
+                "counterexample_sector_x",
+                "counterexample_sector_z",
+                "counterexample_violating_parts",
             )
         }
         for row in summary_rows

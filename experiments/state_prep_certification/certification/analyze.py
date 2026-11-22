@@ -120,9 +120,10 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   with a disagreement are left out.
 * The margins and deletions (``analyze_applications.py``): the combined margin m* of each circuit
   and its agreement in ``summary.csv`` (``margin``, ``margin_lower_bound``, ``agree_margin``, and
-  the sector of its counterexample), with ``agree_prune`` for its deletion tasks; the margin counts
-  of ``families.csv``; and ``margin_violations.csv``, ``deletion.csv``, ``deletion_table.csv``,
-  ``deletion_tasks.csv``, ``deletion_notes.json``, and ``pruned/``.
+  the arm and sector of one counterexample, ``counterexample_*``), with ``agree_prune`` for its
+  deletion tasks; the margin counts of ``families.csv``; and ``margin_violations.csv``,
+  ``deletion.csv``, ``deletion_table.csv``, ``deletion_tasks.csv``, ``deletion_notes.json``, and
+  ``pruned/``.
 * ``counterexamples.json``: every counterexample (``all``), with ``disagreement`` true where its
   circuit is a disagreement, and up to three example counterexamples (``examples``), one for each
   group that has one, chosen by a fixed rule.  The groups are A-unv with the W variants of A-ft and
