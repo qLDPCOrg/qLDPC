@@ -48,6 +48,10 @@ LOCK_FILE = "lock"  # the lock of the start that owns the label (see run_node.py
 _UNARCHIVED = ("archive", LOCK_FILE)
 
 
+####################################################################################################
+# rows
+
+
 def append_row(label_dir: pathlib.Path, row: dict[str, Any]) -> None:
     """Append one row to the label's ``runs.jsonl``, atomically with respect to other runners."""
     line = (json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n").encode()
@@ -105,6 +109,48 @@ def final_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], list
         else:
             first[key] = row
     return first, problems
+
+
+def _truncate_incomplete_tail(fd: int, label_dir: pathlib.Path) -> None:
+    """Move an incomplete last line, if any, to ``recovered.txt``, and cut it from the file."""
+    size = os.lseek(fd, 0, os.SEEK_END)
+    if size == 0:
+        return
+    os.lseek(fd, size - 1, os.SEEK_SET)
+    if os.read(fd, 1) == b"\n":
+        return
+
+    # find the end of the last complete line, reading backwards in blocks
+    end = size
+    cut = 0
+    while end > 0:
+        start = max(0, end - 65536)
+        os.lseek(fd, start, os.SEEK_SET)
+        block = os.read(fd, end - start)
+        index = block.rfind(b"\n")
+        if index >= 0:
+            cut = start + index + 1
+            break
+        end = start
+
+    # keep the fragment for the report, then truncate
+    os.lseek(fd, cut, os.SEEK_SET)
+    fragment = os.read(fd, size - cut)
+    with open(label_dir / RECOVERED_FILE, "ab") as file:
+        file.write(b"incomplete line removed before an append: " + fragment + b"\n")
+    os.ftruncate(fd, cut)
+    os.fsync(fd)
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    """Write all of ``data`` to a file descriptor."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view) :]
+
+
+####################################################################################################
+# marks of an analysis's outputs
 
 
 def count_local_rows(rows: Iterable[dict[str, Any]], allow_local: bool) -> int:
@@ -179,6 +225,16 @@ def mark_outputs(paths: Iterable[pathlib.Path], marks: dict[str, Any]) -> None:
                 path.write_text(header + text)
 
 
+def _starts(label_dir: pathlib.Path) -> list[dict[str, Any]]:
+    """The lines of the label's ``starts.jsonl``, one per start."""
+    path = label_dir / STARTS_FILE
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+####################################################################################################
+# records and archives
+
+
 def write_atomic(path: pathlib.Path, text: str, directory: pathlib.Path | None = None) -> None:
     """Write a file whole or not at all: write a temporary file, then rename it to ``path``.
 
@@ -225,50 +281,6 @@ def sha256_file(path: pathlib.Path) -> str:
         for block in iter(lambda: file.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
-
-
-def _starts(label_dir: pathlib.Path) -> list[dict[str, Any]]:
-    """The lines of the label's ``starts.jsonl``, one per start."""
-    path = label_dir / STARTS_FILE
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
-
-
-def _truncate_incomplete_tail(fd: int, label_dir: pathlib.Path) -> None:
-    """Move an incomplete last line, if any, to ``recovered.txt``, and cut it from the file."""
-    size = os.lseek(fd, 0, os.SEEK_END)
-    if size == 0:
-        return
-    os.lseek(fd, size - 1, os.SEEK_SET)
-    if os.read(fd, 1) == b"\n":
-        return
-
-    # find the end of the last complete line, reading backwards in blocks
-    end = size
-    cut = 0
-    while end > 0:
-        start = max(0, end - 65536)
-        os.lseek(fd, start, os.SEEK_SET)
-        block = os.read(fd, end - start)
-        index = block.rfind(b"\n")
-        if index >= 0:
-            cut = start + index + 1
-            break
-        end = start
-
-    # keep the fragment for the report, then truncate
-    os.lseek(fd, cut, os.SEEK_SET)
-    fragment = os.read(fd, size - cut)
-    with open(label_dir / RECOVERED_FILE, "ab") as file:
-        file.write(b"incomplete line removed before an append: " + fragment + b"\n")
-    os.ftruncate(fd, cut)
-    os.fsync(fd)
-
-
-def _write_all(fd: int, data: bytes) -> None:
-    """Write all of ``data`` to a file descriptor."""
-    view = memoryview(data)
-    while view:
-        view = view[os.write(fd, view) :]
 
 
 def _archived_files(label_dir: pathlib.Path) -> Iterable[pathlib.Path]:

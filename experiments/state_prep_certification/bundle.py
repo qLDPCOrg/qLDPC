@@ -400,12 +400,12 @@ def build_pure_python_wheel(
             "--quiet",
         ]
     )
-    normalized = re.sub(r"[-_.]+", "[-_.]", name)
+    name_pattern = re.sub(r"[-_.]+", "[-_.]", name)
     (sdist,) = [
         path
         for path in sdists.iterdir()
         if re.match(
-            f"{normalized}-{re.escape(version)}\\.(tar\\.gz|zip)$", path.name, re.IGNORECASE
+            f"{name_pattern}-{re.escape(version)}\\.(tar\\.gz|zip)$", path.name, re.IGNORECASE
         )
     ]
     built = cache / "built"

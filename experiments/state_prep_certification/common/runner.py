@@ -889,6 +889,25 @@ def describe_processes(pids: list[int]) -> str:
     return ", ".join(f"{pid} ({commands.get(str(pid), 'gone').strip()})" for pid in pids)
 
 
+def cpu_model() -> str:
+    """The model name of this machine's CPU."""
+    try:
+        if sys.platform.startswith("linux"):
+            for line in pathlib.Path("/proc/cpuinfo").read_text().splitlines():
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+        if sys.platform == "darwin":
+            return subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout.strip()
+    except OSError:
+        pass
+    return platform.processor()
+
+
 ####################################################################################################
 # helpers
 
@@ -910,25 +929,6 @@ def _cpu_seconds() -> float:
     """The CPU time of this process and its waited-for children, in seconds."""
     times = os.times()
     return times.user + times.system + times.children_user + times.children_system
-
-
-def cpu_model() -> str:
-    """The model name of this machine's CPU."""
-    try:
-        if sys.platform.startswith("linux"):
-            for line in pathlib.Path("/proc/cpuinfo").read_text().splitlines():
-                if line.startswith("model name"):
-                    return line.split(":", 1)[1].strip()
-        if sys.platform == "darwin":
-            return subprocess.run(
-                ["sysctl", "-n", "machdep.cpu.brand_string"],
-                capture_output=True,
-                text=True,
-                check=False,
-            ).stdout.strip()
-    except OSError:
-        pass
-    return platform.processor()
 
 
 def _keep_tail(path: pathlib.Path) -> None:

@@ -122,6 +122,8 @@ def main() -> None:
     module = plugin.load_experiment(args.experiment)
     results_dir = (args.results_dir or DEFAULT_RESULTS).resolve()
     label_dir = get_label_dir(module, results_dir, args.subset, args.local)
+
+    # --cleanup and --status act on the label directory, and end
     if args.cleanup:
         print(f"label directory: {label_dir}", flush=True)
         if not label_dir.exists():
@@ -134,6 +136,8 @@ def main() -> None:
     if args.status:
         print_status(label_dir, results_dir)
         return
+
+    # 1. the refusals of a start, the label directory's lock, and the start's line in starts.jsonl
     if not args.local and not sys.platform.startswith("linux"):
         sys.exit("Node mode needs Linux (lscpu, CPU affinity); pass --local on other systems")
     if not args.local and _unfrozen_bundle() and not args.allow_unfrozen:
@@ -402,12 +406,6 @@ def check_environment(
             )
 
 
-def _unfrozen_bundle() -> bool:
-    """Whether this tree comes from a bundle built without a frozen qLDPC commit."""
-    bundle = manifest.bundle_record()
-    return bool(bundle and bundle.get("unfrozen"))
-
-
 def lock_label(label_dir: pathlib.Path) -> None:
     """Lock the label for this process until it exits, or exit if another process holds it.
 
@@ -460,6 +458,20 @@ def refuse_other_cpu(label_dir: pathlib.Path) -> None:
             f"This label's runs were made on {recorded!r}, and this machine has {this!r}; a label "
             "never mixes the times of two CPU models."
         )
+
+
+def _unfrozen_bundle() -> bool:
+    """Whether this tree comes from a bundle built without a frozen qLDPC commit."""
+    bundle = manifest.bundle_record()
+    return bool(bundle and bundle.get("unfrozen"))
+
+
+def _nonzero_integer(value: str) -> bool:
+    """Whether ``int(value)`` parses and is nonzero, as numba reads its switch variables."""
+    try:
+        return int(value) != 0
+    except ValueError:
+        return False
 
 
 ####################################################################################################
@@ -623,10 +635,7 @@ def live_runs(label_dir: pathlib.Path, results_dir: pathlib.Path | None = None) 
         if path.name != PARALLEL_RECORD:
             recorded.append((record["runner_pid"], record["runner_start"]))
         recorded += [(pid, start) for pid, start in record.get("survivors", [])]
-        same = any(
-            start is not None and pid in table and table[pid].start == start
-            for pid, start in recorded
-        )
+        same = any(_same(table, pid, start) for pid, start in recorded)
         if same or _orphaned_members(table, record):
             live.append(_record_name(label_dir, path))
     return live
@@ -758,16 +767,17 @@ def _orphaned_members(table: dict[int, runner.Process], record: dict[str, Any]) 
     return [pid for pid, process in table.items() if process.pgid == record["pid"]]
 
 
+def _same(table: dict[int, runner.Process], pid: int, start: str | None) -> bool:
+    """Whether a process is still the recorded one: alive, with the recorded start time."""
+    return start is not None and pid in table and table[pid].start == start
+
+
 def _still_alive(processes: list[tuple[int, str | None]]) -> list[int]:
     """The processes, by id and start time, that are still the same after ``CLEANUP_WAIT_S``."""
     deadline = time.monotonic() + CLEANUP_WAIT_S
     while True:
         table = runner.process_table()
-        alive = [
-            pid
-            for pid, start in processes
-            if start is not None and pid in table and table[pid].start == start
-        ]
+        alive = [pid for pid, start in processes if _same(table, pid, start)]
         if not alive or time.monotonic() >= deadline:
             return alive
         time.sleep(0.2)
@@ -776,7 +786,7 @@ def _still_alive(processes: list[tuple[int, str | None]]) -> list[int]:
 def _kill_tree_if_same(pid: int, start: str | None) -> bool:
     """Kill a local run's process and its descendants, if it is still the recorded process."""
     table = runner.process_table()
-    if start is None or pid not in table or table[pid].start != start:
+    if not _same(table, pid, start):
         return False
     for member in runner.descendants(table, pid):
         try:
@@ -788,8 +798,7 @@ def _kill_tree_if_same(pid: int, start: str | None) -> bool:
 
 def _kill_if_same(pid: int, start: str | None, group: bool) -> bool:
     """Kill a process (or the group that it leads) if it is still the one recorded."""
-    table = runner.process_table()
-    if start is None or pid not in table or table[pid].start != start:
+    if not _same(runner.process_table(), pid, start):
         return False
     try:
         if group:
@@ -799,14 +808,6 @@ def _kill_if_same(pid: int, start: str | None, group: bool) -> bool:
     except (ProcessLookupError, PermissionError):
         return False
     return True
-
-
-def _nonzero_integer(value: str) -> bool:
-    """Whether ``int(value)`` parses and is nonzero, as numba reads its switch variables."""
-    try:
-        return int(value) != 0
-    except ValueError:
-        return False
 
 
 if __name__ == "__main__":
