@@ -26,11 +26,15 @@ run until after its row is appended, and watches the child:
   ``post_s`` makes the run an ``error``.
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
   process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since
-  the polls can miss a short peak, the parent also takes the peak of the child and of the processes
-  that it waited for (``getrusage``) after the run, and an ``ok`` run whose peak exceeds the cap
-  becomes a ``memout``, with an ``error`` that says that the peak was found after the run.  For a
-  run that sends its result before post-processing, the child reports this peak with the result,
-  which decides the status; a later peak above the cap marks only ``post_status``.
+  the polls can miss a short peak, the parent also checks the peak that the operating system
+  records for the child and the processes that it waited for: the child sends it with a result of
+  ``send_result`` (``getrusage``), and the parent reads it when the child exits without a kill
+  (``wait4``).  These are peaks of single processes, not of their sum, so a short peak of the
+  run's summed memory between two polls can still go unseen.  An ``ok`` run whose peak until its
+  result exceeds the cap becomes a ``memout``, with an ``error`` that says that the peak was found
+  after the run.  For a run that sends its result before post-processing, the peak that the child
+  sends with the result decides the status; a later peak above the cap marks only
+  ``post_status``.  The row's ``peak_rss_gib`` is the largest of the polled peak and these peaks.
 * **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
   partial results and the report of a compilation that the child wrote before the kill, waits up
   to ``grace_s`` for the processes to go, and accepts no other message.  The row's ``error`` lists
@@ -504,16 +508,20 @@ class _Watcher:
             status = "error"
             error = self.child_error or f"the child exited with status {returncode}"
 
-        # a peak above the memory cap that the polls missed: the peak until the result decides the
-        # status, and a later peak, in post-processing, marks only the post-processing
+        # a peak above the memory cap: the peak until the result decides the status, and a later
+        # peak, in post-processing, marks only the post-processing.  The error says when a peak
+        # was found after the run, rather than by the poll that killed the run.
+        peak_rss = max(self.peak_rss, self.result_peak_rss)
         peak_before_result = self.result_peak_rss if self.post_phase else self.peak_rss
         if status == "ok" and peak_before_result > self.mem_cap_bytes:
-            status, error = "memout", self._over_cap(peak_before_result)
+            status = "memout"
+            if kill_reason != "memout" or self.post_phase:
+                error = self._over_cap(peak_before_result)
 
         # the post-processing, which never changes an ok status
         if status == "ok" and self.post_phase:
-            if self.post is not None and self.peak_rss > self.mem_cap_bytes:
-                post_status, error = "memout", self._over_cap(self.peak_rss)
+            if self.post is not None and peak_rss > self.mem_cap_bytes:
+                post_status, error = "memout", self._over_cap(peak_rss)
             elif self.post is not None:
                 post_status = "ok"
             elif kill_reason in ("post_timeout", "memout"):
@@ -537,7 +545,7 @@ class _Watcher:
             "post_status": post_status,
             "T": T,
             "T_cpu": T_cpu,
-            "peak_rss_gib": self.peak_rss / 2**30,
+            "peak_rss_gib": peak_rss / 2**30,
             "limit_s": self.limit_s,
             "host": socket.gethostname(),
             "cpu": _cpu_model(),

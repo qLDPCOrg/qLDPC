@@ -323,11 +323,14 @@ def test_runner_peak_after_run(directory: pathlib.Path, node: bool) -> None:
     """An ok run whose peak memory, found after the run, exceeds its cap is a memout.
 
     With post-processing, the peak that the child reports with its result decides the status, and a
-    later peak marks only the post-processing.
+    later peak marks only the post-processing.  The row's peak is the largest that the runner knows,
+    and a memout that a poll found does not say that it was found after the run.
     """
     from experiments.state_prep_certification.common import runner
 
-    def row(peak_gib: float, post: bool, result_peak_gib: float = 0.0) -> dict[str, Any]:
+    def row(
+        peak_gib: float, post: bool, result_peak_gib: float = 0.0, kill: str | None = None
+    ) -> dict[str, Any]:
         task = _task("peak", [], mem_cap_gib=1.0)
         watcher = runner._Watcher(
             directory, task, local=not node, job_slot=None, cpu=None, stop=runner._Stop()
@@ -337,10 +340,10 @@ def test_runner_peak_after_run(directory: pathlib.Path, node: bool) -> None:
         watcher._receive(
             {"type": "result", "fields": {}, "final": not post, "max_rss_bytes": result_peak}
         )
-        if post:
+        if post and kill is None:
             watcher._receive({"type": "post", "fields": {}})
         watcher.peak_rss = int(peak_gib * 2**30)
-        return watcher._row(None, 0, "", "")
+        return watcher._row(kill, 0 if kill is None else -9, "", "")
 
     over = row(1.5, post=False)
     assert over["status"] == "memout" and "found after the run" in over["error"], over
@@ -349,6 +352,28 @@ def test_runner_peak_after_run(directory: pathlib.Path, node: bool) -> None:
     assert late["status"] == "ok" and late["post_status"] == "memout", late
     assert "found after the run" in late["error"], late
     assert row(1.5, post=True, result_peak_gib=1.5)["status"] == "memout"
+
+    # a peak that only the child reported, with post-processing killed: no rusage, and polls below
+    killed = row(0.5, post=True, result_peak_gib=1.5, kill="post_timeout")
+    assert killed["status"] == "memout" and killed["peak_rss_gib"] == 1.5, killed
+
+    # a poll that kills a run above its cap just after its final result
+    polled = row(1.5, post=False, kill="memout")
+    assert polled["status"] == "memout" and polled["error"] is None, polled
+
+
+@test
+def test_runner_missed_peak(directory: pathlib.Path, node: bool) -> None:
+    """A measured call above its memory cap for a fraction of a second is a memout.
+
+    The polls, a second apart, may miss the peak, but the peak that the child sends with its result,
+    or that the runner reads when the child exits, does not.
+    """
+    for steps in ([["flash", 0.6]], [["flash", 0.6], ["post", 0.1]]):
+        label_dir = directory / str(len(steps))
+        label_dir.mkdir()
+        row = _run(label_dir, _task("flash", steps, mem_cap_gib=0.3, post_s=5.0), node)
+        assert row["status"] == "memout" and row["peak_rss_gib"] > 0.3, (steps, row)
 
 
 @test

@@ -7,6 +7,8 @@ Each task's ``input`` is a list of steps that ``run`` performs in order:
 * ``["startup", s]``: sleep s seconds before timing starts;
 * ``["sleep", s]``: the measured call sleeps s seconds;
 * ``["alloc", gib]``: the measured call holds gib GiB of touched memory for 5 seconds;
+* ``["flash", gib]``: the measured call touches gib GiB of memory and frees it at once, within a
+  fraction of a second;
 * ``["spawn", s]``: the measured call starts a grandchild that sleeps s seconds, and waits for it;
 * ``["orphan", s]``: the measured call starts a grandchild that sleeps s seconds, and does not wait;
 * ``["partial", n]``: the measured call sends n partial results;
@@ -120,11 +122,13 @@ def _measured(steps: list[tuple[Any, ...]]) -> Any:
     for step in steps:
         if step[0] == "sleep":
             time.sleep(step[1])
-        elif step[0] == "alloc":
+        elif step[0] in ("alloc", "flash"):
             block = bytearray(int(step[1] * 2**30))
             for index in range(0, len(block), 4096):
                 block[index] = 1
-            time.sleep(5)
+            if step[0] == "alloc":
+                time.sleep(5)
+            del block
         elif step[0] in ("spawn", "orphan"):
             child = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({step[1]})"])
             if step[0] == "spawn":

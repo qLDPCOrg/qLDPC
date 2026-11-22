@@ -39,9 +39,11 @@ Each run of a task is a fresh process pinned to one core, with the thread variab
 The runner times one call of the task's code, the measured call, whose wall time is T.
 A run is a `timeout` if T reaches the task's limit, even if a memory kill followed.
 Otherwise it is `ok` if the measured call returns and its result reaches the runner, a `memout` if its memory exceeds the task's memory cap before its result arrives, and an `error` otherwise.
-The runner polls the run's memory every second, and after the run it checks the run's peak memory, which the polls can miss: an `ok` run whose peak exceeded the cap becomes a `memout`.
 For example, a run is an `error` if process start, imports, and untimed preparation exceed the task's start-up cap.
-If the experiment sends its measured result before untimed post-processing, running out of the time that the task allows for it (`post_s`) does not change an `ok` status, but marks the row's `post_status`.
+The runner polls the run's summed memory every second.
+Since the polls can miss a short peak, it also checks the peak that the operating system records for the run's process and the processes that it waited for, which the process sends with its result or the runner reads when it exits: an `ok` run whose peak until its result exceeded the cap becomes a `memout`.
+These are peaks of single processes, so a short peak of the run's summed memory between polls can still go unseen.
+If the experiment sends its measured result before untimed post-processing, running out of the time that the task allows for it (`post_s`), or a peak above the cap after the result, does not change an `ok` status, but marks the row's `post_status`.
 A run is discarded if numba reports a compilation during its measured call, and the task runs once more in a fresh process that loads the compiled code from numba's disk cache.
 The retry is kept, and its row is the task's one row.
 If the retry compiles too, its row has `compiled_in_timing` set.
