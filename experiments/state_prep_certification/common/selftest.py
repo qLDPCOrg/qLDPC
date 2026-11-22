@@ -522,7 +522,8 @@ def test_runner_stop_during_retry(directory: pathlib.Path, node: bool) -> None:
 def test_runner_reparented(directory: pathlib.Path, node: bool) -> None:
     """Locally, a run's processes include a seen grandchild whose parent exited, and its children.
 
-    A process that has reused the id of a seen process is not one of them.
+    A process that has reused the id of a seen process, the run's own included, is not one of them,
+    nor are its children.
     """
     from experiments.state_prep_certification.common import runner
 
@@ -542,6 +543,11 @@ def test_runner_reparented(directory: pathlib.Path, node: bool) -> None:
         101: runner.Process(1, 1, 1, None, "a later process"),
     }
     assert watcher._members(table) == [100], watcher._members(table)
+    table = {
+        100: runner.Process(1, 100, 1, None, "a later root"),
+        103: runner.Process(100, 100, 1, None, "its child"),
+    }
+    assert watcher._members(table) == [], watcher._members(table)
 
 
 @test

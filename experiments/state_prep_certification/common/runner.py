@@ -328,9 +328,12 @@ class _Watcher:
         # without the process table, before failing
         try:
             self.group = os.getpgid(child.pid) if not self.local else None
+            root_start = process_start(child.pid)
+            if root_start is not None:
+                self.seen[child.pid] = root_start
             record = {
                 "pid": child.pid,
-                "pid_start": process_start(child.pid),
+                "pid_start": root_start,
                 "pgid": self.group,
                 "runner_pid": os.getpid(),
                 "runner_start": process_start(os.getpid()),
@@ -585,13 +588,15 @@ class _Watcher:
     def _members(self, table: dict[int, Process]) -> list[int]:
         """The live processes of the run: its process group, or locally its process tree.
 
-        Locally, the tree includes each process seen before that is still the same process, such
-        as a grandchild whose parent has exited, and its descendants.
+        Locally, the tree is that of each process seen before that is still the same process: the
+        run's own process, seen when it was recorded, and others such as a grandchild whose parent
+        has exited.  A process that has reused the id of a seen one is not walked, so that its
+        descendants never join the run.
         """
         if self.group is not None:
             members = [pid for pid, process in table.items() if process.pgid == self.group]
         else:
-            roots = [self.root] + [
+            roots = [
                 pid
                 for pid, start in self.seen.items()
                 if pid in table and table[pid].start == start
