@@ -38,13 +38,13 @@ results contradict each other, as ``check_consistency`` lists: its verdicts, sma
 weights, and margins from every run, repeats included, its counts, and its counterexamples.  The
 column ``contradictions`` of summary.csv names them.  A disagreement enters no count of verdicts or
 margins and no median, maximum, or ratio of ``families.csv``, nor ``listing_table.csv``,
-``shadow.csv``, ``deletion_table.csv``, or the example counterexamples.  The status counts and
-agreements count it.  T of a certification arm is the median of its first run and repeats.  Its
-timing is incomplete if the first run did not finish, if a repeat that the first run calls for did
-not finish or is missing, or if the row of any of its runs has ``compiled_in_timing`` set; an
-incomplete timing enters no median or maximum.  The same holds for the brute-force baseline
-``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its per-weight times are left
-empty.
+``shadow.csv``, ``margin_violations.csv``, ``deletion_table.csv``, or the example counterexamples.
+The status counts and agreements count it.  T of a certification arm is the median of its first run
+and repeats.  Its timing is incomplete if the first run did not finish, if a repeat that the first
+run calls for did not finish or is missing, or if the row of any of its runs has
+``compiled_in_timing`` set; an incomplete timing enters no median or maximum.  The same holds for
+the brute-force baseline ``brute_bz``.  If an arm's first run has ``compiled_in_timing`` set, its
+per-weight times are left empty.
 
 Omega_m is the number of rows that the fault search submits to the oracle at fault weight m
 (``instrument.py``), and a weight is completed if a run finished it without a violation.  A circuit
@@ -98,14 +98,14 @@ of ``--label-dir``):
   ``count_listing`` run that did not finish are those of its partial results: q, q_h, and h, and Pi,
   E, and Phi of the weights that it completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m) (from N_0 of
-  ``circuits.json`` where ``count_accepted`` did not finish), ``naive_prefixes_m_minus_1``
-  (Pi_(m-1) of ``counting.py``: the prefixes of a naive enumeration of class codewords, which
-  qLDPC's listing does not visit), E_m, Phi_m, Omega_m (marked partial on a weight that did not
-  complete; at m = 1, the threshold-1 checks of zero-flag mechanisms and classifications of
-  flagged ones instead), skipped = Phi_m - Omega_m (on completed weights only), T_m of BZ and CC,
-  and the oracle time of BZ; and the baseline's combinations enumerated, rows queried, oracle
-  calls, distinct syndromes, and oracle time, and whether it completed the weight.  For
-  K' < m <= K, Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the circuit.
+  ``circuits.json`` where ``count_accepted`` did not finish), ``naive_prefixes_m_minus_1`` (Pi_(m-1)
+  of ``counting.py``: the prefixes of a naive enumeration of class codewords, most of which qLDPC's
+  walk by shared flags does not visit), E_m, Phi_m, Omega_m (marked partial on a weight that did not
+  complete; at m = 1, the threshold-1 checks of zero-flag mechanisms and classifications of flagged
+  ones instead), skipped = Phi_m - Omega_m (on completed weights only), T_m of BZ and CC, and the
+  oracle time of BZ; and the baseline's combinations enumerated, rows queried, oracle calls,
+  distinct syndromes, and oracle time, and whether it completed the weight.  For K' < m <= K,
+  Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the circuit.
 * ``listing_table.csv``, the listing counts, one row per family and weight m >= 2: the median and
   maximum over circuits of Phi_m / A_m, and over the circuits that completed m with ``cert_bz``, of
   Omega_m / A_m.  Where A_m was not computed, C(N_0, m) takes its place if z >= m, which ensures
@@ -128,13 +128,13 @@ of ``--label-dir``):
   deletion tasks; the margin counts of ``families.csv``; and ``margin_violations.csv``,
   ``deletion.csv``, ``deletion_table.csv``, ``deletion_tasks.csv``, ``deletion_notes.json``, and
   ``pruned/``.
-* ``counterexamples.json``: every counterexample (``all``), with ``disagreement`` true where its
-  circuit is a disagreement, and up to three example counterexamples (``examples``), one for each
-  group that has one, chosen by a fixed rule.  The groups are A-unv with the W variants of A-ft and
-  C-goto, B-cat, and both D-synth families with their W variants, so that every W variant is in a
-  group.  In each group, the example is the counterexample of ``cert_bz`` of largest
-  smallest-violation weight on a circuit without a disagreement, ties to the smallest N_0 of
-  ``circuits.json``.
+* ``counterexamples.json``: the counterexamples of the first runs of ``cert_bz`` and ``cert_cc``
+  (``all``), with ``disagreement`` true where its circuit is a disagreement, and up to three example
+  counterexamples (``examples``), one for each group that has one, chosen by a fixed rule.  The
+  groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth families with
+  their W variants, so that every W variant of ``circuits.json`` is in a group.  In each group, the
+  example is the counterexample of ``cert_bz`` of largest smallest-violation weight on a circuit
+  without a disagreement, ties to the smallest N_0 of ``circuits.json``.
 """
 
 from __future__ import annotations
@@ -1192,10 +1192,12 @@ def write_counterexamples(
 ) -> pathlib.Path:
     """Write counterexamples.json, and return its path.
 
-    It holds every counterexample, and up to three example counterexamples, one for each group
-    that has an eligible counterexample, by a fixed rule.  ``verdicts`` holds each circuit's
-    verdict, as in summary.csv.  A counterexample on a circuit with a disagreement is listed,
-    marked as such, but is never an example.
+    It holds the counterexample of each first run of ``cert_bz`` and ``cert_cc`` that found one, and
+    up to three example counterexamples, one for each group that has an eligible counterexample, by
+    a fixed rule.  The counterexamples of the margins and of the deletions' final circuits are
+    described in ``summary.csv``, ``margin_violations.csv``, and ``deletion_table.csv`` instead.
+    ``verdicts`` holds each circuit's verdict, as in summary.csv.  A counterexample on a circuit
+    with a disagreement is listed, marked as such, but is never an example.
     """
     counterexamples = []
     for circuit_id, entry in sorted(per_circuit.items()):

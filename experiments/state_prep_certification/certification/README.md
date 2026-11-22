@@ -71,7 +71,8 @@ Each B-cat circuit gets a detector for each pair of consecutive measurement resu
 The node applies qLDPC's `DepolarizingNoiseModel(1e-3)` and K = t + 1.
 This noise model puts faults only on gates, resets, and measurements: one- or two-qubit depolarization after each gate, a reset to the orthogonal state, and a flipped measurement result, each with probability p.
 Idle qubits get no errors, so a verdict covers only these fault locations.
-The value of p changes no verdict, count, or margin, which depend only on where the model puts faults; it enters only the acceptance probabilities that the deletion tasks estimate.
+For a fixed set of fault mechanisms, each with nonzero probability, the value of p changes no verdict, count, or margin, which depend only on where the model puts faults; it enters only the acceptance probabilities that the deletion tasks estimate.
+Setting p = 0 removes every fault mechanism, so it does not pose the same certification problem.
 It leaves `css_weight` at its default, None, under which qLDPC chooses CSS weight for a CSS state.
 Every input prepares one, as the top-level `css_weight` of each input in `circuits.json` records.
 The ground truth (`counting.brute_force`) requires a CSS state.
@@ -83,7 +84,7 @@ The ground truth (`counting.brute_force`) requires a CSS state.
 | `cert_bz`, `cert_cc` | `certify_bounded_fault_propagation` with the BZ or CC oracle, instrumented by `instrument.py` |
 | `brute_bz` | the same BZ certification with the fault search replaced by the brute-force baseline of `baseline.py`, only where U is within the cap of `config.json`, 10^9 |
 | `shadow` | BZ certification in which a CC oracle also answers every query, each timed |
-| `count_accepted`, `count_listing` | the accepted fault combinations A_m for m <= K, and the counts of the listing, by `counting.py`: the class codewords, the listed faults, and the prefixes of a naive enumeration of the class codewords (`naive_prefixes_m_minus_1` of `per_weight.csv`), which qLDPC's walk by shared flags does not visit |
+| `count_accepted`, `count_listing` | the accepted fault combinations A_m for m <= K, and the counts of the listing, by `counting.py`: the class codewords, the listed faults, and the prefixes of a naive enumeration of the class codewords (`naive_prefixes_m_minus_1` of `per_weight.csv`), most of which qLDPC's walk by shared flags does not visit |
 | `ground_truth` | brute force with residual weights from the whole stabilizer group, on the small circuits that `circuits.json` marks |
 | `margin` | BZ certification with no limit on the fault weight, on the circuits whose flag rank r exceeds t, by `applications.py` |
 | `prune`, `prune_sensitivity` | the deletion of the measured qubits of each A-ft, C-goto, and synthesized circuit under exact certification at K = t, by `applications.py`; `prune_sensitivity` tries another order, on the circuits of `prune.sensitivity_inputs` of `config.json` |
@@ -158,12 +159,13 @@ Its docstring lists the outputs, among them `summary.csv`, `families.csv`, and `
 `listing_table.csv` compares the listed faults and oracle rows with all accepted combinations, per family and weight.
 `shadow.csv` gives the cost of the two weight oracles on identical queries: for each circuit and threshold of the queries of its `shadow` run, the calls, the rows that they submit, and the seconds of BZ and of CC, from the run's result or, for a run that did not finish, from the calls that it wrote to `oracle_calls/` in the label directory; it leaves out runs with `compiled_in_timing` set and circuits with a disagreement.
 A run that wrote no calls has no row of `shadow.csv`; `summary.csv` gives its status.
-`counterexamples.json` holds every counterexample under `all`, and up to three examples under `examples`, one for each group of families that has one, by a rule that `analyze.py`'s docstring gives.
-The groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth families with their W variants.
+`counterexamples.json` holds the counterexamples of the first runs of `cert_bz` and `cert_cc` under `all`, and up to three examples under `examples`, one for each group of families that has one, by a rule that `analyze.py`'s docstring gives.
+The groups are A-unv with the W variants of A-ft and C-goto, B-cat, and both D-synth families with their W variants, so that every W variant of `circuits.json` is in a group.
+The columns `counterexample_*` of `summary.csv` and `margin_violations.csv` describe a counterexample of weight m*, and the column `final_violating_parts` of `deletion_table.csv` one of a final circuit.
 Without the archive of `check`, the outputs report the ground truth as not run.
 The analysis takes the circuits and their parameters from the label's copy of `circuits.json`, and stops if the label of `check` ran with another one.
 If a label does not match its `circuits.json` and the working tree's `config.json` and `pins.json`, it prints a warning and analyzes the label anyway.
-It reports every task without a row as missing, and leaves every circuit with a disagreement out of the counts of verdicts and margins, medians and maxima, `listing_table.csv`, `shadow.csv`, `deletion_table.csv`, and the example counterexamples.
+It reports every task without a row as missing, and leaves every circuit with a disagreement out of the counts of verdicts and margins, medians and maxima, `listing_table.csv`, `shadow.csv`, `margin_violations.csv`, `deletion_table.csv`, and the example counterexamples.
 A circuit is a disagreement if any two of its exact results contradict each other, and `summary.csv`'s column `contradictions` names them (`check_consistency` in `analyze.py`).
 The analysis compares, as claims on the circuit's margin m* (see below), the result of every run of `cert_bz`, `cert_cc`, `shadow`, `brute_bz`, `margin`, and `ground_truth`, repeats included, that returned one, even if it timed out or exceeded its memory cap after it returned, each fault weight that a run completed or found a violation at, even if it did not finish, each deletion task's parent verdict at K = t, and the final m* of a deletion task that accepted no deletion, with the fault weights that its search reported.
 It also compares the combinations that each run of the baseline, repeats included, enumerated on each weight that it completed with A_m, of `count_accepted` or, where that did not compute it, of the ground truth, and the ground truth's counts and heavy mechanisms with those of the counters.
@@ -176,11 +178,13 @@ The acceptance test AT8 runs the analysis on synthetic rows: a listing count tha
 `analyze_applications.py` adds the margins and the deletions.
 `summary.csv` gives each circuit's combined margin: the column `margin` holds the m* or "all" that the claims listed above determine; if none determines it, the column `margin_lower_bound` holds the largest fault weight k up to which a run found no violation, meaning m* > k.
 `families.csv` gets the margin counts: per family, the circuits with m* <= t, m* = t + 1, m* >= t + 2, "all", m* > k, and no information on m*.
-`margin_violations.csv` lists the circuits with m* <= t, each with one counterexample of weight m*: the arm that described it (`counterexample_arm`), the residual weights of its X and Z parts (`counterexample_sector_x`, `counterexample_sector_z`), and the parts whose own residual weight exceeds the fault weight (`counterexample_violating_parts`).
+`margin_violations.csv` lists the circuits without a disagreement whose exact m* is at most t.
+Where the first run of `cert_bz`, `cert_cc`, or `margin` described a counterexample of weight m*, its columns describe one: the arm that described it (`counterexample_arm`), the residual weights of its X and Z parts (`counterexample_sector_x`, `counterexample_sector_z`), and the parts whose own residual weight exceeds the fault weight (`counterexample_violating_parts`).
+An empty cell says nothing about a counterexample, as where m* comes from a deletion parent or a run that was stopped.
 These columns describe that counterexample only: they do not show whether another fault of weight m* violates in the other part, so they do not tell whether the circuit meets a criterion on one part alone.
 `deletion_table.csv` has one row per deletion task that reached its final checks, on a circuit without a disagreement, with the gate counts, measured qubits, measurements, and acceptance probabilities of parent and final circuit, and the final m*; it compares each final circuit only with its parent.
 A task killed during the search of its final m* keeps its row, with the task's status and the weight at which the search found a violation, which is m*, or else, in the column `final_margin_lower_bound`, the largest fault weight k that the search completed, or t, meaning m* > k.
-`deletion_notes.json` lists the deletion orders, the parents not certified at K = t, the other tasks that did not finish, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every task that reached its final checks, disagreements included, and `pruned/` holds the final circuits of `deletion_table.csv`, and nothing else: the analysis deletes it with everything in it first.
+`deletion_notes.json` lists the deletion orders, the parents not certified at K = t, the other tasks without a row of `deletion_table.csv`, such as those that did not reach their final checks, with the number of their completed steps, the disagreements, and the final circuits whose rebuild from the parent's input does not match; `deletion.csv` lists every step, `deletion_tasks.csv` every task that reached its final checks, disagreements included, and `pruned/` holds the final circuits of `deletion_table.csv`, and nothing else: the analysis deletes it with everything in it first.
 
 ## Attributions and licenses
 

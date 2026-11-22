@@ -17,14 +17,14 @@ sleeps that many seconds after each step, so that a short limit ends the run bet
 * ``prune`` (and ``prune_sensitivity``, the same in another order): delete the measured qubits of a
   verified circuit one at a time, and keep a deletion only if the circuit then still prepares the
   parent's signed state on the parent's output qubits, qLDPC accepts its detectors, and BZ certifies
-  it at K = t.  A step is one tried qubit, and, in the search of the final m*, a completed fault
-  weight.  ``prune`` tries the measured qubits in decreasing order of their last measurement ("last
-  measured first"), and ``prune_sensitivity`` in increasing order of their first measurement ("first
-  measured first").  The final circuit is then certified at K = t by the connected-cluster oracle,
-  the acceptance probability of parent and final circuit is estimated by sampling, and these are
-  sent as a partial result, with the final circuit, before the final circuit gets its m*, whose
-  search sends each completed fault weight as a partial result.  A parent that is not certified at
-  K = t gets no step.
+  it at K = t.  A step is one tried qubit.  The search of the final m* sends each completed fault
+  weight too, and ``step_delay_s`` delays each of these as it does a step.  ``prune`` tries the
+  measured qubits in decreasing order of their last measurement ("last measured first"), and
+  ``prune_sensitivity`` in increasing order of their first measurement ("first measured first").
+  The final circuit is then certified at K = t by the connected-cluster oracle, the acceptance
+  probability of parent and final circuit is estimated by sampling, and these are sent as a partial
+  result, with the final circuit, before the final circuit gets its m*, whose search sends each
+  completed fault weight as a partial result.  A parent that is not certified at K = t gets no step.
 
 Deleting a qubit removes every instruction target group that involves it, as for the weakened
 variants (``circuits._delete_qubit``).  The sector of a counterexample is the residual weight of the

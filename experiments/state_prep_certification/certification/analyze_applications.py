@@ -29,8 +29,10 @@ recorded SHA-256, if that input is the one that the label ran on.
 
 Outputs, besides the margin fields of ``summary.csv`` and the margin counts of ``families.csv``:
 
-* ``margin_violations.csv``: each circuit with m* <= t, with the ``counterexample_*`` fields of
-  ``margin_fields``, which describe one counterexample of weight m*.
+* ``margin_violations.csv``: each circuit without a disagreement whose exact m* is at most t, with
+  the ``counterexample_*`` fields of ``margin_fields``.  They describe one counterexample of weight
+  m* where the first run of ``cert_bz``, ``cert_cc``, or ``margin`` described one; an empty field
+  says nothing about a counterexample, as where m* comes from a deletion parent or a stopped run.
 * ``deletion.csv``: every step of every deletion task, with its outcome.
 * ``deletion_tasks.csv``: the fields of ``deletion_table.csv`` for every deletion task that
   reached its final checks, with whether its circuit is a disagreement.
@@ -42,8 +44,8 @@ Outputs, besides the margin fields of ``summary.csv`` and the margin counts of `
   the largest of t and the fault weights that its search completed, and the deletions attempted
   and accepted.
 * ``deletion_notes.json``: each arm's deletion order, the parents not certified at K = t, the other
-  tasks without a row of ``deletion_table.csv``, with their completed steps and any final checks,
-  the disagreements, and the final circuits whose rebuild does not match.
+  tasks without a row of ``deletion_table.csv``, with the number of their completed steps and any
+  final checks, the disagreements, and the final circuits whose rebuild does not match.
 * ``pruned/<arm>.<id>.stim``: each final circuit of ``deletion_table.csv``.  The analysis deletes
   ``pruned/`` with everything in it before it writes them, so that it holds only these circuits.
 """
