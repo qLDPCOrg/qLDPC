@@ -19,24 +19,24 @@ run until after its row is appended, and watches the child:
   kill followed, and whenever a memory kill during the measured call came at or after the limit,
   as after a slow poll.  The T of a killed timeout is the time from the start to the kill, a
   censoring time.
-* **After the measured call:** once it has ended, the child has ``post_s`` (by default
-  ``FINISH_S``) to send its result and exit.  An experiment with untimed post-processing, such as
-  describing a counterexample, sends its measured result first with ``send_result`` and declares a
-  longer ``post_s``; running out of it then marks only the row's ``post_status``, and the
-  measured result stands.  Without ``send_result``, a run whose result has not arrived within
-  ``post_s`` is an ``error``, and a run killed after its final result arrived, for not exiting
-  within ``post_s``, stays ``ok``.
+* **After the measured call:** once it has ended, the child has ``post_s`` (by default ``FINISH_S``)
+  to send its result and exit.  An experiment with untimed post-processing, such as describing a
+  counterexample, sends its measured result first with ``send_result`` and declares a longer
+  ``post_s``; running out of it then marks only the row's ``post_status``, and the measured result
+  stands.  Without ``send_result``, a run whose result has not arrived within ``post_s`` is an
+  ``error``, and a run killed after its final result arrived, for not exiting within ``post_s``,
+  stays ``ok``, unless its peak until the result exceeded the cap (see below).
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
-  process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since
-  the polls can miss a short peak, the parent also checks the peak that the operating system
-  records for the child and the processes that it waited for: the child sends it with a result of
-  ``send_result`` (``getrusage``), and the parent reads it when the child exits without a kill
-  (``wait4``).  These are peaks of single processes, not of their sum, so a short peak of the
+  process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.  Since the
+  polls can miss a short peak, the parent also checks the peak that the operating system records for
+  the child and the processes that it waited for: the child sends it with its result
+  (``getrusage``), of ``send_result`` or final, and the parent reads it when the child exits without
+  a kill (``wait4``).  These are peaks of single processes, not of their sum, so a short peak of the
   run's summed memory between two polls can still go unseen.  An ``ok`` run whose peak until its
   result exceeds the cap becomes a ``memout``, with an ``error`` that says that the peak was found
   after the run.  For a run that sends its result before post-processing, the peak that the child
-  sends with the result decides the status; a later peak above the cap marks only
-  ``post_status``.  The row's ``peak_rss_gib`` is the largest of the polled peak and these peaks.
+  sends with the result decides the status; a later peak above the cap marks only ``post_status``.
+  The row's ``peak_rss_gib`` is the largest of the polled peak and these peaks.
 * **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
   partial results and the report of a compilation that the child wrote before the kill, waits up
   to ``grace_s`` for the processes to go, and accepts no other message.  The row's ``error`` lists
@@ -558,7 +558,7 @@ class _Watcher:
         # peak, in post-processing, marks only the post-processing.  The error says when a peak
         # was found after the run, rather than by the poll that killed the run.
         peak_rss = max(self.peak_rss, self.result_peak_rss)
-        peak_before_result = self.result_peak_rss if self.post_phase else self.peak_rss
+        peak_before_result = self.result_peak_rss if self.post_phase else peak_rss
         if status == "ok" and peak_before_result > self.mem_cap_bytes:
             status = "memout"
             if kill_reason != "memout" or self.post_phase:
@@ -805,7 +805,9 @@ def child_main(
     if _CHANNEL.result_sent:
         _CHANNEL.send({"type": "post", "fields": fields})
     else:
-        _CHANNEL.send({"type": "result", "fields": fields, "final": True})
+        _CHANNEL.send(
+            {"type": "result", "fields": fields, "final": True, "max_rss_bytes": _max_rss_bytes()}
+        )
     return 0
 
 

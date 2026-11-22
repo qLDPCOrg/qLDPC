@@ -344,7 +344,10 @@ def test_runner_peak_after_run(directory: pathlib.Path, node: bool) -> None:
 
     With post-processing, the peak that the child reports with its result decides the status, and a
     later peak marks only the post-processing.  The row's peak is the largest that the runner knows,
-    and a memout that a poll found does not say that it was found after the run.
+    and a memout that a poll found does not say that it was found after the run.  Without
+    ``send_result``, a run killed after its final result, for not exiting within ``post_s``, is ok
+    unless the peak that the child sends with that result exceeds the cap, and a run whose result
+    did not arrive is an error.
     """
     from experiments.state_prep_certification.common import runner
 
@@ -376,6 +379,25 @@ def test_runner_peak_after_run(directory: pathlib.Path, node: bool) -> None:
     # a peak that only the child reported, with post-processing killed: no rusage, and polls below
     killed = row(0.5, post=True, result_peak_gib=1.5, kill="post_timeout")
     assert killed["status"] == "memout" and killed["peak_rss_gib"] == 1.5, killed
+
+    # without send_result: a run killed after its final result, for not exiting, is ok unless the
+    # peak that the child sent with that result exceeds the cap, and one with no result is an error
+    stalled = row(0.5, post=False, result_peak_gib=0.5, kill="post_timeout")
+    assert stalled["status"] == "ok" and stalled["post_status"] is None, stalled
+    stalled = row(0.5, post=False, result_peak_gib=1.5, kill="post_timeout")
+    assert stalled["status"] == "memout" and stalled["peak_rss_gib"] == 1.5, stalled
+    assert "found after the run" in stalled["error"], stalled
+    silent = runner._Watcher(
+        directory, _task("silent", []), local=not node, job_slot=None, cpu=None, stop=runner._Stop()
+    )
+    silent._receive({"type": "measured", "T": 0.1, "T_cpu": 0.1})
+    silent_row = silent._row("post_timeout", -9, "", "")
+    assert silent_row["status"] == "error" and "no result within" in silent_row["error"], silent_row
+    sent: list[dict[str, Any]] = []
+    channel = types.SimpleNamespace(timing_started=True, result_sent=False, send=sent.append)
+    with _patched(runner, "_CHANNEL", channel):
+        runner.child_main(_task("final", []), directory, lambda task, label_dir: {})
+    assert sent[-1]["final"] and sent[-1]["max_rss_bytes"] > 0, sent
 
     # a poll that kills a run above its cap just after its final result
     polled = row(1.5, post=False, kill="memout")
