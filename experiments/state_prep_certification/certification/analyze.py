@@ -96,13 +96,14 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   ``count_listing`` run that did not finish are those of its partial results: q, q_h, and h, and Pi,
   E, and Phi of the weights that it completed.
 * ``per_weight.csv``, one row per circuit and weight m = 1, ..., K: A_m, C(N_0, m) (from N_0 of
-  ``circuits.json`` where ``count_accepted`` did not finish), Pi_(m-1), E_m, Phi_m, Omega_m (marked
-  partial on a weight that did not complete; at m = 1, the threshold-1 checks of zero-flag
-  mechanisms and classifications of flagged ones instead), skipped = Phi_m - Omega_m (on completed
-  weights only), T_m of BZ and CC, and the oracle time of BZ; and the baseline's combinations
-  enumerated, rows queried, oracle calls, distinct syndromes, and oracle time, and whether it
-  completed the weight.  For K' < m <= K, Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the
-  circuit.
+  ``circuits.json`` where ``count_accepted`` did not finish), ``naive_prefixes_m_minus_1``
+  (Pi_(m-1) of ``counting.py``: the prefixes of a naive enumeration of class codewords, which
+  qLDPC's listing does not visit), E_m, Phi_m, Omega_m (marked partial on a weight that did not
+  complete; at m = 1, the threshold-1 checks of zero-flag mechanisms and classifications of
+  flagged ones instead), skipped = Phi_m - Omega_m (on completed weights only), T_m of BZ and CC,
+  and the oracle time of BZ; and the baseline's combinations enumerated, rows queried, oracle
+  calls, distinct syndromes, and oracle time, and whether it completed the weight.  For
+  K' < m <= K, Phi_m = 0, and Omega_m = 0 where ``cert_bz`` certified the circuit.
 * ``listing_table.csv``, the listing counts, one row per family and weight m >= 2: the median and
   maximum over circuits of Phi_m / A_m, and over the circuits that completed m with ``cert_bz``, of
   Omega_m / A_m.  Where A_m was not computed, C(N_0, m) takes its place if z >= m, which ensures
@@ -841,7 +842,7 @@ def _per_weight(
                 "m": m,
                 "A_m": (accepted.get("A") or {}).get(str(m)),
                 "C_N0_m": (accepted.get("C") or {}).get(str(m), _binomial(circuit.get("N0"), m)),
-                "Pi_m_minus_1": listing.get("Pi", {}).get(str(m - 1)),
+                "naive_prefixes_m_minus_1": listing.get("Pi", {}).get(str(m - 1)),
                 "E_m": listing.get("E", {}).get(str(m)),
                 "Phi_m": phi,
                 "Omega_m": omega,

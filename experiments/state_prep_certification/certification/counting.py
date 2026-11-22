@@ -7,15 +7,18 @@ These counts describe the listing of irreducible accepted faults in ``fault_prop
 
 * ``reduce_signatures`` keeps one mechanism per distinct nonzero (flags, syndrome) signature of
   the DEM, in DEM order, as qLDPC does: N_0 mechanisms, z of them with zero flags.
-* ``listing_counts`` counts, for each weight, the visited prefixes Pi_l (increasing tuples of l
-  classes with independent flags whose first class is a start class), the class codewords E_m
-  whose first class is a start class, and the listed faults Phi_m.  Classes are the flagged
-  mechanisms with equal flags, numbered as qLDPC numbers them: heavy mechanisms first, then the
-  rest, each in DEM order, and classes in the order of their first members, so that start classes
-  (those with a heavy member) come first.  Phi_2 is a sum over start classes, and Phi_m for
-  m >= 3 a sum over class codewords of prod(s_c) - prod(s_c - h_c), with s_c members and h_c heavy
-  members in class c.  A compiled depth-first search emits the class codewords, and Python
-  integers hold the products and totals, which can exceed 64 bits.
+* ``listing_counts`` counts, for each weight, the class codewords E_m whose first class is a
+  start class, the listed faults Phi_m, and the prefixes Pi_l of the naive enumeration of these
+  class codewords: the increasing tuples of l classes with independent flags whose first class is
+  a start class.  ``fault_propagation.md`` contrasts this enumeration with qLDPC's walk by shared
+  flags, which visits far fewer sets of classes, so Pi_l counts the work of the naive enumeration,
+  not of qLDPC's listing.  Classes are the flagged mechanisms with equal flags, numbered as qLDPC
+  numbers them: heavy mechanisms first, then the rest, each in DEM order, and classes in the order
+  of their first members, so that start classes (those with a heavy member) come first.  Phi_2 is
+  a sum over start classes, and Phi_m for m >= 3 a sum over class codewords of
+  prod(s_c) - prod(s_c - h_c), with s_c members and h_c heavy members in class c.  The naive
+  enumeration, a compiled depth-first search, emits the class codewords, and Python integers hold
+  the products and totals, which can exceed 64 bits.
 * ``accepted_counts`` counts the accepted fault combinations A_m of weight m <= K (sets of
   reduced mechanisms whose flags sum to zero) by dynamic programming over classes, with C(N_0, m)
   beside them.  It counts up to K, not K', as the brute-force baseline (``baseline.py``)
@@ -195,9 +198,10 @@ def listing_counts(
 ) -> dict[str, Any]:
     """Pi_l for l < K', and E_m and Phi_m for 2 <= m <= K', weight by weight.
 
-    The search for each weight m >= 3 visits the prefixes of length m - 1 from scratch, so that a
-    weight's counts are final once it is reported to ``progress``.  Counts are Python integers,
-    keyed by weight in JSON-friendly strings.
+    Pi_l counts the prefixes of the naive enumeration of class codewords (see the module docstring),
+    which this function runs.  The search for each weight m >= 3 visits the prefixes of length
+    m - 1 from scratch, so that a weight's counts are final once it is reported to ``progress``.
+    Counts are Python integers, keyed by weight in JSON-friendly strings.
 
     Args:
         classes: The flag classes of the flagged mechanisms.

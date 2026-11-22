@@ -654,7 +654,11 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     assert (row["q"], row["q_h"], row["h"]) == ("4", "2", "5"), row
     by_weight = {int(row["m"]): row for row in tables["per_weight"] if row["id"] == first["id"]}
     completed = by_weight[2]
-    assert (completed["Pi_m_minus_1"], completed["E_m"], completed["Phi_m"]) == ("1", "0", "40")
+    assert (completed["naive_prefixes_m_minus_1"], completed["E_m"], completed["Phi_m"]) == (
+        "1",
+        "0",
+        "40",
+    )
     assert by_weight[3]["Phi_m"] == "", by_weight[3]
 
     # the baseline disagrees with any finished certification, here cert_cc alone, and its counts
