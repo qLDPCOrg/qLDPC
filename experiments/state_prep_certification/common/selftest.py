@@ -931,8 +931,8 @@ def test_parallel_stop_and_resume(directory: pathlib.Path, node: bool) -> None:
 def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     """run_node.py refuses without approval, runs both passes, writes an archive, and reports.
 
-    ``--status`` and ``--cleanup`` name the label directory that they read, and ``--cleanup`` says
-    when it has nothing to clean up.
+    The refused start records itself in ``starts.jsonl`` too.  ``--status`` and ``--cleanup`` name
+    the label directory that they read, and ``--cleanup`` says when it has nothing to clean up.
     """
     command = [
         sys.executable,
@@ -947,6 +947,8 @@ def test_run_node_local(directory: pathlib.Path, node: bool) -> None:
     assert not list(directory.rglob(tasks.TASKS_FILE))
     subprocess.run(command + ["--approved-cpu-hours", "10"], check=True, capture_output=True)
     (label_dir,) = [path.parent for path in directory.rglob(tasks.TASKS_FILE)]
+    starts = [json.loads(line) for line in (label_dir / store.STARTS_FILE).read_text().splitlines()]
+    assert ["jobs" in start for start in starts] == [False, True], starts
     final, problems = store.final_rows(label_dir)
     pass1, pass2 = tasks.pass_keys(label_dir, "1"), tasks.pass_keys(label_dir, "2")
     assert len(pass1) == 3 and len(pass2) == 6 and set(final) == set(pass1 + pass2), problems
@@ -1327,7 +1329,7 @@ def test_run_node_lock(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def test_records_atomic(directory: pathlib.Path, node: bool) -> None:
-    """A write of ``acceptance.json`` or ``manifest.json`` that a kill interrupts leaves no part."""
+    """A killed write of ``acceptance.json``, ``starts.jsonl``, or the manifest leaves no part."""
     from experiments.state_prep_certification.common import manifest
 
     run_node = _run_node_module()
@@ -1351,10 +1353,12 @@ def test_records_atomic(directory: pathlib.Path, node: bool) -> None:
     label_dir.mkdir()
     record = label_dir / "acceptance.json"
     record.write_text(json.dumps({"passed": False, "node": False}))
+    manifest.record_start(label_dir, directory, {"dry_run": False})
+    starts = (label_dir / store.STARTS_FILE).read_text()
     with _patched(pathlib.Path, "write_text", torn_write):
         for write in (
             lambda: run_node.run_acceptance(module, label_dir, directory, node=False),
-            lambda: manifest.write_manifest(label_dir, directory, {}),
+            lambda: manifest.write_manifest(label_dir, {"jobs": 1}),
         ):
             try:
                 write()
@@ -1363,6 +1367,7 @@ def test_records_atomic(directory: pathlib.Path, node: bool) -> None:
             else:
                 raise AssertionError("the write was not interrupted")
     assert json.loads(record.read_text()) == {"passed": False, "node": False}
+    assert (label_dir / store.STARTS_FILE).read_text() == starts
     assert not (label_dir / "manifest.json").exists()
 
 
@@ -1501,17 +1506,20 @@ def test_acceptance_selection(directory: pathlib.Path, node: bool) -> None:
 def test_manifest_starts(directory: pathlib.Path, node: bool) -> None:
     """Each start records its environment in ``starts.jsonl``; ``manifest.json`` keeps the first's.
 
-    So a resume under a changed environment is recorded.
+    So a resume under a changed environment is recorded.  Each start's line gets its job slots.
     """
     from experiments.state_prep_certification.common import manifest
 
     for value in ("1", "2"):
         with _environment("NUMBA_OPT", value):
-            manifest.write_manifest(directory, directory, {"start": value})
+            manifest.record_start(directory, directory, {"start": value, "dry_run": False})
+            manifest.write_manifest(directory, {"jobs": int(value)})
     record = json.loads((directory / "manifest.json").read_text())
     assert (record["start"], record["environment"]["NUMBA_OPT"]) == ("1", "1"), record
+    assert record["jobs"] == 1, record
     starts = [json.loads(line) for line in (directory / "starts.jsonl").read_text().splitlines()]
     assert [start["environment"]["NUMBA_OPT"] for start in starts] == ["1", "2"], starts
+    assert [start["jobs"] for start in starts] == [1, 2], starts
 
 
 @test

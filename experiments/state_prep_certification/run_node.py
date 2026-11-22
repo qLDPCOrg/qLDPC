@@ -10,7 +10,10 @@ experiment (``common/manifest.py``), it
 
 1. refuses a bundle built without a pinned qLDPC commit, unless ``--allow-unfrozen`` is given,
    and an environment variable of ``REFUSED_ENVIRONMENT``, such as ``PYTHONPATH``, unless
-   ``--allow-env NAME`` accepts it (``NUMBA_CACHE_DIR``, which ``node.sh`` sets, is allowed);
+   ``--allow-env NAME`` accepts it (``NUMBA_CACHE_DIR``, which ``node.sh`` sets, is allowed),
+   and then records the start, with its host, CPU model, and environment, in ``starts.jsonl``
+   (``manifest.record_start``), so that the analyses see every environment in which the acceptance
+   tests ran, even that of a start that stops at a later step;
 2. runs the harness's node-mode self-tests and the experiment's node acceptance tests, once per
    label, and stops if they fail; each attempt writes to a fresh directory under
    ``acceptance/<label directory>/`` of the results directory, which ``acceptance.json`` records;
@@ -19,11 +22,13 @@ experiment (``common/manifest.py``), it
    ``--approved-cpu-hours`` covers it;
 4. prepares the inputs (``prepare``), which checks them against the experiment's frozen files, and
    writes the task list;
-5. writes ``cores.txt`` and the manifest: the number of job slots is the smallest of the number of
-   free physical cores, the number of ``JOB_MEM_GIB`` slots that fit in memory, and ``--jobs``, if
-   given, with ``tasks.RESERVED_CORES`` physical cores and ``tasks.RESERVED_MEM_GIB`` of memory
-   reserved, and the script stops if no slot fits; it also pins this script, and so GNU parallel
-   and the task runners, to the logical CPUs of the reserved cores;
+5. writes ``cores.txt``, adds the job slots to the start's line of ``starts.jsonl``, and writes the
+   manifest at the label's first start that is not a dry run: the number of job slots is the
+   smallest of the number of free physical cores, the number of ``JOB_MEM_GIB`` slots that fit in
+   memory, and ``--jobs``, if given, with ``tasks.RESERVED_CORES`` physical cores and
+   ``tasks.RESERVED_MEM_GIB`` of memory reserved, and the script stops if no slot fits; it also
+   pins this script, and so GNU parallel and the task runners, to the logical CPUs of the reserved
+   cores;
 6. runs pass 1 with GNU parallel, one task per job slot, whose child process pins itself to its
    slot's CPU, then the repeats of pass 2; while GNU parallel runs, ``active/_parallel`` records
    it, and after each pass, the script stops if a task of the pass has no final row, and prints
@@ -139,6 +144,19 @@ def main() -> None:
             f"--subset {args.subset}"
         )
     print(f"label directory: {label_dir}", flush=True)
+    manifest.record_start(
+        label_dir,
+        results_dir,
+        {
+            "subset": args.subset,
+            "host": socket.gethostname(),
+            "cpu_model": runner.cpu_model(),
+            "local": args.local,
+            "allowed_environment": args.allow_env,
+            "approved_cpu_hours": args.approved_cpu_hours,
+            "dry_run": args.dry_run,
+        },
+    )
 
     # 2. self-tests and acceptance tests, once per label
     if args.subset == "acceptance" or not args.local:
@@ -167,20 +185,7 @@ def main() -> None:
     pin_runners(reserved)
     manifest.write_manifest(
         label_dir,
-        results_dir,
-        {
-            "subset": args.subset,
-            "jobs": jobs,
-            "cpus": cpus,
-            "runner_cpus": reserved,
-            "cpu_model": runner.cpu_model(),
-            "host": socket.gethostname(),
-            "ceiling_cpu_hours": ceiling,
-            "approved_cpu_hours": args.approved_cpu_hours,
-            "local": args.local,
-            "allowed_environment": args.allow_env,
-        },
-        dry_run=args.dry_run,
+        {"jobs": jobs, "cpus": cpus, "runner_cpus": reserved, "ceiling_cpu_hours": ceiling},
     )
     command = tasks.parallel_command(label_dir, pathlib.Path(sys.executable), "1", jobs)
     print("pass 1 command (from the qLDPC root):\n  " + shlex.join(command), flush=True)

@@ -39,6 +39,7 @@ from typing import Any
 
 RUNS_FILE = "runs.jsonl"
 RECOVERED_FILE = "recovered.txt"
+STARTS_FILE = "starts.jsonl"  # one line per start of the label (see manifest.record_start)
 LOCK_FILE = "lock"  # the lock of the start that owns the label (see run_node.py)
 
 # Files and directories of a label that never enter its archive.
@@ -124,17 +125,13 @@ def allowed_environment(label_dir: pathlib.Path) -> list[str]:
 
     A node start refuses some environment variables unless ``--allow-env`` accepts them (see
     ``run_node.py``); ``starts.jsonl`` records, for each start, the names that it accepted and the
-    environment.  Dry runs, which run no task, are left out.
+    environment.  Every start counts, dry runs too, since each records itself before it runs the
+    acceptance tests, whose pass later starts reuse.
     """
-    path = label_dir / "starts.jsonl"
     names: set[str] = set()
-    for line in path.read_text().splitlines() if path.exists() else []:
-        start = json.loads(line)
-        if not start.get("dry_run"):
-            environment = start.get("environment", {})
-            names |= {
-                name for name in start.get("allowed_environment") or [] if name in environment
-            }
+    for start in _starts(label_dir):
+        environment = start.get("environment", {})
+        names |= {name for name in start.get("allowed_environment") or [] if name in environment}
     return sorted(names)
 
 
@@ -211,6 +208,12 @@ def sha256_file(path: pathlib.Path) -> str:
         for block in iter(lambda: file.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _starts(label_dir: pathlib.Path) -> list[dict[str, Any]]:
+    """The lines of the label's ``starts.jsonl``, one per start."""
+    path = label_dir / STARTS_FILE
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
 def _truncate_incomplete_tail(fd: int, label_dir: pathlib.Path) -> None:

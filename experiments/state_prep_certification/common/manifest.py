@@ -144,29 +144,27 @@ def load_pins() -> dict[str, Any]:
 # manifest
 
 
-def write_manifest(
-    label_dir: pathlib.Path,
-    results_dir: pathlib.Path,
-    extra: dict[str, Any],
-    dry_run: bool = False,
+def record_start(
+    label_dir: pathlib.Path, results_dir: pathlib.Path, fields: dict[str, Any]
 ) -> None:
-    """Write ``manifest.json`` at a label's first start, and record every start in ``starts.jsonl``.
+    """Append a start's line to ``starts.jsonl``, before the start runs the acceptance tests.
 
-    ``manifest.json`` is written whole or not at all, and each start appends one line to
-    ``starts.jsonl`` in one write.  A dry run only appends its line, with ``"dry_run": true``, so
-    that ``manifest.json``, and the CPU model that later starts must match, describe the first start
-    that went on to run tasks.
+    Every start that passes the refusals of its first step records itself, whether it is a dry run,
+    runs only the acceptance tests, or stops at a later check, so that the analyses see every
+    environment in which the label's acceptance tests ran (see ``store.allowed_environment``).  The
+    line holds the machine, the software, the recorded environment, and ``fields``, such as the
+    start's host, CPU model, subset, the names that ``--allow-env`` accepted, and whether it is a
+    dry run (``dry_run``).  It is appended in one write.
 
     Args:
         label_dir: The label's directory.
         results_dir: The results directory, which may hold the record of ``node.sh``'s preflight,
             ``preflight-<bundle>.json``.
-        extra: Further fields, such as the number of job slots.
-        dry_run: Whether the start stops before running any task.
+        fields: Further fields of the start.
     """
     bundle = bundle_record()
     preflight = _read_json(results_dir / f"preflight-{bundle['name']}.json") if bundle else None
-    manifest = {
+    start = {
         "label": label_dir.name,
         "pins": load_pins(),
         "harness": harness_commit(),
@@ -178,14 +176,29 @@ def write_manifest(
         "packages": package_freeze(),
         "environment": recorded_environment(os.environ),
         "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "dry_run": dry_run,
-        **extra,
+        **fields,
     }
-    path = label_dir / "manifest.json"
-    if not dry_run and not path.exists():
-        store.write_atomic(path, json.dumps(manifest, indent=1, sort_keys=True) + "\n")
-    with open(label_dir / "starts.jsonl", "ab", buffering=0) as file:
-        file.write((json.dumps(manifest, sort_keys=True) + "\n").encode())  # one write
+    with open(label_dir / store.STARTS_FILE, "ab", buffering=0) as file:
+        file.write((json.dumps(start, sort_keys=True) + "\n").encode())  # one write
+
+
+def write_manifest(label_dir: pathlib.Path, extra: dict[str, Any]) -> None:
+    """Add ``extra``, such as the job slots, to this start's line, and write ``manifest.json``.
+
+    This start's line is the last of ``starts.jsonl``, since the start holds the label's lock (see
+    ``run_node.py``); ``starts.jsonl`` is rewritten whole or not at all.  ``manifest.json``, the
+    completed line, is written whole or not at all at the label's first start that is not a dry
+    run, so that it, and the CPU model that later starts must match, describe the first start that
+    went on to run tasks.
+    """
+    path = label_dir / store.STARTS_FILE
+    *earlier, last = path.read_text().splitlines()
+    start = json.loads(last) | extra
+    lines = [*earlier, json.dumps(start, sort_keys=True)]
+    store.write_atomic(path, "".join(line + "\n" for line in lines))
+    manifest = label_dir / "manifest.json"
+    if not start.get("dry_run") and not manifest.exists():
+        store.write_atomic(manifest, json.dumps(start, indent=1, sort_keys=True) + "\n")
 
 
 def recorded_environment(environ: Mapping[str, str]) -> dict[str, str]:
