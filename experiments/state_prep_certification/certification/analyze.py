@@ -189,7 +189,6 @@ HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = json.loads((HERE / "config.json").read_text())
 REPEATS = CONFIG["repeats"]
 BRUTE_CAP = int(CONFIG["brute_force"]["max_combinations"])
-LIMIT_S = float(CONFIG["limits"]["cert_s"])
 
 # The status of the brute-force baseline on a circuit over its cap, as in "not run (U > 1e9)".
 OVER_CAP = "not run (U > {})".format(
@@ -578,10 +577,12 @@ def summarize(
                         (f"repeats_not_ok_{name}", " ".join(run["repeats_not_ok"]) or None),
                     )
                 },
-                **{f"status_{arm}": _status(arms.get(arm)) for arm in REPORTED_ARMS},
-                "status_brute_bz": OVER_CAP
-                if circuit.get("brute_force") is False
-                else _status(arms.get("brute_bz")),
+                **{
+                    f"status_{arm}": OVER_CAP
+                    if arm == "brute_bz" and circuit.get("brute_force") is False
+                    else _status(arms.get(arm))
+                    for arm in REPORTED_ARMS
+                },
                 "T_brute_bz": brute["T"],
                 "timing_complete_brute_bz": brute["timing_complete"],
                 "rss_brute_bz": brute["rss"],
