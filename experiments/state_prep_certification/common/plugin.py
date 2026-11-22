@@ -20,9 +20,6 @@ Each experiment is a subdirectory with an ``experiment.py`` module that defines:
 * ``acceptance(node, results_dir)``: run the acceptance tests, writing their runs into
   ``results_dir``, a fresh directory of each attempt, and return whether they passed.
 
-An experiment may also give a ``qldpc_commit`` in its ``config.json``; ``bundle.py`` refuses a
-bundle if it differs from the pinned commit of ``pins.json``.
-
 The shared code knows nothing else about an experiment: its rows carry an ``experiment`` field and
 a free-form ``result`` object beside the shared fields.
 """

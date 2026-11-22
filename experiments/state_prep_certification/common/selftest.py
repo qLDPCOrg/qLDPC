@@ -2159,17 +2159,15 @@ def test_bundle_check_tree(directory: pathlib.Path, node: bool) -> None:
     previous_root = bundle.ROOT
     bundle.ROOT = directory
     try:
-        assert bundle.check_tree({"qldpc_commit": base}, [], unfrozen=False) == git(
-            "rev-parse", "HEAD"
-        )
+        assert bundle.check_tree({"qldpc_commit": base}, unfrozen=False) == git("rev-parse", "HEAD")
         (directory / "src" / "a.py").write_text("a = 2\n")
         git("commit", "-qam", "change src")
-        _expect_exit(lambda: bundle.check_tree({"qldpc_commit": base}, [], unfrozen=False))
+        _expect_exit(lambda: bundle.check_tree({"qldpc_commit": base}, unfrozen=False))
         git("checkout", "-q", "--orphan", "other")
         git("commit", "-qm", "unrelated")
-        _expect_exit(lambda: bundle.check_tree({"qldpc_commit": base}, [], unfrozen=False))
-        _expect_exit(lambda: bundle.check_tree({"qldpc_commit": None}, [], unfrozen=False))
-        bundle.check_tree({"qldpc_commit": None}, [], unfrozen=True)
+        _expect_exit(lambda: bundle.check_tree({"qldpc_commit": base}, unfrozen=False))
+        _expect_exit(lambda: bundle.check_tree({"qldpc_commit": None}, unfrozen=False))
+        bundle.check_tree({"qldpc_commit": None}, unfrozen=True)
     finally:
         bundle.ROOT = previous_root
 

@@ -81,7 +81,7 @@ def main() -> None:
     platform = args.uv_python_platform or pins["platform"]["uv_python_platform"]
     wheel_platforms = args.wheel_platform or pins["platform"]["wheel_platforms"]
     modules = [plugin.load_experiment(name) for name in args.experiments]
-    commit = check_tree(pins, modules, args.unfrozen)
+    commit = check_tree(pins, args.unfrozen)
 
     # build in a staging directory, named once the requirements are resolved
     out = args.out.resolve()
@@ -235,7 +235,7 @@ def check_frozen_files(tree: pathlib.Path, modules: list[Any]) -> None:
             )
 
 
-def check_tree(pins: dict[str, Any], modules: list[Any], unfrozen: bool) -> str:
+def check_tree(pins: dict[str, Any], unfrozen: bool) -> str:
     """Check the worktree and the qLDPC pin; return the harness commit."""
     status = _git("status", "--porcelain", "--untracked-files=no")
     if status:
@@ -253,12 +253,6 @@ def check_tree(pins: dict[str, Any], modules: list[Any], unfrozen: bool) -> str:
         sys.exit(f"HEAD does not descend from the pinned qLDPC commit {frozen}")
     if _git("diff", "--name-only", frozen, head, "--", "src", "pyproject.toml"):
         sys.exit(f"src/ or pyproject.toml changed since the pinned qLDPC commit {frozen}")
-    for module in modules:
-        config = plugin.experiment_dir(module.NAME) / "config.json"
-        if config.exists():
-            own = json.loads(config.read_text()).get("qldpc_commit")
-            if own not in (None, frozen):
-                sys.exit(f"{module.NAME}/config.json pins qLDPC at {own}, pins.json at {frozen}")
     return head
 
 
