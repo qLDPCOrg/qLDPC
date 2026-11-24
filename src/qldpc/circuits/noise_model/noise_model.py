@@ -10,7 +10,6 @@ from __future__ import annotations
 import bisect
 import collections
 import dataclasses
-import functools
 import math
 import warnings
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
@@ -48,9 +47,8 @@ from ._operations import (
 from .channels import (
     PauliChannel,
     PauliChannelSequence,
-    _compose_idle_channels,
+    _idle_run_channels,
     _quadratic_idle_channel,
-    _repeated_idle_channel,
 )
 from .rules import (
     ErrorSpec,
@@ -133,7 +131,9 @@ class NoiseModel:
             about quadratically with the length of an idle run.  It is given for one moment as a
             float ``p``, a Mapping such as ``{"Z": p}``, or a one-qubit ``PauliChannel``, with total
             probability ``p`` at most 1/2.  Over a run with ``k`` idle moments, it has total
-            probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, in the same proportions among Paulis.
+            probability ``(1 - (1 - 2 * p)**(k**2)) / 2``, in the same proportions among Paulis.  If
+            the run's idle Pauli channels have exactly two Paulis between them, the two are applied
+            as independent errors, each with its probability from this formula.
             :mod:`qldpc.circuits.noise_model` describes this model.
         additional_error_waiting_for_m_or_r: Noise as for ``idle_error``, on each qubit in each
             moment in which another qubit, but not this one, is measured or reset.  A qubit gets
@@ -474,9 +474,10 @@ class NoiseModel:
             num_waiting_for_m_or_r: The number of moments of the run in which another qubit, but not
                 this one, is measured or reset, which get ``additional_error_waiting_for_m_or_r``.
         """
-        # collect the Pauli channels of these moments, and append other noise once per moment
+        # collect the Pauli channels of the run's idle errors, with their numbers of repetitions,
+        # and append other noise once per moment
         noise = stim.Circuit()
-        channels: list[PauliChannel | PauliChannelSequence] = []
+        sources: list[tuple[PauliChannel | PauliChannelSequence, int]] = []
         for rule, count in (
             (self.idle_error, num_idle),
             (self.additional_error_waiting_for_m_or_r, num_waiting_for_m_or_r),
@@ -484,19 +485,17 @@ class NoiseModel:
             if rule is None or not count:
                 continue
             if isinstance(rule.after, (PauliChannel, PauliChannelSequence)):
-                channels.append(
-                    rule.after if count == 1 else _repeated_idle_channel(rule.after, count)
-                )
+                sources.append((rule.after, count))
             else:
                 for _ in range(count):
                     rule.emit_after(noise, [0], context="idle qubits")
         if self.quadratic_idle_error is not None and num_idle:
-            channels.append(_quadratic_idle_channel(self.quadratic_idle_error, num_idle))
+            sources.append((_quadratic_idle_channel(self.quadratic_idle_error, num_idle), 1))
 
-        # combine the Pauli channels into one
-        if channels:
-            channel = functools.reduce(_compose_idle_channels, channels)
-            NoiseRule(after=channel).emit_after(noise, [0], context="idle qubits")
+        # apply the Pauli channels of the run
+        if sources:
+            for channel in _idle_run_channels(sources):
+                NoiseRule(after=channel).emit_after(noise, [0], context="idle qubits")
         return noise
 
 

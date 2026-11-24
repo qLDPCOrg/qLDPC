@@ -119,8 +119,9 @@ def test_idle_errors() -> None:
 
     A qubit also waits in each moment in which another qubit is measured or reset, including while
     it undergoes a gate.  Single-qubit gates take no time by default, idle errors may be custom
-    rules, tagged coordinate annotations make qubits immune, annotations and noise channels join the
-    moment of a gate, classically controlled gates take no time, and zero errors are no noise.
+    rules, whose two Paulis are applied as independent errors over a run, tagged coordinate
+    annotations make qubits immune, annotations and noise channels join the moment of a gate,
+    classically controlled gates take no time, and zero errors are no noise.
     """
     ticks = circuits.TickScheduler()
 
@@ -145,14 +146,24 @@ def test_idle_errors() -> None:
     noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0\nCX 1 2"))
     assert noisy_circuit == stim.Circuit("H 0\nCX 1 2\nDEPOLARIZE1(0.1) 0")
 
-    # a user-defined idle error
+    # a user-defined idle error, whose two Paulis are applied as independent errors, over one moment
+    # on qubit 1 and two on qubit 0
     noise_model = circuits.NoiseModel(
         idle_error=circuits.NoiseRule(after={"X": 0.05, "Z": 0.1}), scheduler=ticks
     )
-    noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0\nTICK\nH 1"))
-    assert noisy_circuit == stim.Circuit(
-        "H 0\nTICK\nPAULI_CHANNEL_1(0.05, 0, 0.1) 1\nH 1\nPAULI_CHANNEL_1(0.05, 0, 0.1) 0"
-    )
+    noisy_circuit = noise_model.noisy_circuit(stim.Circuit("H 0\nTICK\nH 1\nTICK\nH 1"))
+    expected = stim.Circuit(f"""
+        H 0
+        TICK
+        X_ERROR(0.05) 1
+        Z_ERROR(0.1) 1
+        H 1
+        TICK
+        H 1
+        X_ERROR({(1 - (1 - 2 * 0.05) ** 2) / 2}) 0
+        Z_ERROR({(1 - (1 - 2 * 0.1) ** 2) / 2}) 0
+    """)
+    assert noisy_circuit.approx_equals(expected, atol=1e-12)
 
     # qubits of tagged coordinate annotations are immune to idle noise
     annotated = stim.Circuit()
@@ -371,15 +382,14 @@ def test_quadratic_idle_errors() -> None:
     assert noisy.approx_equals(expected, atol=1e-12)
 
     # Over a long idle run, the flip probability saturates: it is about (1 - exp(-2)) / 2 rather
-    # than 100**2 * 1e-4 = 1.  It is combined with the independent idle_error into one channel.
+    # than 100**2 * 1e-4 = 1.  The quadratic Z error is applied as a Z_ERROR, separate from the
+    # X_ERROR of idle_error.
     circuit = stim.Circuit("R 0\nTICK\n" + "X 1\nTICK\n" * 100 + "M 0")
     model = circuits.NoiseModel(
         idle_error={"X": 0.01}, quadratic_idle_error={"Z": 1e-4}, scheduler=ticks
     )
     p_x, p_z = (1 - 0.98**100) / 2, (1 - math.exp(-2)) / 2
-    expected = circuit[:-1] + stim.Circuit(
-        f"PAULI_CHANNEL_1({p_x * (1 - p_z)}, {p_x * p_z}, {(1 - p_x) * p_z}) 0\nM 0"
-    )
+    expected = circuit[:-1] + stim.Circuit(f"X_ERROR({p_x}) 0\nZ_ERROR({p_z}) 0\nM 0")
     assert model.noisy_circuit(circuit, system_qubits=[0]).approx_equals(expected, atol=1e-4)
 
 
