@@ -44,8 +44,10 @@ Fault propagation is bounded up to fault weight `K`, the largest fault weight to
 
 ### Physical errors
 
-A **physical error** is one case of one noise instruction of the circuit, such as one Pauli error of a `DEPOLARIZE1` instruction on one qubit.
-Each error mechanism is the effect of a single physical error, and Stim merges physical errors that flip the same detectors and observables into one error mechanism, which does not change the result.
+A **physical error** is a case of the circuit's noise whose probability is of first order in the noise's error parameters, such as the X error of an `X_ERROR(p)`.
+For example, one Pauli error of a `DEPOLARIZE1` instruction on one qubit is a physical error.
+A Pauli error that needs `k` independent physical errors counts as `k` physical errors: for example, an `X_ERROR(p)` and a `Z_ERROR(q)` on one qubit make a Y error, of probability `pq`, from two physical errors.
+If independent errors are written as separate noise instructions, rather than as one channel such as `PAULI_CHANNEL_1(p(1-q), pq, q(1-p))`, each error mechanism is the effect of a single physical error, and Stim merges physical errors that flip the same detectors and observables into one error mechanism, which does not change the result.
 A set of `t` physical errors therefore has the same flags and syndrome as the sum of their error mechanisms, which is a fault of fault weight at most `t`, and conversely every fault of fault weight `t` arises from `t` physical errors.
 So the smallest fault weight of a violating accepted fault is also the smallest number of physical errors that together pass post-selection and violate the bound.
 

@@ -313,6 +313,30 @@ def test_compose_idle_channels() -> None:
     assert _eigenvalues(composed.probabilities) == pytest.approx(expected)
 
 
+def test_idle_run_channels() -> None:
+    """Idle errors of exactly two Paulis become independent errors of each Pauli."""
+    # a Pauli takes effect with probability (1 - prod(1 - 2 p)) / 2 over independent errors
+    sources: list[tuple[circuits.PauliChannel | circuits.PauliChannelSequence, int]] = [
+        (circuits.PauliChannel({"X": 0.01, "Z": 0.03}), 3),
+        (circuits.PauliChannelSequence({"Z": 0.02}), 1),
+    ]
+    x_channel, z_channel = channels._idle_run_channels(sources)
+    assert x_channel.probabilities == pytest.approx({"X": (1 - 0.98**3) / 2})
+    assert z_channel.probabilities == pytest.approx({"Z": (1 - 0.94**3 * 0.96) / 2})
+
+    # other idle errors compose to one channel, whose eigenvalues of the Pauli transfer matrix are
+    # products of theirs
+    sources = [
+        (circuits.PauliChannel({"X": 0.01, "Z": 0.03}), 2),
+        (circuits.PauliChannelSequence({"Y": 0.02}), 1),
+    ]
+    (channel,) = channels._idle_run_channels(sources)
+    expected = np.multiply(
+        np.square(_eigenvalues({"X": 0.01, "Z": 0.03})), _eigenvalues({"Y": 0.02})
+    )
+    assert _eigenvalues(channel.probabilities) == pytest.approx(expected)
+
+
 def _eigenvalues(probabilities: Mapping[str, float]) -> list[float]:
     """The eigenvalues for X, Y, and Z of the Pauli transfer matrix of a one-qubit channel."""
     return [1 - 2 * sum(p for q, p in probabilities.items() if q != pauli) for pauli in "XYZ"]

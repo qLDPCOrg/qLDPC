@@ -11,7 +11,7 @@ import abc
 import functools
 import itertools
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import overload
 
 import stim
@@ -522,6 +522,37 @@ def _compose_idle_channels(
         else:
             distribution = _compose_pauli_distributions(distribution, _pauli_distribution(channel))
     return PauliChannel(dict(zip("XYZ", distribution[1:], strict=True)))
+
+
+def _idle_run_channels(
+    sources: Sequence[tuple[PauliChannel | PauliChannelSequence, int]],
+) -> list[PauliChannel | PauliChannelSequence]:
+    """The Pauli channels of an idle run, given one-qubit Pauli channels with their repetitions.
+
+    If the channels have exactly two Paulis between them, each Pauli is taken as an independent
+    error, so that their product takes two errors, and the result is one channel for each Pauli.
+    Otherwise, it is the one channel that composes the given channels.
+    """
+    paulis = sorted({pauli for channel, _ in sources for pauli in channel.probabilities})
+    if len(paulis) == 2:
+        # each Pauli takes effect if its independent errors fire an odd number of times
+        net_probabilities = dict.fromkeys(paulis, 0.0)
+        for channel, repetitions in sources:
+            probabilities = channel.probabilities
+            if repetitions > 1:
+                probabilities = _repeated_idle_channel(
+                    PauliChannelSequence(probabilities), repetitions
+                ).probabilities
+            for pauli, probability in probabilities.items():
+                net_probabilities[pauli] += probability - 2 * net_probabilities[pauli] * probability
+        return [
+            PauliChannel({pauli: probability}) for pauli, probability in net_probabilities.items()
+        ]
+    channels = [
+        channel if repetitions == 1 else _repeated_idle_channel(channel, repetitions)
+        for channel, repetitions in sources
+    ]
+    return [functools.reduce(_compose_idle_channels, channels)]
 
 
 def _pauli_distribution(channel: PauliChannel) -> tuple[float, ...]:
