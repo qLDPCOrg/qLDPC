@@ -362,10 +362,10 @@ def test_repeated_syndromes_are_checked_once() -> None:
 @pytest.mark.parametrize("z_part", [False, True])
 def test_representatives_are_weighed_over_every_word(css_weight: bool, z_part: bool) -> None:
     """A fault is checked if the product of its representatives, over all words, is too heavy."""
-    # On |0>^66 with X representatives, or on |+>^66 with Z representatives, the product of the two
-    # representatives acts on qubits 0, 64, and 65, so the fault of weight two violates the bound.
-    num_qubits = 66
-    syndromes = [3 << 64, 1]
+    # On |0>^65 with X representatives, or on |+>^65 with Z representatives, the product of the two
+    # representatives acts on qubits 0, 63, and 64, so the fault of weight two violates the bound.
+    num_qubits = 65
+    syndromes = [1 << 63 | 1 << 64, 1]
     representatives = [syndrome << (num_qubits if z_part else 0) for syndrome in syndromes]
     lister = _fault_search.FaultLister(
         [1, 1], syndromes, representatives, num_qubits, css_weight, 2, 2**20
@@ -377,12 +377,12 @@ def test_representatives_are_weighed_over_every_word(css_weight: bool, z_part: b
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_representatives_are_weighed_by_the_pauli_weight_of_the_search(css_weight: bool) -> None:
     """The product of the representatives has the CSS weight or the physical weight, as asked."""
-    # On |0>^64 |+>, X on qubits 0 and 1 times Z on qubit 64 has X weight two in the first word and
+    # On |0>^64 |+>, X on qubits 0 and 63 times Z on qubit 64 has X weight two in the first word and
     # Z weight one in the second, so CSS weight two, at most the fault weight, and physical weight
     # three.
     num_qubits = 65
-    syndromes = [3, 1 << 64]
-    representatives = [3, 1 << (64 + num_qubits)]
+    syndromes = [1 | 1 << 63, 1 << 64]
+    representatives = [1 | 1 << 63, 1 << (64 + num_qubits)]
     lister = _fault_search.FaultLister(
         [1, 1], syndromes, representatives, num_qubits, css_weight, 2, 2**20
     )
