@@ -359,8 +359,8 @@ def test_permutation_automorphism_group(
     code: codes.ClassicalCode = codes.HammingCode(2, field=2)
     automorphisms = "\n(1,2)\n(2,3)\n"
 
-    # when GAP is not installed, or the user declines the manual GAP workflow, warn with the MAGMA
-    # hint before asking whether GAP is available, and then raise an error
+    # when GAP cannot be called but a magma executable is on PATH, warn with a hint to use MAGMA
+    # before asking whether GAP is available, and raise an error when the user declines
     def decline_gap() -> bool:
         assert any("MAGMA executable is on PATH" in str(record.message) for record in records)
         return False

@@ -642,11 +642,12 @@ class Group:
 
         A MAGMA group is retrieved from a local disk cache if possible, else from MAGMA if MAGMA can
         be called from the command line, and otherwise by a manual copy/paste workflow like that for
-        GAP.  qLDPC warns if a ``magma`` executable on ``PATH`` fails a test run, and runs MAGMA
-        without the user's startup file.  The generators that MAGMA returns can depend on its random
-        seed, so both the MAGMA subprocess and the manual workflow fix it.  If MAGMA reports an
-        error, qLDPC raises a ValueError.  If MAGMA stops for another reason, such as a crash, qLDPC
-        warns and falls back to the manual workflow.
+        GAP.  qLDPC runs MAGMA without the user's startup file.  If a ``magma`` executable on
+        ``PATH`` fails a test run, qLDPC warns and uses the manual workflow.  The generators that
+        MAGMA returns can depend on its random seed, so both the MAGMA subprocess and the manual
+        workflow start the command by fixing the seed.  If MAGMA reports an error, qLDPC raises a
+        ValueError.  If MAGMA stops for another reason, such as a crash, qLDPC warns and falls back
+        to the manual workflow.
 
         Retrieved generators are cached to disk.
         """

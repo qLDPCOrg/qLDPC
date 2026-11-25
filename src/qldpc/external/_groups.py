@@ -27,7 +27,8 @@ _Idempotents = tuple[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...], ...]
 
 _GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
-# MAGMA's generators of a group can depend on its random seed, so both MAGMA workflows fix the seed
+# MAGMA's generators of a group can depend on its random seed, so both the MAGMA subprocess and the
+# manual workflow fix the seed
 _MAGMA_SEED = 1
 
 
@@ -88,9 +89,9 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
     and finally a manual copy/paste workflow.  The manual workflow prints the command, copies it to
     the system clipboard, and reads the pasted output from standard input (blocking, and raising
     ``EOFError`` if standard input is closed).  The generators that MAGMA returns can depend on its
-    random seed, so both the MAGMA subprocess and the manual workflow fix it.  If MAGMA reports an
-    error, this function raises it.  If MAGMA stops for another reason, such as a crash, this
-    function warns and falls back to the manual workflow.
+    random seed, so both the MAGMA subprocess and the manual workflow start the command by fixing
+    the seed.  If MAGMA reports an error, this function raises it.  If MAGMA stops for another
+    reason, such as a crash, this function warns and falls back to the manual workflow.
 
     Raises:
         ValueError: If MAGMA reports an error, such as an error in the command, or its output does

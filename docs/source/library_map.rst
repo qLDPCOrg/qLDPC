@@ -303,7 +303,7 @@ If the test run fails, qLDPC warns.
 Without a working ``magma``, qLDPC prints the MAGMA command, copies it to the system clipboard, and reads MAGMA's output from standard input.
 The generators that MAGMA returns can depend on its random seed, so both the subprocess and the manual workflow start the command by fixing the seed.
 An error that MAGMA reports raises a ``ValueError``; if MAGMA stops for another reason, such as a crash, qLDPC warns and falls back to the manual workflow.
-Results of both are cached on disk.
+qLDPC caches MAGMA's results on disk.
 
 Code and group lookups
 ~~~~~~~~~~~~~~~~~~~~~~
