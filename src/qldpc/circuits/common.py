@@ -11,7 +11,7 @@ from __future__ import annotations
 import functools
 import itertools
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from typing import TYPE_CHECKING, ParamSpec, Protocol, Self, TypeVar
+from typing import TYPE_CHECKING, ParamSpec, Protocol, Self, TypeVar, cast
 
 import galois
 import numpy as np
@@ -82,19 +82,19 @@ def get_pauli_product_measurements(
 ) -> stim.Circuit:
     """Construct a circuit of MPP instructions that measure the given Pauli strings.
 
-    In addition to a list of Pauli strings, this method accepts a symplectic matrix (or a sequence
+    In addition to a list of Pauli strings, this function accepts a symplectic matrix (or a sequence
     of symplectic rows) in which each row indicates the ``[X|Z]`` support of a Pauli string.  If
-    "code" is a QuditCode, for example, then passing "pauli_strings=code.get_stabilizer_ops()" will
-    measure the stabilizers of "code".
+    ``code`` is a QuditCode, for example, then passing ``pauli_strings=code.get_stabilizer_ops()``
+    measures the stabilizers of ``code``.
 
     Args:
         pauli_strings: Pauli strings or symplectic rows to measure.
         qubits: Optional physical-qubit labels corresponding to the columns of each Pauli string.
 
     Raises:
-        ValueError: If a Pauli string is the identity, if qubits is provided and has repeated
-            labels, or if qubits is provided and a Pauli string does not act on exactly len(qubits)
-            qubits.
+        ValueError: If a Pauli string is the identity or has an imaginary sign, if qubits is
+            provided and has repeated labels, or if qubits is provided and a Pauli string does not
+            act on exactly len(qubits) qubits.
     """
     if isinstance(pauli_strings, np.ndarray):
         pauli_strings = [math.op_to_string(op) for op in np.atleast_2d(pauli_strings)]
@@ -102,28 +102,54 @@ def get_pauli_product_measurements(
         pauli_strings = [math.op_to_string(np.asarray(op, dtype=int)) for op in pauli_strings]
     if qubits is not None and len(set(qubits)) != len(qubits):
         raise ValueError("Qubit labels for Pauli-product measurements must be distinct")
-    circuit = stim.Circuit()
-    for string in pauli_strings:
+
+    # TEMPORARY until stim>=1.17: see common._get_pauli_product_text.
+    lines = []
+    for string in cast(Sequence[stim.PauliString], pauli_strings):
         if not any(pauli in "XYZ" for pauli in str(string)):
             raise ValueError("Pauli-product measurements cannot contain an all-identity row")
-        targets = stim.target_combined_paulis(string)
-        if qubits is not None:
-            if len(string) != len(qubits):
-                raise ValueError(
-                    f"A Pauli string acts on {len(string)} qubits, but {len(qubits)} qubit labels"
-                    " were provided"
-                )
-            # if applicable, assign qubit indices as provided
-            targets = [
-                target
-                if target.is_combiner
-                else stim.target_pauli(
-                    qubits[target.value], target.pauli_type, invert=target.is_inverted_result_target
-                )
-                for target in targets
-            ]
-        circuit.append("MPP", targets)
-    return circuit
+        if qubits is not None and len(string) != len(qubits):
+            raise ValueError(
+                f"A Pauli string acts on {len(string)} qubits, but {len(qubits)} qubit labels"
+                " were provided"
+            )
+        if string.sign not in (1, -1):
+            raise ValueError(f"Cannot measure a Pauli string with an imaginary sign: {string}")
+        lines.append(f"MPP {_get_pauli_product_text(string, qubits)}")
+    return stim.Circuit("\n".join(lines))
+
+
+def _get_pauli_product_text(
+    string: stim.PauliString, qubits: Sequence[int] | npt.NDArray[np.int_] | None = None
+) -> str:
+    """Get the stim text of the targets of an MPP instruction that measures a Pauli string.
+
+    Entry ``j`` of the string acts on qubit ``qubits[j]``, or on qubit ``j`` if ``qubits`` is None.
+    The string must not be the identity, and its sign must be 1 or -1.
+
+    TEMPORARY until stim>=1.17: callers join the text of many instructions and parse it once with
+    ``stim.Circuit``, since in stim 1.16 this is much faster than calling ``stim.Circuit.append``
+    for each instruction (https://github.com/quantumlib/Stim/issues/1087, addressed by
+    https://github.com/quantumlib/Stim/pull/1090).  Migrate as follows once qLDPC requires
+    stim>=1.17, but not before, since with stim 1.16 appending makes certifying a small circuit
+    several times slower.
+
+    1. In each function marked "TEMPORARY until stim>=1.17", build the circuit by calling
+       ``stim.Circuit.append`` for each instruction:
+       - ``get_pauli_product_measurements``,
+       - ``fault_propagation._get_primitive_fault_signatures``,
+       - ``_post_selection.get_flag_detectors``, and
+       - ``encoding._get_fixed_parities_by_simulation``.
+       Keep the checks in ``get_pauli_product_measurements``, whose messages differ from stim's.
+    2. Delete this function, and the line of ``common_test.py`` that calls it.
+    3. Check that ``certify_bounded_fault_propagation`` is no slower on a small circuit.
+    """
+    support = string.pauli_indices()
+    if not support:
+        raise ValueError("Pauli-product measurements cannot contain an all-identity row")
+    labels = support if qubits is None else [qubits[jj] for jj in support]
+    product = "*".join(f"{'_XYZ'[string[jj]]}{label}" for jj, label in zip(support, labels))
+    return f"!{product}" if string.sign == -1 else product
 
 
 def _get_immune_qubits(circuit: stim.Circuit, immune_qubit_tag: str | None) -> frozenset[int]:

@@ -360,9 +360,13 @@ def _get_primitive_fault_signatures(
     ``j``-th selected detector, and its syndrome has bit ``j`` for stabilizer ``j``.  Both lists
     follow the order of the DEM's error instructions.
     """
+    # Measure each stabilizer after the circuit, with a detector on its outcome.
+    num_stabilizers = len(stabilizers)
     diagnostics = get_pauli_product_measurements(stabilizers, qubits=qubits)
-    for jj in range(len(stabilizers)):
-        diagnostics.append("DETECTOR", [stim.target_rec(jj - len(stabilizers))])
+    # TEMPORARY until stim>=1.17: see common._get_pauli_product_text.
+    diagnostics += stim.Circuit(
+        "\n".join(f"DETECTOR rec[{jj - num_stabilizers}]" for jj in range(num_stabilizers))
+    )
     diagnostic_circuit = circuit + diagnostics
 
     # Stim raises an error here for a nondeterministic detector or observable.  The option lets Stim

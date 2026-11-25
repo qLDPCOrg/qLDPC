@@ -17,13 +17,15 @@ from .bookkeeping import DetectorRecord, get_unaddressed_measurements
 
 def get_flag_detectors(circuit: stim.Circuit) -> stim.Circuit:
     """Get a detector for each measurement that no detector or observable addresses."""
-    flag_detectors = stim.Circuit()
     # Stim counts the measurements of the whole circuit each time that it is asked.
     num_measurements = circuit.num_measurements
-    for measurement in get_unaddressed_measurements(circuit):
-        target = stim.target_rec(measurement - num_measurements)
-        flag_detectors.append("DETECTOR", [target])
-    return flag_detectors
+    # TEMPORARY until stim>=1.17: see common._get_pauli_product_text.
+    return stim.Circuit(
+        "\n".join(
+            f"DETECTOR rec[{measurement - num_measurements}]"
+            for measurement in get_unaddressed_measurements(circuit)
+        )
+    )
 
 
 def get_selected_detectors(

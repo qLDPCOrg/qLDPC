@@ -45,6 +45,7 @@ def test_pauli_product_measurement_edge_cases() -> None:
     unlabeled = circuits.get_pauli_product_measurements(strings)
     labeled = circuits.get_pauli_product_measurements(strings, qubits)
     assert labeled == circuits.with_remapped_qubits(unlabeled, qubits)
+    assert labeled == stim.Circuit("MPP !X7*Z4 Y2")
 
     # signs are measured: X7*Z4 = +1 when qubit 7 is in |+> and qubit 4 is in |0>, so -X7*Z4 = -1
     assert (stim.Circuit("H 7") + labeled).reference_sample()[0]
@@ -55,6 +56,10 @@ def test_pauli_product_measurement_edge_cases() -> None:
         circuits.get_pauli_product_measurements([[1, 0, 0, 1]], qubits=[3, 4, 5])
     with pytest.raises(ValueError, match="must be distinct"):
         circuits.get_pauli_product_measurements([[1, 0, 0, 1]], qubits=[3, 3])
+    with pytest.raises(ValueError, match="imaginary sign"):
+        circuits.get_pauli_product_measurements([stim.PauliString("iXZ")])
+    with pytest.raises(ValueError, match="all-identity"):
+        common._get_pauli_product_text(stim.PauliString("__"))
 
 
 def test_restriction() -> None:
