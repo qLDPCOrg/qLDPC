@@ -365,6 +365,7 @@ def test_state_stabilizers_with_repeated_reset_measurements(
         ("H_YZ 0", "RX", "+X"),
         ("X 0\nH_YZ 0", "RX", "+X"),
         ("X 0", "R", "+Z"),
+        ("H 0", "RX", "+X"),
         ("X 0\nH 0", "RX", "+X"),
         ("X 0\nH_YZ 0", "RY", "+Y"),
     ],
@@ -376,8 +377,8 @@ def test_state_stabilizers_after_replaced_resets(
 
     The preparation puts the qubit in the +1 or -1 eigenstate of Z, X, or Y, since H_YZ maps Z to
     Y.  The simulation steps through every circuit when its threshold is 0.  It replaces a reset of
-    a qubit in an eigenstate of another Pauli by gates, and keeps a reset of a qubit in the -1
-    eigenstate of the reset's Pauli, which must still prepare the +1 eigenstate.
+    a qubit in an eigenstate of another Pauli by gates, and keeps a reset of a qubit in an
+    eigenstate of the reset's Pauli, which must leave the qubit in the +1 eigenstate.
     """
     monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", 0)
     circuit = stim.Circuit(f"{preparation}\n{reset} 0")
