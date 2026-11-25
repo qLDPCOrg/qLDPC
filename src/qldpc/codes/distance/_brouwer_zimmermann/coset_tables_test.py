@@ -8,13 +8,14 @@ import itertools
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
-from qldpc._binary import get_kernel
+from qldpc._binary import get_kernel, unpack_bits
 
 from .. import _cosets
 from .._information_sets import certificates, completion_bounds
-from ..conftest import EVEN_ROUTES_CODE, RANK_DEFICIENT_CODE
+from ..conftest import EVEN_ROUTES_CODE, RANK_DEFICIENT_CODE, TWO_FAMILIES_CODE
 from . import affine_instance, coset_tables
 
 
@@ -109,6 +110,37 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
         ]
         assert len(both.completion_tables) == sum(len(tables.tables) for tables in expected)
     assert [get_set_tables(first, index) for index in range(2)] == [expected[0].tables.tolist(), []]
+
+
+@pytest.mark.parametrize("code", [RANK_DEFICIENT_CODE, TWO_FAMILIES_CODE])
+def test_records_of_tails_hold_the_offset_tails_of_unit_syndromes(
+    code: npt.NDArray[np.uint8],
+) -> None:
+    """A record of tails holds the rank of each set, and the offset tails of unit syndrome words."""
+    num_columns = code.shape[1]
+    inverse = _cosets.get_unit_syndrome_words(get_kernel(code))
+    instance = affine_instance.get_coset_instance(code, random_column_orders=0, weight_factor=1)
+    record = coset_tables.get_coset_tails(
+        instance, [], None, inverse=inverse, block_bits=8, max_table_bytes=0
+    )
+    tail_bits = 64 * record.inverse_tails.shape[2]
+    for set_index, (packed_rows, pivots) in enumerate(
+        zip(instance.generators, instance.pivots, strict=True)
+    ):
+        # The rows of a set with a pivot come first, and reduce a word to its offset.
+        rank = int(np.count_nonzero(pivots >= 0))
+        assert record.ranks[set_index] == rank
+        rows = unpack_bits(packed_rows[:rank], num_columns)
+        span = [np.array(bits) @ rows % 2 for bits in itertools.product((0, 1), repeat=rank)]
+        tail_columns = np.delete(np.arange(num_columns), pivots[:rank])
+        for word, tail in zip(inverse, record.inverse_tails[set_index], strict=True):
+            # The offset is the one word of ``word`` plus the span of the set that is zero on the
+            # pivots of the set.
+            offsets = [(word + other) % 2 for other in span]
+            (offset,) = [offset for offset in offsets if not offset[pivots[:rank]].any()]
+            expected = np.zeros(tail_bits, dtype=np.uint8)
+            expected[: len(tail_columns)] = offset[tail_columns]
+            np.testing.assert_array_equal(unpack_bits(tail[None], tail_bits)[0], expected)
 
 
 def test_search_tables_plan_by_parity_exactly_when_cosets_of_an_even_code_differ() -> None:

@@ -31,6 +31,7 @@ PlanningBuffer = npt.NDArray[np.int64]
 TailFields = tuple[
     npt.NDArray[np.uint64],
     npt.NDArray[np.uint64],
+    npt.NDArray[np.int64],
     npt.NDArray[np.uint8],
     npt.NDArray[np.int64],
     int,
@@ -75,9 +76,12 @@ class CosetTails(NamedTuple):
 
     Attributes:
         tails: The tails of the rows of each set, with shape ``(num_sets, num_rows, num_words)``.
-        inverse_tails: The tails of the rows of ``CosetSearchTables.inverse`` on each set, with
-            shape ``(num_sets, num_syndrome_bits, num_words)``.  They derive from ``inverse``, but
-            a query sums them to find the tails of its offsets faster than it gathers columns.
+        inverse_tails: The tails of the offsets of the rows of ``CosetSearchTables.inverse`` on
+            each set, with shape ``(num_sets, num_syndrome_bits, num_words)``.  Reducing a word to
+            the offset of a set is linear (see ``_reduce_to_offset`` in ``coset.py``), so a query
+            sums these tails for the set bits of its syndrome to find the tail of its offset on the
+            set, without gathering columns or reading pivots.
+        ranks: The rank of each set.
         completion_tables: The completion tables of the tails of the sets that have them, one after
             another (see ``completion_bounds.CompletionTables``).
         layout: A row for each set: the start of its tables in ``completion_tables``, their number
@@ -89,6 +93,7 @@ class CosetTails(NamedTuple):
 
     tails: npt.NDArray[np.uint64]
     inverse_tails: npt.NDArray[np.uint64]
+    ranks: npt.NDArray[np.int64]
     completion_tables: npt.NDArray[np.uint8]
     layout: npt.NDArray[np.int64]
     block_bits: int
@@ -155,15 +160,27 @@ def get_coset_tails(
         for set_index, (pivots, rank) in enumerate(
             zip(instance.pivots, instance.ranks, strict=True)
         ):
+            # Each row of the set is zero on the pivots of the others, so a word reduces to its
+            # offset by adding the row of each pivot on which it has a one.
+            set_rows = rows[set_index, :rank]
+            selected = inverse[:, pivots[:rank]].astype(np.int64)
+            offsets = ((inverse + selected @ set_rows) % 2).astype(np.uint8)
             columns = np.delete(np.arange(num_columns), pivots[:rank])
             set_width = get_num_words(len(columns))
             tails[set_index, :, :set_width] = pack_bits(rows[set_index][:, columns])
-            inverse_tails[set_index, :, :set_width] = pack_bits(inverse[:, columns])
+            inverse_tails[set_index, :, :set_width] = pack_bits(offsets[:, columns])
         # The tables of a set have at most one block for each block_bits columns of its tails, and
         # block_bits divides the 64 bits of a word.
         max_blocks = 64 * tail_width // block_bits
         layout = np.zeros((num_sets, max_blocks + 3), dtype=np.int64)
-        record = CosetTails(tails, inverse_tails, np.zeros(0, np.uint8), layout, block_bits)
+        record = CosetTails(
+            tails,
+            inverse_tails,
+            instance.ranks,
+            np.zeros(0, np.uint8),
+            layout,
+            block_bits,
+        )
 
     # Size the tables of each set that has none yet, and keep those that fit.
     sizes = {
