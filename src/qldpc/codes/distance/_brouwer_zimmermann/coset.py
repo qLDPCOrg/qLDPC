@@ -723,8 +723,8 @@ def _search_from_syndrome_word(
     The search skips the unused sets of ``certificates.plan_steps``, which add nothing to the bound
     of the stopping step (Section 3.6).  By tails, it weighs words as
     ``affine_search.scan_coset_layer_by_tails`` does, and skips completions at the skip bound that
-    ``_get_skip_bound`` gives for the cutoff ``max(1, scale) * max_weight``.  A search by tails
-    writes its lightest word into ``best`` before it returns.
+    ``_get_skip_bound`` gives for the cutoff ``max(1, scale) * max_weight``.  The search writes its
+    lightest word into ``best`` before it returns.
 
     Returns:
         A lower bound on the weight of every word in the coset (Section 3.9, "Coset searches").  It
@@ -736,10 +736,11 @@ def _search_from_syndrome_word(
         supports skipped.  Only tests read the number of supports skipped, which they cannot count
         by wrapping compiled calls.
     """
-    # Reduce the word of the syndrome to the offset of each set, or, by tails, find the rank of each
-    # set and the tail of its offset.
+    # Make room for the offset of each set, or, by tails, for its tail, which the search computes
+    # from the word of the syndrome in ``best`` as it reaches the set (see ``_prepare_offsets``).
     num_sets, num_rows, _ = generators.shape
-    offsets, width, ranks = _get_set_offsets(packed_syndrome, best, generators, pivots, tails)
+    offsets, width, ranks = _get_offset_buffer(generators, pivots, tails)
+    num_ready = 0
 
     # The scans weigh ``factor`` units for each unit of weight: Hamming weights, which are ``scale``
     # times the weights, or CSS weights if ``scale`` is zero.
@@ -747,8 +748,9 @@ def _search_from_syndrome_word(
     best_units, cutoff = factor * best_weight, factor * max_weight
     skip_bound = _get_skip_bound(cutoff, parity)
 
-    # Visit each layer one set at a time, up to the stopping step.  The scans by tails keep the
-    # support of each lighter word in ``best_support``, and the others the word in ``best``.
+    # Visit each layer one set at a time, up to the stopping step.  In layers above zero, the scans
+    # by tails keep the support of each lighter word in ``best_support``, and the others the word
+    # in ``best``.
     best_set, best_layer = -1, 0
     weighed, skipped = 0, 0
     support = np.empty(num_rows, dtype=np.int64)
@@ -758,6 +760,16 @@ def _search_from_syndrome_word(
         for set_index in range(num_sets if layer < stop_layer else stop_num_completed):
             if certificates.is_unused_set(pivots, set_index, stop_layer, stop_num_completed):
                 continue
+            num_ready = _prepare_offsets(
+                set_index if layer == 0 else num_sets - 1,
+                num_ready,
+                packed_syndrome,
+                best,
+                offsets,
+                generators,
+                pivots,
+                tails,
+            )
             found, count, set_skipped = _scan_step(
                 set_index,
                 layer,
@@ -776,8 +788,6 @@ def _search_from_syndrome_word(
                 tails,
                 scale,
             )
-            if layer == 0 and tails is None and found < best_units:
-                best[:] = offsets[set_index]
             weighed += count
             skipped += set_skipped
             if found < best_units:
@@ -787,10 +797,13 @@ def _search_from_syndrome_word(
         if best_units <= cutoff:
             break
 
-    # By tails, write the lightest word into ``best``, which holds the word of the syndrome until
-    # then.
-    if tails is not None and best_set >= 0:
+    # Write the lightest word into ``best``, unless it is the word of the syndrome, or a scan of
+    # whole words wrote it there in a layer above zero.  By tails, rebuild it from the word of the
+    # syndrome, which ``best`` holds until then.
+    if best_set >= 0 and tails is not None:
         _rebuild_word(best, generators[best_set], pivots[best_set], best_support[:best_layer])
+    elif best_set >= 0 and best_layer == 0:
+        best[:] = offsets[best_set]
 
     # After a skip, the least weight beyond the maximum weight that a word of the coset can have is
     # the skip bound, rounded up to the parity of the coset, divided by ``factor``, and rounded up.
@@ -886,13 +899,14 @@ def _search_coset_for_min_weight(
         ``_search_from_syndrome_word``.
     """
     # Start from the word of the syndrome, which ends the search if it is within the floor, and
-    # reduce it as ``_search_from_syndrome_word`` does.
+    # make room for its offsets as ``_search_from_syndrome_word`` does.
     best_weight, parity = _get_syndrome_word(packed_syndrome, best, inverse, x_mask, scale)
     if best_weight <= floor:
         return best_weight, 0, 0
     bounds = get_planning_table(planning, parity)[:-1]
     num_sets, num_rows, _ = generators.shape
-    offsets, width, ranks = _get_set_offsets(packed_syndrome, best, generators, pivots, tails)
+    offsets, width, ranks = _get_offset_buffer(generators, pivots, tails)
+    num_ready = 0
 
     # Find, in the units of the scans, the skip bound and the slack, one where the words of the
     # coset share a parity, by which the incumbent falls below the best weight (Section 3.10).  Find
@@ -924,6 +938,16 @@ def _search_coset_for_min_weight(
                 incumbent = min(best_units - slack, skip_bound)
                 step_floor = max(floor, bounds[layer, set_index])
                 cutoff = min(factor * step_floor, incumbent - 1)
+                num_ready = _prepare_offsets(
+                    set_index if layer == 0 else num_sets - 1,
+                    num_ready,
+                    packed_syndrome,
+                    best,
+                    offsets,
+                    generators,
+                    pivots,
+                    tails,
+                )
                 found, count, set_skipped = _scan_step(
                     set_index,
                     layer,
@@ -973,28 +997,59 @@ def _get_rounding_parity(planning: PlanningBuffer, scale: int, parity: int) -> i
 
 
 @always_compiled(inline=True)
-def _get_set_offsets(
+def _get_offset_buffer(
+    generators: npt.NDArray[np.uint64], pivots: npt.NDArray[np.int64], tails: TailFields | None
+) -> tuple[npt.NDArray[np.uint64], int, npt.NDArray[np.int64]]:
+    """Allocate room for the offset of each set, or, by tails, for the tail of its offset.
+
+    The arguments are those of ``_search_coset``.  Without tails, the scans read no ranks, so the
+    pivots of the first set fill their place.
+
+    Returns:
+        The room for the offsets or their tails, their number of packed words, and the rank of each
+        set.
+    """
+    num_sets, _, word_width = generators.shape
+    if tails is None:
+        return np.empty((num_sets, word_width), dtype=np.uint64), word_width, pivots[0]
+    tail_rows, _, ranks, _, _, _ = tails
+    tail_width = tail_rows.shape[2]
+    return np.empty((num_sets, tail_width), dtype=np.uint64), tail_width, ranks
+
+
+@always_compiled(inline=True)
+def _prepare_offsets(
+    through: int,
+    num_ready: int,
     packed_syndrome: npt.NDArray[np.uint64],
     word: npt.NDArray[np.uint64],
+    offsets: npt.NDArray[np.uint64],
     generators: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
     tails: TailFields | None,
-) -> tuple[npt.NDArray[np.uint64], int, npt.NDArray[np.int64]]:
-    """Reduce the word of a syndrome to the offset of each set, or, by tails, to each offset's tail.
+) -> int:
+    """Compute the offsets, or their tails, of the sets up to ``through`` that are not ready yet.
 
-    ``word`` is the word of the syndrome ``packed_syndrome``, and the other arguments are those of
-    ``_search_coset``.  Without tails, the scans read no ranks, so the pivots of the first set fill
-    their place.
+    A query often ends at an early set of layer zero, so it computes the offsets of the sets in
+    order as it reaches them.  The offsets of the first ``num_ready`` sets are ready, and ``word``
+    is the word of the syndrome ``packed_syndrome``.  The searches pass ``best``, which holds that
+    word throughout layer zero, so they prepare every set before they scan a later layer, whose
+    scans may overwrite ``best``.  ``offsets`` comes from ``_get_offset_buffer``, and the other
+    arguments are those of ``_search_coset``.  By tails, the tail of an offset is the sum of the
+    offset tails of ``CosetTails.inverse_tails`` for the set bits of the syndrome, and reads no
+    ``word``.
 
     Returns:
-        The offsets or their tails, their number of packed words, and, by tails, the rank of each
-        set.
+        The number of sets whose offsets are ready.
     """
-    if tails is None:
-        return _get_offsets(word, generators, pivots), generators.shape[2], pivots[0]
-    tail_rows, inverse_tails, _, _, _ = tails
-    ranks, offsets = _get_offset_tails(packed_syndrome, word, pivots, tail_rows, inverse_tails)
-    return offsets, tail_rows.shape[2], ranks
+    for set_index in range(num_ready, through + 1):
+        if tails is None:
+            offsets[set_index] = word
+            _reduce_to_offset(offsets[set_index], generators[set_index], pivots[set_index])
+        else:
+            offsets[set_index] = 0
+            xor_selected_rows(packed_syndrome, tails[1][set_index], offsets[set_index])
+    return max(num_ready, through + 1)
 
 
 # Inlined although it is not small: both coset searches call it for each set of each step, with many
@@ -1020,10 +1075,11 @@ def _scan_step(
 ) -> tuple[int, int, int]:
     """Weigh the words of a set in a layer, with the scan of ``affine_search`` that fits the route.
 
-    ``offsets``, ``width``, and ``ranks`` are those of ``_get_set_offsets``, ``support`` has
-    ``layer`` entries, and the other arguments are those of the scans and of ``_search_coset``.  In
-    a layer above zero, a scan of whole words writes the lightest word that it finds into
-    ``representative``, and a scan by tails its support into ``best_support``.
+    ``offsets``, ``width``, and ``ranks`` are those of ``_get_offset_buffer``, with the offset of
+    the set computed by ``_prepare_offsets``.  ``support`` has ``layer`` entries, and the other
+    arguments are those of the scans and of ``_search_coset``.  In a layer above zero, a scan of
+    whole words writes the lightest word that it finds into ``representative``, and a scan by tails
+    its support into ``best_support``.
 
     Returns:
         In the units of the scans, the weight of the offset in layer zero, and in a later layer the
@@ -1059,7 +1115,7 @@ def _scan_step(
                 representative,
             )
         return found, count, 0
-    tail_rows, _, completion_tables, layout, block_bits = tails
+    tail_rows, _, _, completion_tables, layout, block_bits = tails
     if layer >= 2 and layout[set_index, 1]:
         # The tables of the set start at ``layout[set_index, 0]``, with a row of tables for each row
         # of the set but the last.
@@ -1094,54 +1150,6 @@ def _scan_step(
         best_support,
     )
     return found, count, 0
-
-
-@always_compiled(inline=True)
-def _get_offsets(
-    word: npt.NDArray[np.uint64], generators: npt.NDArray[np.uint64], pivots: npt.NDArray[np.int64]
-) -> npt.NDArray[np.uint64]:
-    """Reduce a word of a coset to the offset of each set, which is zero on its pivots.
-
-    ``generators`` and ``pivots`` are those of ``_search_coset``.
-    """
-    num_sets, _, width = generators.shape
-    offsets = np.empty((num_sets, width), dtype=np.uint64)
-    for set_index in range(num_sets):
-        offsets[set_index] = word
-        _reduce_to_offset(offsets[set_index], generators[set_index], pivots[set_index])
-    return offsets
-
-
-@always_compiled(inline=True)
-def _get_offset_tails(
-    packed_syndrome: npt.NDArray[np.uint64],
-    word: npt.NDArray[np.uint64],
-    pivots: npt.NDArray[np.int64],
-    tails: npt.NDArray[np.uint64],
-    inverse_tails: npt.NDArray[np.uint64],
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.uint64]]:
-    """Find the rank of each set and the tail of its offset.
-
-    ``word`` is the word of the syndrome ``packed_syndrome``, ``pivots`` are those of
-    ``_search_coset``, and ``tails`` and ``inverse_tails`` are those of ``CosetTails``.  The tail of
-    ``word`` is the sum of the inverse tails for the set bits of the syndrome.  The tail of an
-    offset adds to it the tails of the rows of the set whose pivots carry ones of ``word``, since
-    these rows reduce ``word`` to the offset (see ``_reduce_to_offset``).
-    """
-    num_sets, num_rows, tail_width = tails.shape
-    ranks = np.zeros(num_sets, dtype=np.int64)
-    offset_tails = np.zeros((num_sets, tail_width), dtype=np.uint64)
-    for set_index in range(num_sets):
-        xor_selected_rows(packed_syndrome, inverse_tails[set_index], offset_tails[set_index])
-        rank = 0
-        while rank < num_rows and pivots[set_index, rank] >= 0:
-            pivot = pivots[set_index, rank]
-            if word[pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
-                for index in range(tail_width):
-                    offset_tails[set_index, index] ^= tails[set_index, rank, index]
-            rank += 1
-        ranks[set_index] = rank
-    return ranks, offset_tails
 
 
 @always_compiled(inline=True)

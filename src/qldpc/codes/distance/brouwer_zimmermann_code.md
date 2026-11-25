@@ -49,6 +49,7 @@ If `V` is even, `AffineInstance.get_weight_bounds` rounds the bounds up to a par
 In a search of Pauli errors, an error weighs at least half the Hamming weight of its binary word, so the instance has the weight factor `η = 2`, by which `get_weight_bounds` divides its bounds, rounding up, after any rounding to parity; a search of X or Z parts has `η = 1`.
 
 A query starts from the **word of its syndrome**, the sum of the words with unit syndromes (`get_unit_syndrome_words` of [_cosets.py](_cosets.py)) for the set bits of its syndrome.
+It reduces that word to the offset of a search basis only when it first reaches the basis, since many queries end at an early search basis of layer zero.
 It stops at its **stopping step**, the first step whose bound exceeds the maximum weight, unless it finds a light enough word sooner.
 Each family of a coset search keeps the bounds of its steps in a **planning buffer**: one table for each parity of the cosets if the search rounds to parity, and one otherwise, and a query takes the table of its coset's parity.
 Each table has an extra row that caches one stopping step.
@@ -78,7 +79,8 @@ That search finds its stopping steps with `get_first_step_reaching` of [_brouwer
 On a **route by tails** ([Section 4.4](#44-heuristics-and-cost-models)), the queries weigh words by their tails.
 They pass the family's **record of tails**, `CosetTails`, to the compiled searches, such as `_search_coset`, as a plain tuple of its fields in place of None.
 Numba compiles each search separately for a record and for None, so the choice costs nothing for each word.
-The record holds the tails of the rows of each search basis, and the tails of the words with unit syndromes, from which a query sums the tail of its offset.
+The record holds the rank of each search basis, the tails of its rows, and the tails of the offsets of the words with unit syndromes on it.
+Reducing a word to its offset is linear, so a query finds the tail of its offset by summing these tails for the set bits of its syndrome, without reading the pivots.
 It also holds the completion tables that the routes of the family ask for.
 `CosetRoutes` builds the tails of a family, and the tables of each search basis, once, for the first route that needs them (`get_coset_tails`, `CompletionTables.build`).
 It builds new tables in the array of a new record, which copies the earlier tables; the old record keeps those until `CosetRoutes` replaces it.
@@ -225,7 +227,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
      Its queries then weigh words by their tails, and skip completions by tables on blocks of `coset_completion_block_bits` columns, for every search basis that they scan in layers of two or more rows, if the tables fit in `coset_completion_max_table_bytes`.
      The threshold and this limit replace the minimum layer work and the cost model of `select_completion_tables`.
 
-  Building the two families costs a matroid partitioning and the row reductions of an overlapping family; weighing by tails adds a fixed cost to each query, for the tail of its offset in each search basis and the rebuild of its lightest word; and tables cost memory and a build.
+  Building the two families costs a matroid partitioning and the row reductions of an overlapping family; weighing by tails adds a fixed cost to each query, for the tail of its offset in each search basis that it reaches and the rebuild of its lightest word; and tables cost memory and a build.
   Only queries that examine many words repay these costs.
   The threshold also sets the aim `ω_T`, which no break-even rule covers, so its default is chosen by hand.
 - **`select_completion_tables`** decides, by the steps of [Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables), whether a distance search uses tables on a search basis in a layer, or a count on a step.
