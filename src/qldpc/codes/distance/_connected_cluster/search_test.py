@@ -856,6 +856,38 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     assert num_states[False] == num_states[True] + 1
 
 
+def test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state() -> None:
+    """Variables in no check change only how the states take overlaps and clear repairs.
+
+    A state takes the overlaps of all symbols at once, and clears the repairs of all symbols, if its
+    unsatisfied checks have more entries than there are symbols, as ``_get_branches`` counts them.
+    The states of the Golay problem often do, and those of the problem padded with as many
+    variables in no check as the checks have entries never do.  The padded variables are excluded,
+    and come last, so each adds a root whose one state has an empty syndrome and no witness, and
+    changes nothing else.
+    """
+    checks, excluded = get_golay_problem()
+    num_padded = int(np.count_nonzero(checks))
+    padded_checks = np.hstack([checks, np.zeros((len(checks), num_padded), dtype=np.uint8)])
+    padded_excluded = np.block(
+        [
+            [excluded, np.zeros((len(excluded), num_padded), dtype=np.uint8)],
+            [np.zeros((num_padded, checks.shape[1]), dtype=np.uint8), np.eye(num_padded)],
+        ]
+    ).astype(np.uint8)
+    search = get_search(checks, excluded, pair_sum_checks=False)
+    padded = get_search(padded_checks, padded_excluded, pair_sum_checks=False)
+    for max_weight in range(1, 8):
+        num_states = search.num_states, padded.num_states
+        witness, padded_witness = search.find_witness(max_weight), padded.find_witness(max_weight)
+        added_states = padded.num_states - num_states[1] - (search.num_states - num_states[0])
+        if witness is None or padded_witness is None:
+            assert witness is None and padded_witness is None and added_states == num_padded
+        else:
+            assert witness.tolist() == padded_witness.tolist() and added_states == 0
+    assert witness is not None and len(witness) == 7
+
+
 @pytest.mark.parametrize(
     "switch", ["restrict_viable_symbols", "stabilizer_overlap_cuts", "pair_sum_checks"]
 )
