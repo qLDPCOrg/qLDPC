@@ -411,6 +411,21 @@ def test_permutation_automorphism_group(
         rows = "[Z(4)^0,0*Z(4),Z(4)^0,Z(4)^1,Z(4)^2],[0*Z(4),Z(4)^0,Z(4)^0,Z(4)^0,Z(4)^0]"
         assert f"PermutationAutomorphismGroup(CheckMatCode([{rows}],GF(4)))" in query
 
+    # if GAP needs copying commands by hand but MAGMA is on PATH, the warning says so, but the
+    # default path still computes with GAP, the system that the caller chose
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1,2)\n"),
+        unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=True),
+        unittest.mock.patch(
+            "qldpc.external._magma.get_output", side_effect=AssertionError("must not run MAGMA")
+        ),
+        pytest.warns(UserWarning, match="MAGMA executable is on PATH"),
+    ):
+        assert codes.RepetitionCode(2).get_permutation_automorphism_group().order == 2
+
     # compute a permutation automorphism group with MAGMA, asking it for the PermutationGroup of the
     # code rather than its AutomorphismGroup, whose members also scale nonbinary coordinates
     user_inputs = iter(

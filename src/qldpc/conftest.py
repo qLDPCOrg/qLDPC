@@ -22,6 +22,7 @@ import grimp
 import pytest
 
 from qldpc import _compilation, abstract, external
+from qldpc.external import _magma
 
 # A comment that lets an import break the layering rule of check_import_layering.
 _LAYERING_EXCEPTION = re.compile(r"#\s*layering-exception:\s*\S")
@@ -104,6 +105,20 @@ def isolate_gap_probe_state() -> Iterator[None]:
 def block_clipboard(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep tests of the manual GAP and MAGMA workflows from overwriting the user's clipboard."""
     monkeypatch.setattr("pyperclip.copy", lambda text: None)
+
+
+@pytest.fixture(autouse=True)
+def block_local_magma(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep tests from running a MAGMA executable that is installed on the machine.
+
+    Tests that need MAGMA mock it, since CI has no MAGMA.  The availability probe is cached for the
+    process, so this fixture clears it around every test.
+    """
+    monkeypatch.setattr(_magma, "is_on_path", lambda: False)
+    is_callable = _magma.is_callable  # tests may replace this function
+    is_callable.cache_clear()
+    yield
+    is_callable.cache_clear()
 
 
 @pytest.fixture(autouse=True, scope="session")

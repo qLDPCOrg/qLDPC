@@ -98,8 +98,8 @@ def get_transversal_ops(
     gate, and (b) changing the code that encodes the logical state to
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
-    This function constructs a transversal automorphism group, which may run GAP or prompt on
-    standard input; see help(get_transversal_automorphism_group).
+    This function constructs a transversal automorphism group, which may run GAP or MAGMA, or
+    prompt on standard input; see help(get_transversal_automorphism_group).
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
     """
@@ -159,7 +159,7 @@ def get_transversal_automorphism_group(
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
     Constructing this group computes the permutation automorphism group of a classical code, which
-    may run GAP or prompt on standard input; see
+    may run GAP or MAGMA, or prompt on standard input; see
     help(qldpc.codes.ClassicalCode.get_permutation_automorphism_group).
 
     Uses the methods of https://arxiv.org/abs/2409.18175.
@@ -285,8 +285,8 @@ def get_transversal_circuits(
     gate, and (b) changing the code that encodes the logical state to
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
-    This function constructs a transversal automorphism group, which may run GAP or prompt on
-    standard input; see help(get_transversal_automorphism_group).
+    This function constructs a transversal automorphism group, which may run GAP or MAGMA, or
+    prompt on standard input; see help(get_transversal_automorphism_group).
 
     .. warning::
         This method performs a brute-force search over the Clifford automorphisms of a code, and
@@ -373,8 +373,8 @@ def get_transversal_circuit(
     gate, and (b) changing the code that encodes the logical state to
     ``code.deformed(physical_circuit, preserve_logicals=True)``.
 
-    This function constructs a transversal automorphism group, which may run GAP or prompt on
-    standard input; see help(get_transversal_automorphism_group).
+    This function constructs a transversal automorphism group, which may run GAP or MAGMA, or
+    prompt on standard input; see help(get_transversal_automorphism_group).
 
     .. warning::
         This method performs a brute-force search over the Clifford automorphisms of a code, and

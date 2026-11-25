@@ -637,8 +637,12 @@ class Group:
         commands, copies them to the system clipboard, and reads the output that the user pastes
         into standard input.  It blocks, and raises EOFError if standard input is closed.  Calling
         GAP may install the GAP GUAVA package, after asking for consent on standard input, and
-        raises the warning warning_to_raise_if_calling_gap, if provided.  A MAGMA group is always
-        retrieved by such a manual copy/paste workflow.  Retrieved generators are cached to disk.
+        raises the warning warning_to_raise_if_calling_gap, if provided.  A MAGMA group is retrieved
+        from a local disk cache if possible, else from MAGMA if MAGMA can be called from the command
+        line, and otherwise by such a manual copy/paste workflow.  If MAGMA fails to finish running
+        the command without reporting an error in it, qLDPC warns and falls back to the manual
+        workflow.  qLDPC runs MAGMA with a fixed random seed and without the user's startup file.
+        Retrieved generators are cached to disk.
         """
         from qldpc.external import _groups  # avoid circular import
 

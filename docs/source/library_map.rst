@@ -266,7 +266,7 @@ Other limitations:
 
 * Circuit and tableau tools work only with qubit codes, and memory experiments for non-CSS codes need ``basis=None``.
 * :func:`~qldpc.circuits.encoding.get_encoding_circuit` builds a valid encoder that is not fault-tolerant.
-* Transversal-gate searches enumerate code automorphisms, can take exponential time, and may run GAP or prompt on standard input.
+* Transversal-gate searches enumerate code automorphisms, can take exponential time, and may run GAP or MAGMA, or prompt on standard input.
 * Windowed decoders such as :class:`~qldpc.decoders.sinter.window.SlidingWindowDecoder` infer each detector's time from its coordinates by a heuristic; pass ``detector_to_time`` when a detector error model uses another convention.
 
 What qLDPC computes exactly, bounds, and trusts
@@ -292,6 +292,15 @@ If neither backend is available, some functions offer a manual workflow that pri
 When a needed GAP package such as GUAVA or QDistRnd is missing, qLDPC asks on standard input before installing it: with GAP's PackageManager for libgap, or by cloning it with Git into qLDPC's user cache directory for the executable.
 
 Functions that can use GAP include :meth:`ClassicalCode.from_name <qldpc.codes.common.ClassicalCode.from_name>`, :meth:`ClassicalCode.get_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_permutation_automorphism_group>`, :meth:`abstract.Group.from_name <qldpc.abstract.groups.Group.from_name>`, distance bounds with the GAP backend, and transversal-gate searches such as :func:`~qldpc.circuits.transversal.get_transversal_ops`.
+
+MAGMA
+~~~~~
+
+Permutation automorphism groups and transversal-gate searches use MAGMA instead of GAP when called with ``with_magma=True``, as does ``Group.from_name`` with ``from_magma=True``.
+These calls never fall back to GAP, and calls without these arguments never run MAGMA, so the system that computes a group's generators is always the one that the caller chose.
+qLDPC runs a ``magma`` executable on ``PATH`` in a subprocess, with a fixed random seed and without the user's startup file, if a test run of it succeeds.
+Otherwise, it prints the MAGMA command, copies it to the system clipboard, and reads MAGMA's output from standard input.
+Results of both workflows are cached on disk.
 
 Code and group lookups
 ~~~~~~~~~~~~~~~~~~~~~~
