@@ -6,15 +6,16 @@ See https://www.gap-system.org.
 
 qLDPC runs GAP in process through ``passagemath-gap`` when that package is installed.  Otherwise,
 qLDPC runs GAP as a separate program.  It also does so after :func:`require_package` fails to
-install a GAP package through ``passagemath-gap`` and then installs it for the separate program,
-until the Python session ends or :func:`clear_cache` is called.
+install a GAP package through ``passagemath-gap`` and the package is available to the separate
+program, either already or after qLDPC installs it there, until the Python session ends or
+:func:`clear_cache` is called.
 
 qLDPC starts the separate program with a *launch command*: the value of the environment variable
 ``QLDPC_GAP_COMMAND``, or ``gap`` if that variable is unset or blank.  For example, to use a GAP
 executable that is not on ``PATH``, set ``QLDPC_GAP_COMMAND`` to the executable's full path.  If the
-path contains spaces, the value of ``QLDPC_GAP_COMMAND`` must contain double quotes around the path,
-so quote these double quotes in your shell.  In a running Python session, call :func:`clear_cache`
-after changing ``QLDPC_GAP_COMMAND``.
+path contains spaces, the value of ``QLDPC_GAP_COMMAND`` must itself contain double quotes around
+the path.  If your shell removes double quotes, as bash does, quote or escape them.  In a running
+Python session, call :func:`clear_cache` after changing ``QLDPC_GAP_COMMAND``.
 
 qLDPC splits the launch command into arguments at whitespace outside double quotes, and removes the
 double quotes.  Backslashes have no special meaning, so Windows paths need no escaping.  An
@@ -206,7 +207,7 @@ def require_package(name: str, repo: str | None = None) -> bool:
 
     With the direct libgap backend, this checks the package through GAP.  A missing package prompts
     on standard input and, with the user's consent, is installed through GAP's PackageManager into
-    the user package directory visible to libgap.  If that installation fails but GAP runs as a
+    the user package directory visible to libgap.  If that installation fails but GAP can run as a
     separate program, qLDPC prints instructions for installing the package for libgap before falling
     back to the separate program.  With the separate program, qLDPC installs a missing package by
     cloning its repository into the ``gap/pkg`` subdirectory of qLDPC's user cache directory (see

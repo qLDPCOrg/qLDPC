@@ -288,7 +288,7 @@ GAP backends
 
 qLDPC calls GAP in process through the ``passagemath-gap`` libgap binding when it is installed, with ``pip install 'qldpc[gap]'`` on Python 3.13 outside Windows.
 Otherwise, qLDPC runs GAP as a separate program.
-It also does so after installing a GAP package through ``passagemath-gap`` fails and installing it for the separate program succeeds.
+It also does so after installing a GAP package through ``passagemath-gap`` fails and the package is available to the separate program, either already or after qLDPC installs it there.
 qLDPC starts this program with the launch command in the environment variable ``QLDPC_GAP_COMMAND``, or with ``gap`` if that variable is unset or blank.
 The docstring of :mod:`qldpc.external.gap` says what a launch command must do.
 If neither backend is available, some functions offer a manual workflow that prints GAP code, copies it to the system clipboard, and reads GAP's output from standard input.
