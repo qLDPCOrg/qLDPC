@@ -623,6 +623,8 @@ class _GateTarget(NamedTuple):
             return stim.target_sweep_bit(self.value)
         if self.kind:
             return stim.target_pauli(self.value, self.kind, self.inverted)
+        # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+        # "stim.Circuit.append in stim 1.16".
         return stim.target_inv(self.value) if self.inverted else stim.GateTarget(self.value)
 
 
@@ -653,7 +655,11 @@ class _CircuitInstruction(NamedTuple):
         return self._replace(name=name)
 
     def to_stim(self) -> stim.CircuitInstruction:
-        """This instruction as a stim instruction, with combiners in Pauli products."""
+        """This instruction as a stim instruction, with combiners in Pauli products.
+
+        TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+        "stim.Circuit.append in stim 1.16".
+        """
         targets = []
         for group in self.groups:
             for index, target in enumerate(group):
@@ -706,14 +712,13 @@ def _get_instructions(circuit: stim.Circuit) -> list[_CircuitInstruction]:
 def _get_circuit(instructions: list[_CircuitInstruction]) -> stim.Circuit:
     """The circuit of a list of instructions, built by parsing its text once.
 
-    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    "stim.Circuit.append in stim 1.16".
-
     The text writes arguments exactly, with ``repr``.  Stim cannot parse infinite or NaN arguments,
     such as some coordinates, so a list with such arguments is appended one instruction at a time
     instead.  Both give the same circuit, since stim fuses consecutive compatible instructions both
     when parsing and when appending.
     """
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    # "stim.Circuit.append in stim 1.16".
     if all(math.isfinite(arg) for instruction in instructions for arg in instruction.arguments):
         return stim.Circuit("\n".join(map(str, instructions)))
     circuit = stim.Circuit()

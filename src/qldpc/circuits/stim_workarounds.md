@@ -5,7 +5,7 @@ Code belongs here if it would be deleted or simplified mechanically once Stim is
 Algorithmic choices, ordinary uses of Stim's API, and caches that would remain useful do not.
 
 Each site of a workaround carries a marker.
-In the docstring of a function, the marker is the paragraph right after the summary line:
+A function that the migration deletes carries the marker as the paragraph right after its docstring's summary line:
 
 ```python
 def function():
@@ -17,7 +17,7 @@ def function():
     """
 ```
 
-Elsewhere, such as above a constant or a block of code, the marker is a comment:
+Anything else that the migration deletes or changes, such as a constant, a block of code, or a line of a function that stays, carries the marker as a comment above it:
 
 ```python
 # TEMPORARY until <trigger>: see circuits/stim_workarounds.md, "<section title>".
@@ -93,6 +93,8 @@ These functions build circuits by joining the text of their instructions and par
 - `qldpc.circuits.certification.fault_propagation._get_primitive_fault_signatures`, for its detectors on the measured stabilizers;
 - `qldpc.experimental.circuits.transforms.deferred_measurement._get_circuit`, which builds each output circuit of the module's passes.
 
+In `qldpc.experimental.circuits.transforms.deferred_measurement`, the plain qubit of `_GateTarget.to_stim` and the whole of `_CircuitInstruction.to_stim` give Stim's slow constructors objects that appending would not need.
+
 In `qldpc.circuits.common_test`, the call of `_get_pauli_product_text` in `test_pauli_product_measurement_edge_cases` exists only for the workaround.
 
 **Migration:**
@@ -108,7 +110,7 @@ In `qldpc.circuits.common_test`, the call of `_get_pauli_product_text` in `test_
    Keep `_CircuitInstruction.__str__` and `_escape`, since error messages use both.
 6. In the comment that opens the section "instructions as Python objects" of `deferred_measurement`, and in the docstring of `_get_circuit`, delete what describes building circuits from text.
    Keep the reason that `_GateTarget` and `_CircuitInstruction` stay.
-7. Keep `test_non_finite_arguments` and `test_split_measure_resets` of `deferred_measurement_test`, which check results, but delete "which stim cannot parse" from the docstring of the former.
+7. Keep `test_non_finite_arguments` and `test_split_measure_resets` of `deferred_measurement_test`, which check results.
 8. Delete this section.
 
 **Check:**
