@@ -4,10 +4,14 @@
 
 See https://www.gap-system.org.
 
-To run GAP from the command line, qLDPC calls the command in the environment variable
-``QLDPC_GAP_COMMAND`` if it is set, such as the full path of a GAP program that is not on ``PATH``,
-or else ``gap``.  qLDPC splits this command into arguments at whitespace outside double quotes,
-removes the double quotes, and keeps backslashes, so Windows paths need no escaping.
+To run GAP from the command line, qLDPC uses the command in the environment variable
+``QLDPC_GAP_COMMAND``, such as the full path of a GAP program that is not on ``PATH``.  If this
+variable is unset or blank, qLDPC uses ``gap``.  qLDPC splits the command into arguments at
+whitespace outside double quotes, removes the double quotes, and keeps backslashes, so Windows paths
+need no escaping.  A command with an unmatched double quote raises a ``ValueError``.
+
+qLDPC runs the command without a shell and appends GAP's command-line options to it.  The command
+gets GAP code through these options or through standard input, so it must pass both on to GAP.
 """
 
 from __future__ import annotations
@@ -79,7 +83,7 @@ def is_installed() -> bool:
     """
     if is_callable():
         return True
-    print(f"GAP 4 cannot be called from the command line (with '{shlex.join(_get_command())}').")
+    print(f"GAP 4 cannot be called from the command line (with {_get_command_line()}).")
     print(f"To call GAP automatically, set {_COMMAND_VARIABLE} to a command that runs it.")
     print("Can you manually copy/paste commands and outputs between here and GAP? [y/N]")
     answer = input().lower()
@@ -270,19 +274,23 @@ def _get_libgap() -> _LibGap | None:
     return getattr(module, "libgap", None)
 
 
+def _get_command_line() -> str:
+    """Return the command that runs GAP from the command line, before splitting it."""
+    return os.environ.get(_COMMAND_VARIABLE, "").strip() or "gap"
+
+
 def _get_command() -> list[str]:
     """Return the command that runs GAP from the command line, as the module docstring describes."""
-    value = os.environ.get(_COMMAND_VARIABLE, "")
+    value = _get_command_line()
     lexer = shlex.shlex(value, posix=True)
     lexer.whitespace_split = True
     lexer.commenters = ""
     lexer.escape = ""
     lexer.quotes = '"'
     try:
-        command = list(lexer)
+        return list(lexer)
     except ValueError as error:
         raise ValueError(f"Cannot parse {_COMMAND_VARIABLE}={value!r}: {error}") from error
-    return command or ["gap"]
 
 
 @functools.cache
@@ -290,7 +298,10 @@ def _is_gap_executable() -> bool:
     """Can the GAP executable be used for package installation and evaluation?"""
     commands = [*_get_command(), "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
-        result = subprocess.run(commands, capture_output=True, text=True, check=False)
+        # without input, a command that ignores its arguments and starts GAP interactively exits
+        result = subprocess.run(
+            commands, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False
+        )
     except OSError:  # such as a missing program, or one that the system cannot run
         return False
     return bool(re.match(r"4\.\d+\.\d+", result.stdout.strip()))
@@ -363,7 +374,7 @@ def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> s
     script_input = " ".join(commands)
     if not use_pipe:
         shell_commands.extend(["-c", script_input])
-        pipe_input = None
+        pipe_input = ""  # no input, as in _is_gap_executable
     else:
         pipe_input = script_input
     result = subprocess.run(
