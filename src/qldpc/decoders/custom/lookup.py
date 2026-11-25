@@ -756,12 +756,6 @@ class WeightedLookupDecoder(LookupDecoder):
     """
 
 
-# defined before the classes below, whose method signatures use it as a default argument
-def _hamming_weight(vec: npt.NDArray[np.int_]) -> int:
-    """The number of nonzero entries of a vector, which is the default lookup-decoding penalty."""
-    return int(np.count_nonzero(vec))
-
-
 class _CandidateLookupDecoder(WeightedLookupDecoder):
     """Shared implementation of weighted lookup decoders, which store candidate errors by syndrome.
 
@@ -801,7 +795,7 @@ class _CandidateLookupDecoder(WeightedLookupDecoder):
         # Record all errors consistent with each syndrome, together with the output to return if
         # that error is selected: an observable-flip prediction if requested (else the error
         # itself), with a trivial erasure bit appended.  The output is precomputed here so that
-        # decode() only has to select the minimum-penalty candidate error.
+        # decode() only has to select a candidate error.
         self._syndrome_to_candidates: collections.defaultdict[
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
@@ -830,15 +824,16 @@ class _CandidateLookupDecoder(WeightedLookupDecoder):
     def _decode_weighted(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = _hamming_weight,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None,
     ) -> npt.NDArray[np.int_]:
-        """Look up the minimum-penalty configured prediction."""
+        """The output of a lightest candidate error, of least penalty if penalty_func is given."""
         key = self._get_syndrome_key(syndrome)
         if key is None or key not in self._syndrome_to_candidates:
             return self.default_correction.copy()
 
         candidates = self._syndrome_to_candidates[key]
         if penalty_func is None:
+            # candidates are recorded in order of decreasing weight, so the last is a lightest one
             output = candidates[-1][1]
         else:
             # an equal penalty resolves in favor of the lighter candidate error
@@ -870,8 +865,12 @@ class WeightedErrorLookupDecoder(_CandidateLookupDecoder, ErrorDecoder):
     max_weight`` that are consistent with each syndrome.  The WeightedErrorLookupDecoder then
     minimizes a penalty function that is provided to the ``.decode`` method.  A
     WeightedErrorLookupDecoder can thereby be initialized once, and subsequently asked to decode
-    with different penalty functions.  The default penalty function is the Hamming weight of an
-    error.
+    with different penalty functions.
+
+    Without a penalty function, decoding returns a lightest candidate error.  The weight of an error
+    is the number of bits or qudits that it addresses nontrivially.  With ``symplectic=True``, a
+    qudit with both an X and a Z part counts once.  With a penalty function, decoding returns a
+    lightest candidate error among those with the least penalty.
 
     The ``pcm_or_dem``, ``max_weight``, ``observable_flip_matrix``, ``post_select``,
     ``add_erasure_bit``, and ``symplectic`` options behave as they do for an ErrorLookupDecoder;
@@ -881,17 +880,29 @@ class WeightedErrorLookupDecoder(_CandidateLookupDecoder, ErrorDecoder):
     def decode_errors(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = _hamming_weight,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> npt.NDArray[np.int_]:
-        """Decode an error syndrome and return an inferred error."""
+        """Decode an error syndrome and return an inferred error.
+
+        Args:
+            syndrome: The error syndrome to decode.
+            penalty_func: A function of a candidate error to minimize, or None to return a lightest
+                candidate error (see help(WeightedErrorLookupDecoder)).  Default: None.
+        """
         return self._decode_weighted(syndrome, penalty_func)
 
     def decode_errors_batch(
         self,
         syndromes: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = _hamming_weight,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> npt.NDArray[np.int_]:
-        """Decode a batch of syndromes, one per row, and return inferred errors."""
+        """Decode a batch of syndromes, one per row, and return inferred errors.
+
+        Args:
+            syndromes: The error syndromes to decode, one per row.
+            penalty_func: A function of a candidate error to minimize, or None to return a lightest
+                candidate error (see help(WeightedErrorLookupDecoder)).  Default: None.
+        """
         return self._stack_predictions(
             [self._decode_weighted(syndrome, penalty_func) for syndrome in syndromes]
         )
@@ -901,7 +912,7 @@ class WeightedErrorLookupDecoder(_CandidateLookupDecoder, ErrorDecoder):
     def decode(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = _hamming_weight,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error (alias for decode_errors)."""
         return self.decode_errors(syndrome, penalty_func)
@@ -927,8 +938,8 @@ class WeightedObservableLookupDecoder(_CandidateLookupDecoder):
 
     A WeightedObservableLookupDecoder records the same candidate errors as a
     WeightedErrorLookupDecoder (see help(WeightedErrorLookupDecoder)).  Its ``.decode_observables``
-    method selects the candidate error that minimizes a provided penalty function, and returns the
-    observable flip that this error induces.  A WeightedObservableLookupDecoder is built from a
+    method selects a candidate error as WeightedErrorLookupDecoder.decode_errors does, and returns
+    the observable flip that this error induces.  A WeightedObservableLookupDecoder is built from a
     detector error model, or from a parity check matrix together with an ``observable_flip_matrix``.
     """
 
@@ -979,17 +990,29 @@ class WeightedObservableLookupDecoder(_CandidateLookupDecoder):
     def decode_observables(
         self,
         syndrome: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = _hamming_weight,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> npt.NDArray[np.int_]:
-        """Decode a syndrome and return predicted observable flips."""
+        """Decode a syndrome and return predicted observable flips.
+
+        Args:
+            syndrome: The error syndrome to decode.
+            penalty_func: A function of a candidate error to minimize, or None to select a lightest
+                candidate error (see help(WeightedErrorLookupDecoder)).  Default: None.
+        """
         return self._decode_weighted(syndrome, penalty_func)
 
     def decode_observables_batch(
         self,
         syndromes: npt.NDArray[np.int_],
-        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = _hamming_weight,
+        penalty_func: Callable[[npt.NDArray[np.int_]], float] | None = None,
     ) -> npt.NDArray[np.int_]:
-        """Decode a batch of syndromes, one per row, and return predicted observable flips."""
+        """Decode a batch of syndromes, one per row, and return predicted observable flips.
+
+        Args:
+            syndromes: The error syndromes to decode, one per row.
+            penalty_func: A function of a candidate error to minimize, or None to select a lightest
+                candidate error (see help(WeightedErrorLookupDecoder)).  Default: None.
+        """
         return self._stack_predictions(
             [self._decode_weighted(syndrome, penalty_func) for syndrome in syndromes]
         )
@@ -1045,10 +1068,10 @@ def _read_only_view(array: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
 def _error_weight(error: npt.NDArray[np.int_], symplectic: bool) -> int:
     """The weight of an error: the number of qudits, or of bits, that it addresses nontrivially.
 
-    This is the weight that ``iter_errors_and_syndromes`` enumerates by, so ranking errors by it
-    keeps the lighter of two that a penalty scores equally.  A symplectic error assigns both an X
-    and a Z component to each qudit, and a qudit carrying both counts once, so the number of nonzero
-    entries would count it twice.
+    This is the weight that ``iter_errors_and_syndromes`` enumerates by.  Weighted lookup decoders
+    select a candidate error of least weight, among those of least penalty if a decode method is
+    given a penalty function.  A symplectic error assigns both an X and a Z component to each qudit,
+    and a qudit carrying both counts once, so the number of nonzero entries would count it twice.
     """
     if symplectic:
         return int(math.symplectic_weight(np.asarray(error)))

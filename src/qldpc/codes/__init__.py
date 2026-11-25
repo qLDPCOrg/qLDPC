@@ -30,8 +30,8 @@ from .common import (
 from .distance import NO_DISTANCE, DistanceMethod, NoDistance
 from .quantum import (
     BaconShorCode,
+    BalancedProductCode,
     BBCode,
-    BPCode,
     C4Code,
     C6Code,
     CHGPCode,
@@ -71,8 +71,8 @@ __all__ = [
     "AbstractCode",
     "BBCode",
     "BCHCode",
-    "BPCode",
     "BaconShorCode",
+    "BalancedProductCode",
     "C4Code",
     "C6Code",
     "CHGPCode",

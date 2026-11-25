@@ -127,7 +127,7 @@ The split route covers other rings whose involution transposes lifts, for seed m
 Use ``QTCode`` for symmetric sets of distinct members and for the bipartite complex, and ``LQTCode`` for lists whose members repeat or are not symmetric, for four local codes, or for the codes of Eq. (2) of that paper; the ``LQTCode`` docstring relates the two.
 The docstrings of both classes describe the parity checks at each vertex of their complexes, and that of :data:`~qldpc.codes.quantum.quantum_tanner.LocalChecks` describes how the argument ``local_checks`` chooses these checks.
 Families such as :class:`~qldpc.codes.quantum.surface.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
-:class:`~qldpc.codes.quantum.balanced_product.BPCode` takes symmetries of two classical codes, as permutations or as members of :meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and builds its chain complex with :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>`.
+:class:`~qldpc.codes.quantum.balanced_product.BalancedProductCode` takes symmetries of two classical codes, as permutations or as members of :meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and builds its chain complex with :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>`.
 The API reference documents each family's conventions and literature.
 
 Distances across packages

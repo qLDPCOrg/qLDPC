@@ -61,7 +61,7 @@ class LegacyObservableLookupDecoder(ObservableLookupDecoder):
 
 
 class LegacyWeightedObservableLookupDecoder(WeightedObservableLookupDecoder):
-    """A WeightedObservableLookupDecoder with the decode methods and attributes of qLDPC 0.4.1.
+    """A WeightedObservableLookupDecoder with the decode-method and attribute names of qLDPC 0.4.1.
 
     WeightedLookupDecoder(..., predict_observable_flips=True) builds this decoder.  Its decode,
     decode_errors, decode_batch, and decode_errors_batch methods predict observable flips, and take

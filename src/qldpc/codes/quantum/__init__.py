@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from qldpc import _deprecations
 
-from .balanced_product import BPCode
+from .balanced_product import BalancedProductCode
 from .hypergraph_product import (
     BaconShorCode,
     CHGPCode,
@@ -47,8 +47,8 @@ from .two_block import BBCode, GALACode, MBCode, TBCode
 
 __all__ = [
     "BBCode",
-    "BPCode",
     "BaconShorCode",
+    "BalancedProductCode",
     "C4Code",
     "C6Code",
     "CHGPCode",

@@ -57,6 +57,8 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
         with pytest.raises(ValueError, match="needs both bits and checks"):
             codes.ClassicalCode.random(bits, checks)
 
+    assert codes.ClassicalCode([[1, 1]]) != codes.ClassicalCode([[1, 1]], field=3)
+
     code = codes.RepetitionCode(2, field=3)
     assert len(code) == 2
     assert code.dimension == 1
@@ -85,6 +87,19 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     # construct a code from its generator matrix
     code = codes.ClassicalCode.random(6, 4, field=3)
     assert code.is_equiv_to(codes.ClassicalCode.from_generator(code.generator))
+
+    # the code keeps its generator matrix, and lists each word of its span once even if the rows of
+    # that matrix are linearly dependent
+    generator = [[0, 0, 0, 0], [1, 1, 0, 1], [1, 1, 0, 1], [0, 1, 1, 1], [1, 0, 1, 0]]
+    code = codes.ClassicalCode.from_generator(generator)
+    assert np.array_equal(code.generator, generator)
+    span = {
+        tuple((np.array(coefficients) @ generator % 2).tolist())
+        for coefficients in itertools.product([0, 1], repeat=len(generator))
+    }
+    words = [tuple(word.tolist()) for word in code.iter_words()]
+    assert len(words) == len(span) == 4
+    assert set(words) == span
 
     # puncture and shorten a code
     for field in [2, 3]:

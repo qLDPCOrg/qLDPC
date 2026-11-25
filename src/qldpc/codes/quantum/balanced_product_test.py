@@ -19,7 +19,7 @@ def test_balanced_product_code() -> None:
     # without symmetries, a balanced product code is a hypergraph product code
     code_a = codes.ClassicalCode([[1, 1, 0], [0, 1, 1]], field=3)
     code_b = codes.ClassicalCode([[1, 0], [1, 2], [0, 1]], field=3)
-    code = codes.BPCode(code_a, code_b)
+    code = codes.BalancedProductCode(code_a, code_b)
     hgp_code = codes.HGPCode(code_a, code_b)
     assert np.array_equal(code.matrix_x, hgp_code.matrix_x)
     assert np.array_equal(code.matrix_z, hgp_code.matrix_z)
@@ -35,7 +35,7 @@ def test_balanced_product_code() -> None:
     symmetry = ([1, 2, 0], [1, 2, 0, 4, 5, 3])
     # the inverse shift as one permutation of the 3 checks followed by the 6 bits
     inverse_symmetry = abstract.GroupMember([2, 0, 1, 5, 3, 4, 8, 6, 7])
-    code = codes.BPCode(matrix.lift(), matrix.lift(), [symmetry], [inverse_symmetry])
+    code = codes.BalancedProductCode(matrix.lift(), matrix.lift(), [symmetry], [inverse_symmetry])
     assert tanner_graphs_are_isomorphic(code, codes.LPCode(matrix, matrix))
 
     # over GF(2), from_seed constructs the code of Eq. (3) in Definition 1 of arXiv:2505.13679v2, up
@@ -53,9 +53,9 @@ def test_balanced_product_code() -> None:
         mat_cols = abstract.GroupMember(p_cols).to_matrix().T
         if as_objects:
             member = abstract.GroupMember(p_rows) @ abstract.GroupMember(p_cols)
-            code = codes.BPCode.from_seed(codes.ClassicalCode(seed_matrix), member)
+            code = codes.BalancedProductCode.from_seed(codes.ClassicalCode(seed_matrix), member)
         else:
-            code = codes.BPCode.from_seed(seed_matrix, (p_rows, p_cols))
+            code = codes.BalancedProductCode.from_seed(seed_matrix, (p_rows, p_cols))
         matrix_x = np.hstack([seed_matrix.T, np.eye(num_bits, dtype=int) + mat_cols]) % 2
         matrix_z = np.hstack([np.eye(num_checks, dtype=int) + mat_rows, seed_matrix]) % 2
         qudit_order = [*range(num_bits, num_bits + num_checks), *p_cols]
@@ -67,7 +67,7 @@ def test_balanced_product_code() -> None:
         )
 
     with pytest.raises(ValueError, match="not a symmetry of the seed matrix"):
-        codes.BPCode.from_seed(seed, ([1, 0, 2], [0, 1, 2, 3]))
+        codes.BalancedProductCode.from_seed(seed, ([1, 0, 2], [0, 1, 2, 3]))
 
 
 def test_balanced_product_seed_symmetries() -> None:
@@ -78,7 +78,7 @@ def test_balanced_product_seed_symmetries() -> None:
     with unittest.mock.patch(
         "qldpc.external._bliss.get_matrix_automorphism_generators", return_value=generators
     ):
-        [symmetry] = codes.BPCode.get_seed_symmetries(seed, 3)
-        assert codes.BPCode.get_seed_symmetries(seed, 5) == []
+        [symmetry] = codes.BalancedProductCode.get_seed_symmetries(seed, 3)
+        assert codes.BalancedProductCode.get_seed_symmetries(seed, 5) == []
     assert symmetry.order() == 3
-    assert codes.BPCode.from_seed(seed, symmetry).get_code_params() == (12, 2, 3)
+    assert codes.BalancedProductCode.from_seed(seed, symmetry).get_code_params() == (12, 2, 3)

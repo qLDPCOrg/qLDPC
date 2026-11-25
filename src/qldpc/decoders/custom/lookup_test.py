@@ -120,9 +120,29 @@ def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> No
     assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
     assert decoder.decode(np.ones_like(syndrome))[-1] == 1
 
-    # passing penalty_func=None returns the last-recorded (lowest-weight) consistent candidate
-    decoded_error = decoder.decode(syndrome, penalty_func=None).view(code.field)
-    assert np.array_equal(syndrome, code.matrix @ math.symplectic_conjugate(decoded_error[:-1]))
+
+def test_weighted_lookup_without_penalty() -> None:
+    """Without a penalty function, weighted lookup decoders return a lightest candidate error.
+
+    With symplectic=True, Y0 Y1 (weight 2) is lighter than X0 X1 X2 (weight 3), although it has more
+    nonzero entries.  These are the only candidates for the syndrome of Y0 Y1, since Z0 Z1 X2 is the
+    only nontrivial error that the checks below do not detect.
+    """
+    field = galois.GF(2)
+    checks = field([math.symplectic_conjugate(field([0, 0, 1, 1, 1, 0]))]).null_space()
+    y0_y1, x0_x1_x2 = field([1, 1, 0, 1, 1, 0]), field([1, 1, 1, 0, 0, 0])
+    syndrome = (checks @ math.symplectic_conjugate(y0_y1)).view(np.ndarray)
+
+    decoder = decoders.custom.WeightedErrorLookupDecoder(checks, max_weight=3, symplectic=True)
+    assert np.array_equal(decoder.decode(syndrome), y0_y1)
+    assert np.array_equal(decoder.decode(syndrome, np.count_nonzero), x0_x1_x2)
+    assert np.array_equal(decoder.decode_errors_batch(syndrome[None], np.count_nonzero), [x0_x1_x2])
+
+    # an observable that Y0 Y1 flips and X0 X1 X2 does not
+    observable_decoder = decoders.custom.WeightedObservableLookupDecoder(
+        checks, max_weight=3, observable_flip_matrix=field([[1, 0, 0, 0, 0, 0]]), symplectic=True
+    )
+    assert np.array_equal(observable_decoder.decode_observables(syndrome), [1])
 
 
 @pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3)])
@@ -340,7 +360,6 @@ def test_observable_lookup_decoding() -> None:
     weighted_observable = decoders.custom.WeightedObservableLookupDecoder(dem, max_weight=2)
     # the min-weight error E0 has obs_flip=0
     assert np.array_equal(weighted_observable.decode_observables(syndrome), [0])
-    assert np.array_equal(weighted_observable.decode_observables(np.array([0, 1], dtype=int)), [0])
     # a table hit carries the dtype that a table miss falls back to
     predicted_flip = weighted_observable.decode_observables(syndrome)
     assert predicted_flip.dtype == weighted_observable.default_correction.dtype
@@ -356,7 +375,8 @@ def test_observable_lookup_decoding() -> None:
     decoder = decoders.custom.ErrorLookupDecoder(dem, max_weight=2, post_select=[0])
     assert np.array_equal(obs_matrix @ decoder.decode(np.array([0, 1], dtype=int)), [1])  # E4
     weighted = decoders.custom.WeightedErrorLookupDecoder(dem, max_weight=2, post_select=[0])
-    assert np.array_equal(obs_matrix @ weighted.decode(np.array([0, 1], dtype=int)), [0])  # E2: D1
+    error = weighted.decode(np.array([0, 1], dtype=int))  # E2 or E4, which are equally light
+    assert np.count_nonzero(error) == 1 and np.array_equal(pcm @ error % 2, [0, 1])
 
     # grouping errors by observable flip requires a way to weigh errors against each other
     with pytest.raises(ValueError, match="DetectorErrorModel or error_channel"):
