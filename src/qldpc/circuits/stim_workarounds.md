@@ -124,8 +124,10 @@ Reading the targets of the error instructions of a detector error model (DEM) th
 For the 13,617 error mechanisms of a rotated surface-code memory circuit of distance 9, it takes 36 ms against 11 ms, in stim 1.16.0 and 1.17.dev1793242987.
 
 **Trigger:**
-Stim's Python API reads the targets of a DEM's error instructions at least as fast as `str(dem)` and a split of its lines, whether through `DemInstruction.targets_copy` or through an accessor that returns the targets of all error instructions at once.
-The following script prints about 2.3 in stim 1.17.dev1793242987, and at most 1 once this holds for `targets_copy`; time a new accessor in place of `targets_copy`.
+Stim's Python API finds the detectors of each error instruction of a DEM at least as fast as `str(dem)` and a parse of its lines.
+The following script times both ways of computing the signature of each error instruction, as `_get_primitive_fault_signatures` does before and after the migration.
+It prints about 2.9 in stim 1.17.dev1793242987, and at most 1 once this holds.
+If Stim adds an accessor that returns the targets of all error instructions at once, time it in place of the loop over `targets_copy`.
 
 ```python
 import time
@@ -135,11 +137,28 @@ circuit = stim.Circuit.generated(
     "surface_code:rotated_memory_z", distance=9, rounds=9, after_clifford_depolarization=1e-3
 )
 dem = circuit.detector_error_model().flattened()
+bits_by_text = {f"D{jj}": 1 << jj for jj in range(dem.num_detectors)}
+bits_by_index = {jj: 1 << jj for jj in range(dem.num_detectors)}
+
 start = time.perf_counter()
-from_text = [line.split(")")[1].split() for line in str(dem).split("\n") if line.startswith("error")]
+from_text = []
+for line in str(dem).split("\n"):
+    if line.startswith("error"):
+        bits = 0
+        for target in line[line.index(")") + 1 :].split():
+            bits ^= bits_by_text.get(target, 0)
+        from_text.append(bits)
 middle = time.perf_counter()
-from_objects = [instruction.targets_copy() for instruction in dem if instruction.type == "error"]
+from_objects = []
+for instruction in dem:
+    if instruction.type == "error":
+        bits = 0
+        for target in instruction.targets_copy():
+            if target.is_relative_detector_id():
+                bits ^= bits_by_index.get(target.val, 0)
+        from_objects.append(bits)
 end = time.perf_counter()
+assert from_objects == from_text
 print((end - middle) / (middle - start))
 ```
 
@@ -150,7 +169,7 @@ In `qldpc.circuits.certification.fault_propagation_test`, the first case of `tes
 **Migration:**
 
 1. In `_get_primitive_fault_signatures`, key the map `signature_bits` by detector index rather than by text.
-   Replace the loop over the lines of `str(dem)` by a loop over the DEM's error instructions that XORs the bits of each detector target.
+   Replace the loop over the lines of `str(dem)` by a loop over the DEM's error instructions that, as in the trigger's script, XORs the bits of each target of `targets_copy()` whose `is_relative_detector_id()` holds, looked up by its `val`.
    Delete the comments about the text of targets and about tags.
 2. In `test_primitive_fault_signatures_follow_the_targets_of_error_mechanisms`, delete the first case and its comment.
    Make its helper `get_signatures` return the sorted signatures of `_get_primitive_fault_signatures` without recomputing them from Stim's objects, since the function then reads the same objects.
@@ -164,25 +183,40 @@ It takes about 25 ms, and should take no longer after the migration.
 ## The stim.CircuitInstruction constructor
 
 **Slow path:**
-The constructor of `stim.CircuitInstruction` takes about 50 µs per integer target, in stim 1.16.0 and 1.17.dev1793242987.
-In stim 1.17.dev1793242987, appending the same instruction to an empty circuit and indexing it takes about 1.3 µs.
+The constructor of `stim.CircuitInstruction` takes about 30 µs per `stim.GateTarget`, and about 50 µs per integer target, in stim 1.16.0 and 1.17.dev1793242987.
+For the instructions of the trigger's script, it takes about 70 µs per instruction, while appending the instruction to an empty circuit and indexing it takes about 1.7 µs in stim 1.17.dev1793242987.
 
 **Trigger:**
-With stim 1.17 or later, the constructor of `stim.CircuitInstruction` is at least as fast as appending the instruction to an empty `stim.Circuit` and indexing it.
-The following script prints about 200 in stim 1.17.dev1793242987, and at most 1 once this holds.
+With stim 1.17 or later, the constructor of `stim.CircuitInstruction` is at least as fast as appending the instruction to an empty `stim.Circuit` and indexing it, for the `stim.GateTarget` objects that the callers of `_new_instruction` pass, which include Pauli targets, combiners, inverted targets, and measurement records.
+The following script times both on such targets.
+It prints about 38 in stim 1.17.dev1793242987, and at most 1 once this holds.
 Run it with stim 1.17 or later, since stim 1.16 appends slowly (see "stim.Circuit.append in stim 1.16").
 
 ```python
 import timeit
 import stim
 
-def append_and_index() -> stim.CircuitInstruction:
-    circuit = stim.Circuit()
-    circuit.append("CX", [0, 1, 2, 3])
-    return circuit[0]
+circuit = stim.Circuit("""
+    CX 0 1 2 3
+    MPP[tag] X0*Z1 !Y2
+    M(0.01) !4
+    DEPOLARIZE1(0.001) 0 1
+    CX rec[-1] 5
+    DETECTOR(1, 2) rec[-1]
+""")
+cases = [(op.name, op.targets_copy(), op.gate_args_copy(), op.tag) for op in circuit]
 
-constructor = timeit.timeit(lambda: stim.CircuitInstruction("CX", [0, 1, 2, 3]), number=1000)
-print(constructor / timeit.timeit(append_and_index, number=1000))
+def construct() -> None:
+    for name, targets, args, tag in cases:
+        stim.CircuitInstruction(name, targets, args, tag=tag)
+
+def append_and_index() -> None:
+    for name, targets, args, tag in cases:
+        instructions = stim.Circuit()
+        instructions.append(name, targets, args, tag=tag)
+        instructions[0]
+
+print(timeit.timeit(construct, number=200) / timeit.timeit(append_and_index, number=200))
 ```
 
 **Sites:**
