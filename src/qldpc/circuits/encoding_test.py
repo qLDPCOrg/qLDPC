@@ -376,7 +376,7 @@ def test_state_stabilizers_with_cheap_resets(monkeypatch: pytest.MonkeyPatch) ->
     # with feedback and a REPEAT block.  Small circuits are simulated in one call, as the reference.
     preparations = ["", "X 0", "H 0", "X 0\nH 0", "H_YZ 0", "X 0\nH_YZ 0"]
     tests = [
-        stim.Circuit(f"{prep}\n{reset} 0") for prep in preparations for reset in "R RX RY".split()
+        stim.Circuit(f"{prep}\n{reset} 0") for prep in preparations for reset in ["R", "RX", "RY"]
     ]
     tests.append(
         stim.Circuit(
