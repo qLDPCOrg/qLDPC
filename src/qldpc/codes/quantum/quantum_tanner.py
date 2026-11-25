@@ -913,29 +913,18 @@ class LQTCode(_SquareComplexCode):
 
     Notes:
 
-    A quadripartite QTCode has the qudits and stabilizer group of an LQTCode
-    (arXiv:2512.20532, Sec. 1), or of a direct summand of one, and a bipartite QTCode is the
-    quotient of an LQTCode, or of a direct summand of one, by an involution σ.  To state these
-    relations exactly, let A and B be symmetric sets of distinct members of a group, listed in
-    increasing order as by QTCode.members_a and QTCode.members_b, and let G be the group that they
-    generate, with identity e.  Let ι_A be the permutation of positions in A that maps each member
-    to its inverse, and let ``C∘ι_A`` be the code whose coordinate i is coordinate ι_A(i) of a code
-    C, and likewise for B.  The complex of an LQTCode depends only on G, A, and B.  Let K be the
-    component of this complex that contains (e, 0, 0).
-
-    - The quadripartite ``QTCode(A, B, C_A, C_B)`` has the qudits, up to their order, and the
-      stabilizer group of the summand on K of the LQTCode with the local codes ``C_A^0 = C_A``,
-      ``C_A^1 = C_A∘ι_A``, ``C_B^0 = C_B``, and ``C_B^1 = C_B∘ι_B``.  Its face ``f(g,a,b)`` for a
-      vertex g of class (0, 0) is the square (i, j, g) with ``a = a_i`` and ``b = b_j``.  An LQTCode
-      on a disconnected complex is the direct sum of the codes on its components, whereas QTCode
-      keeps only the component K.
-    - If A and B satisfy the Total No Conjugacy condition, the bipartite complex of QTCode is the
-      component that contains (e, 0) of the quotient of the complex of the LQTCode by the involution
-      ``σ: (g, s, t) -> (g, 1-s, 1-t)``.  The vertex (g, 0) of the quotient has X-type checks and is
-      the orbit of (g, 0, 0) and (g, 1, 1), and its vertex (g, 1) is the orbit of (g, 1, 0) and
-      (g, 0, 1).  If σ maps K onto itself, the bipartite QTCode is the quotient of the quadripartite
-      QTCode by σ.  Otherwise, the bipartite QTCode has the qudits, up to their order, and the
-      stabilizer group of the quadripartite QTCode.
+    To relate QTCode to LQTCode, let A and B be symmetric subsets of a group G with identity e,
+    listed in increasing order as by QTCode.members_a and QTCode.members_b.  Let ι_A be the
+    permutation of positions in A that maps each member to its inverse, let ``C∘ι_A`` be the code
+    whose coordinate i is coordinate ι_A(i) of a code C, and likewise for B.  Then the quadripartite
+    ``QTCode(A, B, C_A, C_B)`` has the qudits, up to their order, and the stabilizer group of
+    ``LQTCode(G, A, B, C_A, C_B, code_a1=C_A∘ι_A, code_b1=C_B∘ι_B)`` (arXiv:2512.20532, Sec. 1)
+    restricted to the component K of its complex that contains (e, 0, 0).  The face ``f(g,a_i,b_j)``
+    of this QTCode for a vertex g of class (0, 0) is the square (i, j, g).  The bipartite
+    ``QTCode(A, B, C_A, C_B, bipartite=True)`` has the qudits, up to their order, and the stabilizer
+    group of the quotient of this LQTCode by the involution ``σ: (g, s, t) -> (g, 1-s, 1-t)`` of its
+    complex, restricted to the image of K.  If σ does not map K onto itself, the two QTCodes have
+    the same qudits, up to their order, and the same stabilizer group.
 
     These relations are between stabilizer groups.  The parity checks also correspond, up to the
     order of qudits and checks, if the QTCode and the LQTCode both use local_checks="from_codes",
