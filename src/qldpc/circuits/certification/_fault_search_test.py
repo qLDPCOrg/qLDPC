@@ -556,13 +556,14 @@ def test_checked_faults_follow_the_table_of_syndromes(
     ) -> None:
         """Check the listing against a model of the table, with and without room in it.
 
-        Also check it when the lister remembers only one choice of members of each class tuple.
+        Also check it when the lister remembers only one choice of members of each class tuple, and
+        by both the physical and the CSS weight.
         """
-        cases = itertools.product(((0, 2), (2**20, None)), (default_remembered, 1))
-        for (memory_limit, room), remembered in cases:
+        cases = itertools.product(((0, 2), (2**20, None)), (default_remembered, 1), (False, True))
+        for (memory_limit, room), remembered, css_weight in cases:
             monkeypatch.setattr(_fault_search, "_MAX_REMEMBERED_CHOICES", remembered)
             lister = _fault_search.FaultLister(
-                flags, syndromes, representatives, num_qubits, False, num_starts, memory_limit
+                flags, syndromes, representatives, num_qubits, css_weight, num_starts, memory_limit
             )
             table: set[int] = set()
             for fault_weight in range(2, 6):
@@ -574,9 +575,12 @@ def test_checked_faults_follow_the_table_of_syndromes(
                     if room is None or len(table) < room:
                         table.add(syndrome)
                     error = _xor(representatives, fault)
+                    x_part, z_part = error & ((1 << num_qubits) - 1), error >> num_qubits
                     error_weight = (
-                        error & ((1 << num_qubits) - 1) | error >> num_qubits
-                    ).bit_count()
+                        max(x_part.bit_count(), z_part.bit_count())
+                        if css_weight
+                        else (x_part | z_part).bit_count()
+                    )
                     if error_weight > fault_weight:
                         expected.append(syndrome)
                 assert _check_faults(lister, fault_weight, ()) == (expected, None)
@@ -584,7 +588,9 @@ def test_checked_faults_follow_the_table_of_syndromes(
     # Syndromes of two bits repeat often, for faults and for partial choices of their members, and
     # errors on six qubits leave out some faults but not all.  Then the same with zero hashes, so
     # that every remembered choice shares its hash, and with the two bits of each syndrome in
-    # different words, so that a remembered choice must match every word of its syndrome.
+    # different words, so that a remembered choice must match every word of its syndrome.  There,
+    # each representative sets three bits of its X and Z parts, on qubits on both sides of the end
+    # of the first word, so that the weight of a product must count every bit of every word.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for shift, num_qubits in ((0, 6), (63, 70)):
         if shift:
@@ -597,7 +603,16 @@ def test_checked_faults_follow_the_table_of_syndromes(
             syndromes = [
                 int(syndrome) << shift for syndrome in rng.integers(4, size=num_primitives)
             ]
-            representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
+            if shift:
+                columns = [
+                    part * num_qubits + qubit for part in (0, 1) for qubit in (0, 1, 63, 64, 65, 69)
+                ]
+                representatives = [
+                    sum(1 << int(column) for column in rng.choice(columns, size=3, replace=False))
+                    for _ in range(num_primitives)
+                ]
+            else:
+                representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
             num_starts = int(rng.integers(1, num_primitives + 1))
             check(flags, syndromes, representatives, num_qubits, num_starts)
 

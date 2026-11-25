@@ -1117,7 +1117,7 @@ def _expand_class_tuples(
 
     # The key of a choice of members in the map of remembered choices: its level and whether it has
     # a start member, then its syndrome.
-    choice_key = np.empty(choice_rows.shape[1] - 1, dtype=np.uint64)
+    choice_key = np.empty((1, choice_rows.shape[1]), dtype=np.uint64)
 
     tuple_index, level = expansion_state[0], expansion_state[1]
     num_batched, num_syndromes = expansion_state[2], expansion_state[3]
@@ -1185,17 +1185,18 @@ def _expand_class_tuples(
                 # whose class has more than one member (see above).  Otherwise remember the choice,
                 # if there is room.
                 if num_syndromes < len(syndrome_rows) and level > first_branching_level:
-                    choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
-                    choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]
-                    choice_hash = chosen_row_sums[level + 1, 0] ^ (
-                        (choice_key[0] + np.uint64(1)) * _HASH_MULTIPLIER
+                    choice_key[0, 1] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
+                    choice_key[0, 0] = chosen_row_sums[level + 1, 0] ^ (
+                        (choice_key[0, 1] + np.uint64(1)) * _HASH_MULTIPLIER
                     )
-                    slot = _find_syndrome(choice_hash, choice_key, choice_rows, choice_slots)
+                    for word in range(1, x_start):
+                        choice_key[0, 1 + word] = chosen_row_sums[level + 1, word]
+                    slot = _find_row(choice_key, 0, choice_rows, choice_slots)
                     if slot < 0:
                         continue
                     if num_choices < len(choice_rows):
-                        choice_rows[num_choices, 0] = choice_hash
-                        choice_rows[num_choices, 1:] = choice_key
+                        for word in range(choice_rows.shape[1]):
+                            choice_rows[num_choices, word] = choice_key[0, word]
                         choice_slots[slot] = num_choices
                         choice_slots_used[num_choices] = slot
                         num_choices += 1
@@ -1209,10 +1210,10 @@ def _expand_class_tuples(
             # Leave out the fault if its syndrome is in the table, and otherwise add the syndrome to
             # the table if there is room, even if the representative test below leaves the fault out
             # (see "Checking one fault").
-            fault_row = chosen_row_sums[fault_weight]
-            slot = _find_syndrome(fault_row[0], fault_row[1:x_start], syndrome_rows, syndrome_slots)
+            slot = _find_row(chosen_row_sums, fault_weight, syndrome_rows, syndrome_slots)
             if slot < 0:
                 continue
+            fault_row = chosen_row_sums[fault_weight]
             if num_syndromes < len(syndrome_rows):
                 syndrome_rows[num_syndromes] = fault_row[:x_start]
                 syndrome_slots[slot] = num_syndromes
@@ -1323,6 +1324,36 @@ def _find_syndrome_slot(
             break
         slot = (slot + 1) % len(syndrome_slots)
     return int(slot)
+
+
+@always_compiled(inline=True)
+def _find_row(
+    keys: npt.NDArray[np.uint64],
+    key: int,
+    rows: npt.NDArray[np.uint64],
+    slots: npt.NDArray[np.int64],
+) -> int:
+    """Look up row ``key`` of ``keys`` in a hash map as in ``_find_syndrome_slot``.
+
+    The key is the first ``rows.shape[1]`` columns of the row, the first of which holds the hash.
+    Return -1 if the key is in the map, and otherwise the empty slot for it.  Unlike
+    ``_find_syndrome``, this takes no views of arrays, since numba compiles a view with reference
+    counting, which would make each lookup of ``_expand_class_tuples`` several times slower.
+    """
+    mask = len(slots) - 1
+    slot = _get_first_slot(keys[key, 0], len(slots))
+    while True:
+        row = slots[slot]
+        if row < 0:
+            return int(slot)
+        equal = True
+        for column in range(rows.shape[1]):
+            if rows[row, column] != keys[key, column]:
+                equal = False
+                break
+        if equal:
+            return -1
+        slot = (slot + 1) & mask
 
 
 @always_compiled(inline=True)
