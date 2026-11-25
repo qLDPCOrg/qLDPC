@@ -47,12 +47,9 @@ CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
 """The methods of exact searches of coset leaders, such as those of :class:`CosetLeaderSearch`.
 
 - ``"auto"`` (the default): currently ``"brouwer_zimmermann"``, but this can change between versions
-  of qLDPC.  When errors are weighed by physical weight, ``"connected_cluster"`` can be much faster
-  on states whose stabilizer groups have sparse generators, such as encoded states of surface
-  codes.  On a few hundred qubits, with a maximum weight of about seven or more,
-  ``"brouwer_zimmermann"`` can take seconds per syndrome, where ``"connected_cluster"`` takes a
-  millisecond or less.  On states without sparse generators, ``"brouwer_zimmermann"`` can be much
-  faster.
+  of qLDPC.  For searches by physical weight, ``"connected_cluster"`` can be much faster on states
+  whose stabilizer groups have sparse generators, such as encoded states of surface codes.  On other
+  states, it can be much slower.
 - ``"brouwer_zimmermann"``: searches the cosets of binary codes by information sets (see the
   `Brouwer-Zimmermann guide
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
