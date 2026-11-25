@@ -413,7 +413,11 @@ class ClassicalCode(AbstractCode):
 
     @property
     def generator(self) -> galois.FieldArray:
-        """Generator of this code, a matrix whose rows form a basis for all code words."""
+        """Generator of this code, a matrix whose rows span this code.
+
+        Its rows need not be linearly independent.  This code keeps a matrix given to set_generator
+        or from_generator as is, so it can have more rows than the dimension of this code.
+        """
         if self._generator is None:
             self._generator = self.matrix.null_space()
         return _mark_read_only(self._generator)
@@ -435,13 +439,17 @@ class ClassicalCode(AbstractCode):
         return self
 
     def iter_words(self, skip_zero: bool = False) -> Iterator[galois.FieldArray]:
-        """Iterate over the code words of this code."""
-        vectors = itertools.product(self.field.elements, repeat=self.generator.shape[0])
+        """Iterate over the code words of this code, each once."""
+        # combinations of linearly dependent rows of the generator would list words more than once
+        generator = self.generator
+        if len(generator) > self.dimension:
+            generator = generator.row_reduce()[: self.dimension]
+        vectors = itertools.product(self.field.elements, repeat=len(generator))
         if skip_zero:
             # skip the all-0 vector
             next(vectors)
         for vector in vectors:
-            yield self.field(vector) @ self.generator
+            yield self.field(vector) @ generator
 
     def get_random_word(self, *, seed: int | None = None) -> galois.FieldArray:
         """Random code word: a sum of all generating words with random field coefficients."""
@@ -797,8 +805,9 @@ class ClassicalCode(AbstractCode):
         generator: npt.NDArray[np.int_] | Sequence[Sequence[int]],
         field: int | type[galois.FieldArray] | None = None,
     ) -> ClassicalCode:
-        """Construct a ClassicalCode from a generator matrix."""
-        return ~ClassicalCode(generator, field)
+        """Construct a ClassicalCode from a generator matrix, which it keeps as its generator."""
+        dual_code = ClassicalCode(generator, field)
+        return (~dual_code).set_generator(dual_code.matrix)
 
     @staticmethod
     def from_name(name: str, *, refresh: bool = False) -> ClassicalCode:
@@ -957,7 +966,7 @@ class ClassicalCode(AbstractCode):
         """Delete the specified bits from a code.
 
         To delete bits from a code, we can remove the corresponding columns from its generator
-        matrix (whose rows form a basis for the code space).
+        matrix (whose rows span the code).
 
         Puncturing a code is equivalent to shortening its dual code (Prop. 2.5 of arXiv:2308.15746).
         Shortening a code at a bit keeps only the code words that are zero at that bit.  To shorten
