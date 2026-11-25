@@ -197,7 +197,7 @@ def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
 
 @pytest.mark.parametrize("switch", ["restrict_viable_symbols", "cuts"])
 def test_connected_cluster_batches_search_as_single_queries(switch: str) -> None:
-    """Batch queries visit the states of single queries at their limits, with a switch on and off.
+    """Both batch queries visit the states of single queries, with a switch on and off.
 
     So they search with the restriction and the overlap cuts of the coset search.  On this CSS
     state, the lightest errors with the syndrome 57 weigh two, and the number of states that its
@@ -220,8 +220,10 @@ def test_connected_cluster_batches_search_as_single_queries(switch: str) -> None
         )
         coset_search.use_query_overlap_words(coset_search.checks)
         assert coset_search.get_min_weights(batch, 2, np.zeros(1, dtype=np.int64)).tolist() == [2]
-        num_states = _count_batch_states(coset_search, syndrome, 2)
-        assert num_states == _count_single_states(coset_search, syndrome, 2)
+        assert coset_search.find_first_not_within_max_weight(batch, 2) == (1, None)
+        num_states = _count_single_states(coset_search, syndrome, 2)
+        assert _count_batch_states(coset_search, syndrome, 2, first=True) == num_states
+        assert _count_batch_states(coset_search, syndrome, 2, first=False) == num_states
         counts.append(num_states)
     assert counts[0] != counts[1]
 
@@ -363,13 +365,15 @@ def _run_batches(
 
 
 def _count_batch_states(
-    coset_search: coset.ConnectedClusterCosetSearch, syndrome: int, max_weight: int
+    coset_search: coset.ConnectedClusterCosetSearch, syndrome: int, max_weight: int, *, first: bool
 ) -> int:
-    """The number of states that a batch query visits, as the compiled loop counts its work.
+    """The number of states that a batch query visits, as its compiled loop counts its work.
 
-    ``_find_min_weights`` stops after a query once its work reaches ``max_work``, so of two copies
-    of a syndrome that is not looked up, it searches only the first exactly if the first visits at
-    least ``max_work`` states.  A search for the largest such ``max_work`` finds that number.
+    The loop is ``_find_first_not_within_max_weight`` if ``first``, and otherwise
+    ``_find_min_weights``.  Each stops after a query once its work reaches ``max_work``, so of two
+    copies of a syndrome that is not looked up and has a vector within ``max_weight``, it searches
+    only the first exactly if the first visits at least ``max_work`` states.  A search for the
+    largest such ``max_work`` finds that number.
     """
     batch = split_syndromes_into_words([syndrome, syndrome], len(coset_search.checks))
     floors = np.zeros(2, dtype=np.int64)
@@ -378,7 +382,14 @@ def _count_batch_states(
 
     def searches_one(max_work: int) -> bool:
         """Whether the batch stops after the first copy within ``max_work``."""
-        num_done = coset._find_min_weights(batch, max_weight, floors, max_work, weights, *tables)
+        if first:
+            num_done, _ = coset._find_first_not_within_max_weight(
+                batch, max_weight, max_work, *tables
+            )
+        else:
+            num_done = coset._find_min_weights(
+                batch, max_weight, floors, max_work, weights, *tables
+            )
         return bool(num_done == 1)
 
     low, high = 0, 1
