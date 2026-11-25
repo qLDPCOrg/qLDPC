@@ -411,49 +411,99 @@ def test_light_syndromes_match_brute_force(css_weight: bool, pytestconfig: pytes
     Every syndrome also gets a fixed error with it, whose X and Z parts are single-qubit errors
     where some have their syndromes, for the CSS weight.
     """
-    # The states of one qubit are those of X, Y, and Z, and those of more qubits are random.
+    # The states of one qubit are those of X, Y, and Z.  Those of more qubits come from random
+    # circuits on qubits that start in |0> or, the first ``num_plus`` of them, in |+>, with their
+    # stabilizers in random order, and those of 70 qubits have syndromes and errors in two words.
+    # Circuits of CX gates alone make CSS states.  On |+...+>, every fixed error is a Z error that
+    # can act on every qubit.  With both X and Z stabilizers, the Z part of a fixed error need not
+    # be the lightest.
     states = [np.array([row], dtype=np.uint8) for row in ([1, 0], [1, 1], [0, 1])]
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for num_qubits in (2, 3, 4):
-        for _ in range(10):
+    clifford, cx = ["H", "S", "CX"], ["CX"]
+    for num_qubits, num_states, gates, num_plus in (
+        (2, 10, clifford, 0),
+        (3, 10, clifford, 0),
+        (4, 10, clifford, 0),
+        (70, 1, clifford, 0),
+        (70, 1, cx, 70),
+        (70, 1, cx, 35),
+    ):
+        for _ in range(num_states):
             circuit = stim.Circuit()
             circuit.append("I", range(num_qubits))
-            for gate in rng.integers(3, size=4 * num_qubits):
-                if gate == 2:
+            circuit.append("H", range(num_plus))
+            for gate in rng.choice(gates, size=8 * num_qubits):
+                if gate == "CX":
                     circuit.append("CX", rng.permutation(num_qubits)[:2].tolist())
                 else:
-                    circuit.append(("H", "S")[gate], [int(rng.integers(num_qubits))])
+                    circuit.append(gate, [int(rng.integers(num_qubits))])
             state = stim.Tableau.from_circuit(circuit).to_stabilizers()
-            states.append(
-                np.array([np.concatenate(row.to_numpy()) for row in state], dtype=np.uint8)
+            rows = [np.concatenate(row.to_numpy()) for row in state]
+            states.append(np.array(rows, dtype=np.uint8)[rng.permutation(num_qubits)])
+
+    def check(stabilizers: npt.NDArray[np.uint8]) -> None:
+        """Check the light errors and the fixed errors of a state against brute force."""
+        num_qubits = len(stabilizers)
+        mask = (1 << num_qubits) - 1
+        x_rows = [
+            sum(int(bit) << qubit for qubit, bit in enumerate(row[:num_qubits]))
+            for row in stabilizers
+        ]
+        z_rows = [
+            sum(int(bit) << qubit for qubit, bit in enumerate(row[num_qubits:]))
+            for row in stabilizers
+        ]
+
+        def syndrome_of(pauli: int) -> int:
+            """Bit ``j`` is whether the error anticommutes with stabilizer ``j``."""
+            x, z = pauli & mask, pauli >> num_qubits
+            return sum(
+                ((x & z_row ^ z & x_row).bit_count() & 1) << jj
+                for jj, (x_row, z_row) in enumerate(zip(x_rows, z_rows))
             )
 
-    for stabilizers in states:
-        num_qubits = len(stabilizers)
-        paulis = (np.arange(4**num_qubits)[:, None] >> np.arange(2 * num_qubits)) & 1
-        x, z = paulis[:, :num_qubits], paulis[:, num_qubits:]
-        weights = np.maximum(x.sum(axis=1), z.sum(axis=1)) if css_weight else (x | z).sum(axis=1)
-        bits = (x @ stabilizers[:, num_qubits:].T + z @ stabilizers[:, :num_qubits].T) % 2
-        syndrome_of = bits @ (1 << np.arange(num_qubits))
+        def weight_of(pauli: int) -> int:
+            x, z = pauli & mask, pauli >> num_qubits
+            return max(x.bit_count(), z.bit_count()) if css_weight else (x | z).bit_count()
 
-        syndromes = list(range(2**num_qubits))
-        errors = _fault_search._get_light_errors(
-            _fault_search._hashed_rows(syndromes, 1), stabilizers, css_weight
-        )
+        # By brute force, the errors of Pauli weight at most one: X and Z on at most one qubit each,
+        # on the same qubit for the physical weight.
+        x_singles = [0] + [1 << qubit for qubit in range(num_qubits)]
+        z_singles = [0] + [1 << (num_qubits + qubit) for qubit in range(num_qubits)]
+        light_errors = [
+            x | z
+            for x, z in itertools.product(x_singles, z_singles)
+            if css_weight or not x or not z or z == x << num_qubits
+        ]
+        light_syndromes = {syndrome_of(error) for error in light_errors}
+
+        # Query every syndrome of a small state.  Of a large one, query random syndromes, and those
+        # of the light errors, or of 1000 of them, which keeps the test fast without compilation.
+        if num_qubits <= 4:
+            syndromes = list(range(2**num_qubits))
+        else:
+            randoms = [int.from_bytes(rng.bytes(9), "little") & mask for _ in range(100)]
+            sample = sorted(light_syndromes)
+            if len(sample) > 1000:
+                sample = rng.choice(sample, 1000, replace=False).tolist()
+            syndromes = sample + randoms
+        rows = _fault_search._hashed_rows(syndromes, (num_qubits + 63) // 64)
+        errors = _fault_search._get_light_errors(rows, stabilizers, css_weight)
         for syndrome, error in zip(syndromes, errors, strict=True):
-            assert (error is None) == (weights[syndrome_of == syndrome].min() > 1)
-            assert error is None or (syndrome_of[error] == syndrome and weights[error] <= 1)
-        fixed_errors = _fault_search._get_fixed_errors(
-            _fault_search._hashed_rows(syndromes, 1), stabilizers, css_weight
-        )
-        assert syndrome_of[fixed_errors].tolist() == syndromes
+            assert (error is None) == (syndrome not in light_syndromes)
+            assert error is None or (syndrome_of(error) == syndrome and weight_of(error) <= 1)
+        fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers, css_weight)
+        assert [syndrome_of(error) for error in fixed_errors] == syndromes
         if css_weight:
             # Each part is an error on at most one qubit if one has the syndrome of the part.
-            for shift, error in itertools.product((0, num_qubits), fixed_errors):
-                part = error & (((1 << num_qubits) - 1) << shift)
-                singles = [0] + [1 << (shift + qubit) for qubit in range(num_qubits)]
-                if syndrome_of[part] in syndrome_of[singles]:
-                    assert part in singles
+            for singles, part_mask in ((x_singles, mask), (z_singles, mask << num_qubits)):
+                single_syndromes = {syndrome_of(single) for single in singles}
+                for error in fixed_errors:
+                    if syndrome_of(error & part_mask) in single_syndromes:
+                        assert error & part_mask in singles
+
+    for stabilizers in states:
+        check(stabilizers)
 
 
 def test_heavy_primitive_faults_get_products_of_light_representatives(
@@ -1431,87 +1481,23 @@ def test_hand_derived_dependency_cases() -> None:
 
 
 def test_batches_have_a_word_for_every_64_output_qubits() -> None:
-    """Syndromes have a word for every 64 output qubits, in batches and in the light/heavy split.
+    """Syndromes have a word for every 64 output qubits, in batches and in the search.
 
     On 70 qubits, syndromes below ``2**64`` have two words in batches, as the oracle needs.  On 65
-    qubits, syndromes with bits in both words are split and represented by both words.
+    qubits, syndromes with bits in both words decide which faults violate the bound.
     """
     # Together, the two primitive faults pass post-selection and leave X on three qubits.
     failure = _certify_map([1, 1], [0b011, 0b100], None, 70)
     assert failure is not None and failure.fault_indices == (0, 1)
 
-    # On |0...0>, the syndrome of an error is its X part, and the lightest error with a syndrome is
-    # X on its set bits, so only syndromes of at most one bit are light, by either weight.  A
-    # primitive fault with zero flags that leaves X on qubits 0 and 64 violates the bound alone, and
-    # with a primitive fault of zero syndrome, one that leaves X on qubits 0, 1, and 64 forms a
-    # violating fault of fault weight two.
-    syndromes = [1, 2**64, 2**64 + 1, 2**64 + 3]
-    rows = _fault_search._hashed_rows(syndromes, 2)
-    stabilizers = _z_state(65).astype(np.uint8)
-    for css_weight in (False, True):
-        light_errors = _fault_search._get_light_errors(rows, stabilizers, css_weight)
-        assert [error is None for error in light_errors] == [False, False, True, True]
-        for syndrome, error in zip(syndromes[:2], light_errors[:2], strict=True):
-            assert error is not None and error & (2**65 - 1) == syndrome
-            x, z = error & (2**65 - 1), error >> 65
-            assert (max(x.bit_count(), z.bit_count()) if css_weight else (x | z).bit_count()) <= 1
-        fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers, css_weight)
-        assert [error & (2**65 - 1) for error in fixed_errors] == syndromes
+    # On |0...0>, a primitive fault with zero flags that leaves X on qubits 0 and 64 violates the
+    # bound alone.  With a primitive fault of zero syndrome, one that leaves X on qubits 0, 1, and
+    # 64 forms a violating fault of fault weight two, which the search must not skip by the
+    # representative of the heavy fault.
     failure = _certify_map([0], [2**64 + 1], None, 65)
     assert failure is not None and failure.fault_indices == (0,)
     failure = _certify_map([1, 1], [2**64 + 3, 0], None, 65)
     assert failure is not None and failure.fault_indices == (0, 1)
-
-    # With Z on qubit 0 and Y on qubit 64 as the last stabilizer, the state is not CSS.  X on qubit
-    # 0 flips bits 0 and 64, X or Z on qubit 64 flips bit 64, and X on another qubit j flips bit j.
-    # By CSS weight, X on qubit 0 and Z on qubit 64 weighs one, so the syndrome 1 is light, though
-    # no error on one qubit has it, and 2**64 + 3 needs X on qubits 0 and 1, of CSS weight two.
-    stabilizers[64, [64, 65]] = 1
-
-    def syndrome_of(pauli: int) -> int:
-        """The syndrome of an error for the current ``stabilizers``."""
-        error = np.array([(pauli >> bit) & 1 for bit in range(130)])
-        bits = (stabilizers[:, 65:] @ error[:65] + stabilizers[:, :65] @ error[65:]) % 2
-        return sum(int(bit) << jj for jj, bit in enumerate(bits))
-
-    light_errors = _fault_search._get_light_errors(rows, stabilizers, True)
-    fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers, True)
-    assert [error is None for error in light_errors] == [False, False, False, True]
-    for syndrome, light_error, fixed_error in zip(
-        syndromes, light_errors, fixed_errors, strict=True
-    ):
-        assert syndrome_of(fixed_error) == syndrome
-        if light_error is not None:
-            assert syndrome_of(light_error) == syndrome
-            x, z = light_error & (2**65 - 1), light_error >> 65
-            assert max(x.bit_count(), z.bit_count()) <= 1
-    assert _fault_search.find_smallest_violation([0], [1], stabilizers, None, True) is None
-    failure = _fault_search.find_smallest_violation([0], [2**64 + 3], stabilizers, None, True)
-    assert failure is not None and failure.fault_indices == (0,)
-    assert failure.bound.lower_bound == 2 and syndrome_of(failure.bound.representative) == 2**64 + 3
-
-    # On |+...+>, with the stabilizers X on qubits 0 and 1, X on qubit 64, X on each qubit j from 2
-    # to 63, and X on qubits 0 and 64, Z on qubit 0 has the syndrome 2**64 + 1, and the only Z
-    # error with the syndrome 2 acts on qubits 0, 1, and 64, so the lightest errors with this
-    # syndrome weigh three, by either weight.  With a primitive fault of zero syndrome, a primitive
-    # fault with the syndrome 2 forms a violating fault of fault weight two.
-    stabilizers = np.zeros((65, 130), dtype=np.uint8)
-    stabilizers[[0, 0, 1, 64, 64], [0, 1, 64, 0, 64]] = 1
-    stabilizers[range(2, 64), range(2, 64)] = 1
-    rows = _fault_search._hashed_rows([2, 2**64 + 1], 2)
-    for css_weight in (False, True):
-        light_errors = _fault_search._get_light_errors(rows, stabilizers, css_weight)
-        assert light_errors[0] is None and light_errors[1] is not None
-        assert syndrome_of(light_errors[1]) == 2**64 + 1
-        x, z = light_errors[1] & (2**65 - 1), light_errors[1] >> 65
-        assert (max(x.bit_count(), z.bit_count()) if css_weight else (x | z).bit_count()) <= 1
-        fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers, css_weight)
-        assert [syndrome_of(error) for error in fixed_errors] == [2, 2**64 + 1]
-        failure = _fault_search.find_smallest_violation(
-            [1, 1], [2, 0], stabilizers, None, css_weight
-        )
-        assert failure is not None and failure.fault_indices == (0, 1)
-        assert failure.bound.lower_bound == 3 and syndrome_of(failure.bound.representative) == 2
 
 
 def test_failures_report_the_smallest_faults() -> None:
