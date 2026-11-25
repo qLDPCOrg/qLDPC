@@ -54,15 +54,16 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="different fields"):
         codes.QTCode(subset_a, subset_a, code_a, code_b)
 
-    # saving and loading QTCodes on both complexes, with notes, creating a missing directory and
-    # overwriting an existing file
+    # saving and loading QTCodes on both complexes, with notes that are kept as written, creating a
+    # missing directory and overwriting an existing file
     cycle = abstract.GroupMember([1, 2, 0])
     swaps = [abstract.GroupMember(image) for image in [[1, 0, 2], [2, 1, 0], [0, 2, 1]]]
     bipartite_code = codes.QTCode([cycle, ~cycle], swaps, [[1, 1]], [[1, 1, 1]], bipartite=True)
     path = tmp_path / "subdirectory" / "code.json"
+    notes = ["a note", "a note\nwith two lines", "[ 1,2]"]
     for saved_code in [code, bipartite_code]:
-        saved_code.save_json(str(path), "a note", "a note\nwith two lines")
-        assert json.loads(path.read_text())["notes"] == ["a note", "a note\nwith two lines"]
+        saved_code.save_json(str(path), *notes)
+        assert json.loads(path.read_text())["notes"] == notes
         assert_loads_equal_code(saved_code, path)
 
     # saved files do not depend on the iteration order of subsets, which varies between sessions
@@ -1604,8 +1605,7 @@ def test_lifted_quantum_tanner_qtcode() -> None:
         quadripartite_code, bipartite_code = qt_codes
 
         # the codes on the two complexes differ, even when they have the same parity checks, as over
-        # D6, where σ exchanges the two components of the quadripartite complex over the group that
-        # A and B generate
+        # D6, where σ maps the component of the identity onto another component
         assert quadripartite_code != bipartite_code
         if not connected:
             assert np.array_equal(quadripartite_code.matrix, bipartite_code.matrix)
