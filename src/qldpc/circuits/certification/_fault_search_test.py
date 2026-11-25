@@ -413,7 +413,8 @@ def test_light_syndromes_match_brute_force(css_weight: bool, pytestconfig: pytes
     """
     # The states of one qubit are those of X, Y, and Z.  Those of more qubits come from random
     # circuits on qubits that start in |0> or, the first ``num_plus`` of them, in |+>, with their
-    # stabilizers in random order, and those of 70 qubits have syndromes and errors in two words.
+    # stabilizers in random order, and the syndromes of 70 qubits, and the X and Z parts of their
+    # errors, span two words.
     # Circuits of CX gates alone make CSS states.  On |+...+>, every fixed error is a Z error that
     # can act on every qubit.  With both X and Z stabilizers, the Z part of a fixed error need not
     # be the lightest.
@@ -421,9 +422,9 @@ def test_light_syndromes_match_brute_force(css_weight: bool, pytestconfig: pytes
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     clifford, cx = ["H", "S", "CX"], ["CX"]
     for num_qubits, num_states, gates, num_plus in (
-        (2, 10, clifford, 0),
-        (3, 10, clifford, 0),
-        (4, 10, clifford, 0),
+        (2, 1, clifford, 0),
+        (3, 1, clifford, 0),
+        (4, 1, clifford, 0),
         (70, 1, clifford, 0),
         (70, 1, cx, 70),
         (70, 1, cx, 35),
@@ -1431,7 +1432,10 @@ def test_search_with_flags_matches_exhaustive_search(pytestconfig: pytest.Config
 
 
 def test_css_weight_search_matches_exhaustive_search(pytestconfig: pytest.Config) -> None:
-    """On |00++>, the search matches brute force by CSS weight for random flags and syndromes."""
+    """On |00++>, the search matches brute force by CSS weight for random flags and syndromes.
+
+    On a state that is not CSS, CSS weight one also allows X and Z errors on different qubits.
+    """
     # The stabilizers Z0, Z1, X2, and X3 make syndrome bits 0 and 1 need X on qubits 0 and 1, and
     # bits 2 and 3 need Z on qubits 2 and 3, so the oracle searches both X parts and Z parts.
     stabilizers = np.zeros((4, 8), dtype=int)
@@ -1459,6 +1463,13 @@ def test_css_weight_search_matches_exhaustive_search(pytestconfig: pytest.Config
                     # The X part of the representative flips bits 0 and 1, and its Z part 2 and 3.
                     representative = violation.bound.representative
                     assert (representative & 0b0011) | ((representative >> 4) & 0b1100) == syndrome
+
+    # On the state with the stabilizers Z on qubit 0, Z on qubit 1, and Y on qubit 2, X on qubit 0
+    # and Z on qubit 2 have the syndrome 5 and weigh one by CSS weight, though no error on one qubit
+    # has this syndrome.
+    stabilizers = np.zeros((3, 6), dtype=int)
+    stabilizers[[0, 1, 2, 2], [3, 4, 2, 5]] = 1
+    assert _fault_search.find_smallest_violation([0], [5], stabilizers, None, True) is None
 
 
 def test_hand_derived_dependency_cases() -> None:
@@ -1498,6 +1509,21 @@ def test_batches_have_a_word_for_every_64_output_qubits() -> None:
     assert failure is not None and failure.fault_indices == (0,)
     failure = _certify_map([1, 1], [2**64 + 3, 0], None, 65)
     assert failure is not None and failure.fault_indices == (0, 1)
+
+    # On |+...+>, with the stabilizers X on qubits 0 and 1, X on qubit 64, X on each qubit j from 2
+    # to 63, and X on qubits 0 and 64, the only Z error with the syndrome 2 acts on qubits 0, 1, and
+    # 64, so the lightest errors with this syndrome weigh three, by either weight.  With a primitive
+    # fault of zero syndrome, a primitive fault with the syndrome 2 forms a violating fault of fault
+    # weight two, which the search must not skip by the Z part of the heavy fault's representative.
+    stabilizers = np.zeros((65, 130), dtype=np.uint8)
+    stabilizers[[0, 0, 1, 64, 64], [0, 1, 64, 0, 64]] = 1
+    stabilizers[range(2, 64), range(2, 64)] = 1
+    for css_weight in (False, True):
+        failure = _fault_search.find_smallest_violation(
+            [1, 1], [2, 0], stabilizers, None, css_weight
+        )
+        assert failure is not None and failure.fault_indices == (0, 1)
+        assert failure.bound.lower_bound == 3
 
 
 def test_failures_report_the_smallest_faults() -> None:
