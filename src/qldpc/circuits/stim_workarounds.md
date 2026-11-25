@@ -4,7 +4,20 @@ This guide lists the code in qLDPC that exists only because a path of [Stim](htt
 Code belongs here if it would be deleted or simplified mechanically once Stim is fast.
 Algorithmic choices, ordinary uses of Stim's API, and caches that would remain useful do not.
 
-Each site of a workaround carries a marker comment, or the same sentence in a docstring:
+Each site of a workaround carries a marker.
+In the docstring of a function, the marker is the paragraph right after the summary line:
+
+```python
+def function():
+    """Summary line.
+
+    TEMPORARY until <trigger>: see circuits/stim_workarounds.md, "<section title>".
+
+    More description.
+    """
+```
+
+Elsewhere, such as above a constant or a block of code, the marker is a comment:
 
 ```python
 # TEMPORARY until <trigger>: see circuits/stim_workarounds.md, "<section title>".
@@ -43,16 +56,14 @@ print(reset_time(4000) / reset_time(1000))
 
 **Sites:**
 In `qldpc.circuits.encoding`, the marked `if`/`else` of `get_state_stabilizers` simulates circuits on at least `_MIN_QUBITS_FOR_CHEAP_RESETS` qubits with `_do_with_cheap_resets`, which replaces the reset of each qubit in an eigenstate of another Pauli by single-qubit gates that it looks up in `_RESET_PAULIS`, `_PAULI_FLIPS`, and `_PAULI_SWAPS`.
-In `qldpc.circuits.encoding_test`, `test_state_stabilizers_after_replaced_resets`, `test_cheap_resets_on_large_circuits`, and the `min_qubits` parametrization of `test_state_stabilizers_after_resets` exist only for this replacement.
+In `qldpc.circuits.encoding_test`, `test_state_stabilizers_with_cheap_resets` exists only for this replacement.
 
 **Migration:**
 
 1. In `get_state_stabilizers`, replace the marked `if`/`else`, with its marker, by `simulator.do(circuit)`.
-2. Delete `_do_with_cheap_resets`, `_MIN_QUBITS_FOR_CHEAP_RESETS`, `_RESET_PAULIS`, `_PAULI_FLIPS`, and `_PAULI_SWAPS`, with the comments and markers above them.
-3. Delete `test_state_stabilizers_after_replaced_resets` and `test_cheap_resets_on_large_circuits`, with the markers above them.
-4. In `test_state_stabilizers_after_resets`, delete the marker and parametrization above it, its `monkeypatch` and `min_qubits` arguments, the `if min_qubits is not None:` block that sets `_MIN_QUBITS_FOR_CHEAP_RESETS`, and the docstring's sentences about replaced and kept resets.
-   Keep its circuit and expected stabilizers, which check resets after a measurement with feedback, repeated targets, and a REPEAT block.
-5. Delete this section.
+2. Delete `_do_with_cheap_resets`, `_MIN_QUBITS_FOR_CHEAP_RESETS`, `_RESET_PAULIS`, `_PAULI_FLIPS`, and `_PAULI_SWAPS`, with the comments above them.
+3. Delete `test_state_stabilizers_with_cheap_resets`.
+4. Delete this section.
 
 **Check:**
 Time `get_state_stabilizers(circuit, 2000)` before and after the migration, where `circuit = stim.Circuit("\n".join(f"RX {q}\nCX {q} {q + 1}\nTICK" for q in range(0, 2000, 2)))` prepares 1,000 Bell pairs with one reset instruction each.

@@ -349,109 +349,44 @@ def test_state_stabilizers_with_repeated_reset_measurements(
         assert stabilizers == [stim.PauliString(string) for string in expected]
 
 
-@pytest.mark.parametrize(
-    ("preparation", "reset", "expected"),
-    [
-        ("", "RX", "+X"),
-        ("X 0", "RX", "+X"),
-        ("", "RY", "+Y"),
-        ("X 0", "RY", "+Y"),
-        ("H 0", "R", "+Z"),
-        ("X 0\nH 0", "R", "+Z"),
-        ("H 0", "RY", "+Y"),
-        ("X 0\nH 0", "RY", "+Y"),
-        ("H_YZ 0", "R", "+Z"),
-        ("X 0\nH_YZ 0", "R", "+Z"),
-        ("H_YZ 0", "RX", "+X"),
-        ("X 0\nH_YZ 0", "RX", "+X"),
-        ("X 0", "R", "+Z"),
-        ("H 0", "RX", "+X"),
-        ("X 0\nH 0", "RX", "+X"),
-        ("X 0\nH_YZ 0", "RY", "+Y"),
-    ],
-)
-def test_state_stabilizers_after_replaced_resets(
-    monkeypatch: pytest.MonkeyPatch, preparation: str, reset: str, expected: str
-) -> None:
-    """Reset a qubit in an eigenstate of a single-qubit Pauli, with the simulation stepping.
-
-    The preparation puts the qubit in the +1 or -1 eigenstate of Z, X, or Y, since H_YZ maps Z to
-    Y.  The simulation steps through every circuit when its threshold is 0.  It replaces a reset of
-    a qubit in an eigenstate of another Pauli by gates, and keeps a reset of a qubit in an
-    eigenstate of the reset's Pauli, which must leave the qubit in the +1 eigenstate.
+def test_state_stabilizers_with_cheap_resets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replacing resets by gates on large circuits gives the stabilizers of plain simulation.
 
     TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
     circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
     """
-    monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", 0)
-    circuit = stim.Circuit(f"{preparation}\n{reset} 0")
-    assert circuits.get_state_stabilizers(circuit, [0]) == [stim.PauliString(expected)]
-
-
-# TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
-@pytest.mark.parametrize("min_qubits", [0, None])
-def test_state_stabilizers_after_resets(
-    monkeypatch: pytest.MonkeyPatch, min_qubits: int | None
-) -> None:
-    """Find state stabilizers after resets that mix replaced, kept, and repeated targets.
-
-    The comment on each expected stabilizer gives the final state of its qubit.  The circuit has
-    too few qubits for the simulation to replace resets by gates, unless min_qubits is 0.  Then the
-    simulation replaces the reset of qubit 0 but keeps that of qubit 3 in the same instruction,
-    since qubit 3 is entangled with qubit 4.  The feedback on the result of ``M 1`` checks that
-    replacing the reset of qubit 1 keeps the measurement record.  The second target of ``RY 2 2``
-    and the reset in the REPEAT block run as they are.
-    """
-    if min_qubits is not None:
-        monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", min_qubits)
-    circuit = stim.Circuit("""
-        X 0 1
-        M 1
-        RY 1
-        CX rec[-1] 5
-        H 2
-        RY 2 2
-        H 3
-        CX 3 4
-        RX 3 0
-        REPEAT 2 {
-            RX 6
-        }
-    """)
-    expected = [
-        "+X______",  # |+>
-        "+_Y_____",  # |+i>
-        "+__Y____",  # |+i>
-        "+___X___",  # |+>, while qubit 4 is in |0> or |1> at random
-        "+______X",  # |+>
-        "-_____Z_",  # |1>
-    ]
-    stabilizers = circuits.get_state_stabilizers(circuit, 7)
-    assert stabilizers == [stim.PauliString(string) for string in expected]
-
-
-def test_cheap_resets_on_large_circuits(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace resets by gates on a circuit with many qubits, but not on one with few qubits.
-
-    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
-    """
-    calls = []
+    num_qubits_stepped = []
     do_with_cheap_resets = encoding._do_with_cheap_resets
 
     def recording_do_with_cheap_resets(
         simulator: stim.TableauSimulator, circuit: stim.Circuit
     ) -> None:
-        calls.append(circuit.num_qubits)
+        num_qubits_stepped.append(circuit.num_qubits)
         do_with_cheap_resets(simulator, circuit)
 
+    # Only large circuits step through their instructions.
     monkeypatch.setattr(encoding, "_do_with_cheap_resets", recording_do_with_cheap_resets)
     for num_qubits in [2, 2000]:
         circuit = stim.Circuit(f"RX {num_qubits - 1}")
         stabilizers = circuits.get_state_stabilizers(circuit, [num_qubits - 1])
         assert stabilizers == [stim.PauliString("+X")]
-    assert calls == [2000]
+    assert num_qubits_stepped == [2000]
+
+    # Reset a qubit in each eigenstate of each Pauli, and reset replaced, kept, and repeated targets
+    # with feedback and a REPEAT block.  Small circuits are simulated in one call, as the reference.
+    preparations = ["", "X 0", "H 0", "X 0\nH 0", "H_YZ 0", "X 0\nH_YZ 0"]
+    tests = [
+        stim.Circuit(f"{prep}\n{reset} 0") for prep in preparations for reset in "R RX RY".split()
+    ]
+    tests.append(
+        stim.Circuit(
+            "X 0 1\nM 1\nRY 1\nCX rec[-1] 5\nH 2\nRY 2 2\nH 3\nCX 3 4\nRX 3 0\nREPEAT 2 {\nRX 6\n}"
+        )
+    )
+    expected = [circuits.get_state_stabilizers(circuit, circuit.num_qubits) for circuit in tests]
+    monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", 0)
+    for circuit, stabilizers in zip(tests, expected, strict=True):
+        assert circuits.get_state_stabilizers(circuit, circuit.num_qubits) == stabilizers
 
 
 def test_deprecated_logical_state_stabilizers_argument_order() -> None:

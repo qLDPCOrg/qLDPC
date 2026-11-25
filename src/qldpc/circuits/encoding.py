@@ -389,6 +389,9 @@ _PAULI_SWAPS = {"XY": "h_xy", "YX": "h_xy", "XZ": "h", "ZX": "h", "YZ": "h_yz", 
 def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circuit) -> None:
     """Simulate a noiseless circuit as simulator.do(circuit) does, replacing costly resets by gates.
 
+    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+
     A reset whose outcome is random costs Stim's tableau simulator time quadratic in the number of
     qubits, since it collapses the qubit by transposing the whole tableau.  But if the qubit is in
     an eigenstate of a single-qubit Pauli other than that of the reset, then it is unentangled with
@@ -401,9 +404,6 @@ def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circui
     reset of each such qubit by such a Clifford.  This changes neither the state after the reset nor
     the distribution of later measurement outcomes, so the simulator ends in the state of a run of
     the circuit, as after simulator.do(circuit).  Resets in REPEAT blocks run as they are.
-
-    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
     """
     peeks = {"X": simulator.peek_x, "Y": simulator.peek_y, "Z": simulator.peek_z}
     for index in range(len(circuit)):
