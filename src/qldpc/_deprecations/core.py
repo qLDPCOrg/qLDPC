@@ -35,9 +35,11 @@ docs/source/contributing/standards/deprecations.rst describes the steps of a fut
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib
 import operator
+import os
 import re
 import sys
 import warnings
@@ -621,8 +623,10 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
 
 def install_deprecated_methods() -> None:
     """Attach deprecated methods to their classes."""
-    from qldpc.abstract import Group, GroupRing, SmallGroup, TrivialGroup
-    from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
+    import numpy as np
+
+    from qldpc.abstract import Group, GroupMember, GroupRing, SmallGroup, TrivialGroup
+    from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QTCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
     from qldpc.decoders.dems import DetectorErrorModelArrays
     from qldpc.objects import PAULIS_XZ, Pauli
@@ -807,6 +811,79 @@ def install_deprecated_methods() -> None:
             for logical_index in range(self.dimension):
                 _reduce_logical_op(self, pauli_xz, logical_index, decoder, decoder_kwargs)
         return self
+
+    @_deprecated_method(QTCode)
+    def save(self: QTCode, path: str, *headers: str) -> None:
+        """Deprecated method that saves the generating data of this code to a text file."""
+        warn_deprecated(
+            "QTCode.save is DEPRECATED; use QTCode.save_json instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+
+        # convert subsets to arrays
+        subset_a = np.array([member.array_form for member in self.members_a])
+        subset_b = np.array([member.array_form for member in self.members_b])
+
+        # create save directory if necessary
+        save_dir = os.path.dirname(os.path.abspath(path))
+        os.makedirs(save_dir, exist_ok=True)
+
+        with open(path, "w") as file:
+            # write provided headers
+            for header in headers:
+                file.writelines(f"# {line}\n" for line in header.splitlines())
+
+            # write subsets
+            file.write("# subset_a:\n")
+            np.savetxt(file, subset_a, fmt="%d")
+            file.write("# subset_b:\n")
+            np.savetxt(file, subset_b, fmt="%d")
+
+            # write the parity check matrices of the local codes
+            file.write("# code_a.matrix:\n")
+            np.savetxt(file, self.code_a.matrix, fmt="%d")
+            file.write("# code_b.matrix:\n")
+            np.savetxt(file, self.code_b.matrix, fmt="%d")
+
+            # write other data
+            file.write(f"# base field: {self.field.order}\n")
+            file.write(f"# bipartite: {self.complex.bipartite}\n")
+
+    @_deprecated_method(QTCode, static=True)
+    def load(path: str) -> QTCode:
+        """Deprecated method that loads a QTCode from a text file written by QTCode.save."""
+        warn_deprecated(
+            "QTCode.load is DEPRECATED; use QTCode.load_json instead, after converting a saved file"
+            " with QTCode.load(path).save_json(new_path)",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+
+        if not os.path.isfile(path):
+            raise ValueError(f"Path does not exist: {path}")
+
+        with open(path) as file:
+            lines = file.read().splitlines()
+
+        # load miscellaneous data
+        field = ast.literal_eval(lines[-2].split(":")[-1])
+        bipartite = ast.literal_eval(lines[-1].split(":")[-1])
+
+        # load integer arrays separated by comments
+        arrays = []
+        last_index = 0
+        for index, line in enumerate(lines):
+            if line.startswith("#"):
+                if index > last_index + 1:
+                    array = np.genfromtxt(lines[last_index + 1 : index], dtype=int, ndmin=2)
+                    arrays.append(array)
+                last_index = index
+
+        # construct subsets and local codes
+        subset_a = {GroupMember(gen) for gen in arrays[0]}
+        subset_b = {GroupMember(gen) for gen in arrays[1]}
+        code_a = ClassicalCode(arrays[2], field)
+        code_b = ClassicalCode(arrays[3], field)
+        return QTCode(subset_a, subset_b, code_a, code_b, bipartite=bipartite)
 
 
 def _attach_tanner_graph_methods(cls: type, *, symplectic: bool) -> None:

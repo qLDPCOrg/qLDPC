@@ -8,6 +8,8 @@ import fractions
 import functools
 import importlib
 import inspect
+import pathlib
+import textwrap
 import unittest.mock
 import warnings
 from typing import Any, cast
@@ -101,12 +103,15 @@ def test_star_imports_do_not_warn() -> None:
             exec(f"from {module_name} import *", {})  # noqa: S102 - trusted import statement
 
 
-def test_deprecated_methods() -> None:
+def test_deprecated_methods(tmp_path: pathlib.Path) -> None:
     """Deprecated methods warn, and return what they returned before."""
     classical_code = codes.RepetitionCode(3)
     qudit_code = codes.QuditCode(codes.FiveQubitCode())
     css_code = codes.SteaneCode()
     bb_code = codes.BBCode((3, 3), 1 + x + x * y, 1 + y + x * y)
+    shift = abstract.CyclicGroup(3).generators[0]
+    qt_code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
+    qt_path = str(tmp_path / "code.txt")
     cases: list[tuple[object, str, tuple[object, ...], object, str]] = [
         (classical_code, "puncture", ([0],), classical_code.punctured([0]), "ClassicalCode"),
         (classical_code, "shorten", ([0],), classical_code.shortened([0]), "ClassicalCode"),
@@ -114,6 +119,9 @@ def test_deprecated_methods() -> None:
         (bb_code, "modular_inverse", (((1, 1), (0, 1)), 1, 0), (1, 2), "BBCode"),
         (qudit_code, "get_dual_subsystem_code", (), qudit_code.dual(), "QuditCode"),
         (qudit_code, "conjugate", (), qudit_code.conjugated(), "QuditCode"),
+        # QTCode.load reads the file that QTCode.save writes
+        (qt_code, "save", (qt_path,), None, "QTCode"),
+        (codes.QTCode, "load", (qt_path,), qt_code, "QTCode"),
         (css_code, "reduce_logical_op", ("X", 0), css_code, "SteaneCode"),
         (css_code, "reduce_logical_ops", (), css_code, "SteaneCode"),
         (css_code, "conjugate", (), css_code.conjugated().to_css(), "SteaneCode"),
@@ -132,6 +140,55 @@ def test_deprecated_methods() -> None:
     assert puncture.__module__ == codes.ClassicalCode.__module__
     assert puncture.__qualname__ == "ClassicalCode.puncture"
     assert str(inspect.signature(puncture)).startswith("(self, bits")
+
+
+def test_deprecated_qtcode_save_load(tmp_path: pathlib.Path) -> None:
+    """The deprecated QTCode.save and QTCode.load write and read the generating data of a QTCode.
+
+    Their text files list the subsets and the parity check matrices of the local codes, each after a
+    comment line that names it, and end with the order of the field and whether the complex is
+    bipartite.  QTCode.load ignores headers, which are comment lines at the start of the file, and
+    builds the code with its default choice of local checks.
+    """
+    cycle = abstract.GroupMember([1, 2, 0])
+    swaps = [abstract.GroupMember(image) for image in [[1, 0, 2], [2, 1, 0], [0, 2, 1]]]
+    code = codes.QTCode([cycle, ~cycle], swaps, [[1, 1]], [[1, 1, 0], [0, 1, 1]], bipartite=True)
+    file_text = textwrap.dedent(
+        """\
+        # header
+        # subset_a:
+        1 2 0
+        2 0 1
+        # subset_b:
+        0 2 1
+        1 0 2
+        2 1 0
+        # code_a.matrix:
+        1 1
+        # code_b.matrix:
+        1 1 0
+        0 1 1
+        # base field: 2
+        # bipartite: True
+        """
+    )
+    load = codes.QTCode.load  # type: ignore[attr-defined]
+
+    # QTCode.load reads a file in this format
+    path = tmp_path / "code.txt"
+    path.write_text(file_text)
+    with pytest.warns(DeprecationWarning, match="use QTCode.load_json") as caught:
+        assert load(str(path)) == code
+    assert caught[0].filename == __file__
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="Path does not exist"):
+        load(str(tmp_path / "missing.txt"))
+
+    # QTCode.save writes this format, creating a missing directory
+    path = tmp_path / "subdirectory" / "code.txt"
+    with pytest.warns(DeprecationWarning, match="use QTCode.save_json") as caught:
+        code.save(str(path), "header")  # type: ignore[attr-defined]
+    assert caught[0].filename == __file__
+    assert path.read_text() == file_text
 
 
 def test_deprecated_get_automorphism_group(

@@ -35,7 +35,7 @@ Each experiment in the table below holds a CSV summary in its results directory,
 | Experiment | Intermediate data | CSV summary |
 | --- | --- | --- |
 | Bivariate bicycle | `results/cache/`: disk cache of code parameters | `results/codes.csv`: codes with `k d^2 / n > 1` |
-| Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
+| Quantum Tanner | `results/codes/`: one JSON file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
 | Distance tuning | `results/trials.jsonl`: one line per trial of a comparison; `results/constants/`: the measurements of `constants.py` | `results/summary-<tag>.csv`: times of both arms of a comparison on each workload, and their ratios |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
@@ -79,8 +79,6 @@ The search either enumerates these subsets or draws them with `codes.QTCode.rand
 The sizes of the subsets are the block lengths of the two local codes, whose bits are labeled by the members of the subsets.
 See the docstrings of `codes.QTCode` and `objects.CayleyComplex` for the construction.
 The search builds the parity checks of its codes from minimum-weight bases of their local check spaces, as `codes.QTCode` does by default, and saved codes record this choice.
-Searches with earlier versions of qLDPC built row-reduced bases instead, whose stabilizer weights, recorded in the headers of saved codes, can be larger.
-`run_search.py` keeps the codes that a results directory already holds, and `collect_results.py` would mix their weights with new ones, so start new searches in a new results directory; `verify_codes.py` reports codes saved by earlier searches.
 
 The options of `run_search.py` choose the groups, the local codes, and the complex on which the codes live:
 
@@ -138,7 +136,7 @@ With default settings, 40 of the search's 162 choices of group and local codes h
 The search enumerates the pairs of subsets for 89 choices, which gives 2,223 codes.
 It draws 100 random samples for each of the other 33 choices, and saves 5,523 codes in total, of which 4,953 are distinct.
 
-1. `run_search.py` constructs codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
+1. `run_search.py` constructs codes for every group and pair of local codes, and saves each code to a JSON file in `results/codes/`.
    Groups without symmetric subsets of the required sizes have no samples.
    For example, such groups are too small, or with `--exclude-identity`, they have odd order while a local code has odd block length.
    On the bipartite complex, the search also skips some groups whose subsets cannot satisfy the Total No Conjugacy condition (see `get_search_space` in `run_search.py`).

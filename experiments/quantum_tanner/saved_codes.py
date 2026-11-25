@@ -11,8 +11,8 @@ element.  The sample identifier identifies the subsets of the group:
 - "e{index}": the subsets at an index in the enumeration of pairs of subsets of the required sizes
   (see get_subset_pairs).
 
-Each saved code is a text file, written by qldpc.codes.QTCode.save, whose name identifies its
-specification and sample, and whose header records the parameters computed by run_search.py.
+Each saved code is a JSON file, written by qldpc.codes.QTCode.save_json, whose name identifies its
+specification and sample, and whose notes record the parameters computed by run_search.py.
 
 Identifiers of groups (see get_group) are:
 - "SmallGroup-{order}-{index}": a group in the GAP SmallGroups library, and
@@ -37,9 +37,11 @@ import dataclasses
 import functools
 import hashlib
 import itertools
+import json
 import math
 import pathlib
 import re
+from typing import Any
 
 import galois
 
@@ -48,10 +50,6 @@ from qldpc import abstract, codes, objects
 RESULTS_DIR = pathlib.Path(__file__).parent / "results"  # default directory of all results
 CODES_NAME = "codes"  # subdirectory of the results directory that holds saved codes
 EXACT_DISTANCES_NAME = "exact_distances.csv"  # file of exact distances in the results directory
-
-# sections of saved codes that choose their parity checks, which files saved by earlier versions of
-# qldpc lack
-OPTIONAL_SECTION_NAMES = ["local checks", "code_a.generator", "code_b.generator"]
 
 # columns of the file of exact distances; see compute_distances.py
 EXACT_DISTANCE_FIELDS = ("code_key", "code_file", "status", "distance", "time_limit", "seconds")
@@ -64,7 +62,7 @@ _GROUP_ID = rf"SmallGroup-{_NUMBER}-{_NUMBER}|Dihedral-{_NUMBER}"
 _LOCAL_CODE_ID = rf"[A-Za-z]+(?:-{_NUMBER})+"
 _CODE_FILE_NAME = re.compile(
     rf"qtcode_({_GROUP_ID})_({_LOCAL_CODE_ID})_({_LOCAL_CODE_ID})_(quadripartite|bipartite)"
-    rf"_(withidentity|noidentity)_([er]{_NUMBER})\.txt"
+    rf"_(withidentity|noidentity)_([er]{_NUMBER})\.json"
 )
 
 ####################################################################################################
@@ -152,7 +150,7 @@ class CodeSpec:
         """Get the path of the file that saves the code with this specification and sample.
 
         The name of the file has the form
-        "qtcode_{group}_{code_a}_{code_b}_{complex}_{identity}_{sample}.txt", where {complex} is
+        "qtcode_{group}_{code_a}_{code_b}_{complex}_{identity}_{sample}.json", where {complex} is
         "quadripartite" or "bipartite", {identity} is "withidentity" if subsets may contain the
         identity element and "noidentity" otherwise, and {sample} is the sample identifier.  See
         parse_code_path.
@@ -161,7 +159,7 @@ class CodeSpec:
         identity_id = "noidentity" if self.exclude_identity else "withidentity"
         name = (
             f"qtcode_{self.group_id}_{self.code_a_id}_{self.code_b_id}_{complex_id}_{identity_id}"
-            f"_{sample_id}.txt"
+            f"_{sample_id}.json"
         )
         return codes_dir / name
 
@@ -411,7 +409,7 @@ def get_saved_code_paths(codes_dir: pathlib.Path) -> list[pathlib.Path]:
 
     Raises a FileNotFoundError if there are none.
     """
-    paths = sorted(codes_dir.glob("qtcode_*.txt"))
+    paths = sorted(codes_dir.glob("qtcode_*.json"))
     if not paths:
         raise FileNotFoundError(f"No saved quantum Tanner codes found in {codes_dir}")
     return paths
@@ -420,7 +418,7 @@ def get_saved_code_paths(codes_dir: pathlib.Path) -> list[pathlib.Path]:
 def get_code_header(
     num_trials: int, code_params: tuple[int, int, int | float], weight: int
 ) -> list[str]:
-    """Get the header lines of a saved quantum Tanner code file; see read_code_header."""
+    """Get the notes that form the header of a saved quantum Tanner code; see read_code_header."""
     return [
         f"distance trials: {num_trials}",
         f"code parameters: {code_params}",
@@ -429,21 +427,19 @@ def get_code_header(
 
 
 def read_code_header(path: pathlib.Path) -> tuple[int, tuple[int, int, int | float], int]:
-    """Read the header of a saved quantum Tanner code file; see get_code_header.
+    """Read the header of a saved quantum Tanner code file from its notes; see get_code_header.
 
     Returns the number of distance trials, the code parameters (n, k, d), and the maximum weight of
     a parity check of the code.  The distance d is an upper bound, or nan if the code has no logical
     qubits.
     """
-    with open(path) as file:
-        num_trials = int(file.readline().split(":")[-1])
-        param_text = file.readline().split(":")[-1]
-        weight = int(file.readline().split(":")[-1])
+    notes = read_code_data(path)["notes"]
+    num_trials = int(notes[0].split(":")[-1])
+    param_text = notes[1].split(":")[-1]
+    weight = int(notes[2].split(":")[-1])
 
     # parse code parameters written as "(n, k, d)", where d is nan if k = 0
-    num_qudits, dimension, distance = (
-        float(value) for value in param_text.strip(" ()\n").split(",")
-    )
+    num_qudits, dimension, distance = (float(value) for value in param_text.strip(" ()").split(","))
     code_params = (
         int(num_qudits),
         int(dimension),
@@ -457,65 +453,43 @@ def get_code_key(path: pathlib.Path) -> str:
 
     Two files have the same key if and only if they save the same subsets, local codes, field, and
     choice of complex, and thereby the same stabilizer group, and so the same distance.  Different
-    generating data can still give the same stabilizer group.  The key ignores the header of the
-    file, and the choice of parity checks of each local code, which can differ between equal codes
-    with different identifiers.  It also ignores the sections that only choose the parity checks of
-    the quantum code, which files saved by earlier versions of qldpc lack.  So two QTCodes loaded
-    from files with the same key have the same parity checks if they both chose "min_weight", the
-    choice of this search, which depends only on the spaces that the key compares.  The choice
-    "from_codes" also depends on the matrices of the local codes, which the key ignores.
+    generating data can still give the same stabilizer group.  The key identifies each local code by
+    the row space of its parity check matrix, since equal codes with different identifiers can have
+    different parity check matrices.  It ignores the notes of the file, and the data that only
+    choose the parity checks of the quantum code: the generator matrices of the local codes and the
+    choice of local checks.  So two QTCodes loaded from files with the same key have the same parity
+    checks if they both chose "min_weight", the choice of this search, which depends only on the
+    spaces that the key compares.  The choice "from_codes" also depends on the matrices of the local
+    codes, which the key ignores.
     """
-    sections = {
-        name: lines
-        for name, lines in read_sections(path).items()
-        if name not in OPTIONAL_SECTION_NAMES
-    }
-    field = galois.GF(int(sections["base field"][0]))
+    data = read_code_data(path)
+    field = galois.GF(data["field_order"])
 
-    def get_canonical_checks(rows: list[str]) -> list[str]:
+    def get_row_space(rows: list[list[int]]) -> list[list[int]]:
         """Get the rows of the reduced row echelon form of a parity check matrix, without zeros."""
-        if not rows:
-            return []
-        matrix = field([[int(value) for value in row.split()] for row in rows]).row_space()
-        return [" ".join(map(str, row)) for row in matrix.tolist()]
+        return field(rows).row_space().tolist() if rows else []
 
-    # reduce the parity check matrix of each local code
-    sections["code_a.matrix"] = get_canonical_checks(sections["code_a.matrix"])
-    sections["code_b.matrix"] = get_canonical_checks(sections["code_b.matrix"])
-    text = repr(sorted(sections.items()))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    generating_data = [
+        data["subset_a"],
+        data["subset_b"],
+        get_row_space(data["code_a"]["matrix"]),
+        get_row_space(data["code_b"]["matrix"]),
+        data["field_order"],
+        data["bipartite"],
+    ]
+    return hashlib.sha256(repr(generating_data).encode("utf-8")).hexdigest()[:16]
 
 
 def contains_identity(path: pathlib.Path) -> bool:
     """Does a subset of the quantum Tanner code in a saved file contain the identity element?"""
-    sections = read_sections(path)
-    return any(
-        abstract.GroupMember([int(value) for value in row.split()]).is_Identity
-        for row in sections["subset_a"] + sections["subset_b"]
-    )
+    data = read_code_data(path)
+    return any(abstract.GroupMember(row).is_Identity for row in data["subset_a"] + data["subset_b"])
 
 
-def read_sections(path: pathlib.Path) -> dict[str, list[str]]:
-    """Read the sections of generating data in a file written by qldpc.codes.QTCode.save.
-
-    Returns the lines of each section, keyed by the name in the comment line that starts it.  A
-    value on that comment line, such as that of "base field", is the first line of its section.
-    Raises a ValueError if a section is missing, other than one of OPTIONAL_SECTION_NAMES.
-    """
-    names = ["subset_a", "subset_b", "code_a.matrix", "code_b.matrix", "base field", "bipartite"]
-    sections: dict[str, list[str]] = {}
-    name = None
-    for line in path.read_text().splitlines():
-        all_names = names + OPTIONAL_SECTION_NAMES
-        if line_name := next((name for name in all_names if line.startswith(f"# {name}:")), None):
-            name = line_name
-            value = line.split(":", 1)[1].strip()
-            sections[name] = [value] if value else []
-        elif name is not None:
-            sections[name].append(line)
-    if missing := [name for name in names if name not in sections]:
-        raise ValueError(f"Saved code has no sections {missing}: {path}")
-    return sections
+def read_code_data(path: pathlib.Path) -> dict[str, Any]:
+    """Read the JSON object of a file written by qldpc.codes.QTCode.save_json."""
+    data: dict[str, Any] = json.loads(path.read_text())
+    return data
 
 
 def read_exact_distance_records(results_dir: pathlib.Path) -> list[dict[str, str]]:

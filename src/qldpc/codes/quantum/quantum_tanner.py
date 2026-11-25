@@ -2,110 +2,29 @@
 
 """Quantum Tanner codes.
 
-A quantum Tanner code (QTCode) is a CSS code built from two symmetric subsets A and B of a group G,
-and two classical local codes C_A and C_B, with one coordinate per member of A and of B,
-respectively.  Its qudits are the faces of a left-right Cayley complex built from A and B, and its
-parity checks sit at the vertices of the complex.  The vertices are members of a cover of G, and
-fall into classes: four classes in the quadripartite complex, which is the default, or two classes
-in the bipartite complex (see help(qldpc.objects.CayleyComplex)).  For each vertex g with X-type
-checks, a in A, and b in B, the complex has a face ``f(g,a,b) = {g, ag, gb, agb}``, whose corners g
-and agb have X-type checks, and whose corners ag and gb have Z-type checks (see help(QTCode)).
+A quantum Tanner code is a CSS code whose qudits are the faces of a square complex, and whose parity
+checks at each vertex span its local check space: the tensor product of two classical local codes,
+or of their duals, on the faces at that vertex.  This module provides two classes of these codes:
 
-A lifted quantum Tanner code (LQTCode) is built in the same way from an explicit group G, ordered
-lists A and B of members of G that may repeat, and four classical local codes, two for each list.
-The qudits of an LQTCode are the faces, which it calls squares, of a quadripartite complex with all
-of G in each class of vertices.  An LQTCode is the code of Eq. (2) of
-https://arxiv.org/abs/2512.20532, in other notation (see LQTCode.from_lrz).  A quadripartite QTCode
-has the qudits and stabilizer group of an LQTCode, or of a direct summand of an LQTCode if the
-complex of the LQTCode is disconnected.  A bipartite QTCode is the quotient, by an involution, of an
-LQTCode or of a direct summand of an LQTCode.  Under these correspondences, the parity checks of the
-two codes agree only for some choices of local checks (see help(LQTCode)).
+- QTCode builds a code on the left-right Cayley complex of two symmetric subsets of a group, from
+  two local codes, as in arXiv:2202.13641 and arXiv:2206.07571.
+- LQTCode builds the lifted quantum Tanner codes of Eq. (2) of arXiv:2512.20532, from an explicit
+  group, two ordered lists of its members, and four local codes.
 
-Local views.  Write ``f(v,a,b) = {v, av, vb, avb}`` for any vertex v.  Every face at a vertex v of a
-QTCode is ``f(v,a,b)`` for exactly one pair (a, b) of members of A and B, which is the label of the
-face at v.  So the face ``f(g,a,b)`` has the label (a, b) at its corner g, and the label (a^-1, b)
-at its corner ag, since it is ``f(ag,a^-1,b)``.  Coordinate (i, j) of the local view of a vertex is
-the face whose label is ``(members_a[i], members_b[j])``, where ``members_a`` and ``members_b`` list
-the members of A and B in increasing order.  So the local view of a vertex is an ``|A| x |B|`` array
-of qudits (QTCode.get_local_views).  In the coordinates of their local views, the X-type checks at a
-vertex span the local check space ``C_A ⨂ C_B``, and the Z-type checks span ``~C_A ⨂ ~C_B``, where
-``~C`` is the dual code of C.  LQTCode labels squares by positions in A and B instead (see
-help(LQTCode)).
-
-Local checks.  The checks at each vertex are the words of a spanning set of its local check space.
-The argument ``local_checks`` of QTCode and LQTCode chooses this set:
-
-- "min_weight" (the default): a minimum-weight basis, whose i-th lightest word is no heavier than
-  the i-th lightest word of any basis of the space, for each i.
-- "from_codes": the rows of ``G_A ⨂ G_B`` for X-type checks, and of ``H_A ⨂ H_B`` for Z-type checks.
-  Here H_A and G_A are the parity check matrix and generator matrix that C_A carries
-  (``code.matrix`` and ``code.generator``), and likewise for C_B.  Rows of these matrices that are
-  linearly dependent give redundant checks.
-
-Both choices span the same local check space at every vertex, so they give the same stabilizer
-group, number of qudits, and dimension.
-
-The "min_weight" checks that span ``C_A ⨂ C_B`` are the products ``u_i ⨂ v_j`` of minimum-weight
-bases {u_i} of C_A and {v_j} of C_B, which qldpc.math.get_min_weight_basis finds for each factor,
-and likewise for ``~C_A ⨂ ~C_B``.  These products form a minimum-weight basis of the space, as
-follows.  Write ``|x|`` for the weight of a word x.  A basis {w_k} of a space is a minimum-weight
-basis iff every word ``x = sum_k c_k w_k`` has ``|x| >= |w_k|`` whenever ``c_k != 0``.  This
-condition is necessary: if ``|x| < |w_k|`` for some ``c_k != 0``, replacing w_k by x gives a lighter
-basis.  It is also sufficient, since it says that the words of the basis of weight at most m span
-all words of weight at most m, for every m, so no basis has more words of weight at most m.  Now let
-``y = sum_ij c_ij u_i ⨂ v_j``, and read y as a matrix whose row r is ``sum_j x_j[r] v_j``, where
-``x_j = sum_i c_ij u_i``.  Fix indices i and j with ``c_ij != 0``.  Then ``|x_j| >= |u_i|``, since
-x_j has the coefficient c_ij on u_i.  Each of the ``|x_j|`` rows r with ``x_j[r] != 0`` has a
-nonzero coefficient on v_j, so it has weight at least ``|v_j|``.  So
-``|y| >= |u_i| |v_j| = |u_i ⨂ v_j|`` whenever ``c_ij != 0``, and by the condition above,
-``{u_i ⨂ v_j}`` is a minimum-weight basis.  The checks are minimum-weight bases of the local check
-spaces, but generating sets of the stabilizer group that combine checks at different vertices may be
-lighter.
-
-Canonical local checks.  With the optional pybliss package, bliss finds qudit permutations that
-preserve a code (see QuditCode.get_known_permutation_automorphism_group), but only those that map a
-set of checks onto itself.  The parity checks of QTCode and LQTCode are one spanning set of each
-local check space, chosen by local_checks, so a permutation that preserves the code can map parity
-checks to other words of these spaces, and then bliss cannot find it among the parity checks.
-QTCode and LQTCode therefore also have bliss search their canonical local checks, which depend only
-on the local check spaces.
-
-The canonical local checks of a vertex are the nonzero words of weight at most w_max of its local
-check space, placed on its local view, where w_max is the largest weight of a word in a
-minimum-weight basis of the space.  All minimum-weight bases of a space have the same weights, so
-w_max depends only on the space.  By the argument above, w_max for ``C_A ⨂ C_B`` is the product of
-the largest weights of words in minimum-weight bases of C_A and C_B, and likewise for
-``~C_A ⨂ ~C_B``.
-
-- The canonical checks of a vertex include a minimum-weight basis of its local check space, so they
-  span it, and the canonical checks of all vertices span the row spaces of matrix_x and matrix_z.
-  So a permutation of the qudits that maps the set of canonical checks onto itself preserves the
-  code.
-- Suppose that a permutation of the qudits maps the local view of each vertex v to the local view of
-  a vertex v' with checks of the same type, and maps the local check space of v onto that of v'.  It
-  preserves weights, so it maps the canonical checks of v onto those of v', even if it does not map
-  parity checks to parity checks.  So bliss can find such permutations among the canonical checks.
-
-Two caps bound the cost of the canonical checks, and the docstrings of QTCode and LQTCode give their
-values:
-
-- a cap on the number of words of a local check space, since finding its canonical checks
-  enumerates its words; and
-- a cap on the number of canonical checks per vertex, since the matrix that bliss searches has a row
-  for each canonical check at each vertex.
-
-For each type of checks, if a local check space of that type exceeds either cap, bliss searches the
-parity checks of that type in place of the canonical checks of that type.
+Use QTCode for symmetric sets of distinct members and for the bipartite complex.  Use LQTCode for
+lists whose members repeat or are not symmetric, or for four local codes; its docstring relates the
+two classes.  LocalChecks lists the choices of parity checks of both classes.
 """
 
 from __future__ import annotations
 
 import abc
-import ast
 import functools
 import heapq
 import itertools
+import json
 import os
+import re
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any, Literal, get_args
 
@@ -137,7 +56,28 @@ from ..common import (
 )
 
 LocalChecks = Literal["min_weight", "from_codes"]
-"""The choices of the checks that span each local check space (see the module docstring)."""
+"""The choices of the parity checks of a QTCode or an LQTCode that span each local check space.
+
+The local check space of a vertex with X-type checks is ``C_A ⨂ C_B``, and that of a vertex with
+Z-type checks is ``~C_A ⨂ ~C_B``, where C_A and C_B are the local codes of the vertex, and ``~C`` is
+the dual code of C (see QTCode and LQTCode).  The parity checks at the vertex are the words of a
+spanning set of this space, so every choice gives the same stabilizer group, but the parity checks
+can differ:
+
+- "min_weight" (the default): a minimum-weight basis, whose i-th lightest word is no heavier than
+  the i-th lightest word of any basis of the space, for each i.  It consists of the tensor products
+  u ⨂ v of the words u and v of minimum-weight bases of the two factors of the space, which
+  qldpc.math.get_min_weight_basis finds.  Finding these bases enumerates the words of each local
+  code and of its dual, so QTCode and LQTCode raise a ValueError if a local code or its dual has
+  more than 2^20 words.  Generating sets of the stabilizer group that combine checks at different
+  vertices can still be lighter, and the checks are not chosen to minimize the number of checks that
+  act on each qudit.
+- "from_codes": the rows of ``G_A ⨂ G_B`` for X-type checks, and of ``H_A ⨂ H_B`` for Z-type checks,
+  where H_A and G_A are the parity check matrix and generator matrix that C_A carries
+  (``code.matrix`` and ``code.generator``), and likewise for C_B.  A local code carries the
+  generator matrix set by ClassicalCode.set_generator, or else one that qLDPC computes.  Linearly
+  dependent rows of these matrices give redundant checks.
+"""
 
 # the classes (s, t) of the vertices of an LQTCode with checks of each type, in the order of their
 # rows in matrix_x and matrix_z
@@ -149,10 +89,7 @@ _VERTEX_CLASSES: dict[PauliXZ, tuple[tuple[int, int], ...]] = {
 # the most words that a local code or its dual may have for "min_weight" local checks
 _MAX_WORDS_FOR_MIN_WEIGHT_BASIS = 2**20
 
-# The most words in a local check space, and the most canonical local checks at each vertex, for
-# which a QTCode or an LQTCode has bliss search its canonical checks of a type, as well as its
-# parity checks.  The first limit bounds the time to enumerate words.  The second bounds the size of
-# the matrix that bliss searches, which has a row for each canonical check at each vertex.
+# caps on the canonical local checks (see _SquareComplexCode._get_canonical_checks)
 _MAX_WORDS_FOR_CANONICAL_CHECKS = 2**20
 _MAX_CANONICAL_CHECKS_PER_VERTEX = 2**10
 
@@ -167,9 +104,9 @@ class _SquareComplexCode(CSSCode):
     """A CSS code on a square complex, whose checks at each vertex span a product of local codes.
 
     The local check space of each vertex is the tensor product of two local codes, or of their
-    duals, read on the local view of the vertex (see help(qldpc.codes.quantum.quantum_tanner)).
-    This class finds the canonical local checks of the code from the blocks of vertices that
-    _get_vertex_blocks gives, and has bliss search them as well as the parity checks.
+    duals, read on the local view of the vertex (see LocalChecks).  This class finds the canonical
+    local checks of the code from the blocks of vertices that _get_vertex_blocks gives, and has
+    bliss search them as well as the parity checks.
     """
 
     @abc.abstractmethod
@@ -187,10 +124,17 @@ class _SquareComplexCode(CSSCode):
     def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
         """The parity checks of this code and its canonical local checks, for bliss to search.
 
-        Bliss can find more automorphisms among the canonical checks (see
-        help(qldpc.codes.quantum.quantum_tanner)), but it can also find automorphisms of the parity
-        checks that are not automorphisms of the canonical checks, such as when a local code is the
-        direct sum of codes on disjoint sets of coordinates.  So bliss searches both.
+        Bliss is a graph-automorphism tool, which the optional pybliss package provides.  It finds
+        qudit permutations that map a set of checks onto itself (see
+        QuditCode.get_known_permutation_automorphism_group).  A permutation that preserves this code
+        can map its parity checks to other words of the local check spaces, and bliss then misses it
+        among the parity checks.  Such a permutation can still map the canonical local checks (see
+        _get_canonical_checks) onto themselves, since they depend only on the local check spaces.
+        For example, a permutation that maps the local view and local check space of each vertex
+        onto those of a vertex with checks of the same type preserves weights, so it maps canonical
+        checks to canonical checks.  Bliss can also find automorphisms of the parity checks that are
+        not automorphisms of the canonical checks, such as when a local code is the direct sum of
+        codes on disjoint sets of coordinates.  So bliss searches both.
         """
         canonical_checks = self._get_canonical_checks()
         if np.array_equal(canonical_checks, self.matrix):
@@ -200,11 +144,18 @@ class _SquareComplexCode(CSSCode):
     def _get_canonical_checks(self) -> galois.FieldArray:
         """The canonical local checks of this code, in the layout of its parity check matrix.
 
-        The module docstring defines the canonical local checks, and shows that they span the row
-        spaces of matrix_x and matrix_z.  For each type of checks, if a block of vertices with that
-        type has a local check space with more than _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more
-        than _MAX_CANONICAL_CHECKS_PER_VERTEX canonical checks at each vertex, the returned matrix
-        holds the parity checks of that type instead, which depend on the choice of local checks.
+        The canonical local checks of a vertex are the nonzero words of its local check space that
+        are no heavier than the heaviest word of a minimum-weight basis of the space, placed on its
+        local view.  All minimum-weight bases of a space have the same weights, so these checks
+        depend only on the space.  They include a minimum-weight basis of each local check space, so
+        they span the row spaces of matrix_x and matrix_z, and a qudit permutation that maps the set
+        of them onto itself preserves the code.
+
+        For each type of checks, the returned matrix holds the parity checks of that type instead if
+        a local check space of that type has more than _MAX_WORDS_FOR_CANONICAL_CHECKS words, or
+        more than _MAX_CANONICAL_CHECKS_PER_VERTEX canonical checks.  The first cap bounds the
+        enumeration of the words of the space, and the second the size of the matrix that bliss
+        searches, which has a row for each canonical check at each vertex.
         """
         blocks = []
         for pauli, parity_checks in zip(PAULIS_XZ, [self.matrix_x, self.matrix_z]):
@@ -217,12 +168,12 @@ class _SquareComplexCode(CSSCode):
         blocks = []
         for code_a, code_b, local_views in self._get_vertex_blocks(pauli):
             # find the canonical checks of one local view of the block, or give up
-            local_checks = _get_canonical_local_checks(code_a, code_b, pauli)
-            if local_checks is None:
+            canonical_local_checks = _get_canonical_local_checks(code_a, code_b, pauli)
+            if canonical_local_checks is None:
                 return None
 
             # place them on the local view of every vertex of the block
-            blocks.append(_place_local_checks(local_views, local_checks, len(self)))
+            blocks.append(_place_local_checks(local_views, canonical_local_checks, len(self)))
         return np.vstack(blocks).view(self.field)
 
 
@@ -235,17 +186,16 @@ class QTCode(_SquareComplexCode):
       and are not both empty, and
     - two classical local codes C_A and C_B, with block lengths ``|A|`` and ``|B|``, respectively.
 
-    The qudits of a quantum Tanner code are the faces of a left-right Cayley complex built from A
-    and B.  The vertices of the complex are members of a cover of G, on which members of A act from
-    the left and members of B from the right (see help(qldpc.objects.CayleyComplex)).  By default,
-    the complex is quadripartite: each vertex has a class (s, t) in {0,1} x {0,1}, multiplying a
-    vertex by a member of A flips s, and multiplying it by a member of B flips t.  Vertices of
-    classes (0, 0) and (1, 1) carry X-type checks, and those of classes (1, 0) and (0, 1) carry
-    Z-type checks.  If bipartite is True, the complex is bipartite: each vertex has a class s in
-    {0,1}, multiplying a vertex by a member of A or of B flips s, and vertices of class 0 carry
-    X-type checks.  Either way, QTCode keeps only the connected component of the complex that
-    contains the identity, whose class is (0, 0) or 0.  For each vertex g with X-type checks, a in
-    A, and b in B, the complex has a face ``f(g,a,b) = {g, ag, gb, agb}``::
+    The qudits of the code are the faces of the left-right Cayley complex of A and B, whose vertices
+    are members of a cover of G (see help(qldpc.objects.CayleyComplex)).  By default, the complex is
+    quadripartite: each vertex has a class (s, t), multiplying it by a member of A flips s,
+    multiplying it by a member of B flips t, and vertices of classes (0, 0) and (1, 1) have X-type
+    checks.  If bipartite is True, the complex is bipartite: each vertex has a class s, multiplying
+    it by a member of A or of B flips s, and vertices of class 0 have X-type checks.  The bipartite
+    complex needs A and B to satisfy the Total No Conjugacy condition of arXiv:2202.13641, Eq. (1):
+    ``ag != gb`` for all g in G, a in A, and b in B.  QTCode keeps only the component of the complex
+    that contains the identity.  For each vertex g with X-type checks, a in A, and b in B, the
+    complex has a face ``f(g,a,b) = {g, ag, gb, agb}``, whose corners ag and gb have Z-type checks::
 
          g ―――――――――― gb
 
@@ -253,69 +203,37 @@ class QTCode(_SquareComplexCode):
 
         ag ――――――――― agb
 
-    The corners g and agb of the face carry X-type checks, and its corners ag and gb carry Z-type
-    checks.  Each face is ``f(g,a,b)`` for two triples (g, a, b), one for each of its corners with
-    X-type checks, so the code has ``|A| |B| / 2`` qudits for each vertex with X-type checks.
+    On the local view of each vertex, an ``|A| x |B|`` array of the faces at the vertex (see
+    QTCode.get_local_views), the X-type checks span the local check space ``C_A ⨂ C_B``, and the
+    Z-type checks span ``~C_A ⨂ ~C_B``, where ``~C`` is the dual code of C.  The argument
+    local_checks chooses which words of each local check space are parity checks (see LocalChecks).
+    Coordinate i of C_A belongs to ``members_a[i]``, and coordinate j of C_B to ``members_b[j]``,
+    which list the members of A and B in increasing order.  QTCode.from_ordered_members takes other
+    orders.  The local codes can be over any finite field.
 
-    The X-type checks at each vertex span the local check space ``C_A ⨂ C_B``, and the Z-type checks
-    span ``~C_A ⨂ ~C_B``, where ``~C`` is the dual code of C.  These spaces are read in the
-    coordinates of the local view of the vertex, an ``|A| x |B|`` array of the faces at the vertex
-    (see QTCode.get_local_views and help(qldpc.codes.quantum.quantum_tanner)).  Coordinate i of C_A
-    belongs to member i of members_a, which lists the members of A in increasing order.  Likewise,
-    coordinate j of C_B belongs to member j of members_b.  QTCode.from_ordered_members takes local
-    codes whose coordinates follow another order of the members.
-
-    The argument local_checks chooses the checks that span each local check space: a minimum-weight
-    basis ("min_weight", the default), or products of the rows of the matrices that the local codes
-    carry ("from_codes").  The module docstring describes these choices, and proves that
-    "min_weight" gives minimum-weight bases.  The choice can change the parity checks, but not the
-    stabilizer group.  The "min_weight" checks at each vertex are as light as any basis of its local
-    check space, though generating sets of the stabilizer group that combine checks at different
-    vertices can be lighter.  The "min_weight" checks are also not chosen to minimize the number of
-    checks that act on each qudit.
-
-    QTCode is a CSS stabilizer code over the field of its local codes, which can be any finite
-    field.  Its X-type and Z-type checks commute: the local views of two vertices with checks of
-    different types share either no faces, or exactly one row of each local view, or exactly one
-    column of each, where words of a local code meet words of its dual (help(LQTCode) gives the
-    argument in detail).  QTCode records no distance.  The constructor merges repeated members of A
-    and B.  It checks that A and B are symmetric and not both empty, that the local codes are over
-    one field and have one coordinate per member of their subsets, and, for the bipartite complex,
-    that A and B satisfy the Total No Conjugacy condition (see help(qldpc.objects.CayleyComplex)).
-    With "min_weight" local checks, it enumerates the words of each local code and of its dual,
-    which takes time exponential in their dimensions, so it checks that each of them has at most
-    2^20 words.
-
-    Two QTCodes are equal if they have the same generating data and the same parity checks.
-    QTCode.save writes a code to a file, from which QTCode.load rebuilds an equal code (see
-    QTCode.save for what the file records and which fields it supports).  For lists of members that
-    repeat or are not symmetric, four local codes, or a complex on all of a given group, use
-    LQTCode, whose docstring also relates QTCodes to it.
-
-    Symmetries: QTCode.get_known_permutation_automorphism_group gives a group of qudit permutations
-    that preserve the code.  Its generators include translations of the Cayley complex.  Left
-    translation by a vertex x with X-type checks multiplies every vertex by x from the left.  It is
-    included if conjugation by x permutes A, and the induced permutation of the coordinates of C_A
-    maps C_A onto itself.  Right translation by x multiplies every vertex by x from the right.  It
-    is included if conjugation by x permutes B, and the induced permutation of the coordinates of
-    C_B maps C_B onto itself.  With the optional pybliss package, the generators also include the
-    automorphisms that bliss finds among the parity checks of the code, and among its canonical
-    local checks (see help(qldpc.codes.quantum.quantum_tanner)).  If the local check spaces of
-    X-type or Z-type checks have more than 2^20 words, or more than 2^10 canonical checks at each
-    vertex, bliss searches no canonical checks of that type.  The group can omit other symmetries,
-    such as those from automorphisms of the group G or from exchanging A and B.  It contains no
-    ZX-dualities, which exchange X-type and Z-type operators.
+    This is the construction of arXiv:2202.13641, Sec. 4.1, with the roles of X and Z exchanged, on
+    the bipartite complex or on the quadripartite complex of Sec. 3.2 of that paper.
 
     Notes:
 
-    - Asymptotically good families of quantum Tanner codes use projective special linear groups and
-      random local codes (arXiv:2202.13641).
+    Two QTCodes are equal if both are bipartite or both quadripartite, and they have the same
+    subsets, local codes over the same field with the same parity check matrices, and the same
+    parity checks, whatever choice of local checks gave them.  QTCode.save_json writes a code to a
+    file, from which QTCode.load_json rebuilds an equal code (see QTCode.save_json for what the file
+    records and which fields it supports).
+
+    The group that QTCode.get_known_permutation_automorphism_group returns includes translations of
+    the complex that preserve the local codes.  With the optional pybliss package, it also includes
+    the automorphisms that bliss finds among the parity checks and among the canonical local checks,
+    which depend only on the local check spaces.  It can omit other symmetries, such as those from
+    automorphisms of G or from exchanging A and B.
 
     References:
 
     - https://errorcorrectionzoo.org/c/quantum_tanner
-    - https://arxiv.org/abs/2206.07571
-    - https://arxiv.org/abs/2202.13641
+    - https://arxiv.org/abs/2206.07571 (Sec. 4)
+    - https://arxiv.org/abs/2202.13641 (Secs. 3.2 and 4.1, and Theorem 2 for asymptotically good
+      families from projective special linear groups and random local codes)
     - https://arxiv.org/abs/2508.05095 (explicit instances)
     """
 
@@ -348,8 +266,8 @@ class QTCode(_SquareComplexCode):
             bipartite: Whether to build the code on the bipartite Cayley complex, rather than the
                 quadripartite one.
             local_checks: The checks that span each local check space: "min_weight" (the default) or
-                "from_codes" (see help(qldpc.codes.quantum.quantum_tanner)).  Pass "from_codes" for
-                local codes that have too many words for "min_weight".
+                "from_codes" (see LocalChecks).  Pass "from_codes" for local codes that have too
+                many words for "min_weight".
 
         Raises:
             ValueError: If any of the following holds:
@@ -398,7 +316,10 @@ class QTCode(_SquareComplexCode):
         self._local_checks = local_checks
         code_x, code_z = self.get_subcodes(self.complex, code_a, code_b, local_checks=local_checks)
         super().__init__(code_x, code_z, field)
-        self._is_subsystem_code = False  # the checks commute (see help(QTCode))
+
+        # The checks commute, over any field, by the argument of arXiv:2202.13641, Sec. 4.1, on the
+        # bipartite complex, and of arXiv:2206.07571, Sec. 2 and Fig. 2, on the quadripartite one.
+        self._is_subsystem_code = False
 
     def __eq__(self, other: object) -> bool:
         if not (
@@ -423,7 +344,8 @@ class QTCode(_SquareComplexCode):
             {_get_member_on_points(member, size) for member in subset} for subset in subsets
         ]
 
-        # equal generating data can give different parity checks, depending on local_checks
+        # the same generating data can give different parity checks, depending on the choice of
+        # local checks and the generator matrices of the local codes
         return (
             subset_a == other_subset_a
             and subset_b == other_subset_b
@@ -435,7 +357,11 @@ class QTCode(_SquareComplexCode):
     def members_a(self) -> tuple[abstract.GroupMember, ...]:
         """The members of the subset A, in increasing order.
 
-        Member i labels coordinate i of C_A (see help(qldpc.codes.quantum.quantum_tanner)).
+        Member i labels coordinate i of C_A, and row i of each local view (see
+        QTCode.get_local_views).  Increasing order is the order in which sorted() puts qLDPC group
+        members (see help(qldpc.abstract.GroupMember)).  The members are written on the largest
+        number of points of any member of A or B, so they can differ from the members given to
+        QTCode, since SymPy permutations on different numbers of points are never equal.
         """
         return tuple(sorted(self.complex.subset_a))
 
@@ -443,19 +369,25 @@ class QTCode(_SquareComplexCode):
     def members_b(self) -> tuple[abstract.GroupMember, ...]:
         """The members of the subset B, in increasing order.
 
-        Member j labels coordinate j of C_B (see help(qldpc.codes.quantum.quantum_tanner)).
+        Member j labels coordinate j of C_B, and column j of each local view (see
+        QTCode.get_local_views).  The order, and the number of points on which the members are
+        written, are as for members_a.
         """
         return tuple(sorted(self.complex.subset_b))
 
     def get_local_views(self, pauli: PauliXZLike) -> npt.NDArray[np.int_]:
         """The local views of the vertices with parity checks of one type.
 
-        Entry ``[v, i, j]`` of the returned array is the qudit at coordinate (i, j) of the local
-        view of the v-th vertex with checks of the given type: the face whose label at that vertex
-        is ``(members_a[i], members_b[j])`` (see help(qldpc.codes.quantum.quantum_tanner)).  The
-        checks of each vertex are consecutive rows of ``matrix_x`` or ``matrix_z``, and the vertices
-        appear in the order of these rows.  Every vertex has the same number k of checks, so the
-        checks of the v-th vertex are the rows ``v k`` to ``v k + k - 1``.
+        Each face at a vertex v is ``{v, av, vb, avb}`` for exactly one member a of A and one member
+        b of B, which form the label (a, b) of the face at v, as in arXiv:2202.13641, Sec. 4.1,
+        whereas arXiv:2206.07571, Sec. 4.2, gives a face the same label at all four corners.  So the
+        face ``f(g,a,b) = {g, ag, gb, agb}`` has the labels (a, b), (a^-1, b), (a, b^-1), and
+        (a^-1, b^-1) at its corners g, ag, gb, and agb.  Entry ``[v, i, j]`` of the returned array
+        is the qudit at coordinate (i, j) of the local view of the v-th vertex with checks of the
+        given type, which is the face whose label at that vertex is
+        ``(members_a[i], members_b[j])``.  The checks of each vertex are consecutive rows of
+        ``matrix_x`` or ``matrix_z``: every vertex has the same number k of checks, and the checks
+        of the v-th vertex are rows ``v k`` to ``v k + k - 1``.
 
         Args:
             pauli: Pauli.X for the vertices with X-type checks, or Pauli.Z for those with Z-type
@@ -475,13 +407,13 @@ class QTCode(_SquareComplexCode):
         *,
         local_checks: LocalChecks = "min_weight",
     ) -> tuple[TannerCode, TannerCode]:
-        """Get the classical Tanner subcodes of a quantum Tanner code.
+        """Get the classical Tanner codes of the X-type and Z-type checks of a quantum Tanner code.
 
         Return the classical Tanner codes on subgraph_x and subgraph_z (see QTCode.get_subgraphs),
-        whose parity checks are the X-type and Z-type checks of the quantum Tanner code.  Each
-        places the local checks of its type at every source, so its subcode, in the sense of
-        TannerCode, is ``~(C_A ⨂ C_B)`` or ``~(~C_A ⨂ ~C_B)``.  The argument local_checks is as for
-        QTCode.
+        whose parity checks are the X-type and Z-type checks of the quantum Tanner code.  The parity
+        checks of the subcode of each (TannerCode.subcode) are the local checks of its type, which
+        it places at every vertex with checks of that type, so the subcode is ``~(C_A ⨂ C_B)`` or
+        ``~(~C_A ⨂ ~C_B)``.  The argument local_checks is as for QTCode.
         """
         local_checks = _parse_local_checks(local_checks)
         if local_checks == "min_weight":
@@ -490,11 +422,11 @@ class QTCode(_SquareComplexCode):
 
         # the subcodes in the sense of TannerCode: the classical codes whose parity checks are the
         # local checks
-        checks_x, checks_z = (
+        subcode_x, subcode_z = (
             ClassicalCode(_get_local_checks(code_a, code_b, pauli, local_checks))
             for pauli in PAULIS_XZ
         )
-        return TannerCode(subgraph_x, checks_x), TannerCode(subgraph_z, checks_z)
+        return TannerCode(subgraph_x, subcode_x), TannerCode(subgraph_z, subcode_z)
 
     @staticmethod
     def get_subgraphs(cayplex: CayleyComplex) -> tuple[nx.DiGraph, nx.DiGraph]:
@@ -504,36 +436,29 @@ class QTCode(_SquareComplexCode):
         the cover as its image, (a,1,0) in the quadripartite complex or (a,1) in the bipartite
         complex, and each member b of B as (b,0,1) or (b,1) (see CayleyComplex.cover_subset_a and
         CayleyComplex.cover_subset_b).  Below, a and b stand for these images.  The vertices with
-        X-type checks are the identity and the vertices that it reaches through steps ``g -> agb``
-        (see help(QTCode)).  For each vertex g with X-type checks, a in A, and b in B, the complex
-        has a face ``f(g,a,b) = {g, ag, gb, agb}``::
+        X-type checks are the identity and the vertices that it reaches through steps ``g -> agb``.
+        Each such vertex g has the faces ``f(g,a,b) = {g, ag, gb, agb}`` for a in A and b in B (see
+        help(QTCode)).  For each such triple (g, a, b), the (directed) subgraphs have:
 
-             g ―――――――――― gb
+        - an edge ``(g, f(g,a,b))`` in subgraph_x, and
+        - an edge ``(ag, f(g,a,b))`` in subgraph_z.
 
-             |  f(g,a,b)  |
-
-            ag ――――――――― agb
-
-        The (directed) subgraphs are:
-
-        - subgraph_x, with an edge ``(g, f(g,a,b))`` for each such triple (g, a, b), and
-        - subgraph_z, with an edge ``(ag, f(g,a,b))`` for each such triple (g, a, b).
-
-        Each edge has a "sort" attribute, which is the label of the face at the source of the edge:
-        (a, b) for the edge ``(g, f(g,a,b))``, and ``(a^-1, b)`` for the edge ``(ag, f(g,a,b))``,
-        since ``f(g,a,b) = f(ag,a^-1,b)``.  Classical Tanner codes on these subgraphs order the
-        edges at each source by their labels, with members in increasing order, as in
-        QTCode.members_a and QTCode.members_b.  Each face also has a "sort" attribute, which numbers
-        the faces in the order in which they are found.  This fixes the order of the bits of the
-        classical Tanner codes, and so of the qudits of the quantum Tanner code.
+        Each edge has a "sort" attribute, which is the label of the face at the source of the edge
+        (see QTCode.get_local_views): (a, b) for the edge ``(g, f(g,a,b))``, and ``(a^-1, b)`` for
+        the edge ``(ag, f(g,a,b))``.  Classical Tanner codes on these subgraphs order the edges at
+        each source by their labels, with members in increasing order, as in QTCode.members_a and
+        QTCode.members_b.  Each face also has a "sort" attribute, which numbers the faces in the
+        order in which they are found.  This fixes the order of the bits of the classical Tanner
+        codes, and so of the qudits of the quantum Tanner code.
         """
-        # sort the subsets by the total order on the group, which fixes the order in which faces are
-        # added below, and thereby the qudit that each face of the Cayley complex is identified with
-        subset_a = sorted(cayplex.cover_subset_a)
-        subset_b = sorted(cayplex.cover_subset_b)
+        # sort the cover members of the subsets by the total order on the cover group, which fixes
+        # the order in which faces are added below, and thereby the qudit that each face of the
+        # Cayley complex is identified with
+        cover_members_a = sorted(cayplex.cover_subset_a)
+        cover_members_b = sorted(cayplex.cover_subset_b)
 
         # identify the identity element
-        member = next(itertools.chain(subset_a, subset_b))
+        member = next(itertools.chain(cover_members_a, cover_members_b))
         identity = member * ~member
 
         # Build the subgraphs one node at a time, always adding the faces of the least node that has
@@ -547,7 +472,7 @@ class QTCode(_SquareComplexCode):
             gg = heapq.heappop(nodes_to_visit)
 
             # add all faces adjacent to this node, numbering each face when it is first found
-            for aa, bb in itertools.product(subset_a, subset_b):
+            for aa, bb in itertools.product(cover_members_a, cover_members_b):
                 aa_gg, gg_bb = aa * gg, gg * bb
                 aa_gg_bb = aa_gg * bb
                 face = frozenset([gg, aa_gg, gg_bb, aa_gg_bb])
@@ -605,7 +530,10 @@ class QTCode(_SquareComplexCode):
         members_a, members_b = list(members_a), list(members_b)
         code_a, code_b = _read_local_codes(code_a, code_b, field)
 
-        # sort the members of each list, and the coordinates of its local code alike
+        # Sort the members of each list, and the coordinates of its local code alike.  Read the
+        # members on a common number of points first, so that members that differ only in trailing
+        # fixed points count as repeats, since SymPy permutations on different numbers of points are
+        # never equal.
         size = max((member.size for member in members_a + members_b), default=0)
         sorted_codes = []
         for name, members, code in [("a", members_a, code_a), ("b", members_b, code_b)]:
@@ -647,11 +575,11 @@ class QTCode(_SquareComplexCode):
     ) -> QTCode:
         """Construct a random quantum Tanner code from a group and local codes.
 
-        Unless exclude_identity is True, the random subsets A and B can contain the identity element
-        e of the group.  Then the faces ``f(g,e,b) = {g, eg, gb, egb}`` have vertices g and eg that
-        are the same member of the group, and similarly for B.  The double or quadruple covers built
-        by CayleyComplex keep these vertices apart, so the code is still defined on the
-        quadripartite complex, or on the bipartite complex if A and B do not both contain e.
+        Unless exclude_identity is True, the random subsets A and B can contain the identity e of
+        the group.  The code is still defined, since the cover that CayleyComplex builds keeps apart
+        the corners of a face that are the same member of the group, such as g and eg if e is in A.
+        With bipartite=True, subsets that both contain e violate the Total No Conjugacy condition,
+        so this method raises a ValueError for them.
 
         Args:
             group: The group from which to draw the random symmetric subsets A and B.
@@ -663,8 +591,8 @@ class QTCode(_SquareComplexCode):
             field: The field of the local codes, if they are given as matrices.
             bipartite: Whether to build the code on the bipartite Cayley complex, as for QTCode.
             one_subset: If True, draw only A, and use it as B as well, which needs local codes of
-                the same length.  A = B never satisfies the Total No Conjugacy condition, since
-                ``a e = e a``, so one_subset=True with bipartite=True always raises a ValueError.
+                the same length.  With bipartite=True, this always raises a ValueError, since A = B
+                violates the Total No Conjugacy condition of arXiv:2202.13641, Eq. (1).
             exclude_identity: If True, the random subsets exclude the identity element of the group,
                 as the generating sets of Cayley graphs usually do.  See
                 help(qldpc.abstract.Group.random_symmetric_subset) for the sizes of subsets without
@@ -680,8 +608,7 @@ class QTCode(_SquareComplexCode):
                   unless one_subset is True, without the identity if exclude_identity is True (see
                   help(qldpc.abstract.Group.random_symmetric_subset)).
                 - QTCode raises a ValueError for the subsets and local codes, such as when
-                  one_subset is True and C_B does not have one coordinate per member of A, or when
-                  one_subset and bipartite are both True.
+                  one_subset is True and C_B does not have one coordinate per member of A.
         """
         code_a, code_b = _read_local_codes(code_a, code_b, field)
         subset_a = group.random_symmetric_subset(
@@ -701,282 +628,201 @@ class QTCode(_SquareComplexCode):
             subset_a, subset_b, code_a, code_b, bipartite=bipartite, local_checks=local_checks
         )
 
-    def save(self, path: str, *headers: str) -> None:
-        """Save the generating data of this code to a file.
+    def save_json(self, path: str, *notes: str) -> None:
+        """Save this code to a JSON file.
 
         The file records the subsets, the parity check and generator matrices of the local codes,
         the order of the field, whether the complex is bipartite, and the choice of local checks.
-        From these data, QTCode.load rebuilds an equal code.  In later releases, it rebuilds the
-        same parity check matrices, with the same order of checks and qudits.  The members of each
-        subset are written in sorted order, so that the file does not depend on the order in which
-        the subsets list their members.  Equal codes can still give different files, if they chose
-        their local checks differently, if their local codes carry different generator matrices, or
-        if the members of their subsets are written on different numbers of points.
+        From these data, QTCode.load_json rebuilds an equal code with the same parity check
+        matrices, including the order of checks and qudits.  Equal codes can give different files,
+        such as when they chose their local checks differently.
 
         Args:
             path: The file to write, which is overwritten if it exists.  Missing directories on its
                 path are created.
-            *headers: Text to write at the start of the file, as comment lines that QTCode.load
-                ignores.
+            *notes: Text that the file records, and that QTCode.load_json ignores.
 
         Raises:
             ValueError: If the field of this code is not galois.GF(order), with its default
                 irreducible polynomial and primitive element, since the file records only the order
                 of the field.  This method then writes nothing.
         """
-        # refuse fields other than galois.GF(order), in which QTCode.load reads saved values
+        # refuse fields other than galois.GF(order), in which QTCode.load_json reads saved values
         order = self.field.order
         if self.field is not galois.GF(order):
             raise ValueError(
-                "Saved files record only the order of the field, so QTCode.save saves only codes"
-                f" over galois.GF({order}), with its default irreducible polynomial and primitive"
-                " element, not over a field with irreducible polynomial"
+                "Saved files record only the order of the field, so QTCode.save_json saves only"
+                f" codes over galois.GF({order}), with its default irreducible polynomial and"
+                " primitive element, not over a field with irreducible polynomial"
                 f" {self.field.irreducible_poly} and primitive element"
                 f" {self.field.primitive_element}"
             )
 
-        # convert subsets to arrays
-        subset_a = np.array([member.array_form for member in sorted(self.complex.subset_a)])
-        subset_b = np.array([member.array_form for member in sorted(self.complex.subset_b)])
+        data = {
+            "notes": list(notes),
+            "subset_a": [member.array_form for member in self.members_a],
+            "subset_b": [member.array_form for member in self.members_b],
+            "code_a": {
+                "matrix": self.code_a.matrix.tolist(),
+                "generator": self.code_a.generator.tolist(),
+            },
+            "code_b": {
+                "matrix": self.code_b.matrix.tolist(),
+                "generator": self.code_b.generator.tolist(),
+            },
+            "field_order": order,
+            "bipartite": bool(self.complex.bipartite),
+            "local_checks": self._local_checks,
+        }
 
-        # create save directory if necessary
-        save_dir = os.path.dirname(os.path.abspath(path))
-        os.makedirs(save_dir, exist_ok=True)
-
-        with open(path, "w") as file:
-            # write provided headers
-            for header in headers:
-                file.writelines(f"# {line}\n" for line in header.splitlines())
-
-            # write subsets
-            file.write("# subset_a:\n")
-            np.savetxt(file, subset_a, fmt="%d")
-            file.write("# subset_b:\n")
-            np.savetxt(file, subset_b, fmt="%d")
-
-            # write the parity check matrices of the local codes
-            file.write("# code_a.matrix:\n")
-            np.savetxt(file, self.code_a.matrix, fmt="%d")
-            file.write("# code_b.matrix:\n")
-            np.savetxt(file, self.code_b.matrix, fmt="%d")
-
-            # On comment lines, record the choice of local checks and the generator matrices of the
-            # local codes, which can change the parity checks but not the stabilizer group.
-            # QTCode.load in releases 0.0.18 to 0.4.1 and the dev releases 0.4.2.dev20261004 and
-            # 0.4.2.dev20261023 reads only the lines of integers between comment lines, and the
-            # field and complex from the last two lines, so it ignores these lines.  Releases 0.0.11
-            # to 0.0.17 read the last three lines instead, so they cannot read files of later
-            # releases.
-            file.write(f"# local checks: {self._local_checks}\n")
-            file.write(f"# code_a.generator: {self.code_a.generator.tolist()}\n")
-            file.write(f"# code_b.generator: {self.code_b.generator.tolist()}\n")
-
-            # last, write the order of the field and whether the complex is bipartite
-            file.write(f"# base field: {order}\n")
-            file.write(f"# bipartite: {bool(self.complex.bipartite)}\n")
+        # Indent the data, but put each list of integers, such as a member or a row of a matrix, on
+        # one line.  The pattern needs a line break right after the bracket, which json.dumps writes
+        # only between the elements of a list, since it escapes line breaks inside strings, so it
+        # matches only the innermost lists of integers.
+        text = re.sub(
+            r"\[\n[\d,\s]*\]",
+            lambda match: json.dumps(json.loads(match.group())),
+            json.dumps(data, indent=2),
+        )
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(text + "\n")
 
     @staticmethod
-    def load(path: str) -> QTCode:
-        """Load a QTCode from a file written by QTCode.save.
-
-        The loaded code chooses its local checks as the saved code did, if the file records that
-        choice.  For files that record a choice of local checks, QTCode.load rebuilds the same
-        parity check matrices in every later release, with the same order of checks and qudits.
-
-        Files written by QTCode.save in releases up to 0.4.1 and the dev releases 0.4.2.dev20261004
-        and 0.4.2.dev20261023 record no choice of local checks, and no generator matrices of the
-        local codes, and load with "min_weight".  Their codes had local checks in reduced row
-        echelon form, which span the same local check spaces.  So for a code over galois.GF(order),
-        with its default irreducible polynomial and primitive element, a file of 0.4.0, 0.4.1, or
-        these dev releases loads with the same stabilizer group, but can load with other parity
-        checks.  Loading the file of a code over another representation of its field gives a code
-        over galois.GF(order), which can differ from the saved code, or raises an error.
-
-        Releases before 0.4.0 ordered qudits in a way that varied between sessions, so their files
-        can also load with the qudits in another order.  Releases 0.0.11 to 0.0.17 also wrote a last
-        line that lists conjugated qudits, whose X-type and Z-type operators the saved code
-        exchanged.  QTCode conjugates no qudits, so loading such a file raises a ValueError unless
-        the line is exactly "# conjugate: ()".
-
-        QTCode.load parses values with ast.literal_eval, which can exhaust memory on some inputs, so
-        load only files from trusted sources.
+    def load_json(path: str) -> QTCode:
+        """Load a QTCode from a JSON file written by QTCode.save_json.
 
         Args:
-            path: A file written by QTCode.save.
+            path: A file written by QTCode.save_json.
 
         Raises:
-            ValueError: If any of the following holds:
+            ValueError: If any of the following holds, with a message that names the file:
 
-                - The file does not exist.
-                - The file lacks the line that starts a section of generating data, such as
-                  "# subset_a:", or has a malformed section.
-                - The file records an unrecognized choice of local checks.
-                - The file has a "# conjugate:" line other than exactly "# conjugate: ()", as
-                  files of releases 0.0.11 to 0.0.17 that conjugate qudits do.
-                - The data in the file do not define a QTCode.
+                - The file does not exist, does not parse as JSON, or does not hold a JSON object.
+                - The object lacks a key that QTCode.save_json writes, or has another key.
+                - An entry is malformed, such as a matrix whose rows have different lengths, or a
+                  subset whose rows are not distinct permutations in increasing order.
+                - The file records an unrecognized choice of local checks, or other data that do not
+                  define a QTCode.
         """
+        # read the JSON object in the file, and check its keys
         if not os.path.isfile(path):
             raise ValueError(f"Path does not exist: {path}")
-
-        with open(path, "r") as file:
-            lines = file.read().splitlines()
-
-        # Find the comment line that starts each section of generating data.  Headers come first and
-        # may mimic these lines, so search backwards from the end of the file, looking for each
-        # section's line above the line of the section after it.
-        names = [
+        try:
+            with open(path, encoding="utf-8") as file:
+                data = json.load(file)
+        except (ValueError, RecursionError) as error:  # RecursionError for deeply nested input
+            raise ValueError(f"Saved code does not parse as JSON: {path}") from error
+        if type(data) is not dict:
+            raise ValueError(f"Saved code is not a JSON object: {path}")
+        keys = [
+            "notes",
             "subset_a",
             "subset_b",
-            "code_a.matrix",
-            "code_b.matrix",
-            "base field",
+            "code_a",
+            "code_b",
+            "field_order",
             "bipartite",
+            "local_checks",
         ]
-        starts: dict[str, int] = {}
-        end = len(lines)
-        for name in reversed(names):
-            start = next(
-                (
-                    index
-                    for index in range(end - 1, -1, -1)
-                    if lines[index].startswith(f"# {name}:")
-                ),
-                None,
-            )
-            if start is None:
-                raise ValueError(f"Saved code has no '# {name}:' line: {path}")
-            starts[name] = end = start
+        if missing := [key for key in keys if key not in data]:
+            raise ValueError(f"Saved code has no {missing[0]!r} entry: {path}")
+        if unknown := [key for key in data if key not in keys]:
+            raise ValueError(f"Saved code has an unknown {unknown[0]!r} entry: {path}")
 
-        # Find the sections that choose the parity checks.  Files that record them hold them between
-        # the "code_b.matrix" and "base field" lines.
-        choice_names = ["local checks", "code_a.generator", "code_b.generator"]
-        choice_starts = {
-            name: index
-            for index in range(starts["code_b.matrix"] + 1, starts["base field"])
-            for name in choice_names
-            if lines[index].startswith(f"# {name}:")
-        }
-        if choice_starts:
-            if missing := [name for name in choice_names if name not in choice_starts]:
-                raise ValueError(f"Saved code has no '# {missing[0]}:' line: {path}")
-            starts |= choice_starts
-
-        # Releases 0.0.11 to 0.0.17 ended files with a "# conjugate:" line that lists conjugated
-        # qudits, or "()" if there are none.  A QTCode cannot conjugate qudits, so raise unless the
-        # line is exactly "# conjugate: ()".
-        last_lines = lines[starts["bipartite"] + 1 :]
-        if any(
-            line.startswith("# conjugate:") and line != "# conjugate: ()" for line in last_lines
-        ):
-            raise ValueError(f"Saved code conjugates qudits, which a QTCode cannot do: {path}")
-
-        def get_malformed_error(name: str) -> ValueError:
-            """The error for a section of the file that QTCode.load cannot read."""
-            return ValueError(f"Saved code has a malformed '# {name}:' section: {path}")
-
-        def read_rows(name: str) -> list[list[int]]:
-            """Read the rows of integers in a section, which can be empty or have empty rows.
-
-            Raise a ValueError if a row holds anything other than integers.
-            """
-            next_start = min(start for start in starts.values() if start > starts[name])
-            section_lines = lines[starts[name] + 1 : next_start]
+        def read(
+            key: str, is_valid: Callable[[Any], bool], convert: Callable[[Any], Any] = lambda x: x
+        ) -> Any:
+            """Read an entry, raising a ValueError if it is not valid, or does not convert."""
             try:
-                return [[int(value) for value in line.split()] for line in section_lines]
-            except ValueError as error:
-                raise get_malformed_error(name) from error
+                if is_valid(data[key]):
+                    return convert(data[key])
+            except (OverflowError, ValueError) as error:
+                raise ValueError(f"Saved code has a malformed {key!r} entry: {path}") from error
+            raise ValueError(f"Saved code has a malformed {key!r} entry: {path}")
 
-        def read_value(name: str) -> str:
-            """Read the value on the line that starts a section, as "2" in "# base field: 2"."""
-            return lines[starts[name]].removeprefix(f"# {name}:").strip()
-
-        def read_literal(name: str, is_valid: Callable[[object], bool]) -> Any:
-            """Read the Python literal on the line that starts a section.
-
-            Raise a ValueError if the literal does not parse or is not valid.
-            """
-            # ast.literal_eval also raises MemoryError or RecursionError for some deeply nested
-            # input
-            try:
-                value = ast.literal_eval(read_value(name))
-            except (SyntaxError, ValueError, TypeError, MemoryError, RecursionError) as error:
-                raise get_malformed_error(name) from error
-            if not is_valid(value):
-                raise get_malformed_error(name)
-            return value
-
-        def is_integer_matrix(value: object) -> bool:
-            """Whether a value is a list of lists of integers, as the rows of a matrix."""
+        def is_rows(value: object) -> bool:
+            """Whether a value is a list of lists of integers, other than bools."""
             return isinstance(value, list) and all(
                 isinstance(row, list) and all(type(entry) is int for entry in row) for row in value
             )
 
-        def to_matrix(name: str, rows: list[list[int]], num_columns: int) -> npt.NDArray[np.int_]:
-            """Convert rows of a section to a matrix with the given number of columns.
+        def is_local_code(value: object) -> bool:
+            """Whether a value holds the rows of a parity check matrix and a generator matrix."""
+            return (
+                isinstance(value, dict)
+                and value.keys() == {"matrix", "generator"}
+                and all(is_rows(rows) for rows in value.values())
+            )
 
-            Raise a ValueError if the rows do not form such a matrix, or hold integers too large
-            for it.
+        def to_members(rows: list[list[int]]) -> set[abstract.GroupMember]:
+            """The members of a subset, whose rows must be distinct and in increasing order."""
+            members = [abstract.GroupMember(row) for row in rows]
+            size = max((member.size for member in members), default=0)
+            resized = [_get_member_on_points(member, size) for member in members]
+            if resized != sorted(set(resized)):
+                raise ValueError("The members of a subset are not distinct and in increasing order")
+            return set(members)
+
+        def to_matrices(
+            value: dict[str, list[list[int]]], num_columns: int
+        ) -> list[npt.NDArray[np.int_]]:
+            """The parity check and generator matrices of a local code, with num_columns columns.
+
+            A matrix has num_columns columns even if it has no rows.
             """
-            try:
-                return np.array(rows, dtype=int).reshape(len(rows), num_columns)
-            except (OverflowError, ValueError) as error:
-                raise get_malformed_error(name) from error
+            return [
+                np.array(value[name], dtype=int).reshape(len(value[name]), num_columns)
+                for name in ["matrix", "generator"]
+            ]
 
-        def read_members(name: str) -> set[abstract.GroupMember]:
-            """Read the members of a subset from their array forms, one per row of a section.
-
-            Raise a ValueError if a row is not a permutation.
-            """
-            rows = read_rows(name)
-            try:
-                return {abstract.GroupMember(row) for row in rows}
-            except ValueError as error:
-                raise get_malformed_error(name) from error
-
-        # read the field, whether the complex is bipartite, and the subsets
-        field: int = read_literal("base field", lambda value: type(value) is int)
-        # 0.4.1 wrote the argument bipartite as given, such as 1
-        bipartite = bool(read_literal("bipartite", lambda value: type(value) in (bool, int)))
-        subset_a, subset_b = read_members("subset_a"), read_members("subset_b")
-
-        # read the local codes, where a local code without parity checks still has one coordinate
-        # per member of its subset
-        code_a, code_b = [
-            ClassicalCode(to_matrix(name, read_rows(name), len(subset)), field)
-            for name, subset in [("code_a.matrix", subset_a), ("code_b.matrix", subset_b)]
-        ]
-
-        # restore the choice of local checks, and the generator matrices of the local codes; files
-        # without them use the defaults
-        local_checks: LocalChecks = "min_weight"
-        if choice_starts:
-            for code, name in [(code_a, "code_a.generator"), (code_b, "code_b.generator")]:
-                rows: list[list[int]] = read_literal(name, is_integer_matrix)
-                code.set_generator(to_matrix(name, rows, len(code)))
-            local_checks = _parse_local_checks(read_value("local checks"))
-        return QTCode(
-            subset_a, subset_b, code_a, code_b, bipartite=bipartite, local_checks=local_checks
+        # read and check the entries
+        read(
+            "notes",
+            lambda value: isinstance(value, list) and all(type(note) is str for note in value),
         )
+        field_order: int = read("field_order", lambda value: type(value) is int)
+        bipartite: bool = read("bipartite", lambda value: type(value) is bool)
+        subset_a, subset_b = [read(key, is_rows, to_members) for key in ["subset_a", "subset_b"]]
+        matrices_a = read("code_a", is_local_code, lambda value: to_matrices(value, len(subset_a)))
+        matrices_b = read("code_b", is_local_code, lambda value: to_matrices(value, len(subset_b)))
+
+        # rebuild the code
+        try:
+            code_a, code_b = [
+                ClassicalCode(matrix, field_order).set_generator(generator)
+                for matrix, generator in [matrices_a, matrices_b]
+            ]
+            return QTCode(
+                subset_a,
+                subset_b,
+                code_a,
+                code_b,
+                bipartite=bipartite,
+                local_checks=data["local_checks"],
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Saved code does not define a QTCode ({error}): {path}") from error
 
     @functools.cached_property
     def _local_views(self) -> dict[PauliXZ, npt.NDArray[np.int_]]:
         """The local views of the vertices with checks of each type."""
         # cover members compare by their members of G first, so these orders agree with members_a/b
-        members_a = sorted(self.complex.cover_subset_a)
-        members_b = sorted(self.complex.cover_subset_b)
-        positions_a = {member: index for index, member in enumerate(members_a)}
-        positions_b = {member: index for index, member in enumerate(members_b)}
+        cover_members_a = sorted(self.complex.cover_subset_a)
+        cover_members_b = sorted(self.complex.cover_subset_b)
+        positions_a = {member: index for index, member in enumerate(cover_members_a)}
+        positions_b = {member: index for index, member in enumerate(cover_members_b)}
         local_views = {}
         for pauli, subgraph in zip(PAULIS_XZ, self.get_subgraphs(self.complex)):
             # TannerCode sorts the sources of a subgraph, which carry its checks, by the nodes
             # themselves, since they have no "sort" attribute
             sources = sorted(node for node in subgraph if subgraph.out_degree(node))
-            local_view = np.zeros((len(sources), len(positions_a), len(positions_b)), dtype=int)
+            views = np.zeros((len(sources), len(positions_a), len(positions_b)), dtype=int)
             for index, source in enumerate(sources):
                 for _, face, (member_a, member_b) in subgraph.out_edges(source, data="sort"):
                     position_a, position_b = positions_a[member_a], positions_b[member_b]
-                    local_view[index, position_a, position_b] = subgraph.nodes[face]["sort"]
-            local_views[pauli] = local_view
+                    views[index, position_a, position_b] = subgraph.nodes[face]["sort"]
+            local_views[pauli] = views
         return local_views
 
     def _get_vertex_blocks(
@@ -988,47 +834,28 @@ class QTCode(_SquareComplexCode):
     def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of translations of the Cayley complex that preserve this code, or None.
 
-        Here A and B are the cover subsets of the complex, whose vertices are members of the cover
-        group (see help(qldpc.objects.CayleyComplex)), and V is the set of vertices.  Let x be a
-        vertex with X-type checks such that conjugation by x permutes A.  Number the members of A in
-        increasing order, let π map each number i to the number of the conjugate of member i, and
-        suppose that π, as a permutation of coordinates, maps C_A onto itself.  Then left
-        translation by x, which maps each vertex v to xv, preserves this code:
+        Let A and B be the cover subsets of the complex, whose vertices are members of the cover
+        group (see help(qldpc.objects.CayleyComplex)).  Let x be a vertex with X-type checks such
+        that conjugation by x permutes A, and let π map the position i of each member a of A, in
+        increasing order, to the position of ``x a x^-1``.  Left translation by x, which maps each
+        vertex v to xv, maps the vertices with X-type checks onto themselves, and the face
+        ``f(g,a,b) = {g, ag, gb, agb}`` to the face ``f(xg,xax^-1,b)``.  So it maps coordinate
+        (i, j) of the local view of each vertex to coordinate (π(i), j) of the local view of its
+        image, and it preserves this code if π, as a permutation of coordinates, maps C_A onto
+        itself.
 
-        - It maps V onto itself.  The vertices are the products uw of a member u of the group <A>
-          generated by A and a member w of <B>, since left and right multiplications commute.  So
-          ``x = u'w'`` for some such u' and w', and since conjugation by x maps <A> onto itself,
-          ``xV = x<A><B> = <A>x<B> = <A>u'w'<B> = V``.
-        - It maps vertices with X-type checks to vertices with X-type checks.  The cover group
-          assigns each member a class in Z_2 (bipartite complex) or Z_2 x Z_2 (quadripartite
-          complex), which multiplication adds, and the vertices with X-type checks are those whose
-          class is in the subgroup {0} or {(0,0), (1,1)}, which contains the class of x.
-        - It maps the face ``f(g,a,b) = {g, ag, gb, agb}`` to the face ``f(xg,a',b)``, where
-          ``a' = xax^-1``.  So at a vertex g with X-type checks, the face with label (a, b) goes to
-          the face with label (a', b) at xg, and at a vertex ag with Z-type checks, the face with
-          label (a^-1, b) goes to the face with label (a'^-1, b) at xag, since
-          ``a'^-1 = xa^-1x^-1``.  Either way, coordinate (i, j) of a local view goes to coordinate
-          (π(i), j) of the local view of the image of its vertex.
-        - Since π maps C_A onto itself, it maps ~C_A onto itself, so the translation maps the local
-          check space of each vertex onto that of its image, and so the row spaces of matrix_x and
-          matrix_z onto themselves.
-
-        Right translation by x, which maps each vertex v to vx, preserves this code in the same way
-        if x is a vertex with X-type checks, conjugation ``b -> x^-1 b x`` permutes B, and the
-        induced permutation of coordinates maps C_B onto itself.  In each case, the vertices x that
-        satisfy the conditions form a group, since their products satisfy them, and this method
-        returns qudit permutations of generators of the two groups.  In a quadripartite complex, the
-        group of left translations includes translation by the central member (e,1,1) of the cover
-        group, where e is the identity of the group G, if (e,1,1) is a vertex.
-
-        These conditions are sufficient, not necessary.  The translations omit other symmetries,
-        such as those from automorphisms of the group, from exchanging A and B, or from permutations
-        that preserve the stabilizer group but not each local check space.
+        Right translation by x, which maps each vertex v to vx, likewise preserves this code if x is
+        a vertex with X-type checks, conjugation ``b -> x^-1 b x`` permutes B, and the induced
+        permutation of coordinates maps C_B onto itself.  For each side, the vertices x that satisfy
+        these conditions form a group, and this method returns the qudit permutations of generators
+        of the two groups.  These conditions are sufficient, not necessary.  The translations omit
+        other symmetries, such as those from automorphisms of G, from exchanging A and B, or from
+        permutations that preserve the stabilizer group but not each local check space.
         """
         # the faces of the complex, which are its qudits, and the vertices with X-type checks
         subgraph_x, _ = self.get_subgraphs(self.complex)
         faces = {face: qudit for face, qudit in subgraph_x.nodes(data="sort") if qudit is not None}
-        vertices = sorted(node for node in subgraph_x if subgraph_x.out_degree(node))
+        vertices_x = sorted(node for node in subgraph_x if subgraph_x.out_degree(node))
 
         # Find generators of the left and right translations, and permute the faces by each.  Cover
         # members compare by their members of G first, so these orders are those of members_a/b.
@@ -1037,7 +864,7 @@ class QTCode(_SquareComplexCode):
             (True, sorted(self.complex.cover_subset_a), self.code_a),
             (False, sorted(self.complex.cover_subset_b), self.code_b),
         ]:
-            for vertex, _ in _get_translation_generators(vertices, members, [code], left=left):
+            for vertex, _ in _get_translation_generators(vertices_x, members, [code], left=left):
                 permutation = np.empty(len(self), dtype=int)
                 for face, qudit in faces.items():
                     image = frozenset(vertex * node if left else node * vertex for node in face)
@@ -1058,10 +885,10 @@ class LQTCode(_SquareComplexCode):
     - classical local codes C_A^0 and C_A^1 of length m, and C_B^0 and C_B^1 of length n, over one
       finite field.
 
-    Complex and qudits.  The code is built on a quadripartite square complex, whose vertices are the
-    triples (g, s, t) in G x {0,1} x {0,1}, and (s, t) is the class of a vertex.  The squares of the
-    complex are the triples (i, j, g) for ``i < m``, ``j < n``, and g in G, and the corners of
-    square (i, j, g) are::
+    The code is built on a quadripartite square complex, whose vertices are the triples (g, s, t) in
+    G x {0,1} x {0,1}, where (s, t) is the class of a vertex.  The squares of the complex are the
+    triples (i, j, g) for ``i < m``, ``j < n``, and g in G, and the corners of square (i, j, g)
+    are::
 
            (g, 0, 0) ――――――――――――― (g b_j, 0, 1)
 
@@ -1069,109 +896,66 @@ class LQTCode(_SquareComplexCode):
 
         (a_i g, 1, 0) ―――――――――――― (a_i g b_j, 1, 1)
 
-    Here products such as ``a_i g`` are products of qLDPC group members (``a_i * g``).  The square
-    has the label (i, j) at each of its corners.  So a vertex (h, s, t) is a corner of exactly one
-    square with each label (i, j), namely ``(i, j, a_i^-s h b_j^-t)``, which sits at coordinate
-    (i, j) of the m x n local view of the vertex (see LQTCode.get_local_views).  Since squares are
-    labeled by positions in A and B, rather than by members, members can repeat.  The qudits of the
-    code are the squares, and qudit (i, j, g) has the index ``(i n + j) |G| + r(g)``, where r(g) is
-    the position of g among the members of G in increasing order.
+    Products such as ``a_i g`` are products of qLDPC group members (``a_i * g``).  Square (i, j, g)
+    is at coordinate (i, j) of the m x n local view of each of its corners (see
+    LQTCode.get_local_views).  The squares are the qudits, and qudit (i, j, g) has the index
+    ``(i n + j) |G| + r(g)``, where r(g) is the position of g in ``sorted(group.generate())``.
 
-    Checks.  A vertex of class (s, t) uses the local codes C_A^s and C_B^t, in the coordinates of
-    its local view.  The vertices with s = t carry X-type checks that span the local check space
-    ``C_A^s ⨂ C_B^t``, and those with s != t carry Z-type checks that span ``~C_A^s ⨂ ~C_B^t``,
-    where ``~C`` is the dual code of C.  The argument local_checks chooses the checks of each
-    vertex: "min_weight" chooses a minimum-weight basis of its local check space, and "from_codes"
-    the rows of ``G_A^s ⨂ G_B^t`` (X-type) or ``H_A^s ⨂ H_B^t`` (Z-type).  Here H_A^s and G_A^s are
-    the parity check matrix and generator matrix that C_A^s carries (``code.matrix`` and
-    ``code.generator``), and likewise for C_B^t (see help(qldpc.codes.quantum.quantum_tanner)).  The
-    rows of matrix_x are the checks of the vertices of class (0, 0) and then (1, 1), and the rows of
-    matrix_z those of the vertices of class (0, 1) and then (1, 0).  Within each class, vertices
-    (g, s, t) are ordered by increasing g, and the checks of each vertex are consecutive rows.
+    A vertex of class (s, t) uses the local codes C_A^s and C_B^t on its local view.  The vertices
+    with s = t have X-type checks that span the local check space ``C_A^s ⨂ C_B^t``, and those with
+    s != t have Z-type checks that span ``~C_A^s ⨂ ~C_B^t``, where ``~C`` is the dual code of C.
+    The argument local_checks chooses which words of each local check space are parity checks
+    (see LocalChecks).  LQTCode.get_local_views gives the order of the checks.
 
-    Commutation.  The checks commute over any finite field.  An X-type vertex (h, s, s) and a Z-type
-    vertex (h', s, 1-s) share the first entry s of their classes.  Square (i, j, g) is at coordinate
-    (i, j) of both of their local views if ``g = a_i^-s h b_j^-s = a_i^-s h' b_j^(s-1)``, which is
-    to say if ``h' = h b_j^(1-2s)``, a condition on j alone.  Let J be the set of positions j of B
-    with ``b_j = (h^-1 h')^(1-2s)``; if this member repeats in B, then J has several positions.  The
-    two local views overlap on all rows i of the columns j in J.  On this overlap, a word ``x ⨂ y``
-    of the X-type space, with x in C_A^s, and a word ``u ⨂ w`` of the Z-type space, with u in
-    ~C_A^s, have the inner product ``(x · u) (sum_{j in J} y_j w_j) = 0``, and linearity extends
-    this to all words of the two spaces.  Likewise, an X-type vertex (h, s, s) and a Z-type vertex
-    (h', 1-s, s) share the second entry s of their classes, and their local views overlap on all
-    columns of the rows i with ``h' = a_i^(1-2s) h``, where the inner product factors through C_B^s
-    and its dual.  So ``matrix_x @ matrix_z.T = 0``.
+    Over GF(2), LQTCode is the code of Eq. (2) of arXiv:2512.20532, in other notation, and
+    LQTCode.from_lrz builds it from the data of that paper, in its notation.  LQTCode builds the
+    code in the same way over any finite field.
 
-    Relation to QTCode.  Let A and B be symmetric sets of distinct members of a group, listed in
+    Notes:
+
+    A quadripartite QTCode has the qudits and stabilizer group of an LQTCode
+    (arXiv:2512.20532, Sec. 1), or of a direct summand of one, and a bipartite QTCode is the
+    quotient of an LQTCode, or of a direct summand of one, by an involution σ.  To state these
+    relations exactly, let A and B be symmetric sets of distinct members of a group, listed in
     increasing order as by QTCode.members_a and QTCode.members_b, and let G be the group that they
     generate, with identity e.  Let ι_A be the permutation of positions in A that maps each member
     to its inverse, and let ``C∘ι_A`` be the code whose coordinate i is coordinate ι_A(i) of a code
-    C, and likewise for B.
+    C, and likewise for B.  The complex of an LQTCode depends only on G, A, and B.  Let K be the
+    component of this complex that contains (e, 0, 0).
 
-    - The quadripartite ``QTCode(A, B, C_A, C_B)`` has a face ``f(g,a,b) = {g, ag, gb, agb}`` for
-      each vertex g of class (0, 0) of its complex, with the labels (a, b), (a^-1, b), (a, b^-1),
-      and (a^-1, b^-1) at its corners of classes (0, 0), (1, 0), (0, 1), and (1, 1).  This face is
-      the square (i, j, g) with ``a = a_i`` and ``b = b_j``, so in the labels of squares, the local
-      check spaces of QTCode are those of the local codes ``C_A^0 = C_A``, ``C_A^1 = C_A∘ι_A``,
-      ``C_B^0 = C_B``, and ``C_B^1 = C_B∘ι_B``.  QTCode keeps only the connected component of the
-      complex that contains the identity, whereas an LQTCode on a disconnected complex is the direct
-      sum of the codes on its components.  So if the complex is connected, the QTCode and the
-      LQTCode with these local codes have the same qudits, up to their order, and the same
-      stabilizer group.
-    - The bipartite complex of a QTCode, whose subsets satisfy the Total No Conjugacy condition
-      (TNC), is a quotient of the quadripartite complex.  The involution
-      ``σ: (g, s, t) -> (g, 1-s, 1-t)`` maps square (i, j, g) to square
-      ``(ι_A(i), ι_B(j), a_i g b_j)``, and since ``C^1 = C^0∘ι``, it maps the local check space of
-      each vertex onto that of its image.  It changes the class of every vertex, and fixes square
-      (i, j, g) only if ``a_i g b_j = g``, which TNC excludes.  The quotient by σ is the bipartite
-      complex of QTCode, whose vertex (g, 0) has X-type checks and is the orbit of (g, 0, 0) and
-      (g, 1, 1), and whose vertex (g, 1) is the orbit of (g, 1, 0) and (g, 0, 1).  Let K be the
-      component of the quadripartite complex that contains (e, 0, 0).  If σ maps K onto itself, the
-      bipartite QTCode is the quotient of the quadripartite QTCode by σ.  Otherwise, the quotient
-      maps K isomorphically onto the component of the bipartite complex that contains (e, 0), and
-      the bipartite QTCode has the qudits, up to their order, and the stabilizer group of the
-      quadripartite QTCode.
+    - The quadripartite ``QTCode(A, B, C_A, C_B)`` has the qudits, up to their order, and the
+      stabilizer group of the summand on K of the LQTCode with the local codes ``C_A^0 = C_A``,
+      ``C_A^1 = C_A∘ι_A``, ``C_B^0 = C_B``, and ``C_B^1 = C_B∘ι_B``.  Its face ``f(g,a,b)`` for a
+      vertex g of class (0, 0) is the square (i, j, g) with ``a = a_i`` and ``b = b_j``.  An LQTCode
+      on a disconnected complex is the direct sum of the codes on its components, whereas QTCode
+      keeps only the component K.
+    - If A and B satisfy the Total No Conjugacy condition, the bipartite complex of QTCode is the
+      component that contains (e, 0) of the quotient of the complex of the LQTCode by the involution
+      ``σ: (g, s, t) -> (g, 1-s, 1-t)``.  The vertex (g, 0) of the quotient has X-type checks and is
+      the orbit of (g, 0, 0) and (g, 1, 1), and its vertex (g, 1) is the orbit of (g, 1, 0) and
+      (g, 0, 1).  If σ maps K onto itself, the bipartite QTCode is the quotient of the quadripartite
+      QTCode by σ.  Otherwise, the bipartite QTCode has the qudits, up to their order, and the
+      stabilizer group of the quadripartite QTCode.
 
-    These relations are between stabilizer groups.  The parity checks correspond as well, up to the
-    order of qudits and checks, if both codes use local_checks="from_codes", and C_A^1 and C_B^1
-    carry the matrices of C_A and C_B with permuted columns, as
+    These relations are between stabilizer groups.  The parity checks also correspond, up to the
+    order of qudits and checks, if the QTCode and the LQTCode both use local_checks="from_codes",
+    and C_A^1 and C_B^1 carry the matrices of C_A and C_B with permuted columns, as
     ``ClassicalCode(H_A[:, ι_A]).set_generator(G_A[:, ι_A])`` does for the parity check matrix H_A
-    and generator matrix G_A of C_A.  Otherwise the parity checks can differ.  For example, with
-    "min_weight" they can differ because the minimum-weight basis that qLDPC picks can depend on the
-    order of coordinates.
+    and generator matrix G_A of C_A.  Then the checks of the quadripartite QTCode are those of the
+    LQTCode at the vertices of K, and the checks of the bipartite QTCode are their images under the
+    quotient by σ.  Each check of the bipartite QTCode is the image of two checks at vertices of K
+    if σ maps K onto itself, and of one otherwise.  Without these conditions on local_checks and on
+    C_A^1 and C_B^1, the parity checks can differ: for example, the minimum-weight basis that
+    "min_weight" picks can depend on the order of coordinates.
 
-    LQTCode is a CSS stabilizer code.  It records no distance.  The constructor checks that the
-    members of A and B are members of G, that the local codes have lengths m and n, and that they
-    are over one field, which can be any finite field (the codes of arXiv:2512.20532 are binary).
-    With "min_weight" local checks, it enumerates the words of each local code and of its dual,
-    which takes time exponential in their dimensions, so it checks that each of them has at most
-    2^20 words.  The "min_weight" checks at each vertex are as light as any basis of its local check
-    space, though generating sets of the stabilizer group that combine checks at different vertices
-    can be lighter.  The "min_weight" checks are also not chosen to minimize the number of checks
-    that act on each qudit.  A local code given as a parity check matrix carries a generator matrix
-    that qLDPC computes, which "from_codes" uses.  LQTCode.from_lrz builds a code from the data of
-    arXiv:2512.20532, in that paper's notation.
-
-    Symmetries: LQTCode.get_known_permutation_automorphism_group gives a group of qudit permutations
-    that preserve the code.  Its generators include translations of the complex.  Left translation
-    by a member x of G maps each vertex (g, s, t) to (xg, s, t).  It is included if conjugation by
-    x, ``a -> x a x^-1``, permutes the list A, which is to say that the conjugate of each member
-    occurs in A as often as the member does.  Repeated members are matched in order: the k-th
-    occurrence of a member goes to the k-th occurrence of its conjugate, which gives a permutation π
-    of the positions in A.  The translation is included if, moreover, π maps C_A^0 and C_A^1 onto
-    themselves as a permutation of coordinates.  Right translation by x maps each vertex (g, s, t)
-    to (gx, s, t), and is included under the same conditions for the conjugation ``b -> x^-1 b x``
-    of B, and for C_B^0 and C_B^1.  With the optional pybliss package, the generators also include
-    the automorphisms that bliss finds among the parity checks of the code, and among its canonical
-    local checks (see help(qldpc.codes.quantum.quantum_tanner)).  For each type of checks, if either
-    class of vertices with that type has a local check space with more than 2^20 words or 2^10
-    canonical checks per vertex, bliss searches no canonical checks of that type.  The group can
-    omit other symmetries, such as those from automorphisms of G or from exchanging A and B.  It
-    contains no ZX-dualities, which exchange X-type and Z-type operators.
+    The group that LQTCode.get_known_permutation_automorphism_group returns includes translations of
+    the complex that preserve the local codes, matching repeated members in order.  With the
+    optional pybliss package, it also includes the automorphisms that bliss finds, as for QTCode.
+    It can omit other symmetries, such as those from automorphisms of G or from exchanging A and B.
 
     References:
 
-    - https://arxiv.org/abs/2512.20532 (Eq. (2))
+    - https://arxiv.org/abs/2512.20532 (Sec. 1 and Eq. (2))
     - https://arxiv.org/abs/2202.13641
     - https://arxiv.org/abs/2206.07571
     - https://errorcorrectionzoo.org/c/quantum_tanner
@@ -1214,7 +998,7 @@ class LQTCode(_SquareComplexCode):
             code_a1: The local code C_A^1, or its parity check matrix.  By default, C_A^0.
             code_b1: The local code C_B^1, or its parity check matrix.  By default, C_B^0.
             local_checks: The checks that span each local check space: "min_weight" (the default) or
-                "from_codes" (see help(LQTCode)).
+                "from_codes" (see LocalChecks).
 
         Raises:
             ValueError: If any of the following holds:
@@ -1266,15 +1050,16 @@ class LQTCode(_SquareComplexCode):
         num_qudits = len(self.members_a) * len(self.members_b) * group.order
         matrices = []
         for pauli in PAULIS_XZ:
-            blocks = [
-                _place_local_checks(
-                    local_views, _get_local_checks(code_a, code_b, pauli, local_checks), num_qudits
-                )
-                for code_a, code_b, local_views in self._get_vertex_blocks(pauli)
-            ]
+            blocks = []
+            for code_a, code_b, local_views in self._get_vertex_blocks(pauli):
+                local_check_matrix = _get_local_checks(code_a, code_b, pauli, local_checks)
+                blocks.append(_place_local_checks(local_views, local_check_matrix, num_qudits))
             matrices.append(np.vstack(blocks).view(codes_a[0].field))
         super().__init__(matrices[0], matrices[1])
-        self._is_subsystem_code = False  # the checks commute (see help(LQTCode))
+
+        # The checks commute, over any field, by the argument of arXiv:2512.20532, Sec. 1, which
+        # also holds when repeated members make two local views share several rows or columns.
+        self._is_subsystem_code = False
 
     @staticmethod
     def from_lrz(
@@ -1291,12 +1076,13 @@ class LQTCode(_SquareComplexCode):
     ) -> LQTCode:
         """The lifted quantum Tanner code of Eq. (2) of arXiv:2512.20532, in that paper's notation.
 
-        That paper builds a code from a group G, ordered lists ``A = (a_1, ..., a_{n_A})`` and
-        ``B = (b_1, ..., b_{n_B})`` of members of G, and binary codes C_0 and C_1 of length n_A and
-        C'_0 and C'_1 of length n_B, whose parity check matrices H_s and H'_t and generator matrices
-        G_s and G'_t it fixes.  Below, as in LQTCode, positions i in A and j in B count from 0, so
-        a_i is the paper's a_{i+1}.  The qubits of the paper are the triples (i, j, g), in the order
-        of the index ``(i n_B + j) |G| + r(g)`` of LQTCode, and its parity check matrices are
+        That paper, by Leverrier, Rozendaal, and Zémor (LRZ), builds a code from a group G, ordered
+        lists ``A = (a_1, ..., a_{n_A})`` and ``B = (b_1, ..., b_{n_B})`` of members of G, and
+        binary codes C_0 and C_1 of length n_A and C'_0 and C'_1 of length n_B, whose parity check
+        matrices H_s and H'_t and generator matrices G_s and G'_t it fixes.  Below, as in LQTCode,
+        positions i in A and j in B count from 0, so a_i is the paper's a_{i+1}.  The qubits of the
+        paper are the triples (i, j, g), in the order of the index ``(i n_B + j) |G| + r(g)`` of
+        LQTCode, and its parity check matrices are
 
             ``H_X = [H_0 ⨂ G'_0 ⨂ I; (H_1 ⨂ G'_1 ⨂ I) L_A R_B]``, and
             ``H_Z = [(G_0 ⨂ H'_1 ⨂ I) R_B; (G_1 ⨂ H'_0 ⨂ I) L_A]``,
@@ -1313,19 +1099,22 @@ class LQTCode(_SquareComplexCode):
         These are the local views of the vertices (g, s, t) of classes (0, 0), (1, 1), (0, 1), and
         (1, 0) of the LQTCode with members ``a_i^-1`` in place of a_i, members b_j, and local codes
         ``C_A^s = ~C_s`` and ``C_B^t = C'_t``, whose local check spaces are the same products.  This
-        method returns that LQTCode.  It builds each code ``~C_s`` with the matrices of C_s
-        exchanged: its parity check matrix is G_s, and its generator matrix is H_s.  So with
-        local_checks="from_codes", the X-type checks at the vertices of class (s, s) are the rows of
-        ``H_s ⨂ G'_s``, and the Z-type checks at the vertices of class (s, t) are the rows of
-        ``G_s ⨂ H'_t``.  These are the rows of H_X and H_Z, up to their order, if each code carries
-        the matrices of the paper: its parity check matrix as code.matrix, and its generator matrix
-        as code.generator, which ClassicalCode.set_generator sets.  For a code given only as a
-        parity check matrix, qLDPC computes a generator matrix, so the checks of the returned code
-        span the same spaces as those of the paper, but can differ from them.  The published check
-        matrices of its [[144, 12, 11]] code order the qubits by g first: qubit (i, j, g) is the
-        published qubit ``36 h + 6 i + j``, where h is the number that the files give g (they number
-        the members of Z_2 × Z_2 from 0 to 3 under bitwise XOR).  So a comparison with those files
-        needs a relabeling of the qubits.
+        method returns that LQTCode.
+
+        With local_checks="from_codes", the parity checks of the returned code are the rows of H_X
+        and H_Z, up to their order, if each code carries the matrices of the paper: its parity check
+        matrix as code.matrix, and its generator matrix as code.generator, which
+        ClassicalCode.set_generator sets.  This method builds each code ``~C_s`` with the matrices
+        of C_s exchanged: its parity check matrix is G_s, and its generator matrix is H_s.  So the
+        X-type checks at the vertices of class (s, s) are the rows of ``H_s ⨂ G'_s``, and the Z-type
+        checks at the vertices of class (s, t) are the rows of ``G_s ⨂ H'_t``.  For a code given
+        only as a parity check matrix, qLDPC computes a generator matrix, so the checks of the
+        returned code span the same spaces as those of the paper, but can differ from them.
+
+        The check matrices that the authors published for the paper's [[144, 12, 11]] code, whose
+        group G is Z_2 × Z_2, order the qubits by g first.  With G written as {0, 1, 2, 3} under
+        bitwise XOR, qubit (i, j, g) is their qubit ``36 h + 6 i + j``, where h is the number that
+        stands for g.  So a comparison with those matrices needs a relabeling of the qubits.
 
         The paper's codes are binary.  Over other finite fields, this method builds the LQTCode in
         the same way.
@@ -1342,7 +1131,8 @@ class LQTCode(_SquareComplexCode):
             local_checks: The checks that span each local check space, as for LQTCode.
 
         Raises:
-            ValueError: As for LQTCode.
+            ValueError: As for LQTCode, whose local codes C_A^s and C_B^t are ~C_s and C'_t, so an
+                error about C_A^s concerns code_s, and one about C_B^t concerns code_t_prime.
         """
         # check the members of A before inverting them, so that an error names a member as given
         members_a = list(members_a)
@@ -1416,20 +1206,20 @@ class LQTCode(_SquareComplexCode):
         shifts_a = shifts_a.reshape(num_a, order)
         shifts_b = shifts_b.reshape(num_b, order)
 
-        # the position of a_i^-s h b_j^-t at coordinate (i, j) of each vertex (h, s, t), and the
-        # qudit of the square (i, j, a_i^-s h b_j^-t)
+        # the position r(g) of the member ``g = a_i^-s h b_j^-t`` of the square at coordinate (i, j)
+        # of each vertex (h, s, t), and the qudit of that square (i, j, g)
         first_qudits = np.add.outer(np.arange(num_a) * num_b, np.arange(num_b)) * order
         local_views = {}
         for ss, tt in itertools.product(range(2), repeat=2):
             if ss:
-                square_positions = np.broadcast_to(shifts_a.T[:, :, None], (order, num_a, num_b))
+                positions_g = np.broadcast_to(shifts_a.T[:, :, None], (order, num_a, num_b))
             else:
-                square_positions = np.broadcast_to(
+                positions_g = np.broadcast_to(
                     np.arange(order)[:, None, None], (order, num_a, num_b)
                 )
             if tt:
-                square_positions = shifts_b[np.arange(num_b), square_positions]
-            local_views[ss, tt] = first_qudits + square_positions
+                positions_g = shifts_b[np.arange(num_b), positions_g]
+            local_views[ss, tt] = first_qudits + positions_g
         return local_views
 
     def _get_vertex_blocks(
@@ -1448,37 +1238,25 @@ class LQTCode(_SquareComplexCode):
     def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of translations of the complex that preserve this code, or None.
 
-        Let x be a member of G such that conjugation by x permutes the list A: the conjugate of each
-        member occurs in A as often as the member does.  Then ``x a_i x^-1 = a_π(i)`` for the
-        permutation π of positions that maps the k-th occurrence of each member to the k-th
-        occurrence of its conjugate.  Suppose that π, as a permutation of coordinates, maps C_A^0
-        and C_A^1 onto themselves.  Then left translation by x, which maps each vertex (g, s, t) to
-        (xg, s, t), preserves this code:
-
-        - It maps the corners g, a_i g, g b_j, and a_i g b_j of square (i, j, g) to the corners xg,
-          ``a_π(i) xg``, xg b_j, and ``a_π(i) xg b_j`` of square ``(π(i), j, xg)``, of the same
-          classes.  So it maps squares to squares, which is the qudit permutation
-          ``(i, j, g) -> (π(i), j, xg)``, and vertices to vertices of the same class.
-        - The square at coordinate (i, j) of the local view of a vertex has the label (i, j) at that
-          vertex, so its image, which has the label (π(i), j), is at coordinate (π(i), j) of the
-          local view of the image of the vertex.
-        - Since π maps C_A^s onto itself, it maps ~C_A^s onto itself.  So the translation maps the
-          local check space of each vertex onto that of its image, and so the row spaces of matrix_x
-          and matrix_z onto themselves.
+        Let x be a member of G such that conjugation by x permutes the list A, and let π be the
+        permutation of positions with ``x a_i x^-1 = a_π(i)`` that matches repeated members in order
+        (see _get_conjugation_permutation).  Left translation by x, which maps each vertex (g, s, t)
+        to (xg, s, t), maps square (i, j, g) to square ``(π(i), j, xg)``, which is the qudit
+        permutation of the translation.  It maps coordinate (i, j) of the local view of each vertex
+        to coordinate (π(i), j) of the local view of its image, which has the same class, so it
+        preserves this code if π, as a permutation of coordinates, maps C_A^0 and C_A^1 onto
+        themselves.
 
         Right translation by x, which maps each vertex (g, s, t) to (gx, s, t), likewise maps square
-        (i, j, g) to square ``(i, ρ(j), gx)``, where ``x^-1 b_j x = b_ρ(j)``, and preserves this
-        code if ρ matches repeated members in order and maps C_B^0 and C_B^1 onto themselves.
-        Matching in order makes the permutation of positions of a product xy the product of the
-        permutations of x and y.  So the members x that satisfy the conditions form a group,
-        translations compose as their members do, and this method returns the qudit permutations of
-        generators of the groups of left and right translations.
-
-        These conditions are sufficient, not necessary.  The translations omit other symmetries,
-        such as permutations that match repeated members in other orders, that come from
-        automorphisms of G, that exchange A and B, that exchange classes of vertices (such as the
-        involution σ of the quadripartite complex of a QTCode), or that preserve the stabilizer
-        group but not each local check space.
+        (i, j, g) to square ``(i, ρ(j), gx)``, where ``x^-1 b_j x = b_ρ(j)`` as for π, and preserves
+        this code if ρ maps C_B^0 and C_B^1 onto themselves.  For each side, the members x that
+        satisfy these conditions form a group (see _get_translation_generators), and this method
+        returns the qudit permutations of the translations by generators of each group.  These
+        conditions are sufficient, not necessary.  The translations omit other symmetries, such as
+        permutations that match repeated members in other orders, that come from automorphisms of G,
+        that exchange A and B, or that preserve the stabilizer group but not each local check space.
+        They also omit permutations that exchange classes of vertices, such as the involution σ of
+        the quadripartite complex of a QTCode (see LQTCode).
         """
         group_members = self._members_of_group
         positions = {member: position for position, member in enumerate(group_members)}
@@ -1496,8 +1274,10 @@ class LQTCode(_SquareComplexCode):
                 images_g = [positions[xx * hh if left else hh * xx] for hh in group_members]
                 images_a = permutation if left else range(num_a)
                 images_b = range(num_b) if left else permutation
-                squares = np.add.outer(np.array(images_a, dtype=int) * num_b, list(images_b))
-                permutations.append(np.add.outer(squares * len(group_members), images_g).ravel())
+                image_labels = np.add.outer(np.array(images_a, dtype=int) * num_b, list(images_b))
+                permutations.append(
+                    np.add.outer(image_labels * len(group_members), images_g).ravel()
+                )
         return np.array(permutations, dtype=int) if permutations else None
 
 
@@ -1514,9 +1294,8 @@ def _parse_local_checks(value: object) -> LocalChecks:
 def _get_dual_code(code: ClassicalCode) -> ClassicalCode:
     """The dual of a classical code, whose generator matrix is the parity check matrix of the code.
 
-    So the dual carries the same two matrices as the code, with their roles exchanged.  The dual
-    ``~code`` would instead carry a generator matrix that qLDPC computes, so "from_codes" local
-    checks would not use the parity check matrix that the code carries.
+    The dual ``~code`` would instead carry a generator matrix that qLDPC computes, so "from_codes"
+    local checks would not use the parity check matrix that the code carries.
     """
     return ClassicalCode(code.generator).set_generator(code.matrix)
 
@@ -1538,8 +1317,10 @@ def _check_members_in_group(
     """Raise a ValueError if a member of a list is not a member of a group."""
     for member in members:
         if member not in group:
+            generators = ", ".join(str(generator) for generator in group.generators)
             raise ValueError(
-                f"{name} contains {member}, which is not a member of the group {group}"
+                f"{name} contains {member}, which is not a member of the group of order"
+                f" {group.order} generated by {generators}"
             )
 
 
@@ -1548,6 +1329,7 @@ def _get_member_on_points(member: abstract.GroupMember, num_points: int) -> abst
 
     The member must fix every point from num_points on, which are dropped.
     """
+    assert member.array_form[num_points:] == list(range(num_points, member.size))
     return abstract.GroupMember(
         member.array_form[:num_points] + list(range(member.size, num_points))
     )
@@ -1573,12 +1355,10 @@ def _get_local_checks(
     """The local checks of one type at a vertex whose local codes are code_a and code_b.
 
     The checks span the local check space ``C_A ⨂ C_B`` for X-type checks, or ``~C_A ⨂ ~C_B`` for
-    Z-type checks, in the coordinates of a local view.  They are the products of minimum-weight
-    bases of the two factors if local_checks is "min_weight", and otherwise the rows of
-    ``G_A ⨂ G_B`` or ``H_A ⨂ H_B``, where G_A and H_A are the generator and parity check matrices
-    that code_a carries, and likewise for code_b (see help(qldpc.codes.quantum.quantum_tanner)).
-    Before asking for minimum-weight bases, callers check the sizes of all local codes with
-    _check_min_weight_sizes, so that a request that cannot be met fails before any enumeration.
+    Z-type checks, in the coordinates of a local view, and local_checks chooses them
+    (see LocalChecks).  Before asking for minimum-weight bases, callers check the sizes of all local
+    codes with _check_min_weight_sizes, so that a request that cannot be met fails before any
+    enumeration.
     """
     factors = _get_factor_matrices(code_a, code_b, pauli)
     if local_checks == "min_weight":
@@ -1587,10 +1367,7 @@ def _get_local_checks(
 
 
 def _check_min_weight_sizes(codes: Iterable[ClassicalCode]) -> None:
-    """Raise a ValueError if a local code or its dual has too many words for "min_weight" checks.
-
-    The limit is _MAX_WORDS_FOR_MIN_WEIGHT_BASIS words.
-    """
+    """Raise a ValueError if a local code or its dual has too many words for "min_weight" checks."""
     for code in codes:
         for num_words, space in [
             (code.field.order**code.dimension, "local code"),
@@ -1612,15 +1389,14 @@ def _get_translation_generators(
     *,
     left: bool,
 ) -> list[tuple[abstract.GroupMember, tuple[int, ...]]]:
-    """Generators of the group of members x whose translations from one side preserve a code.
+    """Generators of the conjugators that permute members by a permutation that preserves codes.
 
     A candidate x qualifies if conjugation by x, ``m -> x m x^-1`` for left translations or
     ``m -> x^-1 m x`` for right translations, permutes the list of members, and the induced
-    permutation of positions, which matches repeated members in order, maps each code onto itself as
-    a permutation of its coordinates (see _get_conjugation_permutation).  The candidates must
-    include the product of any two candidates that qualify.  The permutations of two candidates
-    compose as the candidates do, so the candidates that qualify then form a group, of which this
-    function returns generators.
+    permutation of positions (see _get_conjugation_permutation) maps each code onto itself as a
+    permutation of its coordinates.  The candidates must include the product of any two candidates
+    that qualify.  The candidates that qualify then form a group (see _get_conjugation_permutation),
+    and this function returns generators of the group.
 
     Args:
         candidates: The members x of the group that may qualify, in increasing order, such as the
@@ -1654,6 +1430,9 @@ def _get_translation_generators(
         kept = [generator for generator, _ in generators]
         if not candidate.is_Identity and not (kept and candidate in abstract.Group(*kept)):
             generators.append((candidate, permutation))
+
+            # stop once the generators generate every candidate that qualifies: these candidates
+            # form a group that contains the group generated, so this holds once their orders agree
             if abstract.Group(*kept, candidate).order == len(qualifying):
                 break
     return generators
@@ -1664,19 +1443,21 @@ def _get_conjugation_permutation(
 ) -> tuple[int, ...] | None:
     """The permutation of positions by which conjugation by a member x permutes a list of members.
 
-    Conjugation by the conjugator x is ``m -> x m x^-1`` if left is True, and ``m -> x^-1 m x``
-    otherwise.  The permutation π maps each position i to the position π(i) of the conjugate of the
+    Conjugation by x is ``m -> x m x^-1`` if left is True, and ``m -> x^-1 m x`` otherwise.  The
+    permutation π maps each position i to the position π(i) of the image under conjugation of the
     member at position i.  It matches repeated members in order: the k-th occurrence of a member
-    goes to the k-th occurrence of its conjugate.  So the permutations of two conjugators compose as
-    the conjugators do.  The result is None if conjugation does not permute the list, which is to
-    say if some member and its conjugate occur different numbers of times.
+    goes to the k-th occurrence of its image.  So the permutation of a product xy of conjugators is
+    the permutation of y followed by that of x if left is True, and the permutation of x followed by
+    that of y otherwise, as for conjugation by xy itself.  The result is None if conjugation does
+    not permute the list, which is to say if some member and its image occur different numbers of
+    times.
     """
     # the positions at which each member occurs in the list, in increasing order
     positions: dict[abstract.GroupMember, list[int]] = {}
     for position, member in enumerate(members):
         positions.setdefault(member, []).append(position)
 
-    # map the k-th occurrence of each member to the k-th occurrence of its conjugate
+    # map the k-th occurrence of each member to the k-th occurrence of its image under conjugation
     permutation = [0] * len(members)
     for member, member_positions in positions.items():
         if left:
@@ -1699,7 +1480,7 @@ def _get_canonical_local_checks(
     The local check space is ``C_A ⨂ C_B`` for X-type checks, and ``~C_A ⨂ ~C_B`` for Z-type checks,
     where C_A and C_B are code_a and code_b.  Its canonical checks are its nonzero words of weight
     at most w_max, where w_max is the largest weight of a word in a minimum-weight basis of the
-    space (see help(qldpc.codes.quantum.quantum_tanner)).  The result is None if the space has more
+    space (see _SquareComplexCode._get_canonical_checks).  The result is None if the space has more
     than _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more than _MAX_CANONICAL_CHECKS_PER_VERTEX
     canonical checks.
     """
@@ -1739,24 +1520,24 @@ def _get_canonical_local_checks(
 
 
 def _place_local_checks(
-    local_views: npt.NDArray[np.int_], local_checks: galois.FieldArray, num_qudits: int
+    local_views: npt.NDArray[np.int_], local_check_matrix: galois.FieldArray, num_qudits: int
 ) -> galois.FieldArray:
     """Copies of the same local checks at several vertices, as the rows of a parity check matrix.
 
     Args:
         local_views: An array of shape (number of vertices, m, n), whose entry ``[v, i, j]`` is the
             qudit at coordinate (i, j) of the local view of vertex v.
-        local_checks: The local checks, as the rows of a matrix with one column per coordinate
-            (i, j) of a local view, in row-major order.
+        local_check_matrix: The local checks, as the rows of a matrix with one column per
+            coordinate (i, j) of a local view, in row-major order.
         num_qudits: The number of qudits of the code.
 
     Returns:
         A matrix whose rows are the local checks on the local view of each vertex, with the checks
         of each vertex in consecutive rows, and the vertices in order.
     """
-    num_vertices, num_checks = len(local_views), len(local_checks)
-    checks = type(local_checks).Zeros((num_vertices * num_checks, num_qudits))
+    num_vertices, num_checks = len(local_views), len(local_check_matrix)
+    checks = type(local_check_matrix).Zeros((num_vertices * num_checks, num_qudits))
     rows = np.arange(len(checks)).reshape(num_vertices, num_checks, 1)
-    columns = local_views.reshape(num_vertices, 1, local_checks.shape[1])
-    checks[rows, columns] = local_checks
+    columns = local_views.reshape(num_vertices, 1, local_check_matrix.shape[1])
+    checks[rows, columns] = local_check_matrix
     return checks
