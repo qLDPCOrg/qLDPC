@@ -265,7 +265,7 @@ def test_get_generators_from_local_magma(
     output = "Permutation group acting on a set of cardinality 2\nOrder = 2\n(1, 2)\n"
     monkeypatch.setattr(_magma, "is_callable", lambda: True)
 
-    # MAGMA runs without prompting, and the result is cached
+    # MAGMA runs without prompting, with a fixed random seed, and the result is cached
     cache: dict[str, str] = {}
     monkeypatch.setattr("builtins.input", unittest.mock.Mock(side_effect=AssertionError))
     with (
@@ -273,7 +273,7 @@ def test_get_generators_from_local_magma(
         unittest.mock.patch.object(_magma, "get_output", return_value=output) as get_output,
     ):
         assert _groups.get_generators_from_magma(group) == [[(0, 1)]]
-        get_output.assert_called_once_with(group)
+        get_output.assert_called_once_with(f"SetSeed(1); {group}")
         assert _groups.get_generators_from_magma(group) == [[(0, 1)]]
         get_output.assert_called_once()
     assert "Run the following command in MAGMA" not in capsys.readouterr().out
@@ -295,7 +295,9 @@ def test_get_generators_from_local_magma(
         pytest.warns(UserWarning, match="_TEST_"),
     ):
         assert _groups.get_generators_from_magma(group) == [[(0, 1)]]
-    assert "Run the following command in MAGMA" in capsys.readouterr().out
+    assert (
+        f"Run the following command in MAGMA:\n\nSetSeed(1); {group}\n" in capsys.readouterr().out
+    )
 
 
 def test_get_small_group_number() -> None:

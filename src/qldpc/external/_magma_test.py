@@ -71,8 +71,7 @@ def mock_magma(stdout: str, returncode: int = 0, stderr: str = "") -> unittest.m
 
 def test_get_output() -> None:
     """Run commands in MAGMA and extract their output."""
-    # MAGMA runs the recorded script, with a fixed random seed, without the user's startup file, and
-    # without access to standard input
+    # MAGMA runs the recorded script without the user's startup file or access to standard input
     run = mock_magma(OUTPUT_GROUP)
     with unittest.mock.patch("subprocess.run", run):
         output = _magma.get_output(COMMAND_GROUP)
@@ -83,7 +82,7 @@ def test_get_output() -> None:
     ]
     assert run.scripts == [SCRIPT.format(command=COMMAND_GROUP)]
     args = run.call_args.args[0]
-    assert args[:-1] == ["magma", "-b", "-n", "-S", str(_magma._SEED)]
+    assert args[:-1] == ["magma", "-b", "-n"]
     assert run.call_args.kwargs["stdin"] is subprocess.DEVNULL
 
     # the output of a finished command is returned whatever MAGMA's exit status, which the MAGMA

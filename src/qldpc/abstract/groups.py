@@ -641,10 +641,10 @@ class Group:
         standard input.  A MAGMA group is retrieved from a local disk cache if possible, else from
         MAGMA if MAGMA can be called from the command line, and otherwise by such a manual
         copy/paste workflow.  qLDPC warns if a ``magma`` executable on ``PATH`` fails a test run.
-        qLDPC runs MAGMA with a fixed random seed and without the user's startup file.  If MAGMA
-        reports an error, qLDPC raises a ValueError.  If MAGMA stops for another reason, such as a
-        crash, qLDPC warns and falls back to the manual workflow.  Retrieved generators are cached
-        to disk.
+        Both workflows fix MAGMA's random seed, on which the generators that MAGMA returns can
+        depend, and qLDPC runs MAGMA without the user's startup file.  If MAGMA reports an error,
+        qLDPC raises a ValueError.  If MAGMA stops for another reason, such as a crash, qLDPC warns
+        and falls back to the manual workflow.  Retrieved generators are cached to disk.
         """
         from qldpc.external import _groups  # avoid circular import
 

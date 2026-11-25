@@ -27,6 +27,9 @@ _Idempotents = tuple[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...], ...]
 
 _GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
 
+# MAGMA's generators of a group can depend on its random seed, so both MAGMA workflows fix the seed
+_MAGMA_SEED = 1
+
 
 ####################################################################################################
 # group generators
@@ -84,22 +87,24 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
     This function tries a local disk cache, then MAGMA if it can be called from the command line,
     and finally a manual copy/paste workflow.  The manual workflow prints the command, copies it to
     the system clipboard, and reads the pasted output from standard input (blocking, and raising
-    ``EOFError`` if standard input is closed).  If MAGMA reports an error, this function raises it.
-    If MAGMA stops for another reason, such as a crash, this function warns and falls back to the
-    manual workflow.
+    ``EOFError`` if standard input is closed).  Both workflows start the command by fixing MAGMA's
+    random seed, on which the generators that MAGMA returns can depend.  If MAGMA reports an error,
+    this function raises it.  If MAGMA stops for another reason, such as a crash, this function
+    warns and falls back to the manual workflow.
 
     Raises:
         ValueError: If MAGMA reports an error, such as an error in the command, or its output does
             not describe a permutation group.
     """
+    command = f"SetSeed({_MAGMA_SEED}); {group}"
     cache_name = "magma_groups"
     cache = qldpc.cache.get_disk_cache(cache_name)
-    key = "".join(group.split())  # strip whitespace
+    key = "".join(command.split())  # strip whitespace
 
     if generators := cache.get(key, None):
         print("MAGMA command:")
         print()
-        print(group)
+        print(command)
         print()
         print(
             "NOTICE: group found in the local MAGMA group cache."
@@ -120,7 +125,7 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
     # run MAGMA, if it can be called from the command line
     if _magma.is_callable():
         try:
-            output = _magma.get_output(group)
+            output = _magma.get_output(command)
         except _magma.MAGMARunError as error:
             warnings.warn(
                 f"{error}\n\nFalling back to copying commands into MAGMA by hand.",
@@ -133,12 +138,12 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
 
     print("Run the following command in MAGMA:")
     print()
-    print(group)
+    print(command)
     print()
     print("===============================================================================")
     print("NOTE:")
     try:
-        pyperclip.copy(group)
+        pyperclip.copy(command)
         print("The above command has been copied to your system clipboard.")
         print("You can paste the command into MAGMA with ctrl+v or cmd+v.")
     except pyperclip.PyperclipException:  # pragma: no cover

@@ -23,9 +23,6 @@ from qldpc._utils import get_external_caller_stacklevel
 _BEGIN_MARKER = "__qldpc_begin__"
 _END_MARKER = "__qldpc_end__"
 
-# MAGMA runs with this random seed, so that its randomized algorithms give reproducible results.
-_SEED = 1
-
 # MAGMA reports errors on lines such as "User error: ...", "Runtime error in ...", or "System error"
 _ERROR_PATTERN = re.compile(r"^\w+ error\b", flags=re.MULTILINE)
 
@@ -77,8 +74,7 @@ def get_output(command: str, *, timeout: float | None = None) -> str:
     """Get the output that MAGMA prints when it runs the given command.
 
     This function writes the command to a temporary script file and runs ``magma`` on that file in
-    a subprocess, with a fixed random seed, without the user's startup file, and with output lines
-    of unlimited length.
+    a subprocess, without the user's startup file, and with output lines of unlimited length.
 
     Raises:
         MAGMAError: If MAGMA reports an error, such as an error in the command.
@@ -115,10 +111,9 @@ def get_output(command: str, *, timeout: float | None = None) -> str:
 def _get_arguments() -> list[str]:
     """The command line that runs MAGMA, without the script file.
 
-    The option -b suppresses MAGMA's banner and exit summary, -n skips the user's startup file, and
-    -S sets the random seed.
+    The option -b suppresses MAGMA's banner and exit summary, and -n skips the user's startup file.
     """
-    return ["magma", "-b", "-n", "-S", str(_SEED)]
+    return ["magma", "-b", "-n"]
 
 
 def _get_script(command: str) -> str:
