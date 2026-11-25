@@ -272,29 +272,67 @@ def test_exclusive_errors_count_as_separate_primitive_faults() -> None:
     _assert_valid_counterexample(result, circuit)
 
 
-def test_tags_do_not_change_primitive_fault_signatures() -> None:
-    """The flags and syndrome of an error mechanism come from its targets, not from its tag."""
+def test_primitive_fault_signatures_follow_the_targets_of_error_mechanisms() -> None:
+    """The flags and syndrome of an error mechanism come from its targets, not from its tag.
+
+    Flag bit ``j`` is for the ``j``-th selected detector, even one that measures a stabilizer, and
+    syndrome bit ``j`` for stabilizer ``j``, also past 64 bits.  Other targets add nothing.
+    """
+
+    def get_signatures(
+        circuit: stim.Circuit, stabilizers: Sequence[stim.PauliString], selected: Sequence[int]
+    ) -> list[tuple[int, int]]:
+        """Get the signatures, and check them against those from Stim's target objects."""
+        qubits = range(len(stabilizers))
+        _, dem, flags, syndromes = fault_propagation._get_primitive_fault_signatures(
+            circuit, stabilizers, qubits, selected
+        )
+        expected = []
+        for instruction in dem:
+            if instruction.type == "error":
+                events = {
+                    target.val
+                    for target in instruction.targets_copy()
+                    if target.is_relative_detector_id()
+                }
+                flag = sum(1 << jj for jj, detector in enumerate(selected) if detector in events)
+                syndrome = sum(
+                    1 << (detector - circuit.num_detectors)
+                    for detector in events
+                    if detector >= circuit.num_detectors
+                )
+                expected.append((flag, syndrome))
+        assert list(zip(flags, syndromes, strict=True)) == expected
+        return sorted(expected)
+
     # Stim escapes "]" and line feeds in tags, but not other line breaks, such as a form feed.
+    # Detector 0 flags qubit 2, and detectors 1 and 2 measure the stabilizers Z0 and Z1.
     circuit = stim.Circuit("R 0 1 2")
     targets = [stim.target_x(0), stim.target_x(2)]
     circuit.append("CORRELATED_ERROR", targets, 0.1, tag="a]b) D1 (")
     circuit.append("X_ERROR", [1], 0.1, tag=" D0\x0cerror(0.1) D2 ")
     circuit += stim.Circuit("M 2\nDETECTOR rec[-1]")
     stabilizers = [stim.PauliString("Z_"), stim.PauliString("_Z")]
-    _, dem, flags, syndromes = fault_propagation._get_primitive_fault_signatures(
-        circuit, stabilizers, [0, 1], [0]
-    )
-    # Detector 0 flags qubit 2, and detectors 1 and 2 measure the stabilizers Z0 and Z1.
-    expected = [
-        (int(0 in events), sum(1 << (detector - 1) for detector in events if detector >= 1))
-        for events in (
-            {target.val for target in instruction.targets_copy()}
-            for instruction in dem
-            if instruction.type == "error"
-        )
+    assert get_signatures(circuit, stabilizers, [0]) == [(0, 0b10), (1, 0b01)]
+
+    # Qubits 0 to 64 hold |0>, with stabilizers Z0 to Z64.  Ancillas 65 to 76 give detectors 0 to
+    # 11, and ancilla 77 gives observable 0.  Detectors 12 to 76 measure the stabilizers.  The
+    # selected detectors 2, 10, 11, and 76 take flag bits 0 to 3, and detector 76 also measures Z64.
+    circuit = stim.Circuit()
+    circuit.append("R", range(78))
+    circuit += stim.Circuit("CORRELATED_ERROR(0.1) X0 X64 X76\nX_ERROR(0.1) 75 67 65 77")
+    circuit.append("M", range(65, 77))
+    for jj in range(-12, 0):
+        circuit.append("DETECTOR", [stim.target_rec(jj)])
+    circuit += stim.Circuit("M 77\nOBSERVABLE_INCLUDE(0) rec[-1]")
+    stabilizers = [stim.PauliString("_" * jj + "Z" + "_" * (64 - jj)) for jj in range(65)]
+    assert get_signatures(circuit, stabilizers, [2, 10, 11, 76]) == [
+        (0, 0),
+        (0, 0),
+        (0b1, 0),
+        (0b10, 0),
+        (0b1100, 1 + 2**64),
     ]
-    assert list(zip(flags, syndromes, strict=True)) == expected
-    assert sorted(expected) == [(0, 0b10), (1, 0b01)]
 
 
 def test_existing_detectors_do_not_enter_the_syndrome() -> None:
