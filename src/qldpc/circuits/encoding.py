@@ -363,22 +363,29 @@ class _UndeterminedSignError(ValueError):
         )
 
 
+# TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
 # Simulating a circuit one instruction at a time, as _do_with_cheap_resets does, costs about 1-2 µs
 # per instruction, while a reset whose outcome is random costs Stim about 0.6 n² ns on n qubits.  So
 # _simulate_noiseless_run simulates a circuit on fewer qubits than this in one call.
 _MIN_QUBITS_FOR_CHEAP_RESETS = 256
 
-# the Pauli that each reset prepares the +1 eigenstate of
+# TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+# The Pauli whose +1 eigenstate each reset prepares.  For each Pauli, the stim.TableauSimulator
+# method of a Pauli gate that anticommutes with it.  For each pair of distinct Paulis, the method of
+# a Clifford gate that swaps them.
 _RESET_PAULIS = {"R": "Z", "RX": "X", "RY": "Y"}
-
-# for each Pauli, a Pauli that anticommutes with it; and for each pair of distinct Paulis, a
-# Clifford that swaps them
-_PAULI_FLIPS = {"X": "Z", "Y": "Z", "Z": "X"}
-_PAULI_SWAPS = {"XY": "H_XY", "YX": "H_XY", "XZ": "H", "ZX": "H", "YZ": "H_YZ", "ZY": "H_YZ"}
+_PAULI_FLIPS = {"X": "z", "Y": "z", "Z": "x"}
+_PAULI_SWAPS = {"XY": "h_xy", "YX": "h_xy", "XZ": "h", "ZX": "h", "YZ": "h_yz", "ZY": "h_yz"}
 
 
 def _simulate_noiseless_run(circuit: stim.Circuit) -> stim.TableauSimulator:
-    """Simulate one run of a noiseless circuit with a new stim.TableauSimulator, and return it."""
+    """Simulate one run of a noiseless circuit with a new stim.TableauSimulator, and return it.
+
+    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    """
     simulator = stim.TableauSimulator()
     if circuit.num_qubits < _MIN_QUBITS_FOR_CHEAP_RESETS:
         simulator.do(circuit)
@@ -402,6 +409,9 @@ def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circui
     reset of each such qubit by such a Clifford.  This changes neither the state after the reset nor
     the distribution of later measurement outcomes, so the simulator ends in the state of a run of
     the circuit, as after simulator.do(circuit).  Resets in REPEAT blocks run as they are.
+
+    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
     """
     peeks = {"X": simulator.peek_x, "Y": simulator.peek_y, "Z": simulator.peek_z}
     for index in range(len(circuit)):
@@ -413,8 +423,6 @@ def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circui
 
         # Replace the reset of each qubit in an eigenstate of another Pauli.  Leave every other
         # reset to Stim, which is cheap for a qubit already in an eigenstate of the reset's Pauli.
-        # Build the gates from text, which is about 100 times faster than building a
-        # stim.CircuitInstruction.
         kept = []
         for target in instruction.targets_copy():
             qubit = target.value
@@ -424,10 +432,10 @@ def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circui
                 kept.append(qubit)
                 continue
             if signs[pauli] < 0:
-                simulator.do(stim.Circuit(f"{_PAULI_FLIPS[pauli]} {qubit}"))
-            simulator.do(stim.Circuit(f"{_PAULI_SWAPS[pauli + reset_pauli]} {qubit}"))
+                getattr(simulator, _PAULI_FLIPS[pauli])(qubit)
+            getattr(simulator, _PAULI_SWAPS[pauli + reset_pauli])(qubit)
         if kept:
-            simulator.do(stim.Circuit(f"{instruction.name} {' '.join(map(str, kept))}"))
+            getattr(simulator, f"reset_{reset_pauli.lower()}")(*kept)
 
 
 def _get_fixed_parities_by_simulation(

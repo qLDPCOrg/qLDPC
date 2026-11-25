@@ -379,12 +379,17 @@ def test_state_stabilizers_after_replaced_resets(
     Y.  The simulation steps through every circuit when its threshold is 0.  It replaces a reset of
     a qubit in an eigenstate of another Pauli by gates, and keeps a reset of a qubit in an
     eigenstate of the reset's Pauli, which must leave the qubit in the +1 eigenstate.
+
+    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
     """
     monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", 0)
     circuit = stim.Circuit(f"{preparation}\n{reset} 0")
     assert circuits.get_state_stabilizers(circuit, [0]) == [stim.PauliString(expected)]
 
 
+# TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
 @pytest.mark.parametrize("min_qubits", [0, None])
 def test_state_stabilizers_after_resets(
     monkeypatch: pytest.MonkeyPatch, min_qubits: int | None
@@ -427,7 +432,11 @@ def test_state_stabilizers_after_resets(
 
 
 def test_cheap_resets_on_large_circuits(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace resets by gates on a circuit with many qubits, but not on one with few qubits."""
+    """Replace resets by gates on a circuit with many qubits, but not on one with few qubits.
+
+    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    """
     calls = []
     do_with_cheap_resets = encoding._do_with_cheap_resets
 
