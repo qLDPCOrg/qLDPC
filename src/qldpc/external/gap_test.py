@@ -232,7 +232,7 @@ def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
 
 
 def test_command(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    """QLDPC_GAP_COMMAND chooses the command that runs GAP."""
+    """QLDPC_GAP_COMMAND sets the launch command of GAP."""
     monkeypatch.delenv("QLDPC_GAP_COMMAND", raising=False)
     assert external.gap._get_command() == ["gap"]
     monkeypatch.setenv("QLDPC_GAP_COMMAND", " ")
@@ -244,7 +244,8 @@ def test_command(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[
     command = [r"C:\Program Files\GAP\gap.exe", "-o", "2g", r"C:\O\'B#1"]
     assert external.gap._get_command() == command
 
-    # both ways of running GAP use the command, and give it no input from Python's standard input
+    # the availability check and GAP evaluations both run the launch command, with no standard input
+    # from Python
     with unittest.mock.patch("subprocess.run", return_value=get_mock_process("4.13.0\n")) as run:
         assert external.gap._is_gap_executable()
         external.gap._get_output_subprocess(())
@@ -252,7 +253,7 @@ def test_command(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[
         assert call.args[0][: len(command)] == command
         assert call.kwargs.get("stdin") == subprocess.DEVNULL or call.kwargs.get("input") == ""
 
-    # after clearing the cache, a command that the system cannot run makes qLDPC ask what to do
+    # after clearing the cache, a launch command that fails to start makes qLDPC ask what to do
     external.gap.clear_cache()
     monkeypatch.setattr("builtins.input", lambda: "n")
     with (
