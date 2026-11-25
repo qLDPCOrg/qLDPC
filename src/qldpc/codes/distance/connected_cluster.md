@@ -431,7 +431,7 @@ Qubitserf and DistQLDPC prune by an erasure bound ([references](#references)).
 Only the available variables of the unsatisfied checks carry weight in the dual of [Section 3.4](#34-pruning).
 So a completion of at most `W - s` variables holds at least `⌈Y⌉` of them, and at most `e = W - s - ⌈Y⌉` other available variables.
 For `e` up to 2, the erasure bound prunes the state unless some available variables of the unsatisfied checks, in any number, and at most `e` other available variables complete the support to a witness.
-In a syndrome query, they must complete it to a vector with the syndrome.
+In a syndrome query, these variables must complete the support to a vector with the syndrome.
 Peeling and elimination over GF(2) decide this.
 A hash of the checks lets the elimination try every other variable, and every pair of other variables, at once.
 Unlike the bounds of Section 3.4, the erasure bound also uses the checks that the support satisfies.
@@ -439,14 +439,16 @@ A trial in qLDPC visited up to about 15 times fewer states with it.
 But each run of the bound cost about as much as 10 states.
 So most searches took longer, up to about 2.5 times as long, and only the short searches of the [[144,12,12]] bivariate bicycle (gross) code and a color code took less time.
 DistQLDPC runs the bound behind a gate that measures where it pays.
-A second trial in qLDPC estimated what an ideal gate, one that runs the bound only on the classes of states where it pays, could save.
-It ran the bound on every state with `e` up to 2, but did not prune, and recorded for each class, by `W - s` and `e`, the states in the subtrees that the bound could have pruned.
+A second trial in qLDPC estimated what an ideal gate that runs the bound only for profitable combinations of `W - s` and `e` could save.
+The trial ran the bound at every state with `e` up to 2 without pruning the search.
+It grouped the runs by `W - s` and `e`, and counted the states in the subtrees that the bound could have pruned.
 The bound could have pruned most states on which it ran, and on the [[360,12,24]] bivariate bicycle code it would have left about 10 times fewer states.
-But each run saved few states.
-Counting zero for a run that would not prune, a run on that code saved about 2 states on average for `e = 0`, about 7 for `e = 1`, and about 20 for `e = 2`.
-In every class of the codes tried, a run saved at most about 50 states on average.
+But each run would have saved only a few states.
+Counting zero for a run that would not prune, a run on that code would have saved about 2 states on average for `e = 0`, about 7 for `e = 1`, and about 20 for `e = 2`.
+Across every group and every code tried, a run would have saved at most about 50 states on average.
 On bivariate bicycle and quantum Tanner codes, a run cost about as much as 3 to 5 states for `e = 0`, and 15 to 30 states for `e` of 1 or 2.
-A run for `e` of 1 or 2 costs more because it visits every available variable that shares a check with an available variable of an unsatisfied check, to find the other variables that could complete the support.
+A run costs more for `e` of 1 or 2 because it must find the other variables that could complete the support.
+To find them, it visits every available variable that shares a check with an available variable of an unsatisfied check.
 So these estimates indicate that even an ideal gate would save little time on these codes.
 
 **Forbidding the only available symbol of a satisfied check.**
