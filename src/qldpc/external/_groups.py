@@ -167,15 +167,16 @@ def _maybe_get_generators_from_gap(
     """Retrieve group generators from GAP, or return None if GAP is not available.
 
     Checking whether GAP is available may prompt on standard input; see
-    help(qldpc.external.gap.is_installed).
+    help(qldpc.external.gap.is_installed).  The given warning, if any, is raised before that check,
+    so that a user sees it before answering a prompt.
     """
-    if not qldpc.external.gap.is_installed():
-        return None
-    qldpc.external.gap.require_package("GUAVA")
-
     # if provided a warning to raise before calling GAP, raise it now
     if warning is not None:
         warnings.warn(warning, stacklevel=get_external_caller_stacklevel())
+
+    if not qldpc.external.gap.is_installed():
+        return None
+    qldpc.external.gap.require_package("GUAVA")
 
     # run GAP commands
     commands = [

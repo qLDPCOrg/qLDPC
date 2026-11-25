@@ -298,8 +298,9 @@ MAGMA
 
 Permutation automorphism groups and transversal-gate searches use MAGMA instead of GAP when called with ``with_magma=True``, as does ``Group.from_name`` with ``from_magma=True``.
 These calls never fall back to GAP, and calls without these arguments never run MAGMA, so the result of a call does not depend on which of GAP and MAGMA is installed.
-qLDPC runs a ``magma`` executable on ``PATH`` in a subprocess, with a fixed random seed and without the user's startup file, if a test run of it succeeds, and warns if that test run fails.
-Otherwise, it prints the MAGMA command, copies it to the system clipboard, and reads MAGMA's output from standard input.
+If a ``magma`` executable is on ``PATH`` and a test run of it succeeds, qLDPC runs it in a subprocess, with a fixed random seed and without the user's startup file.
+If the test run fails, qLDPC warns.
+Without a working ``magma``, qLDPC prints the MAGMA command, copies it to the system clipboard, and reads MAGMA's output from standard input.
 An error that MAGMA reports raises a ``ValueError``; if MAGMA stops for another reason, such as a crash, qLDPC warns and falls back to the manual workflow.
 Results of both workflows are cached on disk.
 

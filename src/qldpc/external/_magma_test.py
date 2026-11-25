@@ -86,6 +86,11 @@ def test_get_output() -> None:
     assert args[:-1] == ["magma", "-b", "-n", "-S", str(_magma._SEED)]
     assert run.call_args.kwargs["stdin"] is subprocess.DEVNULL
 
+    # the output of a finished command is returned whatever MAGMA's exit status, which the MAGMA
+    # handbook does not document
+    with unittest.mock.patch("subprocess.run", mock_magma(OUTPUT_SUM, returncode=1)):
+        assert _magma.get_output(COMMAND_SUM) == "2\n"
+
     # a command without a final semicolon is completed, so that it ends before the next statement
     run = mock_magma(OUTPUT_SUM)
     with unittest.mock.patch("subprocess.run", run):

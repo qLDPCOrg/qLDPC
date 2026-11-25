@@ -359,7 +359,8 @@ def test_permutation_automorphism_group(
     code: codes.ClassicalCode = codes.HammingCode(2, field=2)
     automorphisms = "\n(1,2)\n(2,3)\n"
 
-    # raise an error when GAP is not installed
+    # raise an error when GAP is not installed, after a warning that suggests MAGMA, which a user
+    # who declines to copy commands into GAP by hand sees too
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
@@ -368,6 +369,8 @@ def test_permutation_automorphism_group(
             "qldpc.external.gap.subprocess.run",
             side_effect=AssertionError("GAP executable must not be called by this test"),
         ),
+        unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=True),
+        pytest.warns(UserWarning, match="MAGMA executable is on PATH"),
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
         codes.RepetitionCode(2).get_permutation_automorphism_group()
@@ -414,20 +417,25 @@ def test_permutation_automorphism_group(
     # when GAP can be called from the command line, the warning does not say that it cannot
     assert not any("MAGMA executable is on PATH" in str(record.message) for record in records)
 
-    # if GAP needs copying commands by hand but MAGMA is on PATH, the warning says so, but the
-    # default path still computes with GAP, the system that the caller chose
-    with (
-        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1,2)\n"),
-        unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=True),
-        unittest.mock.patch(
-            "qldpc.external._magma.get_output", side_effect=AssertionError("must not run MAGMA")
-        ),
-        pytest.warns(UserWarning, match="MAGMA executable is on PATH"),
-    ):
-        assert codes.RepetitionCode(2).get_permutation_automorphism_group().order == 2
+    # if GAP needs copying commands by hand, the warning says whether MAGMA is on PATH, and the
+    # default path still computes with GAP and never runs MAGMA
+    for magma_on_path in [True, False]:
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
+            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+            unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
+            unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1,2)\n"),
+            unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=magma_on_path),
+            unittest.mock.patch(
+                "qldpc.external._magma.get_output", side_effect=AssertionError("must not run MAGMA")
+            ),
+            pytest.warns(UserWarning, match="with_magma=True") as records,
+        ):
+            assert codes.RepetitionCode(2).get_permutation_automorphism_group().order == 2
+        messages = [str(record.message) for record in records]
+        assert (
+            any("MAGMA executable is on PATH" in message for message in messages) == magma_on_path
+        )
 
     # compute a permutation automorphism group with MAGMA, asking it for the PermutationGroup of the
     # code rather than its AutomorphismGroup, whose members also scale nonbinary coordinates
