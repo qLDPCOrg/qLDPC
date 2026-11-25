@@ -11,6 +11,7 @@ the guide's sections by title.
 from __future__ import annotations
 
 import contextlib
+import functools
 import threading
 from collections.abc import Callable, Collection, Generator, Iterator, Sequence
 from typing import NamedTuple
@@ -725,16 +726,25 @@ def _hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
 
     The hash of a sum of rows is the sum of their hashes.  Rows that differ can share a hash.
     """
+    return _hash_bytes(np.ascontiguousarray(words), _get_byte_hash_tables(words.shape[1]))
+
+
+# Each certification hashes rows of a few widths, and building their tables can take longer than
+# hashing the rows of a small circuit, so keep the tables of the widths used last.
+@functools.lru_cache(maxsize=8)
+def _get_byte_hash_tables(num_words: int) -> npt.NDArray[np.uint64]:
+    """The read-only tables of ``_hash_words`` for rows of this many words (see ``_hash_bytes``)."""
     # Bit ``b`` of word ``c`` adds ``images[c, b]`` to the hash.  Tabulate the hash of each value of
     # each byte of each word, so that a row takes one lookup per byte rather than steps per bit.
-    images = np.random.default_rng(0).integers(2**64, size=(words.shape[1], 64), dtype=np.uint64)
-    byte_images = images.reshape(words.shape[1], 8, 8)
+    images = np.random.default_rng(0).integers(2**64, size=(num_words, 64), dtype=np.uint64)
+    byte_images = images.reshape(num_words, 8, 8)
     byte_values = np.arange(256)
-    tables = np.zeros((words.shape[1], 8, 256), dtype=np.uint64)
+    tables = np.zeros((num_words, 8, 256), dtype=np.uint64)
     for bit in range(8):
         has_bit = ((byte_values >> bit) & 1).astype(np.uint64)
         tables ^= byte_images[:, :, bit, None] * has_bit
-    return _hash_bytes(np.ascontiguousarray(words), tables)
+    tables.flags.writeable = False
+    return tables
 
 
 def _get_num_words_for_values(values: Collection[int]) -> int:

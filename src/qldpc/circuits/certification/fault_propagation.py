@@ -375,31 +375,31 @@ def _get_primitive_fault_signatures(
     # with approximate probabilities, which are not used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
+    # Map the text of each target that matters to its bits in one integer, whose low bits are the
+    # syndrome and whose high bits are the flags.  Detector ``circuit.num_detectors + j`` measures
+    # stabilizer ``j``, and the selected detectors are detectors of the circuit, which come first.
+    # A target then takes one lookup and one XOR, which about halves the time of the parse below.
+    signature_bits = {
+        f"D{circuit.num_detectors + jj}": 1 << jj for jj in range(num_stabilizers)
+    } | {f"D{detector}": 1 << (num_stabilizers + jj) for jj, detector in enumerate(selected)}
+    get_bits = signature_bits.get
+    syndrome_mask = (1 << num_stabilizers) - 1
+
     # Parsing the DEM's text is much faster than reading the targets of its error instructions
     # through stim's Python objects.  Stim escapes "]" in tags, so the targets of an instruction
     # such as "error[tag](0.1) D0 L1" follow the first ")" after any tag.  Stim also escapes line
     # feeds in tags, but not some other line breaks, so split lines only at line feeds.
-    flag_bit = {detector: jj for jj, detector in enumerate(selected)}
-    first_stabilizer_detector = circuit.num_detectors
     flags: list[int] = []
     syndromes: list[int] = []
     for line in str(dem).split("\n"):
         if not line.startswith("error"):
             continue
         arguments_start = line.index("]") + 1 if line.startswith("error[") else len("error")
-        # Detector ``circuit.num_detectors + j`` measures stabilizer ``j``.
-        flag = syndrome = 0
+        bits = 0
         for target in line[line.index(")", arguments_start) + 1 :].split():
-            if not target.startswith("D"):
-                continue
-            detector = int(target[1:])
-            bit = flag_bit.get(detector)
-            if bit is not None:
-                flag ^= 1 << bit
-            if detector >= first_stabilizer_detector:
-                syndrome ^= 1 << (detector - first_stabilizer_detector)
-        flags.append(flag)
-        syndromes.append(syndrome)
+            bits ^= get_bits(target, 0)
+        flags.append(bits >> num_stabilizers)
+        syndromes.append(bits & syndrome_mask)
     return diagnostic_circuit, dem, flags, syndromes
 
 
