@@ -16,7 +16,7 @@ from qldpc._utils import get_external_caller_stacklevel
 from qldpc.objects import Pauli
 
 from .bookkeeping import QubitIDs
-from .common import _restrict_to_qubits
+from .common import _get_pauli_product_text, _restrict_to_qubits
 from .transforms import with_remapped_qubits
 
 ####################################################################################################
@@ -402,15 +402,16 @@ def _get_fixed_parities_by_simulation(
     # even number of them.  Stim rejects a random observable even with gauge detectors allowed, so
     # the model leaves out the circuit's observables, which change neither its state nor its
     # measurement record.
-    measurements = stim.Circuit()
+    # TEMPORARY until stim>=1.17: see common._get_pauli_product_text.
+    lines = []
     for candidate in candidates.astype(bool):
         xs = np.zeros(num_qubits, dtype=bool)
         zs = np.zeros(num_qubits, dtype=bool)
         xs[state_qubits] = candidate[:num_state_qubits]
         zs[state_qubits] = candidate[num_state_qubits:]
         pauli_string = stim.PauliString.from_numpy(xs=xs, zs=zs)
-        measurements.append("MPP", stim.target_combined_paulis(pauli_string))
-        measurements.append("DETECTOR", [stim.target_rec(-1)])
+        lines.append(f"MPP {_get_pauli_product_text(pauli_string)}\nDETECTOR rec[-1]")
+    measurements = stim.Circuit("\n".join(lines))
     dem = (_without_observables(circuit) + measurements).detector_error_model(
         allow_gauge_detectors=True
     )
