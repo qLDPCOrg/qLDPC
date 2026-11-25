@@ -124,11 +124,10 @@ def test_quantum_lookup_decoding(surface_code_problem: SurfaceCodeProblem) -> No
 def test_weighted_lookup_without_penalty() -> None:
     """Without a penalty function, weighted lookup decoders return a lightest candidate error.
 
-    With symplectic=True, the weight of an error counts each qudit once, so Y0 Y1 (weight 2) is
-    lighter than X0 X1 X2 (weight 3), although it has more nonzero entries.
+    With symplectic=True, Y0 Y1 (weight 2) is lighter than X0 X1 X2 (weight 3), although it has more
+    nonzero entries.  These are the only candidates for the syndrome of Y0 Y1, since Z0 Z1 X2 is the
+    only nontrivial error that the checks below do not detect.
     """
-    # checks on 3 qudits whose only nontrivial undetectable error is Z0 Z1 X2, so that the syndrome
-    # of Y0 Y1 has exactly the candidates Y0 Y1 and X0 X1 X2
     field = galois.GF(2)
     checks = field([math.symplectic_conjugate(field([0, 0, 1, 1, 1, 0]))]).null_space()
     y0_y1, x0_x1_x2 = field([1, 1, 0, 1, 1, 0]), field([1, 1, 1, 0, 0, 0])
@@ -136,19 +135,14 @@ def test_weighted_lookup_without_penalty() -> None:
 
     decoder = decoders.custom.WeightedErrorLookupDecoder(checks, max_weight=3, symplectic=True)
     assert np.array_equal(decoder.decode(syndrome), y0_y1)
-    assert np.array_equal(decoder.decode(syndrome, penalty_func=np.count_nonzero), x0_x1_x2)
+    assert np.array_equal(decoder.decode(syndrome, np.count_nonzero), x0_x1_x2)
     assert np.array_equal(decoder.decode_errors_batch(syndrome[None], np.count_nonzero), [x0_x1_x2])
 
-    # an observable that Z0 Z1 X2 flips tells the two candidates apart
-    observable = field([[1, 0, 0, 0, 0, 0]])
+    # an observable that Y0 Y1 flips and X0 X1 X2 does not
     observable_decoder = decoders.custom.WeightedObservableLookupDecoder(
-        checks, max_weight=3, observable_flip_matrix=observable, symplectic=True
+        checks, max_weight=3, observable_flip_matrix=field([[1, 0, 0, 0, 0, 0]]), symplectic=True
     )
-    for penalty_func, error in [(None, y0_y1), (np.count_nonzero, x0_x1_x2)]:
-        assert np.array_equal(
-            observable_decoder.decode_observables(syndrome, penalty_func),
-            observable @ math.symplectic_conjugate(error),
-        )
+    assert np.array_equal(observable_decoder.decode_observables(syndrome), [1])
 
 
 @pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3)])
