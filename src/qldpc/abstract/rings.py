@@ -158,19 +158,6 @@ class Ring(abc.ABC):
         right, in the opposite ring.  See ``RingMember.regular_lift``.
         """
 
-    def get_transformer(
-        self, seed: int | None = None, *, skip_validation: bool = False
-    ) -> WedderburnArtinTransformer:
-        """Instrument for the Wedderburn-Artin decomposition of this ring.
-
-        The decomposition is implemented only for group algebras, so this method raises a
-        NotImplementedError for any other ring.
-        """
-        from .wedderburn_artin import WedderburnArtinTransformer  # avoid circular import
-
-        # the transformer raises a NotImplementedError for rings other than group algebras
-        return WedderburnArtinTransformer(self, seed=seed, skip_validation=skip_validation)
-
     @property
     @abc.abstractmethod
     def _labels(self) -> list[Hashable]:
