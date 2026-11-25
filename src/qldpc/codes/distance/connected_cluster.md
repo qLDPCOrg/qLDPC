@@ -438,6 +438,15 @@ Unlike the bounds of Section 3.4, the erasure bound also uses the checks that th
 A trial in qLDPC visited up to about 15 times fewer states with it.
 But each run of the bound cost about as much as 10 states.
 So most searches took longer, up to about 2.5 times as long, and only the short searches of the [[144,12,12]] bivariate bicycle (gross) code and a color code took less time.
+DistQLDPC runs the bound behind a gate that measures where it pays.
+A second trial in qLDPC found the most that such a gate could save.
+It ran the bound on every state with `e` up to 2, without pruning, and counted the states in the subtrees that the bound would prune, for each class of states by `W - s` and `e`.
+The bound would prune most states on which it ran, and on the [[360,12,24]] bivariate bicycle code it would leave about 10 times fewer states, but the subtrees that it would prune were small.
+On that code, they held about 2 states on average for `e = 0`, about 7 for `e = 1`, and about 20 for `e = 2`.
+In every class of the codes tried, they held at most about 50 states on average.
+On bivariate bicycle and quantum Tanner codes, a run cost about 3 to 5 states for `e = 0`, and about 15 to 30 states for `e` of 1 or 2.
+A run for `e` of 1 or 2 costs more since it visits every available variable that shares a check with an available variable of an unsatisfied check, to find the other variables that could complete the support.
+So even the best gate would save little time on these codes.
 
 **Forbidding the only available symbol of a satisfied check.**
 A completion holds an even number of the symbols that flip a check that the support satisfies.
