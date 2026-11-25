@@ -125,14 +125,14 @@ def _get_pauli_product_text(
 ) -> str:
     """Get the stim text of the targets of an MPP instruction that measures a Pauli string.
 
+    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    "stim.Circuit.append in stim 1.16".
+
     Entry ``j`` of the string acts on qubit ``qubits[j]``, or on qubit ``j`` if ``qubits`` is None.
     The string must not be the identity, and its sign must be 1 or -1.
 
     Callers join the text of many instructions and parse it once with ``stim.Circuit``, which is
     much faster than calling ``stim.Circuit.append`` for each instruction in stim 1.16.
-
-    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    "stim.Circuit.append in stim 1.16".
     """
     support = string.pauli_indices()
     if not support:
@@ -204,11 +204,11 @@ def _get_instructions(
 ) -> Iterator[stim.CircuitInstruction | stim.CircuitRepeatBlock]:
     """The instructions and REPEAT blocks of a circuit, in order.
 
-    Stim's iterator over a circuit takes tens of microseconds to finish, which adds up when noise
-    models handle many small circuits, so this indexes the circuit instead.
-
     TEMPORARY until iterating over a stim.Circuit is as fast as indexing it: see
     circuits/stim_workarounds.md, "Iterating over stim circuits".
+
+    Stim's iterator over a circuit takes tens of microseconds to finish, which adds up when noise
+    models handle many small circuits, so this indexes the circuit instead.
     """
     return (circuit[index] for index in range(len(circuit)))
 
@@ -218,13 +218,13 @@ def _new_instruction(
 ) -> stim.CircuitInstruction:
     """Build a ``stim.CircuitInstruction`` by appending it to an empty circuit.
 
+    TEMPORARY until stim.CircuitInstruction's constructor is as fast as stim.Circuit.append: see
+    circuits/stim_workarounds.md, "The stim.CircuitInstruction constructor".
+
     Stim's ``CircuitInstruction`` constructor takes tens of microseconds per target, while appending
     an instruction to a circuit takes about a microsecond.  An instruction that a circuit rejects,
     such as a REPEAT instruction, comes from the constructor, which accepts it or raises its own
     error.
-
-    TEMPORARY until stim.CircuitInstruction's constructor is as fast as stim.Circuit.append: see
-    circuits/stim_workarounds.md, "The stim.CircuitInstruction constructor".
     """
     circuit = stim.Circuit()
     try:

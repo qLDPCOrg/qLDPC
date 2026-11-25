@@ -706,13 +706,13 @@ def _get_instructions(circuit: stim.Circuit) -> list[_CircuitInstruction]:
 def _get_circuit(instructions: list[_CircuitInstruction]) -> stim.Circuit:
     """The circuit of a list of instructions, built by parsing its text once.
 
+    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    "stim.Circuit.append in stim 1.16".
+
     The text writes arguments exactly, with ``repr``.  Stim cannot parse infinite or NaN arguments,
     such as some coordinates, so a list with such arguments is appended one instruction at a time
     instead.  Both give the same circuit, since stim fuses consecutive compatible instructions both
     when parsing and when appending.
-
-    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    "stim.Circuit.append in stim 1.16".
     """
     if all(math.isfinite(arg) for instruction in instructions for arg in instruction.arguments):
         return stim.Circuit("\n".join(map(str, instructions)))
