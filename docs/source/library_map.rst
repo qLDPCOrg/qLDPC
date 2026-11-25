@@ -287,7 +287,7 @@ GAP backends
 ~~~~~~~~~~~~
 
 qLDPC calls GAP in process through the ``passagemath-gap`` libgap binding when it is installed, with ``pip install 'qldpc[gap]'`` on Python 3.13 outside Windows.
-Otherwise, qLDPC runs GAP in a subprocess, with the command in the environment variable ``QLDPC_GAP_COMMAND`` if it is set, or else with a ``gap`` executable on ``PATH``.
+Otherwise, qLDPC runs GAP in a subprocess, with the command in the environment variable ``QLDPC_GAP_COMMAND`` if it is set and not blank, or else with a ``gap`` executable on ``PATH``.
 If neither backend is available, some functions offer a manual workflow that prints GAP commands, copies them to the system clipboard, and reads GAP's output from standard input.
 When a needed GAP package such as GUAVA or QDistRnd is missing, qLDPC asks on standard input before installing it: with GAP's PackageManager for libgap, or by cloning it with Git into qLDPC's user cache directory for the executable.
 

@@ -93,7 +93,8 @@ See the :doc:`library map <library_map>` for GAP calls, prompts, other side effe
 GAP on Windows
 ~~~~~~~~~~~~~~
 
-Neither ``passagemath-gap`` nor conda-forge provides GAP for Windows, and the GAP installer for Windows adds no ``gap`` command, since it runs GAP in a bundled Cygwin environment.
+Neither ``passagemath-gap`` nor conda-forge provides GAP for Windows.
+The GAP installer for Windows adds no ``gap`` command, since it runs GAP in a bundled Cygwin environment.
 The GAP developers recommend the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/about>`_ (WSL) instead.
 Installing Python and qLDPC inside WSL makes qLDPC a Linux installation, where ``python -m pip install 'qldpc[gap]'`` provides GAP on Python 3.13.
 With Python on Windows itself, qLDPC can call GAP only through ``QLDPC_GAP_COMMAND``, with a command that does what the :mod:`qldpc.external.gap` docstring requires.
