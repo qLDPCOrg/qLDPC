@@ -59,9 +59,10 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     """The coset searches of ``CosetLeaderSearch`` search their sparser checks without pair sums.
 
     The checks of a repetition code have light sums of pairs, which distance searches would add,
-    but queries search only the checks themselves (Sections 3.4 and 3.8 of
+    but queries, single or in batches, search only the checks themselves (Sections 3.4 and 3.8 of
     ``connected_cluster.md``).
     """
+    batch_check_starts = _record_batch_argument(monkeypatch, "check_starts")
     num_checks: list[int] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
@@ -86,13 +87,15 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     # The syndrome of the first and last checks has no word of weight one, so the query searches.
     assert coset_search.get_min_weight_bound(0b101, 2).within_max_weight
     assert num_checks == [len(coset_search.checks)]
+    _run_batches(coset_search, [0b101], 2)
+    assert [len(starts) - 1 for starts in batch_check_starts] == [len(coset_search.checks)] * 2
 
 
 def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.MonkeyPatch) -> None:
     """A coset search tabulates the overlap cuts of its queries before its first query.
 
-    It does so even before ``use_query_overlap_words`` gives it words, so that its queries only read
-    the search.
+    It does so even before ``use_query_overlap_words`` gives it words, so that its queries, single
+    or in batches, only read the search.
     """
     tabulated: list[object] = []
     get_overlap_cuts = search._get_overlap_cuts
@@ -118,6 +121,7 @@ def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.Mo
         assert num_tabulated
         for syndrome in (0b101, 0b111, 0b100):
             assert coset_search.get_min_weight_bound(syndrome, 2).within_max_weight
+        _run_batches(coset_search, [0b101, 0b111, 0b100], 2)
         assert len(tabulated) == num_tabulated
 
 
@@ -125,7 +129,8 @@ def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.Mo
 def test_connected_cluster_queries_read_their_restriction(
     monkeypatch: pytest.MonkeyPatch, restrict_viable_symbols: bool
 ) -> None:
-    """A coset search passes ``restrict_viable_symbols`` to its queries."""
+    """A coset search passes ``restrict_viable_symbols`` to its single and batch queries."""
+    batch_settings = _record_batch_argument(monkeypatch, "restrict_viable_symbols")
     settings: list[bool] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
@@ -150,13 +155,19 @@ def test_connected_cluster_queries_read_their_restriction(
     )
     assert coset_search.get_min_weight_bound(syndrome, 2).within_max_weight
     assert settings and set(settings) == {restrict_viable_symbols}
+    _run_batches(coset_search, [syndrome], 2)
+    assert batch_settings == [restrict_viable_symbols] * 2
 
 
 @pytest.mark.parametrize("cuts", [True, False])
 def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
     monkeypatch: pytest.MonkeyPatch, cuts: bool
 ) -> None:
-    """A coset search given overlap words cuts its queries exactly when its switch is on."""
+    """A coset search given overlap words cuts its queries exactly when its switch is on.
+
+    This holds for single queries and for batches.
+    """
+    batch_capacities = _record_batch_argument(monkeypatch, "cut_capacities")
     num_cuts_per_query: list[int] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
@@ -177,10 +188,14 @@ def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
     coset_search.use_query_overlap_words(coset_search.checks)
 
     # Every syndrome that the table of light words lacks starts a query.
-    for syndrome in range(1, 2 ** len(coset_search.checks)):
+    syndromes = range(1, 2 ** len(coset_search.checks))
+    for syndrome in syndromes:
         coset_search.get_min_weight_bound(syndrome, 3)
     assert num_cuts_per_query
     assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_query)
+    _run_batches(coset_search, list(syndromes), 3)
+    assert len(batch_capacities) == 2
+    assert all(bool(len(capacities)) == cuts for capacities in batch_capacities)
 
 
 @pytest.mark.parametrize("cuts", [True, False])
@@ -190,9 +205,10 @@ def test_connected_cluster_answers_match_exhaustive_minima(
 ) -> None:
     """Queries get the bounds that ``ConnectedClusterCosetSearch`` states, with or without cuts.
 
-    A single query searches only ``max_weight``, as does a query whose first limit is above it.  A
-    query whose first limit is two finds the weight of the lightest words of each coset that has a
-    word within ``max_weight``.
+    A single query searches only ``max_weight``.  The batch queries find the first coset without a
+    word within ``max_weight``, with the bound of a single query, and the weight of the lightest
+    words of each coset up to ``max_weight + 1``, or a weight within its floor if it has a word
+    within the floor.
     """
     # The searches of Paulis check with the stabilizers of graph states with phases, which are not
     # CSS, and of CSS states, with no pure-X stabilizer, only pure-X stabilizers, or both.  The
@@ -220,17 +236,11 @@ def test_connected_cluster_answers_match_exhaustive_minima(
             minima = (
                 get_exhaustive_minima(checks, False) if symplectic else get_binary_minima(checks)
             )
-            for syndrome, max_weight in itertools.product(
-                range(1 << len(checks)), range(num_qubits + 1)
-            ):
-                minimum = minima[syndrome]
-                single = coset_search.get_min_weight_bound(syndrome, max_weight)
-                from_two, _ = coset_search._get_min_weight_bound_and_states(syndrome, max_weight, 2)
-                late, _ = coset_search._get_min_weight_bound_and_states(
-                    syndrome, max_weight, max_weight + 1
-                )
-                assert late == single
-                for bound, exact in [(single, False), (from_two, True)]:
+            batch = split_syndromes_into_words(list(range(len(minima))), len(checks))
+            for max_weight in range(num_qubits + 1):
+                # Single queries.
+                for syndrome, minimum in enumerate(minima.tolist()):
+                    bound = coset_search.get_min_weight_bound(syndrome, max_weight)
                     word = bound.representative
                     if symplectic:
                         weight = get_pauli_weight(word, num_qubits, False)
@@ -243,12 +253,31 @@ def test_connected_cluster_answers_match_exhaustive_minima(
                     if not bound.within_max_weight:
                         expected_bound = minimum if minimum < 2 else max(2, max_weight + 1)
                         assert bound.lower_bound == expected_bound
-                    elif exact or minimum < 2:
-                        # Queries from limit two, and words of weight at most one, are exact
-                        # within max_weight.
+                    elif minimum < 2:
                         assert bound.lower_bound == weight == minimum
                     else:
                         assert bound.lower_bound == 2 and weight <= max_weight
+
+                # Batch queries, with floors of zero and random floors.
+                capped = np.minimum(minima, max_weight + 1)
+                zeros = np.zeros(len(batch), dtype=np.int64)
+                assert np.array_equal(
+                    coset_search.get_min_weights(batch, max_weight, zeros), capped
+                )
+                floors = rng.integers(max_weight + 1, size=len(batch))
+                weights = coset_search.get_min_weights(batch, max_weight, floors)
+                within = minima <= floors
+                assert np.all(weights[within] <= floors[within])
+                assert np.array_equal(weights[~within], capped[~within])
+                above = np.flatnonzero(minima > max_weight).tolist()
+                index, first_bound = coset_search.find_first_not_within_max_weight(
+                    batch, max_weight
+                )
+                assert index == (above[0] if above else len(batch))
+                if above:
+                    assert first_bound == coset_search.get_min_weight_bound(index, max_weight)
+                else:
+                    assert first_bound is None
 
 
 def test_connected_cluster_batches_match_exhaustive_minima() -> None:
@@ -275,3 +304,31 @@ def test_connected_cluster_batches_match_exhaustive_minima() -> None:
             if bound is not None:
                 assert not bound.within_max_weight and bound.lower_bound > max_weight
                 assert get_syndrome(matrix, bound.representative) == index
+
+
+####################################################################################################
+# helpers
+
+
+def _record_batch_argument(monkeypatch: pytest.MonkeyPatch, name: str) -> list[Any]:
+    """Record an argument of each call of the compiled batch queries of ``coset``, and run them."""
+    values: list[Any] = []
+    for entry_name in ("_find_first_not_within_max_weight", "_find_min_weights"):
+        entry = getattr(coset, entry_name)
+
+        def record(*args: Any, entry: Any = entry) -> Any:
+            """Record the argument of a call, and run it."""
+            values.append(inspect.signature(entry).bind(*args).arguments[name])
+            return entry(*args)
+
+        monkeypatch.setattr(coset, entry_name, record)
+    return values
+
+
+def _run_batches(
+    coset_search: coset.ConnectedClusterCosetSearch, syndromes: list[int], max_weight: int
+) -> None:
+    """Run both batch queries of a coset search on a batch of syndromes, from floors of zero."""
+    batch = split_syndromes_into_words(syndromes, len(coset_search.checks))
+    coset_search.find_first_not_within_max_weight(batch, max_weight)
+    coset_search.get_min_weights(batch, max_weight, np.zeros(len(batch), dtype=np.int64))

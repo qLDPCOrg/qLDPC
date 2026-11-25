@@ -354,14 +354,20 @@ The rounds need not find a lightest basis: a word of the span is a row of a redu
 Even a lightest basis can be heavier than the checks of a code: for the physical weight on the state `|0⟩` of an `[[n, k]]` code, the span is the stabilizer group of the state, and at most `n - k` of its independent elements are stabilizers of the code.
 So every basis holds at least `k` logical operators, each at least as heavy as the distance, which the greedy algorithm would have to find by exact searches.
 
-A coset search first looks up the syndrome of a query in a table of the syndromes of the vectors of weight at most one, and searches only the syndromes that the table lacks, which have no solution of weight below two.
+A coset search first finds the solutions of weight at most one, and searches only the syndromes without one, which have no solution of weight below two.
+A single query looks up its syndrome in a table of the syndromes of the vectors of weight at most one.
+A batch query maps its syndrome to the sparser checks, and compares it with the checks that each symbol of the first check of the syndrome flips, since a symbol with the syndrome flips that check.
 A search at limit `W` that finds no solution proves that every solution is heavier than `W`.
-These two facts give the lower bounds of the answers, which the class docstring of `ConnectedClusterCosetSearch` states for each kind of query.
+These facts give the lower bounds of the answers, which the class docstring of `ConnectedClusterCosetSearch` states for each kind of query.
 
 A query at limit `W` can wander through many heavy supports before it reaches a much lighter solution.
 `certify_bounded_fault_propagation` queries batches of syndromes most of which have a solution within `W`, so for such batches a coset search tries the limits 2, 3, …, `W` in turn, and stops at the first within which it finds a solution, a lightest one, at the cost of repeating the lower limits for syndromes without one.
-For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits; [problems.md](problems.md#the-coset-leader-search) gives the floor of its searches by CSS weight.
+For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits; [problems.md](problems.md#the-coset-leader-search) gives the floor of its searches by CSS weight, from which a search starts its limits.
 A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` directly, since a caller may already raise `W` one step at a time.
+The queries of these batches mostly visit a few states each, so Python code around each query would take most of the time of a batch.
+So the batch queries of a coset search answer each block of a batch in one compiled call, `_find_first_not_within_max_weight` or `_find_min_weights` of `_connected_cluster/coset.py`, which maps, looks up, and searches each syndrome of the block, and calls `_search_supports` from compiled code.
+This makes the batches of `certify_bounded_fault_propagation` about 4 to 8 times faster than answering their queries one at a time from Python.
+For the first syndrome of a batch without a solution within `W`, `find_first_not_within_max_weight` returns the bound of a single query.
 
 Without reuse, a state computes the overlap and repair ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
 The checks of a syndrome query can stay dense after the rounds, so a symbol can flip many unsatisfied checks, and the query computes both at most once per symbol and state.
@@ -543,7 +549,7 @@ A first limit that a `cutoff` sets above the divisor is predicted to visit `MAX_
 
 **Syndrome queries.**
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs on one thread.
-The batch queries of `CosetLeaderSearch` instead move the rest of a costly batch to threads, by syndromes, and give the answers of one thread (section "The coset-leader search" of [problems.md](problems.md#the-coset-leader-search)).
+The batch queries of `CosetLeaderSearch` instead move the rest of a costly batch to threads, in blocks of syndromes, each of which one compiled call answers, and give the answers of one thread (section "The coset-leader search" of [problems.md](problems.md#the-coset-leader-search)).
 The comment of `search_chunk_exponent` in `_tuning.py` says when a batch moves, and in which units its queries count their work.
 A coset search tabulates the overlap cuts of its queries when it is built or given words, so the threads of a batch only read the search.
 
@@ -565,13 +571,13 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, `CosetLeaderSearch` in `coset_leaders.py`, and `MinWeightBound` in `min_weight_bounds.py`, the bound of one query |
 | Sparser checks with the same span | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `distances.py` |
 | Rounds of sparsifying | `max_coset_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `_get_min_weight_bound_and_states`), and `_get_batch_cluster_bound` and `_get_min_cluster_weight` in `_connected_cluster/coset.py`; and `tabulate_singles` of `_cosets.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, with its `_singles` for single queries, and `_get_min_weight`, which compares syndromes with the checks of symbols and tries increasing limits for batches; and `tabulate_singles` of `_cosets.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weight limits on threads: the frontier, work items, replay, claims of one item, ordered commit, and when to split | `_search_on_threads`; `_MAX_ITEMS`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `search_chunk_exponent` and `connected_cluster_split_shift`; `ITEMS_PER_THREAD`, `run_work_items`, and `run_items_until_first` of `_threads.py`; and `num_threads`, `search_chunk_exponent`, and `connected_cluster_split_shift` of `SearchTuning` in `_tuning.py` |
 | Chunks of a weight limit, on one thread and on threads | `_search_in_chunks`, `resume`, `ends`, and `max_states` of `_search_supports`, `chunk_states` of `SupportSearch`, and `search_chunk_exponent` of `SearchTuning` in `_tuning.py` |
-| Batches of syndrome queries on threads | `find_first_cluster_bound` and `get_min_cluster_weights` in `_connected_cluster/coset.py`, which `CosetLeaderSearch` calls; `ConnectedClusterCosetSearch._get_min_weight_bound_and_states`, which counts the work of a query; and `run_blocks` of `_threads.py` |
+| Batches of syndrome queries on threads | `ConnectedClusterCosetSearch.find_first_not_within_max_weight` and `get_min_weights` in `_connected_cluster/coset.py`, which `CosetLeaderSearch` calls; their compiled loops `_find_first_not_within_max_weight` and `_find_min_weights`, which count the work of each query; and `run_blocks` of `_threads.py` |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off; the test of `b1` that skips a child is in `_search_supports` |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
 | Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `_summed_pairs` of `SupportSearch` and its `find_vector_with_packed_syndrome`, which maps syndromes to them, its `_known_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
@@ -587,6 +593,7 @@ Numba compiles one version of `_search_supports` for each number of 64-bit words
 In each fixed version, the loops over the words have a fixed length.
 The argument `fixed_words`, which `_get_fixed_words` makes, selects the version.
 Threads run `_search_supports` at once, so it is compiled with `nogil=True`, and writes only to arrays that it allocates.
+So are the batch loops `_find_first_not_within_max_weight` and `_find_min_weights` of `_connected_cluster/coset.py`, which call it through the inlined `_get_min_weight`, and which also write the weights of their own rows.
 
 ## 5. Correctness requirements
 
@@ -614,7 +621,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
   The search keeps only the distinct nonzero checks, so the syndrome of the given checks must be mapped onto them, and a syndrome with a nonzero entry for a zero check, or with different entries for two equal checks, has no solution.
 - **Reuse an overlap or a repair only within the state that computed it**, since another state can have another syndrome or other weights.
   Compute a repair only after weighing all the unsatisfied checks, since it sums their weights.
-- **Give coset queries only proven lower bounds**: a bound of 2 needs the syndrome to be missing from the table of the vectors of weight at most 1, and a bound above a limit needs a complete search at that limit ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+- **Give coset queries only proven lower bounds**: a bound of 2 needs the syndrome to have no solution of weight at most 1, which the table of these vectors or the comparison with the checks of symbols shows, and a bound above a limit needs a complete search at that limit ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   A caller that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Keep the span of the checks of a coset query**, with an invertible map of the syndromes to the sparser checks, or the queries would search other cosets.
 - **Keep the span of the stabilizers of a subsystem code exactly** ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)): a smaller span would admit words that anticommute with a stabilizer, and a larger one would miss dressed logical operators; redundant rows need no map.
@@ -629,9 +636,9 @@ Changes to the search can use other bounds and orders, but must keep these requi
     A pruning rule may keep per-state data only if leaving the state undoes it, as `levels` and the loads of the overlap cuts do, and may add checks and known words only as tables built before the search, as the light sums of pairs of checks are ([Section 3.4](#34-pruning)).
     It must not carry memos, learned constraints, or sets of states already seen from one state or root to another, and must keep the depth-first order of the search.
     A change that breaks this, such as a best-first search ([Section 3.10](#310-techniques-not-used)), needs its own way to split a limit across threads.
-  - **Keep `_search_supports` writing only to arrays that it allocates**, and never to the tables of the search, since threads run it without the global interpreter lock.
+  - **Keep `_search_supports`, and the batch loops `_find_first_not_within_max_weight` and `_find_min_weights` of `_connected_cluster/coset.py`, writing only to arrays that they allocate**, and the loops also to the weights of their own rows, but never to the tables of the search, since threads run them without the global interpreter lock.
     `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` in `_connected_cluster/search_test.py` runs threads with every array of their search, such as its tables, read-only, and gives each call of `_search_supports` on threads read-only views of its other arrays, such as the roots and paths of work items and the paths and ends of chunks, so that numba rejects a write to one in any branch of compiled code.
-    `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` does the same for batches of coset queries.
+    `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` does the same for batches of coset queries, whose batch loops get read-only views of every array but the weights that they write.
     Both check that the arrays are unchanged.
     Review checks the writes that these tests miss, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
   - **Write shared results only in a thread's own entries, or under a lock.**

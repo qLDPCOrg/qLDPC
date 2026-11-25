@@ -158,10 +158,11 @@ The answers are those of one thread: the weights, and the first index without an
 With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query (Section 3.8 of `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
 This method weighs errors by CSS weight only on CSS states (Section 3.8 of `connected_cluster.md`).
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
-`find_first_not_within_max_weight` and `get_min_weights` try increasing weight limits (`find_first_cluster_bound` and `get_min_cluster_weights` of `_connected_cluster/coset.py`), which can find light errors sooner than one search at `max_weight`.
+`CosetLeaderSearch` runs the batch queries of these searches, `find_first_not_within_max_weight` and `get_min_weights` of `ConnectedClusterCosetSearch`, as it runs those of BZ searches, with the same maps of syndromes to X and Z parts and the same floors.
+They try increasing weight limits, which can find light errors sooner than one search at `max_weight`, and answer each block of a batch in one compiled call (Section 3.8 of `connected_cluster.md`).
 They move a costly batch to threads with `run_blocks` too, by the same rule; a query that looks up its error visits no states, and so does no work.
 Their answers are those of one thread (Section 3.11 of `connected_cluster.md`).
-For the CSS weight, the bound that `find_first_not_within_max_weight` returns holds an error for each part, and for a part within `max_weight`, that error can differ from the one that `get_min_weight_bound` gives.
+`find_first_not_within_max_weight` returns the bound that `get_min_weight_bound` gives for the first syndrome without an error within `max_weight`.
 
 The table "Routes and the names that control them" of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) names the fields that configure the searches of `CosetLeaderSearch`.
 
