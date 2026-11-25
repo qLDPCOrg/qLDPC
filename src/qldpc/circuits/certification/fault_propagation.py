@@ -363,7 +363,8 @@ def _get_primitive_fault_signatures(
     # Measure each stabilizer after the circuit, with a detector on its outcome.
     num_stabilizers = len(stabilizers)
     diagnostics = get_pauli_product_measurements(stabilizers, qubits=qubits)
-    # TEMPORARY until stim>=1.17: see common._get_pauli_product_text.
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    # "stim.Circuit.append in stim 1.16".
     diagnostics += stim.Circuit(
         "\n".join(f"DETECTOR rec[{jj - num_stabilizers}]" for jj in range(num_stabilizers))
     )
@@ -386,6 +387,8 @@ def _get_primitive_fault_signatures(
     get_bits = signature_bits.get
     syndrome_mask = (1 << num_stabilizers) - 1
 
+    # TEMPORARY until reading a DEM's targets through stim's Python API is as fast as parsing its
+    # text: see circuits/stim_workarounds.md, "Targets of detector error models".
     # Parsing the DEM's text is much faster than reading the targets of its error instructions
     # through stim's Python objects.  Stim escapes "]" in tags, so the targets of an instruction
     # such as "error[tag](0.1) D0 L1" follow the first ")" after any tag.  Stim also escapes line
