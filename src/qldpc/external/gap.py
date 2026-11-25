@@ -5,31 +5,38 @@
 See https://www.gap-system.org.
 
 qLDPC runs GAP in process through ``passagemath-gap`` when that package is installed.  Otherwise,
-and after :func:`require_package` falls back from ``passagemath-gap``, qLDPC runs GAP as a separate
-program.  qLDPC starts this program with a *launch command*: the value of the environment variable
+qLDPC runs GAP as a separate program.  It also does so after :func:`require_package` fails to
+install a GAP package through ``passagemath-gap``, until the Python session ends or
+:func:`clear_cache` is called.
+
+qLDPC starts the separate program with a *launch command*: the value of the environment variable
 ``QLDPC_GAP_COMMAND``, or ``gap`` if that variable is unset or blank.  For example, to use a GAP
-executable that is not on ``PATH``, set ``QLDPC_GAP_COMMAND`` to the executable's full path.
+executable that is not on ``PATH``, set ``QLDPC_GAP_COMMAND`` to the executable's full path, in
+double quotes if the path contains spaces.  In a running Python session, call :func:`clear_cache`
+after changing ``QLDPC_GAP_COMMAND``.
 
 qLDPC splits the launch command into arguments at whitespace outside double quotes, and removes the
 double quotes.  Backslashes have no special meaning, so Windows paths need no escaping.  An
 unmatched double quote raises a ``ValueError``.
 
 qLDPC runs the launch command as a new process, directly rather than through a shell, and appends
-GAP's command-line options to its arguments.  If the launch command starts a wrapper, such as a
-script, rather than GAP itself, the wrapper must pass these options on to GAP.  Two of the options
-have further requirements:
+options for GAP to its arguments.  If the launch command starts a wrapper, such as a script, rather
+than GAP itself, the wrapper must pass all of its arguments on to GAP.  Two of the options that
+qLDPC appends have further requirements:
 
 * ``-l ;DIR`` adds the directory ``DIR``, in qLDPC's user cache directory, to GAP's root
-  directories, and GAP looks for packages in their ``pkg`` subdirectories.  qLDPC installs missing
-  GAP packages in ``DIR/pkg``.  ``DIR`` is a path on the file system that Python sees, so GAP finds
-  these packages only if it sees the same file system.  For example, GAP in the Windows Subsystem
-  for Linux does not, if Python runs on Windows.
-* ``-c CODE`` gives GAP the code to run.  Some functions, such as distance bounds with QDistRnd,
-  instead send the code to the standard input of the process, so a wrapper must also pass its
-  standard input on to GAP.
+  directories, and GAP looks for packages in the ``pkg`` subdirectories of its root directories.
+  qLDPC installs missing GAP packages in ``DIR/pkg``.  qLDPC writes ``DIR`` in the form that Python
+  uses, so GAP finds these packages only if it can open that path as written.  For example, if
+  Python runs on Windows, GAP in the Windows Subsystem for Linux cannot open a Windows path, such
+  as one that starts with ``C:``.
+* ``-c CODE`` gives GAP the code to run.  Calls to :func:`get_output` with ``use_pipe=True``, such
+  as those that bound distances with QDistRnd, instead send the code to the standard input of the
+  process, so a wrapper must also pass its standard input on to GAP.
 
-qLDPC reads GAP's results from the standard output of the process.  It reports a GAP error if the
-process exits with a nonzero code or writes anything to standard error.
+qLDPC reads GAP's results from the standard output of the process, and raises a :class:`GAPError`
+if the process exits with a nonzero code or writes anything to standard error.  So a wrapper must
+write nothing of its own to either stream.
 """
 
 from __future__ import annotations
@@ -83,7 +90,7 @@ end, [])"""
 
 @functools.cache
 def is_callable() -> bool:
-    """Can we call GAP 4, directly through libgap or from the command line?
+    """Can we call GAP 4, in process through libgap or as a separate program?
 
     Unlike :func:`is_installed`, this check never prompts for input, so it is safe to use for
     automatic backend selection and fallbacks.  If ``passagemath-gap`` is not available, it raises a
@@ -96,16 +103,21 @@ def is_callable() -> bool:
 def is_installed() -> bool:
     """Is GAP 4 available?
 
-    When neither libgap nor the command-line program is available, this function prompts on standard
-    input, so it blocks in a non-interactive context (and raises ``EOFError`` if standard input is
-    closed).  Use :func:`is_callable` for a check that never prompts.
+    When GAP can run neither through libgap nor as a separate program, this function prompts on
+    standard input, so it blocks in a non-interactive context (and raises ``EOFError`` if standard
+    input is closed).  Use :func:`is_callable` for a check that never prompts.  Like
+    :func:`is_callable`, this function raises a ``ValueError`` if it cannot parse
+    ``QLDPC_GAP_COMMAND`` when it needs to.
     """
     if is_callable():
         return True
-    print("GAP 4 cannot be called: passagemath-gap is not available, and this command fails:")
+    print(
+        "GAP 4 cannot be called: passagemath-gap is not available, and this command does not run"
+        " GAP 4:"
+    )
     print(f"    {_get_command_line()}")
-    print(f"To change the command, set {_COMMAND_VARIABLE}; see help(qldpc.external.gap).")
-    print("Can you manually copy/paste commands and outputs between here and GAP? [y/N]")
+    print(f"To change this command, set {_COMMAND_VARIABLE}; see help(qldpc.external.gap).")
+    print("Can you manually copy/paste GAP code and output between here and GAP? [y/N]")
     answer = input().lower()
     return answer == "y" or answer == "yes"
 
@@ -115,16 +127,16 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
 
     When ``passagemath-gap`` is installed, this function evaluates commands through its in-process
     libgap binding.  Otherwise, when GAP is callable, it runs the commands in GAP as a separate
-    program, which the module docstring says how qLDPC starts.  Finally, it falls back to a manual
+    program, which it starts as the module docstring describes.  Finally, it falls back to a manual
     workflow that prints the commands, copies them to the system clipboard, and reads the pasted
     output from standard input (blocking, and raising ``EOFError`` if standard input is closed),
     caching the result to disk.  Once :func:`require_package` has fallen back from libgap to the
-    GAP executable, every later call in the process uses the executable.
+    separate program, every later call in the process uses that program.
 
     Raises:
         FileNotFoundError: If GAP 4 is not installed.
         GAPError: If GAP reports an error: through libgap, or with a nonzero exit code or output on
-            standard error from the GAP executable.
+            standard error from the separate program.
         ValueError: If GAP must run as a separate program, but ``QLDPC_GAP_COMMAND`` cannot be
             parsed.
     """
@@ -319,8 +331,8 @@ def _is_gap_executable() -> bool:
     """Can the GAP executable be used for package installation and evaluation?"""
     commands = [*_get_command(), "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
-        # With its standard input closed, GAP exits even if the launch command ignores the -c option
-        # and starts an interactive GAP session.
+        # GAP gets empty standard input, so it exits even if the program that the launch command
+        # starts ignores -c and starts an interactive GAP session.
         result = subprocess.run(
             commands, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False
         )

@@ -287,9 +287,11 @@ GAP backends
 ~~~~~~~~~~~~
 
 qLDPC calls GAP in process through the ``passagemath-gap`` libgap binding when it is installed, with ``pip install 'qldpc[gap]'`` on Python 3.13 outside Windows.
-Otherwise, qLDPC runs GAP as a separate program, which it starts with the command in the environment variable ``QLDPC_GAP_COMMAND``, or with ``gap`` if that variable is unset or blank.
-If neither backend is available, some functions offer a manual workflow that prints GAP commands, copies them to the system clipboard, and reads GAP's output from standard input.
-When a needed GAP package such as GUAVA or QDistRnd is missing, qLDPC asks on standard input before installing it: with GAP's PackageManager for libgap, or by cloning it with Git into qLDPC's user cache directory for the executable.
+Otherwise, or after installing a GAP package through ``passagemath-gap`` fails, qLDPC runs GAP as a separate program.
+qLDPC starts this program with the launch command in the environment variable ``QLDPC_GAP_COMMAND``, or with ``gap`` if that variable is unset or blank.
+The docstring of :mod:`qldpc.external.gap` says what a launch command must do.
+If neither backend is available, some functions offer a manual workflow that prints GAP code, copies it to the system clipboard, and reads GAP's output from standard input.
+When a needed GAP package such as GUAVA or QDistRnd is missing, qLDPC asks on standard input before installing it: with GAP's PackageManager for libgap, or by cloning it with Git into qLDPC's user cache directory for the separate program.
 
 Functions that can use GAP include :meth:`ClassicalCode.from_name <qldpc.codes.common.ClassicalCode.from_name>`, :meth:`ClassicalCode.get_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_permutation_automorphism_group>`, :meth:`abstract.Group.from_name <qldpc.abstract.groups.Group.from_name>`, distance bounds with the GAP backend, and transversal-gate searches such as :func:`~qldpc.circuits.transversal.get_transversal_ops`.
 
