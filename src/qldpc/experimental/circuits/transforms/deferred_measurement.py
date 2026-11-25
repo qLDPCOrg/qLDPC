@@ -578,35 +578,12 @@ def _append_parity_gadget(
 # instructions as Python objects
 #
 # The passes of this module work on lists of the following plain Python objects, rather than on
-# stim's instructions, because stim.Circuit.append and stim.CircuitInstruction convert each target
-# slowly, while stim parses the text of a circuit orders of magnitude faster.  The passes therefore
-# build each output circuit by parsing its text once (see _get_circuit).
+# stim's instructions and targets.  Even where stim.Circuit.append is fast, as in stim 1.17, running
+# the passes on stim's objects takes about 10 times as long.
 #
-# The slow conversion in stim.Circuit.append is https://github.com/quantumlib/Stim/issues/1087.  The
-# upstream fix, https://github.com/quantumlib/Stim/pull/1090, is pending release in stim 1.17, and
-# makes stim.Circuit.append about as fast as parsing text when it is given integer targets or
-# targets returned by stim.target_* functions, so that _get_circuit can then append instructions.
-# The fix leaves the constructors of stim.CircuitInstruction and stim.GateTarget slow, however.
-# Even with the fix, running the passes on stim's own instructions and targets takes about 10 times
-# as long as on this module's _GateTarget and _CircuitInstruction, so these should stay.
-#
-# Once qLDPC requires stim 1.17, build output circuits by appending rather than by parsing text, as
-# follows.  Do not do so before then: with stim 1.16, the passes would run about 30 times slower.
-#
-# 1. Make _GateTarget.to_stim return a plain, uninverted qubit as its index, an int, rather than as
-#    stim.GateTarget(index), whose constructor stays slow.
-# 2. Replace _CircuitInstruction.to_stim, which calls the slow constructor of
-#    stim.CircuitInstruction, by a method that appends the instruction to a circuit with
-#    circuit.append(name, targets, arguments, tag=tag), where the targets are those of
-#    _GateTarget.to_stim, with stim.target_combiner() between the targets of each Pauli product.
-# 3. Make _get_circuit append each instruction with that method.  Remove what only parsing text
-#    needs: the text path of _get_circuit, its check for non-finite arguments, and the import of
-#    math.  Keep _CircuitInstruction.__str__ and _escape, since error messages use both.
-# 4. Update this comment and the docstring of _get_circuit, which describe building circuits by
-#    parsing text, keeping the reason that _GateTarget and _CircuitInstruction stay, and remove
-#    this plan.
-# 5. Check that to_deferred_measurement_form is no slower than before on a noisy circuit with a few
-#    thousand instructions.
+# TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md, "stim.Circuit.append in stim 1.16".
+# The passes build each output circuit by parsing its text once (see _get_circuit), since stim 1.16
+# appends instructions slowly.
 
 
 class _GateTarget(NamedTuple):
@@ -646,6 +623,8 @@ class _GateTarget(NamedTuple):
             return stim.target_sweep_bit(self.value)
         if self.kind:
             return stim.target_pauli(self.value, self.kind, self.inverted)
+        # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+        # "stim.Circuit.append in stim 1.16".
         return stim.target_inv(self.value) if self.inverted else stim.GateTarget(self.value)
 
 
@@ -676,7 +655,11 @@ class _CircuitInstruction(NamedTuple):
         return self._replace(name=name)
 
     def to_stim(self) -> stim.CircuitInstruction:
-        """This instruction as a stim instruction, with combiners in Pauli products."""
+        """This instruction as a stim instruction, with combiners in Pauli products.
+
+        TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+        "stim.Circuit.append in stim 1.16".
+        """
         targets = []
         for group in self.groups:
             for index, target in enumerate(group):
@@ -734,6 +717,8 @@ def _get_circuit(instructions: list[_CircuitInstruction]) -> stim.Circuit:
     instead.  Both give the same circuit, since stim fuses consecutive compatible instructions both
     when parsing and when appending.
     """
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    # "stim.Circuit.append in stim 1.16".
     if all(math.isfinite(arg) for instruction in instructions for arg in instruction.arguments):
         return stim.Circuit("\n".join(map(str, instructions)))
     circuit = stim.Circuit()

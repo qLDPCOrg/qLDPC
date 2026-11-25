@@ -103,7 +103,8 @@ def get_pauli_product_measurements(
     if qubits is not None and len(set(qubits)) != len(qubits):
         raise ValueError("Qubit labels for Pauli-product measurements must be distinct")
 
-    # TEMPORARY until stim>=1.17: see common._get_pauli_product_text.
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    # "stim.Circuit.append in stim 1.16".
     lines = []
     for string in cast(Sequence[stim.PauliString], pauli_strings):
         if not any(pauli in "XYZ" for pauli in str(string)):
@@ -124,25 +125,14 @@ def _get_pauli_product_text(
 ) -> str:
     """Get the stim text of the targets of an MPP instruction that measures a Pauli string.
 
+    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    "stim.Circuit.append in stim 1.16".
+
     Entry ``j`` of the string acts on qubit ``qubits[j]``, or on qubit ``j`` if ``qubits`` is None.
     The string must not be the identity, and its sign must be 1 or -1.
 
-    TEMPORARY until stim>=1.17: callers join the text of many instructions and parse it once with
-    ``stim.Circuit``, since in stim 1.16 this is much faster than calling ``stim.Circuit.append``
-    for each instruction (https://github.com/quantumlib/Stim/issues/1087, addressed by
-    https://github.com/quantumlib/Stim/pull/1090).  Migrate as follows once qLDPC requires
-    stim>=1.17, but not before, since with stim 1.16 appending makes certifying a small circuit
-    several times slower.
-
-    1. In each function marked "TEMPORARY until stim>=1.17", build the circuit by calling
-       ``stim.Circuit.append`` for each instruction:
-       - ``get_pauli_product_measurements``,
-       - ``fault_propagation._get_primitive_fault_signatures``,
-       - ``_post_selection.get_flag_detectors``, and
-       - ``encoding._get_fixed_parities_by_simulation``.
-       Keep the checks in ``get_pauli_product_measurements``, whose messages differ from stim's.
-    2. Delete this function, and the line of ``common_test.py`` that calls it.
-    3. Check that ``certify_bounded_fault_propagation`` is no slower on a small circuit.
+    Callers join the text of many instructions and parse it once with ``stim.Circuit``, which is
+    much faster than calling ``stim.Circuit.append`` for each instruction in stim 1.16.
     """
     support = string.pauli_indices()
     if not support:
@@ -214,6 +204,9 @@ def _get_instructions(
 ) -> Iterator[stim.CircuitInstruction | stim.CircuitRepeatBlock]:
     """The instructions and REPEAT blocks of a circuit, in order.
 
+    TEMPORARY until iterating over a stim.Circuit is as fast as indexing it: see
+    circuits/stim_workarounds.md, "Iterating over stim circuits".
+
     Stim's iterator over a circuit takes tens of microseconds to finish, which adds up when noise
     models handle many small circuits, so this indexes the circuit instead.
     """
@@ -224,6 +217,9 @@ def _new_instruction(
     name: str, targets: Sequence[stim.GateTarget], args: Sequence[float], tag: str
 ) -> stim.CircuitInstruction:
     """Build a ``stim.CircuitInstruction`` by appending it to an empty circuit.
+
+    TEMPORARY until stim.CircuitInstruction's constructor is as fast as stim.Circuit.append: see
+    circuits/stim_workarounds.md, "The stim.CircuitInstruction constructor".
 
     Stim's ``CircuitInstruction`` constructor takes tens of microseconds per target, while appending
     an instruction to a circuit takes about a microsecond.  An instruction that a circuit rejects,

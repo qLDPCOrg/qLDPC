@@ -468,7 +468,8 @@ def _get_fixed_parities_by_simulation(
     # even number of them.  Stim rejects a random observable even with gauge detectors allowed, so
     # the model leaves out the circuit's observables, which change neither its state nor its
     # measurement record.
-    # TEMPORARY until stim>=1.17: see common._get_pauli_product_text.
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
+    # "stim.Circuit.append in stim 1.16".
     lines = []
     for candidate in candidates.astype(bool):
         xs = np.zeros(num_qubits, dtype=bool)

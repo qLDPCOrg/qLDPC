@@ -305,6 +305,8 @@ def test_primitive_fault_signatures_follow_the_targets_of_error_mechanisms() -> 
         assert list(zip(flags, syndromes, strict=True)) == expected
         return sorted(expected)
 
+    # TEMPORARY until reading a DEM's targets through stim's Python API is as fast as parsing its
+    # text: see circuits/stim_workarounds.md, "Targets of detector error models".
     # Stim escapes "]" and line feeds in tags, but not other line breaks, such as a form feed.
     # Detector 0 flags qubit 2, and detectors 1 and 2 measure the stabilizers Z0 and Z1.
     circuit = stim.Circuit("R 0 1 2")
