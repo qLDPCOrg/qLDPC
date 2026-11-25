@@ -110,6 +110,15 @@ def test_bounds_of_a_basis_of_many_rows_match_their_definition(pytestconfig: pyt
         assert bound == get_bound_oracle(tails, prefix[0], first, 4)
 
 
+def test_tables_without_blocks_bound_nothing() -> None:
+    """Tables of tails without ones, and ``NO_TABLES``, give the bound zero."""
+    rows = np.zeros((2, 1), dtype=np.uint64)
+    prefix = np.zeros(1, dtype=np.uint64)
+    for tables in (cb.CompletionTables.build(rows, 4), cb.NO_TABLES):
+        bound = cb.get_completion_bound(tables.tables, tables.offsets, 4, 0, prefix, 10**9)
+        assert bound == 0
+
+
 def test_bounds_ignore_ones_past_the_tails() -> None:
     """A prefix with ones past the last tail column with a one reads only its own tables."""
     tails = np.eye(3, dtype=np.uint8)

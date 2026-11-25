@@ -216,6 +216,9 @@ def get_completion_bound(
     ``tables``, ``offsets``, and ``block_bits`` are those of ``CompletionTables``.  The sum stops
     once it reaches ``limit``, so the result is the bound or a lower value of at least ``limit``.
     """
+    # Tables without blocks, such as ``NO_TABLES``, have no rows to count and bound nothing.
+    if len(offsets) == 1:
+        return np.int64(0)
     num_table_rows = len(tables) // offsets[-1]
     # Bytes from the tables add up in int64, which no number of blocks can overflow.
     bound = np.int64(0)
