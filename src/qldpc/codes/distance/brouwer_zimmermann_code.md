@@ -225,7 +225,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
      Its queries then weigh words by their tails, and skip completions by tables on blocks of `coset_completion_block_bits` columns, for every search basis that they scan in layers of two or more rows, if the tables fit in `coset_completion_max_table_bytes`.
      The threshold and this limit replace the minimum layer work and the cost model of `select_completion_tables`.
 
-  Building the two families costs a matroid partitioning and the row reductions of an overlapping family; weighing by tails adds a fixed cost to each query, for the tail of its offset in each search basis and the rebuild of its lightest word; and tables cost memory and a build.
+  Building the two families costs a matroid partitioning and the row reductions of an overlapping family; weighing by tails adds a fixed cost to each query, for the tail of its offset in each search basis that it reaches and the rebuild of its lightest word; and tables cost memory and a build.
   Only queries that examine many words repay these costs.
   The threshold also sets the aim `ω_T`, which no break-even rule covers, so its default is chosen by hand.
 - **`select_completion_tables`** decides, by the steps of [Section 3.9](brouwer_zimmermann.md#39-skipping-completions-by-completion-tables), whether a distance search uses tables on a search basis in a layer, or a count on a step.
