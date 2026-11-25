@@ -189,11 +189,11 @@ def _search_irreducible_faults(
     # Give each primitive fault a representative of low Pauli weight, so that ``FaultLister`` skips
     # more faults (see "Checking one fault").  A light primitive fault's representative has Pauli
     # weight at most one.  A heavy primitive fault whose syndrome is the sum of the syndromes of two
-    # light ones gets the product of their representatives.  The pair depends only on the syndrome,
-    # so the search runs once for each distinct heavy syndrome.  Compiled code does it, since its
-    # time is proportional to the number of distinct heavy syndromes times the number of light
-    # ones.  Any other heavy primitive fault gets a fixed error with its syndrome, a product of
-    # destabilizers (see "Deciding which primitive faults are heavy").
+    # light ones with nonzero flags gets the product of their representatives.  The pair depends
+    # only on the syndrome, so the search runs once for each distinct heavy syndrome.  Compiled
+    # code does it, since its time is proportional to the number of distinct heavy syndromes times
+    # the number of light ones.  Any other heavy primitive fault gets a fixed error with its
+    # syndrome, a product of destabilizers (see "Deciding which primitive faults are heavy").
     syndrome_positions = {syndrome: position for position, syndrome in enumerate(syndromes)}
     light_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _ in light))
     heavy_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _ in heavy))

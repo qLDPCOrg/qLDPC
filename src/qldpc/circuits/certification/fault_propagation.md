@@ -150,7 +150,7 @@ A light primitive fault's representative is the error of Pauli weight at most on
 
 A primitive fault with zero flags violates the bound exactly if it is heavy, and the search asks the oracle, with the threshold one, only for the bound of the first such fault, which it reports.
 A heavy primitive fault with nonzero flags needs only a representative.
-If its syndrome is the sum of the syndromes of two light primitive faults, it gets the product of their representatives, of Pauli weight at most two.
+If its syndrome is the sum of the syndromes of two light primitive faults with nonzero flags, it gets the product of their representatives, of Pauli weight at most two.
 Otherwise, it gets a fixed error with its syndrome: the product of the destabilizers `d_j` for the set bits `j` of its syndrome, where `d_j` anticommutes with `g_j` alone.
 The matrix `H = [W_Z | W_X]` takes an error `e = [x|z]` to its syndrome `H e`.
 It has rank `n`, since `g_1, ..., g_n` are independent, so row reduction gives an invertible `T` such that `T H` is the identity on `n` pivot columns.
