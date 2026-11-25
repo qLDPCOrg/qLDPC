@@ -1125,7 +1125,9 @@ def _search_supports(
         fixed_words: Empty, or an entry for each 64-bit word of a row of ``symbol_masks``, as
             ``_get_fixed_words`` makes it.  Numba compiles a version for each length of
             ``fixed_words`` (see ``_MAX_FIXED_WORDS``).
-        memoize: Whether each state computes the overlap of each symbol at most once.
+        memoize: Whether a state that does not take the overlaps of all symbols in one pass
+            memoizes the overlap of each symbol, so that it computes it at most once.  Repairs are
+            never memoized (see ``_get_branches``).
         restrict_viable_symbols: As for ``_get_branches``.
         cut_symbol_starts: Where the entries of each symbol start in ``cut_symbol_entries``.
         cut_symbol_entries: For each symbol in turn, ``_LOAD_BASE c + l`` for each overlap cut
@@ -1468,11 +1470,14 @@ def _get_branches(
 
     A state visits each entry of its unsatisfied checks in passes that select rather than branch
     where they can, since the processor would often mispredict a branch on whether a symbol is
-    available or viable.  If the unsatisfied checks have more entries than there are symbols, it
-    takes the overlaps of all symbols first, in one pass over the rows of ``symbol_masks``.  A state
-    that restricts its subtree adds the weight of each unsatisfied check to the repair of each of
-    its symbols, rather than summing the weights of the unsatisfied checks of each available symbol
-    in turn.
+    available or viable.  The state estimates the entries of its unsatisfied checks as their number
+    times the average number of entries of a check.  If the estimate exceeds the number of symbols,
+    it first takes the overlaps of all symbols in one pass over the rows of ``symbol_masks``, and
+    otherwise computes the overlap of each entry, once per symbol if it memoizes.  A state that
+    restricts its subtree clears the repairs of the symbols of its unsatisfied checks, or of all
+    symbols if these checks have at least as many entries as there are symbols, and adds the weight
+    of each unsatisfied check to the repair of each of its symbols.  Its branches reuse these
+    repairs, and the branches of a state that does not restrict its subtree compute their own.
 
     Args:
         check_starts: As for ``_search_supports``.
@@ -1493,11 +1498,13 @@ def _get_branches(
             in units of ``1 / inverse_overlaps[1]``.
         check_weights: Scratch space for the weights of the checks.
         branch_repairs: Scratch space for the repairs of the branches.
-        symbol_overlaps: Scratch space for the overlap of each symbol.
-        symbol_repairs: Scratch space for the repair of each symbol.
-        memos: An array of two rows: with no columns, to turn memoization off, or with a column
-            for each symbol.  For each symbol, row 0 holds the stamp of the call that last
-            computed its overlap, and row 1 that overlap.
+        symbol_overlaps: Scratch space for the overlap of each symbol, which a state that takes
+            all overlaps in one pass writes and reads.
+        symbol_repairs: Scratch space for the repair of each symbol, which a state that restricts
+            its subtree writes and reads.
+        memos: The memos of overlaps, an array of two rows: with no columns, to turn memoization
+            off, or with a column for each symbol.  For each symbol, row 0 holds the stamp of the
+            call that last computed its overlap, and row 1 that overlap.  Repairs have no memos.
         stamp: The stamp of this call, which no other call uses.
         restrict_viable_symbols: Whether a state may allow only viable symbols in its subtree.
 
@@ -1509,8 +1516,8 @@ def _get_branches(
     memoize = memos.shape[1] > 0
     overlap_stamps, overlaps = memos[0], memos[1]
 
-    # Take the overlaps of all symbols at once if the unsatisfied checks have more entries, on
-    # average, than there are symbols.
+    # Take the overlaps of all symbols in one pass if the unsatisfied checks, estimated to have the
+    # average number of entries of a check each, have more entries than there are symbols.
     num_unsatisfied = 0
     for word in range(num_words):
         num_unsatisfied += int(popcount_word(syndromes[depth, word]))
