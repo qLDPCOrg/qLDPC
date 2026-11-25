@@ -12,8 +12,9 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from qldpc._binary import get_kernel
+from qldpc._binary import get_kernel, get_num_words, int_to_words
 
+from .._cosets import xor_selected
 from .._tuning import use_tuning
 from ..conftest import (
     get_binary_minima,
@@ -129,8 +130,10 @@ def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.Mo
 def test_connected_cluster_queries_read_their_restriction(
     monkeypatch: pytest.MonkeyPatch, restrict_viable_symbols: bool
 ) -> None:
-    """A coset search passes ``restrict_viable_symbols`` to its single and batch queries."""
-    batch_settings = _record_batch_argument(monkeypatch, "restrict_viable_symbols")
+    """A coset search passes ``restrict_viable_symbols`` to its single queries.
+
+    ``test_connected_cluster_batches_search_as_single_queries`` checks its batch queries.
+    """
     settings: list[bool] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
@@ -155,19 +158,16 @@ def test_connected_cluster_queries_read_their_restriction(
     )
     assert coset_search.get_min_weight_bound(syndrome, 2).within_max_weight
     assert settings and set(settings) == {restrict_viable_symbols}
-    _run_batches(coset_search, [syndrome], 2)
-    assert batch_settings == [restrict_viable_symbols] * 2
 
 
 @pytest.mark.parametrize("cuts", [True, False])
 def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
     monkeypatch: pytest.MonkeyPatch, cuts: bool
 ) -> None:
-    """A coset search given overlap words cuts its queries exactly when its switch is on.
+    """A coset search given overlap words cuts its single queries exactly when its switch is on.
 
-    This holds for single queries and for batches.
+    ``test_connected_cluster_batches_search_as_single_queries`` checks its batch queries.
     """
-    batch_capacities = _record_batch_argument(monkeypatch, "cut_capacities")
     num_cuts_per_query: list[int] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
@@ -193,9 +193,37 @@ def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
         coset_search.get_min_weight_bound(syndrome, 3)
     assert num_cuts_per_query
     assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_query)
-    _run_batches(coset_search, list(syndromes), 3)
-    assert len(batch_capacities) == 2
-    assert all(bool(len(capacities)) == cuts for capacities in batch_capacities)
+
+
+@pytest.mark.parametrize("switch", ["restrict_viable_symbols", "cuts"])
+def test_connected_cluster_batches_search_as_single_queries(switch: str) -> None:
+    """Batch queries visit the states of single queries at their limits, with a switch on and off.
+
+    So they search with the restriction and the overlap cuts of the coset search.  On this CSS
+    state, the lightest errors with the syndrome 57 weigh two, and the number of states that its
+    query visits at limit two depends on each switch, which is otherwise on.
+    """
+    matrix = get_random_css_state(6, 3, np.random.default_rng(0))
+    syndrome = 57
+    assert get_exhaustive_minima(matrix, False)[syndrome] == 2
+    batch = split_syndromes_into_words([syndrome], len(matrix))
+    counts = []
+    for setting in (True, False):
+        options = {"restrict_viable_symbols": True, "cuts": True, switch: setting}
+        coset_search = coset.ConnectedClusterCosetSearch(
+            matrix,
+            symplectic=True,
+            max_rounds=0,
+            rounds_without_improvement=1,
+            restrict_viable_symbols=options["restrict_viable_symbols"],
+            stabilizer_overlap_cuts=options["cuts"],
+        )
+        coset_search.use_query_overlap_words(coset_search.checks)
+        assert coset_search.get_min_weights(batch, 2, np.zeros(1, dtype=np.int64)).tolist() == [2]
+        num_states = _count_batch_states(coset_search, syndrome, 2)
+        assert num_states == _count_single_states(coset_search, syndrome, 2)
+        counts.append(num_states)
+    assert counts[0] != counts[1]
 
 
 @pytest.mark.parametrize("cuts", [True, False])
@@ -332,3 +360,51 @@ def _run_batches(
     batch = split_syndromes_into_words(syndromes, len(coset_search.checks))
     coset_search.find_first_not_within_max_weight(batch, max_weight)
     coset_search.get_min_weights(batch, max_weight, np.zeros(len(batch), dtype=np.int64))
+
+
+def _count_batch_states(
+    coset_search: coset.ConnectedClusterCosetSearch, syndrome: int, max_weight: int
+) -> int:
+    """The number of states that a batch query visits, as the compiled loop counts its work.
+
+    ``_find_min_weights`` stops after a query once its work reaches ``max_work``, so of two copies
+    of a syndrome that is not looked up, it searches only the first exactly if the first visits at
+    least ``max_work`` states.  A search for the largest such ``max_work`` finds that number.
+    """
+    batch = split_syndromes_into_words([syndrome, syndrome], len(coset_search.checks))
+    floors = np.zeros(2, dtype=np.int64)
+    weights = np.empty(2, dtype=np.int64)
+    tables = coset_search._get_batch_tables()
+
+    def searches_one(max_work: int) -> bool:
+        """Whether the batch stops after the first copy within ``max_work``."""
+        num_done = coset._find_min_weights(batch, max_weight, floors, max_work, weights, *tables)
+        return bool(num_done == 1)
+
+    low, high = 0, 1
+    while searches_one(high):
+        low, high = high, 2 * high
+    while high - low > 1:
+        middle = (low + high) // 2
+        low, high = (middle, high) if searches_one(middle) else (low, middle)
+    return low
+
+
+def _count_single_states(
+    coset_search: coset.ConnectedClusterCosetSearch, syndrome: int, max_weight: int
+) -> int:
+    """The number of states that single queries visit at the limits 2, 3, ... up to a vector.
+
+    The syndrome must have no vector of weight at most one.
+    """
+    mapped = xor_selected(coset_search._syndrome_map_columns, syndrome)
+    packed_syndrome = int_to_words(mapped, get_num_words(len(coset_search.checks)))
+    num_states = 0
+    for limit in range(2, max_weight + 1):
+        symbols, states = coset_search._search.find_vector_with_packed_syndrome(
+            packed_syndrome, limit
+        )
+        num_states += states
+        if symbols is not None:
+            break
+    return num_states
