@@ -358,6 +358,31 @@ def test_repeated_syndromes_are_checked_once() -> None:
     assert _check_faults(lister, 2, ()) == ([7], None)
 
 
+@pytest.mark.parametrize("css_weight", [False, True])
+@pytest.mark.parametrize("z_part", [False, True])
+def test_representatives_are_weighed_over_every_word(css_weight: bool, z_part: bool) -> None:
+    """A fault is checked if the product of its representatives, over all words, is too heavy."""
+    # On |0>^66 with X representatives, or on |+>^66 with Z representatives, the product of the two
+    # representatives acts on qubits 0, 64, and 65, so the fault of weight two violates the bound.
+    num_qubits = 66
+    syndromes = [3 << 64, 1]
+    representatives = [syndrome << (num_qubits if z_part else 0) for syndrome in syndromes]
+    lister = _fault_search.FaultLister(
+        [1, 1], syndromes, representatives, num_qubits, css_weight, 2, 2**20
+    )
+    syndrome = syndromes[0] ^ syndromes[1]
+    assert _check_faults(lister, 2, {syndrome}) == ([syndrome], ((0, 1), syndrome))
+
+
+@pytest.mark.parametrize("css_weight", [False, True])
+def test_representatives_are_weighed_by_the_pauli_weight_of_the_search(css_weight: bool) -> None:
+    """The product of the representatives has the CSS weight or the physical weight, as asked."""
+    # On |00++>, X on qubits 0 and 1 times Z on qubits 2 and 3 has CSS weight two, at most the fault
+    # weight, and physical weight four.
+    lister = _fault_search.FaultLister([1, 1], [3, 12], [3, 12 << 4], 4, css_weight, 2, 2**20)
+    assert _check_faults(lister, 2, ()) == ([] if css_weight else [3 ^ 12], None)
+
+
 @pytest.mark.parametrize("collide", [False, True])
 def test_light_pairs_match_brute_force(
     collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
