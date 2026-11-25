@@ -231,6 +231,45 @@ def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         assert external.gap.is_installed()
 
 
+def test_command(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """QLDPC_GAP_COMMAND sets the launch command of GAP."""
+    monkeypatch.delenv("QLDPC_GAP_COMMAND", raising=False)
+    assert external.gap._get_command() == ["gap"]
+    monkeypatch.setenv("QLDPC_GAP_COMMAND", " ")
+    assert external.gap._get_command() == ["gap"]
+
+    # double quotes group words, and other characters are kept
+    value = r'"C:\Program Files\GAP\gap.exe" -o 2g C:\O\'B#1'
+    monkeypatch.setenv("QLDPC_GAP_COMMAND", value)
+    command = [r"C:\Program Files\GAP\gap.exe", "-o", "2g", r"C:\O\'B#1"]
+    assert external.gap._get_command() == command
+
+    # the availability check and GAP evaluations both run the launch command, with no standard input
+    # from Python
+    with unittest.mock.patch("subprocess.run", return_value=get_mock_process("4.13.0\n")) as run:
+        assert external.gap._is_gap_executable()
+        external.gap._get_output_subprocess(())
+    for call in run.call_args_list:
+        assert call.args[0][: len(command)] == command
+        assert call.kwargs.get("stdin") == subprocess.DEVNULL or call.kwargs.get("input") == ""
+
+    # after clearing the cache, a launch command that fails to start makes qLDPC ask what to do
+    external.gap.clear_cache()
+    monkeypatch.setattr("builtins.input", lambda: "n")
+    with (
+        unittest.mock.patch("qldpc.external.gap._get_libgap", return_value=None),
+        unittest.mock.patch("subprocess.run", side_effect=PermissionError),
+    ):
+        assert not external.gap.is_installed()
+    terminal_output = capsys.readouterr().out
+    assert value in terminal_output
+    assert "QLDPC_GAP_COMMAND" in terminal_output
+
+    monkeypatch.setenv("QLDPC_GAP_COMMAND", '"gap')
+    with pytest.raises(ValueError, match="QLDPC_GAP_COMMAND"):
+        external.gap._get_command()
+
+
 def test_clear_cache() -> None:
     """After clearing the cache, qLDPC checks again whether GAP is available."""
     external.gap._subprocess_packages.add("package")
@@ -283,15 +322,19 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
             unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")) as run,
             unittest.mock.patch("qldpc.cache.get_disk_cache_path", return_value="_CACHE_"),
         ):
-            assert external.gap.get_output() == "_TEST_"
-        assert ";_CACHE_" in run.call_args.args[0]
+            assert external.gap.get_output("_CODE_") == "_TEST_"
+        arguments = run.call_args.args[0]
+        assert ";_CACHE_" in arguments
+        assert "_CODE_" in arguments[arguments.index("-c") + 1]
 
-        # GAP is callable, and succeeds with piped input
+        # GAP is callable, and succeeds with the code on standard input instead of in -c
         with (
             unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
-            unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")) as run,
         ):
-            assert external.gap.get_output(use_pipe=True) == "_TEST_"
+            assert external.gap.get_output("_CODE_", use_pipe=True) == "_TEST_"
+        assert "-c" not in run.call_args.args[0]
+        assert "_CODE_" in run.call_args.kwargs["input"]
 
         # GAP is not callable, so the user must pass around commands and outputs
         cache: dict[str, str] = {}
@@ -568,7 +611,7 @@ def test_require_package_libgap(capsys: pytest.CaptureFixture[str]) -> None:
     terminal_output, error_message = capsys.readouterr()
     assert not error_message
     assert "sage -gap" in terminal_output
-    assert "Falling back to the GAP executable" in terminal_output
+    assert "Falling back to running GAP as a separate program" in terminal_output
     assert external.gap._subprocess_packages == {"qdistrnd"}
 
     # without a repo, the fallback asks again before cloning the default repo
