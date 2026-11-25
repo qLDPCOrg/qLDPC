@@ -36,9 +36,9 @@ options have further requirements:
   as those that bound distances with QDistRnd, instead send the code to the standard input of the
   process, so a wrapper must also pass its standard input on to GAP.
 
-qLDPC reads GAP's results from the standard output of the process, and raises a :class:`GAPError`
-if the process exits with a nonzero code or writes anything to standard error.  So a wrapper must
-write nothing of its own to either stream.
+qLDPC reads GAP's results from the standard output of the process, and raises a :class:`GAPError` if
+the process exits with a nonzero code or writes anything to standard error.  So a wrapper must write
+nothing of its own to either stream.
 """
 
 from __future__ import annotations
