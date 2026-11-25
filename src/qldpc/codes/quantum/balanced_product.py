@@ -27,7 +27,7 @@ from ..common import AbstractCode, ClassicalCode, CSSCode
 # balanced product codes
 
 
-class BPCode(CSSCode):
+class BalancedProductCode(CSSCode):
     """Balanced product code.
 
     A balanced product code is a quotient of the hypergraph product code of two classical codes (see
@@ -74,11 +74,11 @@ class BPCode(CSSCode):
 
     .. code-block:: python
 
-        from qldpc import abstract, codes
+        from qldpc import codes
 
-        seed: codes.RingCode = codes.RingCode(6)
-        symmetries: list[abstract.GroupMember] = codes.BPCode.get_seed_symmetries(seed, 3)
-        code: codes.BPCode = codes.BPCode.from_seed(seed, symmetries[0])
+        seed = codes.RingCode(6)
+        symmetries = codes.BalancedProductCode.get_seed_symmetries(seed, 3)
+        code = codes.BalancedProductCode.from_seed(seed, symmetries[0])
         assert code.get_code_params() == (12, 2, 3)
 
     Similarly, the following constructs the ``[[360, 26, 5]]`` code in Example 2 of
@@ -90,25 +90,22 @@ class BPCode(CSSCode):
         import galois
         import networkx as nx
         import numpy as np
-        import numpy.typing as npt
         from qldpc import abstract, codes
         from qldpc.objects import CayleyComplex
 
-        field: type[galois.FieldArray] = galois.GF(5)
-        generators: galois.FieldArray = field(
-            [[[2, 2], [4, 3]], [[2, 4], [2, 3]], [[2, 3], [1, 3]], [[2, 1], [3, 3]]]
-        )
+        field = galois.GF(5)
+        generators = field([[[2, 2], [4, 3]], [[2, 4], [2, 3]], [[2, 3], [1, 3]], [[2, 1], [3, 3]]])
 
         # a matrix g acts on 2 × 2 matrices by conjugation, which is unchanged by rescaling g, so
         # the action of g by conjugation represents g as a member of PGL(2, 5)
-        group: abstract.Group = abstract.Group.from_generating_mats(
+        group = abstract.Group.from_generating_mats(
             *[np.kron(np.linalg.inv(generator).T, generator) for generator in generators]
         )
-        graph: nx.Graph = CayleyComplex.build_cayley_graph(group.generators)
-        incidence: npt.NDArray[np.int_] = nx.incidence_matrix(graph).toarray().astype(int)
+        graph = CayleyComplex.build_cayley_graph(group.generators)
+        incidence = nx.incidence_matrix(graph).toarray().astype(int)
 
-        symmetries: list[abstract.GroupMember] = codes.BPCode.get_seed_symmetries(incidence, 5)
-        code: codes.BPCode = codes.BPCode.from_seed(incidence, symmetries[0])
+        symmetries = codes.BalancedProductCode.get_seed_symmetries(incidence, 5)
+        code = codes.BalancedProductCode.from_seed(incidence, symmetries[0])
         assert code.get_code_params() == (360, 26, 5)
 
     Args:
@@ -163,19 +160,19 @@ class BPCode(CSSCode):
         matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
         symmetry: abstract.GroupMember | tuple[Iterable[int], Iterable[int]],
         field: int | type[galois.FieldArray] | None = None,
-    ) -> BPCode:
+    ) -> BalancedProductCode:
         """Balanced product of a cycle graph with a seed matrix.
 
         Here ``symmetry`` is a symmetry of the seed matrix ``I``, which is either a pair
         ``(p_rows, p_cols)`` of permutations such that ``I[p_rows][:, p_cols] == I``, or a single
-        GroupMember that permutes the rows followed by the columns of ``I`` (see :class:`BPCode`).
-        Let ``l`` be the order of this symmetry, which is the least common multiple of the orders of
-        ``p_rows`` and ``p_cols``.  This method constructs the balanced product of the parity check
-        matrix of a length-``l`` cycle graph with the seed matrix, pairing a cyclic shift of the
-        cycle graph with the symmetry of the seed matrix.  The cyclic shift generates a group of
-        order ``l`` that acts freely on the cycle graph.  The resulting code therefore has one qudit
-        for every row and every column of the seed matrix, whereas the hypergraph product code has
-        ``l`` times as many.
+        GroupMember that permutes the rows followed by the columns of ``I`` (see
+        :class:`BalancedProductCode`).  Let ``l`` be the order of this symmetry, which is the least
+        common multiple of the orders of ``p_rows`` and ``p_cols``.  This method constructs the
+        balanced product of the parity check matrix of a length-``l`` cycle graph with the seed
+        matrix, pairing a cyclic shift of the cycle graph with the symmetry of the seed matrix.  The
+        cyclic shift generates a group of order ``l`` that acts freely on the cycle graph.  The
+        resulting code therefore has one qudit for every row and every column of the seed matrix,
+        whereas the hypergraph product code has ``l`` times as many.
 
         Over GF(2), the result is the code of Eq. (3) in Definition 1 of
         https://arxiv.org/abs/2505.13679, up to a permutation of qudits, with the permutation
@@ -202,7 +199,9 @@ class BPCode(CSSCode):
         member_rows, member_cols = abstract.GroupMember(p_rows), abstract.GroupMember(p_cols)
         length = math.lcm(int(member_rows.order()), int(member_cols.order()))
         shift = [length - 1, *range(length - 1)]
-        return BPCode(RingCode(length, seed.field), seed, [(shift, shift)], [(p_rows, p_cols)])
+        return BalancedProductCode(
+            RingCode(length, seed.field), seed, [(shift, shift)], [(p_rows, p_cols)]
+        )
 
     @staticmethod
     def get_seed_symmetries(
