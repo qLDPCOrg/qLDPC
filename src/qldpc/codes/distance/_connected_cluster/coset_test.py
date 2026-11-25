@@ -301,6 +301,28 @@ def test_connected_cluster_answers_match_exhaustive_minima(
                     assert first_bound is None
 
 
+def test_connected_cluster_batches_on_threads_start_from_the_floors_of_their_rows() -> None:
+    """A block of a batch on threads starts the search of each syndrome from its own floor.
+
+    For the checks I3, a syndrome is the lightest word of its coset, so its bit count is the minimum
+    weight.  The search of the first syndrome does the work at which the batch moves to two
+    threads, so a block starts at the second syndrome, whose floor of zero gives its weight 2, and
+    the floor 3 of the first syndrome would give 3.
+    """
+    coset_search = coset.ConnectedClusterCosetSearch(
+        np.eye(3, dtype=np.uint8),
+        symplectic=False,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=True,
+    )
+    batch = split_syndromes_into_words([0b111, 0b011], 3)
+    floors = np.array([3, 0], dtype=np.int64)
+    weights = coset_search.get_min_weights(batch, 3, floors, num_threads=2, split_work=1)
+    assert weights[0] <= 3 and weights[1] == 2
+
+
 def test_connected_cluster_batches_match_exhaustive_minima() -> None:
     """Batch queries by one search, or by searches of X and Z parts, agree with exhaustive minima.
 
