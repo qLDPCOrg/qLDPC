@@ -438,26 +438,30 @@ Unlike the bounds of Section 3.4, the erasure bound also uses the checks that th
 A trial in qLDPC visited up to about 15 times fewer states with it.
 But each run of the bound cost about as much as 10 states.
 So most searches took longer, up to about 2.5 times as long, and only the short searches of the [[144,12,12]] bivariate bicycle (gross) code and a color code took less time.
+
 DistQLDPC runs the bound behind a gate that measures where it pays.
 A second trial in qLDPC estimated what an ideal gate that runs the bound only for profitable combinations of `W - s` and `e` could save.
 The trial ran the bound at every state with `e` up to 2 without pruning the search.
 It grouped the runs by `W - s` and `e`, and counted the states in the subtrees that the bound could have pruned.
 The bound could have pruned most states on which it ran, and on the [[360,12,24]] bivariate bicycle code it would have left about 10 times fewer states.
 But each run would have saved only a few states.
-Counting zero for a run that would not prune, a run on that code would have saved about 2 states on average for `e = 0`, about 7 for `e = 1`, and about 20 for `e = 2`.
+Treating a run that would not prune as saving zero states, the trial estimated average savings on that code of about 2 states per run for `e = 0`, about 7 for `e = 1`, and about 20 for `e = 2`.
 Across every group and every code tried, a run would have saved at most about 50 states on average.
 On bivariate bicycle and quantum Tanner codes, a run cost about as much as 3 to 5 states for `e = 0`, and 15 to 30 states for `e` of 1 or 2.
 A run costs more for `e` of 1 or 2 because it must find the other variables that could complete the support.
 To find them, it visits every available variable that shares a check with an available variable of an unsatisfied check.
 So these estimates indicate that even an ideal gate would save little time on these codes.
+
 A cheaper run of the bound was also tried.
 The residue of a vector modulo the span of the columns of the available variables of the unsatisfied checks is linear in the vector.
-So after the elimination, the run gave each check a 64-bit hash of its residue, and it then found the hash of the residue of any other variable with one lookup for each of its checks, and matched pairs of other variables in a hash table.
+After the GF(2) elimination described above, the run assigned each check a 64-bit hash of the residue of its unit vector.
+It found the residue hash of any other variable from one lookup for each check that holds the variable.
+It then matched pairs of other variables in a hash table.
 A hash collision can only keep a state, so such a run prunes only states that the bound prunes.
 The run could also replace the unsatisfied checks by some whose available variables are pairwise disjoint, as the bound `b2` of [Section 3.4](#34-pruning) does, whenever this made `e` smaller.
 A run still cost about 10 to 20 states, mostly for the elimination and for finding the other variables.
 No search tried took less time than without the bound, whether it ran the bound at every state with `e` up to 2 or only where `W - s` reached a threshold.
-On the [[360,12,24]] bivariate bicycle code, the bound at every such state left about 11 times fewer states, but the search took about 1.3 times as long.
+On the [[360,12,24]] bivariate bicycle code, running the bound at every state with `e` up to 2 left about 11 times fewer states, but the search took about 1.3 times as long.
 
 **Forbidding the only available symbol of a satisfied check.**
 A completion holds an even number of the symbols that flip a check that the support satisfies.
