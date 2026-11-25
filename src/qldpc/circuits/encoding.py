@@ -229,7 +229,12 @@ def get_state_stabilizers(
     # Simulate one run, which gives the signs of the stabilizers whose signs are fixed.  Finding the
     # fixed parities below reuses this run.
     simulator = stim.TableauSimulator()
-    simulator.do(circuit)
+    # TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    # circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    if circuit.num_qubits < _MIN_QUBITS_FOR_CHEAP_RESETS:
+        simulator.do(circuit)
+    else:
+        _do_with_cheap_resets(simulator, circuit)
 
     # Find the parities that the circuit fixes: the pairs (D, P) of a set D of detectors and a Pauli
     # string P on the requested qubits for which the outcome of measuring P after the circuit,
@@ -362,6 +367,67 @@ class _UndeterminedSignError(ValueError):
             " post-selecting on them leaves the sign undetermined; the circuit's detectors should"
             " have deterministic outcomes in a noiseless run"
         )
+
+
+# TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+# Simulating a circuit one instruction at a time, as _do_with_cheap_resets does, costs about 1-2 µs
+# per instruction, while a reset whose outcome is random costs Stim about 0.6 n² ns on n qubits.  So
+# get_state_stabilizers simulates a circuit on fewer qubits than this in one call.
+_MIN_QUBITS_FOR_CHEAP_RESETS = 256
+
+# TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+# The Pauli whose +1 eigenstate each reset prepares.  For each Pauli, the stim.TableauSimulator
+# method of a Pauli gate that anticommutes with it.  For each pair of distinct Paulis, the method of
+# a Clifford gate that swaps them.
+_RESET_PAULIS = {"R": "Z", "RX": "X", "RY": "Y"}
+_PAULI_FLIPS = {"X": "z", "Y": "z", "Z": "x"}
+_PAULI_SWAPS = {"XY": "h_xy", "YX": "h_xy", "XZ": "h", "ZX": "h", "YZ": "h_yz", "ZY": "h_yz"}
+
+
+def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circuit) -> None:
+    """Simulate a noiseless circuit as simulator.do(circuit) does, replacing costly resets by gates.
+
+    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+
+    A reset whose outcome is random costs Stim's tableau simulator time quadratic in the number of
+    qubits, since it collapses the qubit by transposing the whole tableau.  But if the qubit is in
+    an eigenstate of a single-qubit Pauli other than that of the reset, then it is unentangled with
+    the other qubits, and a single-qubit Clifford that maps this eigenstate to the state that the
+    reset prepares has the same effect as the reset, at a cost linear in the number of qubits.  This
+    is the case for a reset of a fresh qubit in another basis, or of a qubit measured in another
+    basis.
+
+    So this function simulates the circuit one top-level instruction at a time, and replaces the
+    reset of each such qubit by such a Clifford.  This changes neither the state after the reset nor
+    the distribution of later measurement outcomes, so the simulator ends in the state of a run of
+    the circuit, as after simulator.do(circuit).  Resets in REPEAT blocks run as they are.
+    """
+    peeks = {"X": simulator.peek_x, "Y": simulator.peek_y, "Z": simulator.peek_z}
+    for index in range(len(circuit)):
+        instruction = circuit[index]
+        reset_pauli = _RESET_PAULIS.get(instruction.name)
+        if reset_pauli is None:
+            simulator.do(instruction)
+            continue
+
+        # Replace the reset of each qubit in an eigenstate of another Pauli.  Leave every other
+        # reset to Stim, which is cheap for a qubit already in an eigenstate of the reset's Pauli.
+        kept = []
+        for target in instruction.targets_copy():
+            qubit = target.value
+            signs = {pauli: peek(qubit) for pauli, peek in peeks.items()}
+            pauli = next((pauli for pauli, sign in signs.items() if sign), reset_pauli)
+            if pauli == reset_pauli:
+                kept.append(qubit)
+                continue
+            if signs[pauli] < 0:
+                getattr(simulator, _PAULI_FLIPS[pauli])(qubit)
+            getattr(simulator, _PAULI_SWAPS[pauli + reset_pauli])(qubit)
+        if kept:
+            getattr(simulator, f"reset_{reset_pauli.lower()}")(*kept)
 
 
 def _get_fixed_parities_by_simulation(

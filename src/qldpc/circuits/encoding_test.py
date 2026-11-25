@@ -349,6 +349,46 @@ def test_state_stabilizers_with_repeated_reset_measurements(
         assert stabilizers == [stim.PauliString(string) for string in expected]
 
 
+def test_state_stabilizers_with_cheap_resets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replacing resets by gates on large circuits gives the stabilizers of plain simulation.
+
+    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    """
+    num_qubits_stepped = []
+    do_with_cheap_resets = encoding._do_with_cheap_resets
+
+    def recording_do_with_cheap_resets(
+        simulator: stim.TableauSimulator, circuit: stim.Circuit
+    ) -> None:
+        num_qubits_stepped.append(circuit.num_qubits)
+        do_with_cheap_resets(simulator, circuit)
+
+    # Only large circuits step through their instructions.
+    monkeypatch.setattr(encoding, "_do_with_cheap_resets", recording_do_with_cheap_resets)
+    for num_qubits in [2, 2000]:
+        circuit = stim.Circuit(f"RX {num_qubits - 1}")
+        stabilizers = circuits.get_state_stabilizers(circuit, [num_qubits - 1])
+        assert stabilizers == [stim.PauliString("+X")]
+    assert num_qubits_stepped == [2000]
+
+    # Reset a qubit in each eigenstate of each Pauli, and reset replaced, kept, and repeated targets
+    # with feedback and a REPEAT block.  Small circuits are simulated in one call, as the reference.
+    preparations = ["", "X 0", "H 0", "X 0\nH 0", "H_YZ 0", "X 0\nH_YZ 0"]
+    tests = [
+        stim.Circuit(f"{prep}\n{reset} 0") for prep in preparations for reset in ["R", "RX", "RY"]
+    ]
+    tests.append(
+        stim.Circuit(
+            "X 0 1\nM 1\nRY 1\nCX rec[-1] 5\nH 2\nRY 2 2\nH 3\nCX 3 4\nRX 3 0\nREPEAT 2 {\nRX 6\n}"
+        )
+    )
+    expected = [circuits.get_state_stabilizers(circuit, circuit.num_qubits) for circuit in tests]
+    monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", 0)
+    for circuit, stabilizers in zip(tests, expected, strict=True):
+        assert circuits.get_state_stabilizers(circuit, circuit.num_qubits) == stabilizers
+
+
 def test_deprecated_logical_state_stabilizers_argument_order() -> None:
     """The released argument order (state_prep_circuit, code, qubit_ids) warns and still works."""
     code = codes.SteaneCode()
