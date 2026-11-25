@@ -110,9 +110,11 @@ from __future__ import annotations
 import contextlib
 import functools
 import hashlib
+import itertools
 import os
 import pickle
 import re
+import secrets
 import shutil
 import stat
 import tempfile
@@ -124,7 +126,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, TypeVar, cast, overload
 
 import numba
-from numba.core import caching, config, serialize
+from numba.core import bytecode, caching, config, serialize
 
 import qldpc.cache
 
@@ -281,6 +283,32 @@ def is_compilation_disabled() -> bool:
     return _DISABLED_BY_VARIABLE or bool(_numba_config.DISABLE_JIT)
 
 
+def _work_around_numba_name_clashes() -> bool:
+    """Work around a numba bug by starting numba's count of compiled functions at random.
+
+    Numba names compiled code by function name, argument types, and this count, which starts at one
+    in each process.  Functions that numba generates from one template, such as the sorts behind
+    ``np.sort`` and ``np.argsort``, can thus get the same name for different code in different
+    processes, and a process that loads both from the disk cache runs one in place of the other.
+    Code that numba compiled before qLDPC was imported keeps its names.
+
+    Returns:
+        Whether the count, which is internal to numba, was where this function expects.
+    """
+    identity = bytecode.FunctionIdentity
+    count = getattr(identity, "_unique_ids", None)
+    if not isinstance(count, itertools.count):
+        return False
+    identity._unique_ids = itertools.count(next(count) + secrets.randbits(64))
+    return True
+
+
+# WORKAROUND FOR A NUMBA BUG, in each process and forked child.  Without it, qLDPC caches nothing.
+_NUMBA_NAME_CLASHES_AVOIDED = _work_around_numba_name_clashes()
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_work_around_numba_name_clashes)
+
+
 def _compile_with_cache(
     function: _Function, inline: Literal["always", "never"], nogil: bool
 ) -> Dispatcher[_Function]:
@@ -311,6 +339,14 @@ def _compile_with_cache_in(
     setting, the report, and the object are internal to numba, so this function checks the report
     and the class of the object.
     """
+    # Cache nothing without the workaround for numba's clashing names.
+    if not _NUMBA_NAME_CLASHES_AVOIDED:
+        _warn_not_cached(
+            f"its workaround for a numba bug does not work with numba {numba.__version__}",
+            "Install an earlier version of numba.",
+        )
+        return None
+
     # Make numba cache the function in the directory.
     with _CACHE_DIRECTORY_LOCK:
         previous_directory = _numba_config.CACHE_DIR
