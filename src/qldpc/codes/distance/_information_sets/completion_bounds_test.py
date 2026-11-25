@@ -98,6 +98,18 @@ def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
             )
 
 
+def test_bounds_of_a_basis_of_many_rows_match_their_definition(pytestconfig: pytest.Config) -> None:
+    """Bounds from the tables of a basis of many rows, from every row on, match their definition."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tails = get_random_tails(rng, 67, 6)
+    tables = cb.CompletionTables.build(pack_bits(tails), 4)
+    for first in range(len(tails) - 1):
+        prefix = rng.integers(0, 2, (1, tails.shape[1]), dtype=np.uint8)
+        packed = pack_bits(prefix)[0]
+        bound = cb.get_completion_bound(tables.tables, tables.offsets, 4, first, packed, 10**9)
+        assert bound == get_bound_oracle(tails, prefix[0], first, 4)
+
+
 def test_bounds_ignore_ones_past_the_tails() -> None:
     """A prefix with ones past the last tail column with a one reads only its own tables."""
     tails = np.eye(3, dtype=np.uint8)
