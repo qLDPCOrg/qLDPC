@@ -3,13 +3,20 @@
 """Module for communicating with the GAP computer algebra system.
 
 See https://www.gap-system.org.
+
+To run GAP from the command line, qLDPC calls the command in the environment variable
+``QLDPC_GAP_COMMAND`` if it is set, such as the full path of a GAP program that is not on ``PATH``,
+or else ``gap``.  qLDPC splits this command into arguments at whitespace outside double quotes,
+removes the double quotes, and keeps backslashes, so Windows paths need no escaping.
 """
 
 from __future__ import annotations
 
 import functools
 import importlib
+import os
 import re
+import shlex
 import subprocess
 from collections.abc import Callable, Sequence
 from typing import Protocol
@@ -32,6 +39,8 @@ class _LibGap(Protocol):
     def function_factory(self, function_name: str) -> Callable[..., object]:
         """Return a callable GAP function."""
 
+
+_COMMAND_VARIABLE = "QLDPC_GAP_COMMAND"
 
 _libgap_packages: dict[str, tuple[str, str | None]] = {}
 _subprocess_packages: set[str] = set()
@@ -70,7 +79,8 @@ def is_installed() -> bool:
     """
     if is_callable():
         return True
-    print("GAP 4 cannot be called from the command line (with 'gap').")
+    print(f"GAP 4 cannot be called from the command line (with '{shlex.join(_get_command())}').")
+    print(f"To call GAP automatically, set {_COMMAND_VARIABLE} to a command that runs it.")
     print("Can you manually copy/paste commands and outputs between here and GAP? [y/N]")
     answer = input().lower()
     return answer == "y" or answer == "yes"
@@ -80,7 +90,8 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
     """Get the output from the given GAP commands.
 
     When ``passagemath-gap`` is installed, this function evaluates commands through its in-process
-    libgap binding.  Otherwise, when GAP is callable, it runs the commands in a subprocess.
+    libgap binding.  Otherwise, when GAP is callable, it runs the commands in a subprocess, with the
+    command that the module docstring describes.
     Finally, it falls back to a manual workflow that prints the commands, copies them to the system
     clipboard, and reads the pasted output from standard input (blocking, and raising ``EOFError``
     if standard input is closed), caching the result to disk.  Once :func:`require_package` has
@@ -233,7 +244,8 @@ def clear_cache() -> None:
     """Forget which GAP backends and packages are available, so that later calls check again.
 
     Call this function after installing or removing GAP or a GAP package in a running Python
-    session, or after declining a prompt that asks whether GAP is available.
+    session, after changing ``QLDPC_GAP_COMMAND``, or after declining a prompt that asks whether GAP
+    is available.
     """
     for function in (is_callable, is_installed, _is_gap_executable, require_package):
         function.cache_clear()
@@ -258,13 +270,28 @@ def _get_libgap() -> _LibGap | None:
     return getattr(module, "libgap", None)
 
 
+def _get_command() -> list[str]:
+    """Return the command that runs GAP from the command line, as the module docstring describes."""
+    value = os.environ.get(_COMMAND_VARIABLE, "")
+    lexer = shlex.shlex(value, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.escape = ""
+    lexer.quotes = '"'
+    try:
+        command = list(lexer)
+    except ValueError as error:
+        raise ValueError(f"Cannot parse {_COMMAND_VARIABLE}={value!r}: {error}") from error
+    return command or ["gap"]
+
+
 @functools.cache
 def _is_gap_executable() -> bool:
     """Can the GAP executable be used for package installation and evaluation?"""
-    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
+    commands = [*_get_command(), "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
         result = subprocess.run(commands, capture_output=True, text=True, check=False)
-    except FileNotFoundError:
+    except OSError:  # such as a missing program, or one that the system cannot run
         return False
     return bool(re.match(r"4\.\d+\.\d+", result.stdout.strip()))
 
@@ -327,7 +354,7 @@ def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> s
     commands = _sanitize_commands(commands)
     gap_root = qldpc.cache.get_disk_cache_path("gap")  # for packages that qLDPC installs
     shell_commands = [
-        "gap",
+        *_get_command(),
         "-l",
         f";{gap_root}",
         "-q",

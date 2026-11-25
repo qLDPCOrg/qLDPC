@@ -231,6 +231,34 @@ def test_is_installed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         assert external.gap.is_installed()
 
 
+def test_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QLDPC_GAP_COMMAND chooses the command that runs GAP."""
+    monkeypatch.delenv("QLDPC_GAP_COMMAND", raising=False)
+    assert external.gap._get_command() == ["gap"]
+    monkeypatch.setenv("QLDPC_GAP_COMMAND", " ")
+    assert external.gap._get_command() == ["gap"]
+
+    # double quotes group words, and backslashes and apostrophes are kept
+    monkeypatch.setenv("QLDPC_GAP_COMMAND", r'"C:\Program Files\GAP\gap.exe" -o 2g C:\O\'B')
+    command = [r"C:\Program Files\GAP\gap.exe", "-o", "2g", r"C:\O\'B"]
+    assert external.gap._get_command() == command
+
+    # both ways of running GAP use the command
+    with unittest.mock.patch("subprocess.run", return_value=get_mock_process("4.13.0\n")) as run:
+        assert external.gap._is_gap_executable()
+        external.gap._get_output_subprocess(())
+    assert all(call.args[0][: len(command)] == command for call in run.call_args_list)
+
+    # a command that the system cannot run means that GAP cannot be called
+    external.gap._is_gap_executable.cache_clear()
+    with unittest.mock.patch("subprocess.run", side_effect=PermissionError):
+        assert not external.gap._is_gap_executable()
+
+    monkeypatch.setenv("QLDPC_GAP_COMMAND", '"gap')
+    with pytest.raises(ValueError, match="QLDPC_GAP_COMMAND"):
+        external.gap._get_command()
+
+
 def test_clear_cache() -> None:
     """After clearing the cache, qLDPC checks again whether GAP is available."""
     external.gap._subprocess_packages.add("package")

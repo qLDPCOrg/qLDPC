@@ -83,9 +83,20 @@ For the recommended in-process integration, install qLDPC with its maintained li
 
 qLDPC uses ``passagemath-gap`` when available, so supported GAP operations do not launch a separate process.
 The in-process binding requires Python 3.13 on a non-Windows platform.
-Without that binding, qLDPC can call a GAP executable on ``PATH`` (possibly obtainable with ``conda install -c conda-forge gap``), or offer a manual copy/paste fallback for operations that support it.
-GAP integration on Windows remains limited; see `issue #294 <https://github.com/qLDPCOrg/qLDPC/issues/294>`_.
+Without that binding, qLDPC can call a GAP executable, or offer a manual copy/paste fallback for operations that support it.
+qLDPC calls the command in the environment variable ``QLDPC_GAP_COMMAND`` if it is set, such as the full path of a GAP program that is not on ``PATH``, or else ``gap``.
+The :mod:`qldpc.external.gap` docstring says how qLDPC splits this command into arguments.
+On Linux and macOS, ``conda install -c conda-forge gap`` installs a ``gap`` executable.
 See the :doc:`library map <library_map>` for GAP calls, prompts, other side effects, and caching.
+
+GAP on Windows
+~~~~~~~~~~~~~~
+
+Neither ``passagemath-gap`` nor conda-forge provides GAP for Windows, and the GAP installer for Windows adds no ``gap`` command, since it runs GAP in a bundled Cygwin environment.
+The GAP developers recommend the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/about>`_ (WSL) instead.
+Installing Python and qLDPC inside WSL makes qLDPC a Linux installation, where ``python -m pip install 'qldpc[gap]'`` provides GAP on Python 3.13.
+With Python on Windows itself, qLDPC can call GAP only through a command in ``QLDPC_GAP_COMMAND`` that runs GAP from a command prompt, and otherwise offers the copy/paste fallback, which works with the GAP console that the installer provides.
+See `issue #294 <https://github.com/qLDPCOrg/qLDPC/issues/294>`_ for the status of Windows support.
 
 .. _installation-bliss:
 

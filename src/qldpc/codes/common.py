@@ -815,7 +815,8 @@ class ClassicalCode(AbstractCode):
 
         The name is a GAP expression that constructs a code with GAP's GUAVA package, such as
         ``"HammingCode(3, GF(2))"``.  Retrieving the code runs GAP: in process if
-        ``passagemath-gap`` is installed, or else in a subprocess that calls the ``gap`` executable.
+        ``passagemath-gap`` is installed, or else in a subprocess that calls the command in
+        ``QLDPC_GAP_COMMAND`` or the ``gap`` executable.
         If GUAVA is missing, this method asks for confirmation on standard input and then downloads
         and installs GUAVA, which requires network access.  If GAP cannot be called at all, this
         method asks on standard input whether to proceed manually, and if so prints the GAP
