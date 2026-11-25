@@ -678,8 +678,8 @@ class QTCode(_SquareComplexCode):
 
         # Indent the data, but put each list of integers, such as a member or a row of a matrix, on
         # one line.  The pattern matches a bracketed list that starts with a line break and holds
-        # only digits, commas, and whitespace: an innermost list of integers.  It cannot match inside
-        # a note, since json.dumps escapes line breaks inside strings.
+        # only digits, commas, and whitespace: an innermost list of integers.  It cannot match
+        # inside a note, since json.dumps escapes line breaks inside strings.
         text = re.sub(
             r"\[\n[\d,\s]*\]",
             lambda match: json.dumps(json.loads(match.group())),
