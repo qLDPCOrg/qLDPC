@@ -362,7 +362,10 @@ def test_repeated_syndromes_are_checked_once() -> None:
 def test_light_pairs_match_brute_force(
     collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each heavy syndrome h gets the first light syndrome i such that h + i is a light syndrome."""
+    """Each syndrome s gets the first syndrome i of a first list such that s + i is in a second.
+
+    The second list can repeat a syndrome, and its first entry with the sum is the one returned.
+    """
     # With zero hashes, lookups must compare syndromes.  Syndromes of bits 62 to 65 span two words.
     if collide:
         monkeypatch.setattr(
@@ -370,16 +373,22 @@ def test_light_pairs_match_brute_force(
         )
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(20):
-        light = list(dict.fromkeys(int(ss) << 62 for ss in rng.integers(16, size=6)))
-        heavy = [int(ss) << 62 for ss in rng.integers(16, size=8)]
-        num_words = _fault_search._get_num_words_for_values(light + heavy)
+        first_list = [int(ss) << 62 for ss in rng.integers(16, size=4)]
+        second_list = [int(ss) << 62 for ss in rng.integers(16, size=6)]
+        syndromes = [int(ss) << 62 for ss in rng.integers(16, size=8)]
+        num_words = _fault_search._get_num_words_for_values(first_list + second_list + syndromes)
         pairs = _fault_search._get_light_pairs(
-            _fault_search._hashed_rows(heavy, num_words),
-            _fault_search._hashed_rows(light, num_words),
+            _fault_search._hashed_rows(syndromes, num_words),
+            _fault_search._hashed_rows(first_list, num_words),
+            _fault_search._hashed_rows(second_list, num_words),
         )
-        for syndrome, pair in zip(heavy, pairs.tolist(), strict=True):
-            first = next((ii for ii, ss in enumerate(light) if syndrome ^ ss in light), -1)
-            expected = [first, light.index(syndrome ^ light[first])] if first >= 0 else [-1, -1]
+        for syndrome, pair in zip(syndromes, pairs.tolist(), strict=True):
+            first = next(
+                (ii for ii, ss in enumerate(first_list) if syndrome ^ ss in second_list), -1
+            )
+            expected = (
+                [first, second_list.index(syndrome ^ first_list[first])] if first >= 0 else [-1, -1]
+            )
             assert pair == expected
 
 
@@ -391,8 +400,55 @@ def test_rows_hash_alike_whenever_they_are_hashed() -> None:
         _fault_search._hash_words(np.ones((1, num_words), dtype=np.uint64))
     _fault_search._get_byte_hash_tables.cache_clear()
     light = _fault_search._hashed_rows([1, 2], 1)
-    assert _fault_search._get_light_pairs(heavy, light).tolist() == [[0, 1]]
+    assert _fault_search._get_light_pairs(heavy, light, light).tolist() == [[0, 1]]
     assert _fault_search._hashed_rows([3], 1).tolist() == heavy.tolist()
+
+
+@pytest.mark.parametrize("css_weight", [False, True])
+def test_light_syndromes_match_brute_force(css_weight: bool, pytestconfig: pytest.Config) -> None:
+    """A syndrome gets an error of Pauli weight at most one exactly if it has one, on any state.
+
+    Every syndrome also gets a fixed error with it, whose X and Z parts are single-qubit errors
+    where some have their syndromes, for the CSS weight.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for num_qubits in (1, 2, 3, 4):
+        paulis = (np.arange(4**num_qubits)[:, None] >> np.arange(2 * num_qubits)) & 1
+        x, z = paulis[:, :num_qubits], paulis[:, num_qubits:]
+        weights = np.maximum(x.sum(axis=1), z.sum(axis=1)) if css_weight else (x | z).sum(axis=1)
+        for _ in range(10):
+            circuit = stim.Circuit()
+            circuit.append("I", range(num_qubits))
+            for gate in rng.integers(3, size=4 * num_qubits):
+                if gate == 2 and num_qubits > 1:
+                    circuit.append("CX", rng.permutation(num_qubits)[:2].tolist())
+                else:
+                    circuit.append(("H", "S")[gate % 2], [int(rng.integers(num_qubits))])
+            state = stim.Tableau.from_circuit(circuit).to_stabilizers()
+            stabilizers = np.array(
+                [np.concatenate(row.to_numpy()) for row in state], dtype=np.uint8
+            )
+            bits = (x @ stabilizers[:, num_qubits:].T + z @ stabilizers[:, :num_qubits].T) % 2
+            syndrome_of = bits @ (1 << np.arange(num_qubits))
+
+            syndromes = list(range(2**num_qubits))
+            errors = _fault_search._get_light_errors(
+                _fault_search._hashed_rows(syndromes, 1), stabilizers, css_weight
+            )
+            for syndrome, error in zip(syndromes, errors, strict=True):
+                assert (error is None) == (weights[syndrome_of == syndrome].min() > 1)
+                assert error is None or (syndrome_of[error] == syndrome and weights[error] <= 1)
+            fixed_errors = _fault_search._get_fixed_errors(
+                _fault_search._hashed_rows(syndromes, 1), stabilizers, css_weight
+            )
+            assert syndrome_of[fixed_errors].tolist() == syndromes
+            if css_weight:
+                # Each part is an error on at most one qubit if one has the syndrome of the part.
+                for shift, error in itertools.product((0, num_qubits), fixed_errors):
+                    part = error & (((1 << num_qubits) - 1) << shift)
+                    singles = [0] + [1 << (shift + qubit) for qubit in range(num_qubits)]
+                    if syndrome_of[part] in syndrome_of[singles]:
+                        assert part in singles
 
 
 def test_heavy_primitive_faults_get_products_of_light_representatives(
@@ -401,13 +457,13 @@ def test_heavy_primitive_faults_get_products_of_light_representatives(
     """A heavy primitive fault gets the product of the representatives of its first light pair.
 
     The pair starts with the first light syndrome, in the order of the primitive faults, whose sum
-    with the heavy syndrome is also light.  A heavy primitive fault without a pair keeps the
-    oracle's representative.
+    with the heavy syndrome is also light.  Every representative has the syndrome of its primitive
+    fault, and that of a light primitive fault has Pauli weight at most one.
     """
     # The stabilizers ZXX, X on qubit 2, and XZX make the syndromes 1, 4, 5, and 7 light.  With the
     # light syndromes 5, 7, and 4 of these faults, the heavy syndrome 2, which repeats, is 5 + 7,
-    # the heavy syndrome 3 is 7 + 4, and the heavy syndrome 6 is no such sum.  The oracle's
-    # representatives of 2 and 3 differ from these products.
+    # the heavy syndrome 3 is 7 + 4, and the heavy syndrome 6 is no such sum.  The fixed error with
+    # syndrome 2 differs from the product for 2.
     stabilizers = np.array([[0, 1, 1, 1, 0, 0], [0, 0, 1, 0, 0, 0], [1, 0, 1, 0, 1, 0]])
     syndromes = [5, 7, 4, 2, 2, 3, 6]
     lister = mock.Mock(wraps=_fault_search.FaultLister)
@@ -427,23 +483,15 @@ def test_heavy_primitive_faults_get_products_of_light_representatives(
     for syndrome, representative in zip(primitive_syndromes, representatives, strict=True):
         assert syndrome_of(representative) == syndrome
 
-    oracle = _fault_search.CosetLeaderSearch(stabilizers)
-
-    def oracle_representative(syndrome: int) -> int:
-        return oracle.get_min_weight_bound(syndrome, 1).representative
-
-    light = [5, 7, 4]
-    expected = []
-    for syndrome in primitive_syndromes[:num_starts]:
-        first = next((ss for ss in light if syndrome ^ ss in light), None)
-        expected.append(
-            oracle_representative(syndrome)
-            if first is None
-            else oracle_representative(first) ^ oracle_representative(syndrome ^ first)
-        )
+    light = dict(zip(primitive_syndromes[num_starts:], representatives[num_starts:], strict=True))
+    assert list(light) == [5, 7, 4]
+    assert all(((pauli & 0b111) | (pauli >> 3)).bit_count() <= 1 for pauli in light.values())
     assert primitive_syndromes[:num_starts] == [2, 2, 3, 6]
-    assert list(representatives[:num_starts]) == expected
-    assert oracle_representative(2) != expected[0] and oracle_representative(3) != expected[2]
+    expected = [light[5] ^ light[7], light[5] ^ light[7], light[7] ^ light[4]]
+    assert list(representatives[:3]) == expected
+    rows = _fault_search._hashed_rows([2], 1)
+    fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers.astype(np.uint8), False)
+    assert expected[0] != fixed_errors[0]
 
 
 @pytest.mark.parametrize("css_weight", [False, True])

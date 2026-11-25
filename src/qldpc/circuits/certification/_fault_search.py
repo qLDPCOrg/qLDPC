@@ -22,12 +22,16 @@ import numpy.typing as npt
 from qldpc._binary import (
     get_num_words,
     get_rank_packed,
+    multiply_binary,
+    pack_bits,
     popcount_word,
     trailing_zeros_word,
+    unpack_bits,
     words_to_int,
 )
 from qldpc._compilation import always_compiled
 from qldpc.codes.distance import CosetLeaderSearch, CosetMethod, MinWeightBound
+from qldpc.codes.distance._cosets import get_unit_syndrome_words
 from qldpc.codes.distance._threads import get_num_threads, iterate_in_order
 from qldpc.codes.distance._tuning import get_tuning
 
@@ -134,47 +138,51 @@ def find_smallest_violation(
         max_fault_weight = get_rank_packed(flag_rows, min(max_weight - 1, len(flag_rows))) + 1
 
     oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
-    return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
+    matrix = np.asarray(stabilizers, dtype=np.uint8)
+    return _search_irreducible_faults(signatures, max_fault_weight, oracle, matrix, memory_limit)
 
 
 def _search_irreducible_faults(
     signatures: dict[tuple[int, int], int],
     max_fault_weight: int,
     oracle: CosetLeaderSearch,
+    stabilizers: npt.NDArray[np.uint8],
     memory_limit: int = 2**30,  # 1 GiB
 ) -> Violation | None:
     """Check the irreducible accepted faults that can violate the bound, by increasing fault weight.
 
     The signatures map the (flags, syndrome) of each kept primitive fault to its DEM index, and
-    ``max_fault_weight`` is the largest fault weight to check.  Return a violating fault of the
-    smallest fault weight, or None if there is none.
+    ``max_fault_weight`` is the largest fault weight to check.  ``stabilizers`` are those of the
+    oracle, as a binary matrix.  Return a violating fault of the smallest fault weight, or None if
+    there is none.
     """
+    # Split the primitive faults into heavy and light ones by their syndromes, without the oracle,
+    # and give each light syndrome an error of Pauli weight at most one (see "Deciding which
+    # primitive faults are heavy").
+    syndromes = list(dict.fromkeys(syndrome for _, syndrome in signatures))
+    syndrome_rows = _hashed_rows(syndromes, get_num_words(oracle.num_qubits))
+    light_errors = {
+        syndrome: error
+        for syndrome, error in zip(
+            syndromes, _get_light_errors(syndrome_rows, stabilizers, oracle.css_weight)
+        )
+        if error is not None
+    }
+
     # Check each primitive fault with zero flags alone (see "Listing each irreducible accepted fault
-    # once"), and keep the others for ``FaultLister``.
+    # once"), and keep the others for ``FaultLister``.  At fault weight one, a fault violates the
+    # bound exactly if it is heavy, and the oracle gives the bound of the first such fault.
     flagged: list[tuple[int, int, int]] = []
     for (flag, syndrome), index in signatures.items():
         if flag:
             flagged.append((flag, syndrome, index))
-            continue
-        failure = _check_fault((index,), syndrome, oracle)
-        if failure is not None:
-            return failure
+        elif syndrome not in light_errors:
+            return Violation((index,), syndrome, oracle.get_min_weight_bound(syndrome, 1))
 
-    # Split the other primitive faults into heavy and light ones.  A fault that contains no heavy
-    # primitive fault satisfies the bound (see "A violating fault contains a heavy primitive
-    # fault"), so the search stops if none is heavy.  Heaviness depends only on the syndrome, and
-    # any error with the syndrome serves as a representative (see "Checking one fault"), so the
-    # search queries the oracle once for each distinct syndrome.
-    bounds_by_syndrome = {
-        distinct_syndrome: oracle.get_min_weight_bound(distinct_syndrome, 1)
-        for distinct_syndrome in dict.fromkeys(syndrome for _, syndrome, _ in flagged)
-    }
-    heavy: list[tuple[int, int, int, int]] = []
-    light: list[tuple[int, int, int, int]] = []
-    for flag, syndrome, index in flagged:
-        bound = bounds_by_syndrome[syndrome]
-        primitive = (flag, syndrome, index, bound.representative)
-        (light if bound.within_max_weight else heavy).append(primitive)
+    # A fault that contains no heavy primitive fault satisfies the bound (see "A violating fault
+    # contains a heavy primitive fault"), so the search stops if none is heavy.
+    heavy = [primitive for primitive in flagged if primitive[1] not in light_errors]
+    light = [primitive for primitive in flagged if primitive[1] in light_errors]
     if not heavy:
         return None
 
@@ -184,27 +192,33 @@ def _search_irreducible_faults(
     # light ones gets the product of their representatives.  The pair depends only on the syndrome,
     # so the search runs once for each distinct heavy syndrome.  Compiled code does it, since its
     # time is proportional to the number of distinct heavy syndromes times the number of light
-    # ones.  Any other heavy primitive fault keeps the error that the oracle returned for it.
-    light_errors = {syndrome: error for _, syndrome, _, error in light}
-    light_syndromes = list(light_errors)
-    heavy_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _, _ in heavy))
-    num_words = _get_num_words_for_values(light_syndromes + heavy_syndromes)
-    pairs = _get_light_pairs(
-        _hashed_rows(heavy_syndromes, num_words), _hashed_rows(light_syndromes, num_words)
+    # ones.  Any other heavy primitive fault gets a fixed error with its syndrome, a product of
+    # destabilizers (see "Deciding which primitive faults are heavy").
+    syndrome_positions = {syndrome: position for position, syndrome in enumerate(syndromes)}
+    light_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _ in light))
+    heavy_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _ in heavy))
+    light_rows = syndrome_rows[[syndrome_positions[syndrome] for syndrome in light_syndromes]]
+    heavy_rows = syndrome_rows[[syndrome_positions[syndrome] for syndrome in heavy_syndromes]]
+    pairs = _get_light_pairs(heavy_rows, light_rows, light_rows)
+    fixed_errors = iter(
+        _get_fixed_errors(heavy_rows[pairs[:, 0] < 0], stabilizers, oracle.css_weight)
     )
-    pair_errors = {
-        syndrome: light_errors[light_syndromes[first]] ^ light_errors[light_syndromes[second]]
+    heavy_errors = {
+        syndrome: (
+            light_errors[light_syndromes[first]] ^ light_errors[light_syndromes[second]]
+            if first >= 0
+            else next(fixed_errors)
+        )
         for syndrome, (first, second) in zip(heavy_syndromes, pairs.tolist())
-        if first >= 0
     }
-    heavy = [
-        (flag, syndrome, index, pair_errors.get(syndrome, error))
-        for flag, syndrome, index, error in heavy
-    ]
+    representatives = light_errors | heavy_errors
 
     # Order the primitive faults with the heavy ones first, and each group in DEM order, so that the
     # faults to check are the ones that contain one of the first ``len(heavy)`` primitive faults.
-    primitives = heavy + light
+    primitives = [
+        (flag, syndrome, index, representatives[syndrome])
+        for flag, syndrome, index in heavy + light
+    ]
 
     # The oracle needs only small tables, so the lister may use the whole memory limit.  It lists on
     # as many threads as the oracle's searches use.
@@ -238,14 +252,81 @@ def _search_irreducible_faults(
     return None
 
 
-def _check_fault(
-    indices: tuple[int, ...], syndrome: int, oracle: CosetLeaderSearch
-) -> Violation | None:
-    """Return the fault with these indices and syndrome if it violates the bound."""
-    bound = oracle.get_min_weight_bound(syndrome, len(indices))
-    if bound.within_max_weight:
-        return None
-    return Violation(indices, syndrome, bound)
+def _get_light_errors(
+    syndrome_rows: npt.NDArray[np.uint64], stabilizers: npt.NDArray[np.uint8], css_weight: bool
+) -> list[int | None]:
+    """For each syndrome, an error of Pauli weight at most one with it, or None if there is none.
+
+    Each row of ``syndrome_rows`` holds the linear hash of a syndrome of the stabilizers and then
+    its words, as in a table of syndromes, with a word for every 64 stabilizers.
+    """
+    # Each error of Pauli weight at most one is the product of a first and a second error from two
+    # short lists (see "Deciding which primitive faults are heavy"), and ``_get_light_pairs`` finds,
+    # for each syndrome, the first such product with that syndrome.  For the physical weight, the
+    # first list holds the identity alone, so each syndrome takes one lookup.
+    num_qubits = len(stabilizers)
+    x_errors = [1 << qubit for qubit in range(num_qubits)]
+    z_errors = [1 << (num_qubits + qubit) for qubit in range(num_qubits)]
+    # The syndrome of X on a qubit is the column of the Z parts of the stabilizers on that qubit,
+    # and that of Z is the column of their X parts.
+    x_words = pack_bits(np.ascontiguousarray(stabilizers[:, num_qubits:].T))
+    z_words = pack_bits(np.ascontiguousarray(stabilizers[:, :num_qubits].T))
+    identity_words = np.zeros((1, x_words.shape[1]), dtype=np.uint64)
+    if css_weight:
+        first_errors, first_words = [0, *x_errors], np.vstack([identity_words, x_words])
+        second_errors, second_words = [0, *z_errors], np.vstack([identity_words, z_words])
+    else:
+        first_errors, first_words = [0], identity_words
+        second_errors = [0]
+        for x_error, z_error in zip(x_errors, z_errors):
+            second_errors += [x_error, z_error, x_error | z_error]
+        single_words = np.stack([x_words, z_words, x_words ^ z_words], axis=1)
+        second_words = np.vstack([identity_words, single_words.reshape(-1, x_words.shape[1])])
+    words = np.vstack([first_words, second_words])
+    rows = np.hstack([_hash_words(words)[:, None], words])
+    pairs = _get_light_pairs(syndrome_rows, rows[: len(first_words)], rows[len(first_words) :])
+    return [
+        first_errors[first] ^ second_errors[second] if first >= 0 else None
+        for first, second in pairs.tolist()
+    ]
+
+
+def _get_fixed_errors(
+    syndrome_rows: npt.NDArray[np.uint64], stabilizers: npt.NDArray[np.uint8], css_weight: bool
+) -> list[int]:
+    """For each syndrome, a fixed error with it, from destabilizers.
+
+    Each row of ``syndrome_rows`` holds the linear hash of a syndrome of the stabilizers and then
+    its words, as in ``_get_light_errors``.  For the CSS weight, the X and Z parts of the error
+    weigh separately, so the X part is replaced by an X error on at most one qubit with the same
+    syndrome, if there is one, and likewise the Z part (see "Deciding which primitive faults are
+    heavy").
+    """
+    # Multiply the syndromes by the destabilizers, the errors with unit syndromes for the matrix
+    # that takes errors to syndromes, which is the stabilizers with their halves swapped.
+    num_qubits = len(stabilizers)
+    checks = np.hstack([stabilizers[:, num_qubits:], stabilizers[:, :num_qubits]])
+    syndromes = unpack_bits(np.ascontiguousarray(syndrome_rows[:, 1:]), num_qubits)
+    errors = multiply_binary(syndromes, get_unit_syndrome_words(checks))
+    if not css_weight:
+        return _to_ints(pack_bits(errors))
+
+    # Look up the syndrome of each part among those of the identity and of the single-qubit errors
+    # of its type, each of which keeps its first qubit.
+    parts = []
+    for columns in (slice(None, num_qubits), slice(num_qubits, None)):
+        singles = {0: 0}
+        column_words = pack_bits(np.ascontiguousarray(checks[:, columns].T))
+        for qubit, syndrome in enumerate(_to_ints(column_words)):
+            singles.setdefault(syndrome, 1 << qubit)
+        part_syndromes = _to_ints(
+            pack_bits(multiply_binary(errors[:, columns], checks[:, columns].T))
+        )
+        part_errors = _to_ints(pack_bits(np.ascontiguousarray(errors[:, columns])))
+        parts.append(
+            [singles.get(syndrome, error) for syndrome, error in zip(part_syndromes, part_errors)]
+        )
+    return [x_part | (z_part << num_qubits) for x_part, z_part in zip(*parts)]
 
 
 ####################################################################################################
@@ -757,6 +838,14 @@ def _to_words(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
     data = b"".join(value.to_bytes(8 * num_words, "little") for value in values)
     words = np.frombuffer(data, dtype="<u8").reshape(len(values), num_words)
     return words.astype(np.uint64)
+
+
+def _to_ints(words: npt.NDArray[np.uint64]) -> list[int]:
+    """Join each row of words into an integer, the inverse of ``_to_words``.
+
+    Bytes join words faster than shifts do.
+    """
+    return [int.from_bytes(row.tobytes(), "little") for row in words.astype("<u8")]
 
 
 def _hashed_rows(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64]:
@@ -1397,44 +1486,50 @@ def _get_key_slots(keys: npt.NDArray[np.uint64]) -> npt.NDArray[np.int64]:
 
 @always_compiled
 def _get_light_pairs(
-    heavy_rows: npt.NDArray[np.uint64], light_rows: npt.NDArray[np.uint64]
+    syndrome_rows: npt.NDArray[np.uint64],
+    first_rows: npt.NDArray[np.uint64],
+    second_rows: npt.NDArray[np.uint64],
 ) -> npt.NDArray[np.int64]:
-    """For each heavy syndrome, two light syndromes that sum to it, if there are any.
+    """For each syndrome, a first and a second syndrome that sum to it, if there are any.
 
-    Each row holds the linear hash of a syndrome and then its words, and the light syndromes are
-    distinct.  Row ``h`` of the result holds the first light syndrome ``i``, in order, such that the
-    sum of heavy syndrome ``h`` and light syndrome ``i`` is a light syndrome ``j``, and then ``j``,
-    or -1 twice if there is none.
+    Each row holds the linear hash of a syndrome and then its words.  Row ``r`` of the result holds
+    the first row ``i`` of ``first_rows`` such that the sum of syndrome ``r`` and syndrome ``i`` is
+    the syndrome of a row of ``second_rows``, and then the first such row ``j``, or -1 twice if
+    there is none.
     """
-    # Put the light syndromes in a hash map as in ``_find_syndrome_slot``, with at least eight times
-    # as many slots, so that most lookups of a sum that is not light end at once at an empty slot.
-    # This makes the search about five times faster than with half-full slots.
+    # Put the second syndromes in a hash map as in ``_find_syndrome_slot``, with at least eight
+    # times as many slots, so that most lookups of a sum that is not a second syndrome end at once
+    # at an empty slot.  This makes the search about five times faster than with half-full slots.
+    # A syndrome that repeats keeps its first row.
     num_slots = 2
-    while num_slots < 8 * len(light_rows):
+    while num_slots < 8 * len(second_rows):
         num_slots *= 2
     slots = np.full(num_slots, -1, dtype=np.int64)
-    for row in range(len(light_rows)):
-        slots[_find_syndrome_slot(light_rows[row, 0], light_rows[row, 1:], light_rows, slots)] = row
+    for row in range(len(second_rows)):
+        found = _find_syndrome_slot(second_rows[row, 0], second_rows[row, 1:], second_rows, slots)
+        if slots[found] < 0:
+            slots[found] = row
 
-    # Most sums are not light, so look each sum up by its hash first, as ``_find_syndrome_slot``
-    # does, and compare its words only with those of a light syndrome with the same hash.  The
-    # hashes are copied out of the rows, which are long for many qubits, so that the loop reads them
-    # in order.
-    light_hashes = light_rows[:, 0].copy()
-    num_words = heavy_rows.shape[1] - 1
-    pairs = np.full((len(heavy_rows), 2), -1, dtype=np.int64)
-    for heavy in range(len(heavy_rows)):
-        heavy_hash = heavy_rows[heavy, 0]
-        for first in range(len(light_rows)):
-            hashed = heavy_hash ^ light_hashes[first]
+    # Most sums are not second syndromes, so look each sum up by its hash first, as
+    # ``_find_syndrome_slot`` does, and compare its words only with those of a second syndrome with
+    # the same hash.  The hashes are copied out of the rows, which are long for many qubits, so that
+    # the loop reads them in order.
+    first_hashes = first_rows[:, 0].copy()
+    second_hashes = second_rows[:, 0].copy()
+    num_words = syndrome_rows.shape[1] - 1
+    pairs = np.full((len(syndrome_rows), 2), -1, dtype=np.int64)
+    for row in range(len(syndrome_rows)):
+        syndrome_hash = syndrome_rows[row, 0]
+        for first in range(len(first_rows)):
+            hashed = syndrome_hash ^ first_hashes[first]
             slot = _get_first_slot(hashed, num_slots)
             second = slots[slot]
             while second >= 0:
-                if light_hashes[second] == hashed:
+                if second_hashes[second] == hashed:
                     equal = True
                     for word in range(1, num_words + 1):
-                        sum_word = heavy_rows[heavy, word] ^ light_rows[first, word]
-                        if sum_word != light_rows[second, word]:
+                        sum_word = syndrome_rows[row, word] ^ first_rows[first, word]
+                        if sum_word != second_rows[second, word]:
                             equal = False
                             break
                     if equal:
@@ -1442,8 +1537,8 @@ def _get_light_pairs(
                 slot = (slot + 1) & (num_slots - 1)
                 second = slots[slot]
             if second >= 0:
-                pairs[heavy, 0] = first
-                pairs[heavy, 1] = second
+                pairs[row, 0] = first
+                pairs[row, 1] = second
                 break
     return pairs
 
