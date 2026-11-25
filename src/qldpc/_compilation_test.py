@@ -411,6 +411,33 @@ def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class
     assert compiled(1) == 2
 
 
+@pytest.mark.parametrize(
+    "fork",
+    [False, pytest.param(True, marks=pytest.mark.skipif(not hasattr(os, "fork"), reason=""))],
+)
+def test_code_compiled_in_different_processes_has_distinct_names(fork: bool) -> None:
+    """Check the workaround for a numba bug that gives different code the same name."""
+    code = _PRINT_SYMBOL_NAMES + (_IN_PARENT_AND_FORKED_CHILD if fork else "print_names()\n")
+    outputs = run_python(code).splitlines() if fork else [run_python(code), run_python(code)]
+    first, second = (set(output.split()) for output in outputs)
+    assert first and second and not first & second
+
+
+def test_compiled_code_is_not_cached_without_the_workaround_for_a_numba_bug(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with monkeypatch.context() as other_numba:
+        other_numba.setattr(numba.core.bytecode.FunctionIdentity, "_unique_ids", None)
+        clashes_avoided = _compilation._work_around_numba_name_clashes()
+    assert not clashes_avoided
+    monkeypatch.setattr(_compilation, "_NUMBA_NAME_CLASHES_AVOIDED", clashes_avoided)
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    with pytest.warns(RuntimeWarning, match="workaround for a numba bug.*earlier version"):
+        compiled = _compilation.always_compiled(_add_one)
+    assert compiled.stats.cache_path is None
+    assert compiled(1) == 2
+
+
 @pytest.mark.parametrize("switch", ["qldpc", "numba"])
 def test_functions_run_as_plain_python_if_compilation_is_disabled(
     switch: str, monkeypatch: pytest.MonkeyPatch
@@ -640,6 +667,30 @@ from .other.callee import increment
 @always_compiled
 def add_to(value):
     return increment(value)
+"""
+
+# A program whose ``print_names`` compiles a function that sorts, and prints the names in its code
+# that hold numba's count of compiled functions, in tags such as ``B5v5006``.
+_PRINT_SYMBOL_NAMES = """
+import os, re
+import numba
+import numpy as np
+import qldpc
+
+def print_names():
+    sort = numba.njit(lambda values: np.sort(values))
+    sort(np.arange(3))
+    (code,) = sort.inspect_llvm().values()
+    names = re.findall(r'define [^@]*@"?([^"(]+)', code)
+    print(*{name for name in names if re.search("B[0-9]+v[0-9]+", name)}, flush=True)
+"""
+
+_IN_PARENT_AND_FORKED_CHILD = """
+if os.fork() == 0:
+    print_names()
+    os._exit(0)
+assert os.wait()[1] == 0
+print_names()
 """
 
 
