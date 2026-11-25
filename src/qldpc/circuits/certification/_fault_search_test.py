@@ -383,6 +383,18 @@ def test_light_pairs_match_brute_force(
             assert pair == expected
 
 
+def test_rows_hash_alike_whenever_they_are_hashed() -> None:
+    """Rows hashed before and after rows of other widths, or a rebuild of the tables, agree."""
+    # The heavy syndrome 3 is the sum of the light syndromes 1 and 2.
+    heavy = _fault_search._hashed_rows([3], 1)
+    for num_words in range(2, 10):
+        _fault_search._hash_words(np.ones((1, num_words), dtype=np.uint64))
+    _fault_search._get_byte_hash_tables.cache_clear()
+    light = _fault_search._hashed_rows([1, 2], 1)
+    assert _fault_search._get_light_pairs(heavy, light).tolist() == [[0, 1]]
+    assert _fault_search._hashed_rows([3], 1).tolist() == heavy.tolist()
+
+
 def test_heavy_primitive_faults_get_products_of_light_representatives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

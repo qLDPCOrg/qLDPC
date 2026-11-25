@@ -377,11 +377,12 @@ def _get_primitive_fault_signatures(
 
     # Map the text of each target that matters to its bits in one integer, whose low bits are the
     # syndrome and whose high bits are the flags.  Detector ``circuit.num_detectors + j`` measures
-    # stabilizer ``j``, and the selected detectors are detectors of the circuit, which come first.
-    # A target then takes one lookup and one XOR, which about halves the time of the parse below.
-    signature_bits = {
-        f"D{circuit.num_detectors + jj}": 1 << jj for jj in range(num_stabilizers)
-    } | {f"D{detector}": 1 << (num_stabilizers + jj) for jj, detector in enumerate(selected)}
+    # stabilizer ``j``.  A target then takes one lookup and one XOR, which about halves the time of
+    # the parse below.
+    signature_bits = {f"D{circuit.num_detectors + jj}": 1 << jj for jj in range(num_stabilizers)}
+    for jj, detector in enumerate(selected):
+        key = f"D{detector}"
+        signature_bits[key] = signature_bits.get(key, 0) | 1 << (num_stabilizers + jj)
     get_bits = signature_bits.get
     syndrome_mask = (1 << num_stabilizers) - 1
 
