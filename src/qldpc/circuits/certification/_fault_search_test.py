@@ -390,6 +390,43 @@ def test_representatives_are_weighed_by_the_pauli_weight_of_the_search(css_weigh
     assert _check_faults(lister, 2, ()) == ([] if css_weight else [syndrome], None)
 
 
+def test_representative_weight_is_the_pauli_weight_of_the_product(
+    pytestconfig: pytest.Config,
+) -> None:
+    """The weight of the chosen members is that of the product of their representatives."""
+    # Random rows, with two or three words for each of the X and Z parts, often set bit 63 of a
+    # word and several bits past the first word.  The first primitive fault sets them in every word
+    # of its X and Z parts, and is also chosen alone.  Columns 0 and 1, the hash and syndrome, are
+    # not read.
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    num_primitives = 6
+    members = np.arange(num_primitives, dtype=np.int64)
+    for num_qubit_words in (2, 3):
+        rows = rng.integers(2**64, size=(num_primitives, 2 + 2 * num_qubit_words), dtype=np.uint64)
+        rows[0, 2:] |= np.uint64(1 << 63 | 0b111)
+        x_parts, z_parts = (
+            [int.from_bytes(words.astype("<u8").tobytes(), "little") for words in rows[:, columns]]
+            for columns in (slice(2, 2 + num_qubit_words), slice(2 + num_qubit_words, None))
+        )
+
+        choices = [[0]] + [
+            rng.choice(num_primitives, size=int(rng.integers(1, 5)), replace=False).tolist()
+            for _ in range(10)
+        ]
+        for chosen in choices:
+            x = z = 0
+            for member in chosen:
+                x ^= x_parts[member]
+                z ^= z_parts[member]
+            entries = np.array(chosen, dtype=np.int64) + 1
+            for css_weight in (False, True):
+                expected = max(x.bit_count(), z.bit_count()) if css_weight else (x | z).bit_count()
+                weight = _fault_search._get_representative_weight(
+                    rows, members, entries, 2, css_weight
+                )
+                assert weight == expected
+
+
 @pytest.mark.parametrize("collide", [False, True])
 def test_light_pairs_match_brute_force(
     collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
