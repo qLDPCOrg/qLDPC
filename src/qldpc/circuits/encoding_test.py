@@ -448,8 +448,9 @@ def test_cheap_resets_on_large_circuits(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(encoding, "_do_with_cheap_resets", recording_do_with_cheap_resets)
     for num_qubits in [2, 2000]:
-        simulator = encoding._simulate_noiseless_run(stim.Circuit(f"RX {num_qubits - 1}"))
-        assert simulator.peek_x(num_qubits - 1) == 1
+        circuit = stim.Circuit(f"RX {num_qubits - 1}")
+        stabilizers = circuits.get_state_stabilizers(circuit, [num_qubits - 1])
+        assert stabilizers == [stim.PauliString("+X")]
     assert calls == [2000]
 
 

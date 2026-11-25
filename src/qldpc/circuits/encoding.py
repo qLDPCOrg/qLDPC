@@ -228,7 +228,13 @@ def get_state_stabilizers(
 
     # Simulate one run, which gives the signs of the stabilizers whose signs are fixed.  Finding the
     # fixed parities below reuses this run.
-    simulator = _simulate_noiseless_run(circuit)
+    simulator = stim.TableauSimulator()
+    # TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
+    # circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    if circuit.num_qubits < _MIN_QUBITS_FOR_CHEAP_RESETS:
+        simulator.do(circuit)
+    else:
+        _do_with_cheap_resets(simulator, circuit)
 
     # Find the parities that the circuit fixes: the pairs (D, P) of a set D of detectors and a Pauli
     # string P on the requested qubits for which the outcome of measuring P after the circuit,
@@ -367,7 +373,7 @@ class _UndeterminedSignError(ValueError):
 # circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
 # Simulating a circuit one instruction at a time, as _do_with_cheap_resets does, costs about 1-2 µs
 # per instruction, while a reset whose outcome is random costs Stim about 0.6 n² ns on n qubits.  So
-# _simulate_noiseless_run simulates a circuit on fewer qubits than this in one call.
+# get_state_stabilizers simulates a circuit on fewer qubits than this in one call.
 _MIN_QUBITS_FOR_CHEAP_RESETS = 256
 
 # TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
@@ -378,20 +384,6 @@ _MIN_QUBITS_FOR_CHEAP_RESETS = 256
 _RESET_PAULIS = {"R": "Z", "RX": "X", "RY": "Y"}
 _PAULI_FLIPS = {"X": "z", "Y": "z", "Z": "x"}
 _PAULI_SWAPS = {"XY": "h_xy", "YX": "h_xy", "XZ": "h", "ZX": "h", "YZ": "h_yz", "ZY": "h_yz"}
-
-
-def _simulate_noiseless_run(circuit: stim.Circuit) -> stim.TableauSimulator:
-    """Simulate one run of a noiseless circuit with a new stim.TableauSimulator, and return it.
-
-    TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
-    """
-    simulator = stim.TableauSimulator()
-    if circuit.num_qubits < _MIN_QUBITS_FOR_CHEAP_RESETS:
-        simulator.do(circuit)
-    else:
-        _do_with_cheap_resets(simulator, circuit)
-    return simulator
 
 
 def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circuit) -> None:
