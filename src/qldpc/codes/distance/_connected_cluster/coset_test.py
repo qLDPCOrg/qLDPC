@@ -301,13 +301,16 @@ def test_connected_cluster_answers_match_exhaustive_minima(
                     assert first_bound is None
 
 
-def test_connected_cluster_batches_on_threads_start_from_the_floors_of_their_rows() -> None:
-    """A block of a batch on threads starts the search of each syndrome from its own floor.
+def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -> None:
+    """A batch that moves to blocks answers every row of each block from the row's own floor.
 
-    For the checks I3, a syndrome is the lightest word of its coset, so its bit count is the minimum
-    weight.  The search of the first syndrome does the work at which the batch moves to two
-    threads, so a block starts at the second syndrome, whose floor of zero gives its weight 2, and
-    the floor 3 of the first syndrome would give 3.
+    For the checks I3, a syndrome is the lightest word of its coset, so its bit count is its minimum
+    weight.  The search of the first syndrome of a batch does the work at which the rest of the
+    batch moves to blocks, which up to two threads run.  In the first batch, the second syndrome
+    starts a block, and its floor of zero gives its weight 2, where the floor 3 of the first
+    syndrome would give 3.  The second batch is long enough for blocks of several rows, with
+    differing floors, whose syndromes of weight 2 each do work.  Its first syndrome without a word
+    within ``max_weight`` follows such a syndrome in its block.
     """
     coset_search = coset.ConnectedClusterCosetSearch(
         np.eye(3, dtype=np.uint8),
@@ -321,6 +324,20 @@ def test_connected_cluster_batches_on_threads_start_from_the_floors_of_their_row
     floors = np.array([3, 0], dtype=np.int64)
     weights = coset_search.get_min_weights(batch, 3, floors, num_threads=2, split_work=1)
     assert weights[0] <= 3 and weights[1] == 2
+
+    syndromes = [(0b011, 0b101, 0b110)[row % 3] for row in range(34)]
+    syndromes[2] = 0b111
+    batch = split_syndromes_into_words(syndromes, 3)
+    floors = np.arange(len(syndromes)) % 3
+    weights = coset_search.get_min_weights(batch, 2, floors, num_threads=2, split_work=1)
+    minima = np.array([syndrome.bit_count() for syndrome in syndromes])
+    within = minima <= floors
+    assert np.all(weights[within] <= floors[within])
+    assert np.array_equal(weights[~within], np.minimum(minima, 3)[~within])
+    index, bound = coset_search.find_first_not_within_max_weight(
+        batch, 2, num_threads=2, split_work=1
+    )
+    assert index == 2 and bound is not None and bound.lower_bound == 3
 
 
 def test_connected_cluster_batches_match_exhaustive_minima() -> None:
