@@ -377,10 +377,17 @@ def test_representatives_are_weighed_over_every_word(css_weight: bool, z_part: b
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_representatives_are_weighed_by_the_pauli_weight_of_the_search(css_weight: bool) -> None:
     """The product of the representatives has the CSS weight or the physical weight, as asked."""
-    # On |00++>, X on qubits 0 and 1 times Z on qubits 2 and 3 has CSS weight two, at most the fault
-    # weight, and physical weight four.
-    lister = _fault_search.FaultLister([1, 1], [3, 12], [3, 12 << 4], 4, css_weight, 2, 2**20)
-    assert _check_faults(lister, 2, ()) == ([] if css_weight else [3 ^ 12], None)
+    # On |0>^64 |+>, X on qubits 0 and 1 times Z on qubit 64 has X weight two in the first word and
+    # Z weight one in the second, so CSS weight two, at most the fault weight, and physical weight
+    # three.
+    num_qubits = 65
+    syndromes = [3, 1 << 64]
+    representatives = [3, 1 << (64 + num_qubits)]
+    lister = _fault_search.FaultLister(
+        [1, 1], syndromes, representatives, num_qubits, css_weight, 2, 2**20
+    )
+    syndrome = syndromes[0] ^ syndromes[1]
+    assert _check_faults(lister, 2, ()) == ([] if css_weight else [syndrome], None)
 
 
 @pytest.mark.parametrize("collide", [False, True])
