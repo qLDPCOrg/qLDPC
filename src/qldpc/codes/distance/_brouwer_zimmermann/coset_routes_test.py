@@ -248,6 +248,11 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
             building -= 1
         return built
 
+    # Compile the builds before the threads start, so that compiling counts against no thread's
+    # timeout.  Other routes build here, before builds are recorded, so that the threads' routes
+    # still make and record every build of their own.
+    _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True).get_route(max(max_weights))
+
     monkeypatch.setattr(coset_tables, "get_coset_tails", build_in_turn)
     routes = _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True)
     barrier = threading.Barrier(len(max_weights), timeout=THREAD_TIMEOUT)
