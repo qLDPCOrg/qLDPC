@@ -14,7 +14,7 @@ Anything else that the migration deletes or changes has the marker as a comment 
 A trigger `stim>=X` holds once qLDPC's `pyproject.toml` requires Stim `X` or later; any other trigger is a behavior of Stim that its section's script checks.
 The values below are from stim 1.17.dev1793242987 on macOS on arm64.
 The cost of some of Stim's Python bindings varies widely between platforms ([quantumlib/Stim#1087](https://github.com/quantumlib/Stim/issues/1087)), so check a trigger on that platform too.
-To migrate, follow the section's steps, check that the call that the section names gets no slower, and delete the section.
+To migrate, follow the section's steps, delete every import of a name that they delete, check that the call that the section names gets no slower, and delete the section.
 
 ## Resets with random outcomes in stim.TableauSimulator
 
