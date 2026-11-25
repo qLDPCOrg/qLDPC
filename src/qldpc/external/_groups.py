@@ -87,10 +87,10 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
     This function tries a local disk cache, then MAGMA if it can be called from the command line,
     and finally a manual copy/paste workflow.  The manual workflow prints the command, copies it to
     the system clipboard, and reads the pasted output from standard input (blocking, and raising
-    ``EOFError`` if standard input is closed).  Both workflows start the command by fixing MAGMA's
-    random seed, on which the generators that MAGMA returns can depend.  If MAGMA reports an error,
-    this function raises it.  If MAGMA stops for another reason, such as a crash, this function
-    warns and falls back to the manual workflow.
+    ``EOFError`` if standard input is closed).  The generators that MAGMA returns can depend on its
+    random seed, so both the MAGMA subprocess and the manual workflow fix it.  If MAGMA reports an
+    error, this function raises it.  If MAGMA stops for another reason, such as a crash, this
+    function warns and falls back to the manual workflow.
 
     Raises:
         ValueError: If MAGMA reports an error, such as an error in the command, or its output does

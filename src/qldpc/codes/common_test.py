@@ -359,18 +359,22 @@ def test_permutation_automorphism_group(
     code: codes.ClassicalCode = codes.HammingCode(2, field=2)
     automorphisms = "\n(1,2)\n(2,3)\n"
 
-    # raise an error when GAP is not installed, after a warning that suggests MAGMA, which a user
-    # who declines to copy commands into GAP by hand sees too
+    # when GAP is not installed, or the user declines the manual GAP workflow, warn with the MAGMA
+    # hint before asking whether GAP is available, and then raise an error
+    def decline_gap() -> bool:
+        assert any("MAGMA executable is on PATH" in str(record.message) for record in records)
+        return False
+
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_installed", side_effect=decline_gap),
         unittest.mock.patch(
             "qldpc.external.gap.subprocess.run",
             side_effect=AssertionError("GAP executable must not be called by this test"),
         ),
         unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=True),
-        pytest.warns(UserWarning, match="MAGMA executable is on PATH"),
+        pytest.warns(UserWarning, match="MAGMA executable is on PATH") as records,
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
         codes.RepetitionCode(2).get_permutation_automorphism_group()
