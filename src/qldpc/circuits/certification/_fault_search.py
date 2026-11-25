@@ -422,7 +422,7 @@ class FaultLister:
         # The state of the expansion of class tuples into faults (see ``_expand_class_tuples``).
         next_member_entries = np.empty(fault_weight, dtype=np.int64)
         chosen_row_sums = np.zeros(
-            (fault_weight + 1, self._primitive_rows.shape[1]), dtype=np.uint64
+            (fault_weight + 1, 1 + self._num_syndrome_words), dtype=np.uint64
         )
         chosen_start_counts = np.zeros(fault_weight + 1, dtype=np.int64)
         choice_rows = np.empty(
@@ -1086,28 +1086,32 @@ def _expand_class_tuples(
     number of syndromes in the table, the number of remembered choices, and the first level whose
     class has more than one member), ``next_member_entries`` (at each level, the entry of
     ``class_members`` after that of the chosen member), ``chosen_row_sums`` (row ``i`` is the sum
-    of the primitive rows of the members chosen at the first ``i`` levels), ``chosen_start_counts``
-    (entry ``i`` is the number of start members among them), and ``choice_rows``,
-    ``choice_slots``, and ``choice_slots_used``.  These form a hash map as in
-    ``_find_syndrome_slot`` of the choices of members of the current class tuple whose completions
-    were listed: each row holds a hash, then the level of the choice and whether it has a start
-    member, then its syndrome.  ``choice_slots_used`` lists the slots in use, to clear them for the
-    next class tuple.  The expansion returns once the batch has ``batch_size`` faults, once the
-    table should grow (see ``_table_should_grow``), or once every class tuple is expanded.  A full
-    table takes no more syndromes.  The calling thread runs this without the global interpreter
-    lock, so that threads that list class codewords meanwhile can take it (see "Threads" in
-    ``fault_propagation.md``).
+    of the hashes and syndromes, the first ``1 + batch_syndromes.shape[1]`` columns of the primitive
+    rows, of the members chosen at the first ``i`` levels), ``chosen_start_counts`` (entry ``i`` is
+    the number of start members among them), and ``choice_rows``, ``choice_slots``, and
+    ``choice_slots_used``.  These form a hash map as in ``_find_syndrome_slot`` of the choices of
+    members of the current class tuple whose completions were listed: each row holds a hash, then
+    the level of the choice and whether it has a start member, then its syndrome.
+    ``choice_slots_used`` lists the slots in use, to clear them for the next class tuple.  The
+    expansion returns once the batch has ``batch_size`` faults, once the table should grow (see
+    ``_table_should_grow``), or once every class tuple is expanded.  A full table takes no more
+    syndromes.  The calling thread runs this without the global interpreter lock, so that threads
+    that list class codewords meanwhile can take it (see "Threads" in ``fault_propagation.md``).
+
+    The loops take no views of arrays and assign no slices: numba compiles a view with reference
+    counting, and can copy into a slice through a temporary array, which in these loops would make
+    the expansion several times slower.
     """
     # Column 0 of the primitive rows holds the hash of the syndrome, the next columns hold the
-    # syndrome, and the rest hold the X and then the Z part of the representative.
+    # syndrome, and the rest hold the X and then the Z part of the representative.  The sums of the
+    # chosen members keep only the hash and the syndrome, and the representative of a fault is
+    # summed only for a fault whose syndrome is new.
     fault_weight = class_tuples.shape[1]
-    num_words = primitive_rows.shape[1]
-    x_start = 1 + batch_syndromes.shape[1]
-    z_start = x_start + (num_words - x_start) // 2
+    x_start = chosen_row_sums.shape[1]
 
-    # The key of a choice of members in the map of remembered choices: its level and whether it has
-    # a start member, then its syndrome.
-    choice_key = np.empty(choice_rows.shape[1] - 1, dtype=np.uint64)
+    # The row of a choice of members in the map of remembered choices: its hash, its level and
+    # whether it has a start member, then its syndrome.
+    choice_key = np.empty((1, choice_rows.shape[1]), dtype=np.uint64)
 
     tuple_index, level = expansion_state[0], expansion_state[1]
     num_batched, num_syndromes = expansion_state[2], expansion_state[3]
@@ -1159,7 +1163,7 @@ def _expand_class_tuples(
             # Add the member to the sums, and move on to the next level, if any.  A class repeats
             # only for fault weight two, and then its second member comes after its first.
             chosen_start_counts[level + 1] = num_chosen_starts
-            for word in range(num_words):
+            for word in range(x_start):
                 chosen_row_sums[level + 1, word] = (
                     chosen_row_sums[level, word] ^ primitive_rows[member, word]
                 )
@@ -1175,17 +1179,18 @@ def _expand_class_tuples(
                 # whose class has more than one member (see above).  Otherwise remember the choice,
                 # if there is room.
                 if num_syndromes < len(syndrome_rows) and level > first_branching_level:
-                    choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
-                    choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]
-                    choice_hash = chosen_row_sums[level + 1, 0] ^ (
-                        (choice_key[0] + np.uint64(1)) * _HASH_MULTIPLIER
+                    choice_key[0, 1] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
+                    choice_key[0, 0] = chosen_row_sums[level + 1, 0] ^ (
+                        (choice_key[0, 1] + np.uint64(1)) * _HASH_MULTIPLIER
                     )
-                    slot = _find_syndrome(choice_hash, choice_key, choice_rows, choice_slots)
+                    for word in range(1, x_start):
+                        choice_key[0, 1 + word] = chosen_row_sums[level + 1, word]
+                    slot = _find_row(choice_key, 0, choice_rows, choice_slots)
                     if slot < 0:
                         continue
                     if num_choices < len(choice_rows):
-                        choice_rows[num_choices, 0] = choice_hash
-                        choice_rows[num_choices, 1:] = choice_key
+                        for word in range(choice_rows.shape[1]):
+                            choice_rows[num_choices, word] = choice_key[0, word]
                         choice_slots[slot] = num_choices
                         choice_slots_used[num_choices] = slot
                         num_choices += 1
@@ -1199,20 +1204,23 @@ def _expand_class_tuples(
             # Leave out the fault if its syndrome is in the table, and otherwise add the syndrome to
             # the table if there is room, even if the representative test below leaves the fault out
             # (see "Checking one fault").
-            fault_row = chosen_row_sums[fault_weight]
-            slot = _find_syndrome(fault_row[0], fault_row[1:x_start], syndrome_rows, syndrome_slots)
+            slot = _find_row(chosen_row_sums, fault_weight, syndrome_rows, syndrome_slots)
             if slot < 0:
                 continue
             if num_syndromes < len(syndrome_rows):
-                syndrome_rows[num_syndromes] = fault_row[:x_start]
+                for word in range(x_start):
+                    syndrome_rows[num_syndromes, word] = chosen_row_sums[fault_weight, word]
                 syndrome_slots[slot] = num_syndromes
                 num_syndromes += 1
 
             # Leave out the fault if the product of the representatives has Pauli weight at most
             # the fault weight (see "Checking one fault"), and otherwise add it to the batch.
-            weight = _pauli_weight(fault_row[x_start:z_start], fault_row[z_start:], css_weight)
+            weight = _get_representative_weight(
+                primitive_rows, class_members, next_member_entries, x_start, css_weight
+            )
             if weight > fault_weight:
-                batch_syndromes[num_batched] = fault_row[1:x_start]
+                for word in range(1, x_start):
+                    batch_syndromes[num_batched, word - 1] = chosen_row_sums[fault_weight, word]
                 for index in range(fault_weight):
                     batch_members[num_batched, index] = class_members[
                         next_member_entries[index] - 1
@@ -1258,16 +1266,31 @@ def _reduce_flags(
     return -1
 
 
-@always_compiled
-def _pauli_weight(
-    x: npt.NDArray[np.uint64], z: npt.NDArray[np.uint64], css_weight: bool
+@always_compiled(inline=True)
+def _get_representative_weight(
+    primitive_rows: npt.NDArray[np.uint64],
+    class_members: npt.NDArray[np.int64],
+    next_member_entries: npt.NDArray[np.int64],
+    x_start: int,
+    css_weight: bool,
 ) -> np.int64:
-    """The Pauli weight of the error with these packed X and Z parts."""
+    """The Pauli weight of the product of the representatives of the chosen members.
+
+    The chosen members are as in ``_expand_class_tuples``, one for each entry of
+    ``next_member_entries``, and the X and then the Z parts of the representatives fill the columns
+    of ``primitive_rows`` from ``x_start``.
+    """
+    num_qubit_words = (primitive_rows.shape[1] - x_start) // 2
     x_weight = z_weight = support = np.int64(0)
-    for word in range(len(x)):
-        x_weight += popcount_word(x[word])
-        z_weight += popcount_word(z[word])
-        support += popcount_word(x[word] | z[word])
+    for word in range(num_qubit_words):
+        x = z = np.uint64(0)
+        for entry in next_member_entries:
+            member = class_members[entry - 1]
+            x ^= primitive_rows[member, x_start + word]
+            z ^= primitive_rows[member, x_start + num_qubit_words + word]
+        x_weight += popcount_word(x)
+        z_weight += popcount_word(z)
+        support += popcount_word(x | z)
     return max(x_weight, z_weight) if css_weight else support
 
 
@@ -1313,6 +1336,36 @@ def _find_syndrome_slot(
             break
         slot = (slot + 1) % len(syndrome_slots)
     return int(slot)
+
+
+@always_compiled(inline=True)
+def _find_row(
+    keys: npt.NDArray[np.uint64],
+    key: int,
+    rows: npt.NDArray[np.uint64],
+    slots: npt.NDArray[np.int64],
+) -> int:
+    """Look up row ``key`` of ``keys`` in a hash map as in ``_find_syndrome_slot``.
+
+    The rows of the map have the columns of ``keys``, the first of which holds the hash, and a row
+    holds the key if every column is equal.  Return -1 if the key is in the map, and otherwise the
+    empty slot for it.  Unlike ``_find_syndrome``, this takes no views of arrays, so that the loops
+    of ``_expand_class_tuples`` take none either.
+    """
+    mask = len(slots) - 1
+    slot = _get_first_slot(keys[key, 0], len(slots))
+    while True:
+        row = slots[slot]
+        if row < 0:
+            return int(slot)
+        equal = True
+        for column in range(keys.shape[1]):
+            if rows[row, column] != keys[key, column]:
+                equal = False
+                break
+        if equal:
+            return -1
+        slot = (slot + 1) & mask
 
 
 @always_compiled(inline=True)
