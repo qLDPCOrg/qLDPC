@@ -380,7 +380,8 @@ def test_permutation_automorphism_group(
             "qldpc.external.gap.subprocess.run",
             side_effect=AssertionError("GAP executable must not be called by this test"),
         ),
-        pytest.warns(UserWarning, match="with_magma=True"),
+        unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=True),
+        pytest.warns(UserWarning, match="with_magma=True") as records,
     ):
         for code, automorphisms in [
             (codes.HammingCode(2, field=2), "\n(1,2)\n(2,3)\n"),
@@ -410,6 +411,8 @@ def test_permutation_automorphism_group(
         query = "".join("".join(get_output.call_args.args).split())
         rows = "[Z(4)^0,0*Z(4),Z(4)^0,Z(4)^1,Z(4)^2],[0*Z(4),Z(4)^0,Z(4)^0,Z(4)^0,Z(4)^0]"
         assert f"PermutationAutomorphismGroup(CheckMatCode([{rows}],GF(4)))" in query
+    # when GAP can be called from the command line, the warning does not say that it cannot
+    assert not any("MAGMA executable is on PATH" in str(record.message) for record in records)
 
     # if GAP needs copying commands by hand but MAGMA is on PATH, the warning says so, but the
     # default path still computes with GAP, the system that the caller chose

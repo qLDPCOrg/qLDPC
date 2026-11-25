@@ -38,6 +38,8 @@ Choose tools for the task
      - :ref:`Additional decoders <installation-decoders>`.
    * - Use algebra tools, named-code lookups, or distance estimates that require GAP
      - :ref:`GAP integration <installation-gap>`.
+   * - Compute permutation automorphism groups or transversal gates with MAGMA
+     - :ref:`MAGMA integration <installation-magma>`.
    * - Find symmetries of parity check matrices, as for some balanced product codes, or to speed up exact distances of symmetric codes
      - :ref:`Matrix automorphisms <installation-bliss>`.
    * - Estimate binary CSS code distances with the GPU-based ``sqetch`` backend
@@ -86,6 +88,15 @@ The in-process binding requires Python 3.13 on a non-Windows platform.
 Without that binding, qLDPC can call a GAP executable on ``PATH`` (possibly obtainable with ``conda install -c conda-forge gap``), or offer a manual copy/paste fallback for operations that support it.
 GAP integration on Windows remains limited; see `issue #294 <https://github.com/qLDPCOrg/qLDPC/issues/294>`_.
 See the :doc:`library map <library_map>` for GAP calls, prompts, other side effects, and caching.
+
+.. _installation-magma:
+
+MAGMA integration
+-----------------
+
+Permutation automorphism groups and transversal-gate searches can use `MAGMA <https://magma.maths.usyd.edu.au>`_, a commercial computer algebra system, instead of GAP when called with ``with_magma=True``.
+qLDPC runs a licensed ``magma`` executable on ``PATH`` if it finds one, and otherwise offers a manual copy/paste workflow.
+See the :doc:`library map <library_map>` for MAGMA calls, prompts, and caching.
 
 .. _installation-bliss:
 

@@ -246,6 +246,15 @@ def test_get_generators_from_magma(
         _groups.get_generators_from_magma(group)
     capsys.readouterr()  # intercept print statements
 
+    # parentheses that hold numbers in output that describes no permutation group are not cycles,
+    # as in this output of the command GL(2,3), recorded from MAGMA V2.29-10
+    with pytest.raises(ValueError, match="Invalid MAGMA output"):
+        _groups._parse_magma_generators("GL(2, GF(3))\n")
+
+    # MAGMA may wrap lines after the commas of a cycle
+    output = "Order = 80 = 2^4 * 5\n    (1, 40)(2, 39)(3,\n        38)\n    (1, 2)\n"
+    assert _groups._parse_magma_generators(output) == [[(0, 39), (1, 38), (2, 37)], [(0, 1)]]
+
 
 def test_get_generators_from_local_magma(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -269,7 +278,7 @@ def test_get_generators_from_local_magma(
         get_output.assert_called_once()
     assert "Run the following command in MAGMA" not in capsys.readouterr().out
 
-    # an error that MAGMA reports in the command is raised, since a manual run would repeat it
+    # an error that MAGMA reports is raised
     with (
         unittest.mock.patch.object(_magma, "get_output", side_effect=_magma.MAGMAError("_TEST_")),
         pytest.raises(ValueError, match="_TEST_"),

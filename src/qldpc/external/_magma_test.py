@@ -12,9 +12,22 @@ import pytest
 
 from qldpc.external import _magma
 
-# Output of the scripts of _magma._get_script, recorded from MAGMA V2.29-10 on the online MAGMA
-# calculator, https://magma.maths.usyd.edu.au/calc
+# The scripts that qLDPC runs for a command, and their output from MAGMA V2.29-10, recorded on the
+# online MAGMA calculator, https://magma.maths.usyd.edu.au/calc
+SCRIPT = (
+    "SetQuitOnError(true);\n"
+    "SetEchoInput(false);\n"
+    "SetAutoColumns(false);\n"
+    "SetColumns(0);\n"
+    "SetRows(0);\n"
+    'print "__qldpc" cat "_begin__";\n'
+    "{command}\n"
+    'print "__qldp" cat "c_end__";\n'
+    "quit;\n"
+)
+COMMAND_SUM = "1 + 1;"
 OUTPUT_SUM = "__qldpc_begin__\n2\n__qldpc_end__\n"
+COMMAND_GROUP = "PermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));"
 OUTPUT_GROUP = (
     "__qldpc_begin__\n"
     "Permutation group acting on a set of cardinality 2\n"
@@ -22,6 +35,7 @@ OUTPUT_GROUP = (
     "(1, 2)\n"
     "__qldpc_end__\n"
 )
+COMMAND_ERROR = "PermutationGroup(LinearCode(Matrix(GF(2),1,2,[1])));"
 OUTPUT_ERROR = (
     "__qldpc_begin__\n\n"
     ">> PermutationGroup(LinearCode(Matrix(GF(2),1,2,[1])));\n"
@@ -42,7 +56,7 @@ def block_local_magma() -> Iterator[None]:
 
 
 def mock_magma(stdout: str, returncode: int = 0, stderr: str = "") -> unittest.mock.MagicMock:
-    """Mock subprocess.run for a MAGMA run, recording each script that it runs."""
+    """Mock subprocess.run for a MAGMA run, recording the script that each call runs."""
     scripts = []
 
     def run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -57,42 +71,54 @@ def mock_magma(stdout: str, returncode: int = 0, stderr: str = "") -> unittest.m
 
 def test_get_output() -> None:
     """Run commands in MAGMA and extract their output."""
-    # a command runs in a script that does not contain the markers of its output, so that the
-    # markers cannot come from an echo of the script
+    # MAGMA runs the recorded script, with a fixed random seed, without the user's startup file, and
+    # without access to standard input
     run = mock_magma(OUTPUT_GROUP)
-    command = "PermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));"
     with unittest.mock.patch("subprocess.run", run):
-        output = _magma.get_output(command)
+        output = _magma.get_output(COMMAND_GROUP)
     assert output.splitlines() == [
         "Permutation group acting on a set of cardinality 2",
         "Order = 2",
         "(1, 2)",
     ]
-    (script,) = run.scripts
-    assert f"\n{command}\n" in script
-    assert _magma._BEGIN_MARKER not in script and _magma._END_MARKER not in script
+    assert run.scripts == [SCRIPT.format(command=COMMAND_GROUP)]
+    args = run.call_args.args[0]
+    assert args[:-1] == ["magma", "-b", "-n", "-S", str(_magma._SEED)]
+    assert run.call_args.kwargs["stdin"] is subprocess.DEVNULL
 
     # a command without a final semicolon is completed, so that it ends before the next statement
     run = mock_magma(OUTPUT_SUM)
     with unittest.mock.patch("subprocess.run", run):
         assert _magma.get_output("1 + 1") == "2\n"
-    assert "\n1 + 1;\n" in run.scripts[0]
+    assert run.scripts == [SCRIPT.format(command=COMMAND_SUM)]
 
-    # MAGMA reports an error in the command
+    # MAGMA reports an error, which stops the script before the end marker
     with (
         unittest.mock.patch("subprocess.run", mock_magma(OUTPUT_ERROR, returncode=1)),
         pytest.raises(_magma.MAGMAError, match="Runtime error in 'Matrix'"),
     ):
-        _magma.get_output("PermutationGroup(LinearCode(Matrix(GF(2),1,2,[1])));")
+        _magma.get_output(COMMAND_ERROR)
 
-    # MAGMA stops without finishing the command or reporting an error in it
+    # an error between the markers is reported even if MAGMA went on to print the end marker
+    with (
+        unittest.mock.patch("subprocess.run", mock_magma(OUTPUT_ERROR + "__qldpc_end__\n")),
+        pytest.raises(_magma.MAGMAError, match="Runtime error in 'Matrix'"),
+    ):
+        _magma.get_output(COMMAND_ERROR)
+
+    # MAGMA stops without finishing the command or reporting an error, or cannot start
     with (
         unittest.mock.patch(
             "subprocess.run", mock_magma("", returncode=1, stderr="no valid licence")
         ),
         pytest.raises(_magma.MAGMARunError, match=r"(?s)exit code 1.*no valid licence"),
     ):
-        _magma.get_output("1 + 1;")
+        _magma.get_output(COMMAND_SUM)
+    with (
+        unittest.mock.patch("subprocess.run", side_effect=PermissionError("_TEST_")),
+        pytest.raises(_magma.MAGMARunError, match="_TEST_"),
+    ):
+        _magma.get_output(COMMAND_SUM)
 
 
 def test_is_callable() -> None:
@@ -105,17 +131,26 @@ def test_is_callable() -> None:
         assert not _magma.is_on_path()
         assert not _magma.is_callable()
 
-    # MAGMA runs, or fails to run, a probe
-    for run, callable_ in [
-        (mock_magma(OUTPUT_SUM), True),
-        (mock_magma("", returncode=1), False),
-        (unittest.mock.MagicMock(side_effect=PermissionError), False),
-        (unittest.mock.MagicMock(side_effect=subprocess.TimeoutExpired("magma", 60)), False),
+    # MAGMA runs a probe
+    _magma.is_callable.cache_clear()
+    with (
+        unittest.mock.patch("shutil.which", return_value="/usr/local/bin/magma"),
+        unittest.mock.patch("subprocess.run", mock_magma(OUTPUT_SUM)),
+    ):
+        assert _magma.is_on_path()
+        assert _magma.is_callable()
+
+    # MAGMA is on PATH but fails the probe, which warns with the reason
+    for run, reason in [
+        (mock_magma("", returncode=1, stderr="no valid licence"), "no valid licence"),
+        (mock_magma(OUTPUT_ERROR), "Runtime error"),
+        (mock_magma(OUTPUT_SUM.replace("2", "3")), "MAGMA printed '3\\\\n'"),
+        (unittest.mock.MagicMock(side_effect=subprocess.TimeoutExpired("magma", 60)), "timed out"),
     ]:
         _magma.is_callable.cache_clear()
         with (
             unittest.mock.patch("shutil.which", return_value="/usr/local/bin/magma"),
             unittest.mock.patch("subprocess.run", run),
+            pytest.warns(UserWarning, match=reason),
         ):
-            assert _magma.is_on_path()
-            assert _magma.is_callable() == callable_
+            assert not _magma.is_callable()

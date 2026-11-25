@@ -847,8 +847,8 @@ class ClassicalCode(AbstractCode):
 
         This computation may run GAP, install GAP packages, access GroupNames.org, or prompt on
         standard input.  With ``with_magma=True``, it uses only MAGMA: it runs MAGMA if MAGMA can be
-        called from the command line, and otherwise prompts for MAGMA output on standard input.  See
-        help(qldpc.abstract.Group.from_name).
+        called from the command line, and otherwise prompts for MAGMA output on standard input.  An
+        error that MAGMA reports raises a ValueError.  See help(qldpc.abstract.Group.from_name).
         """
         matrix = self.canonicalized.matrix.view(np.ndarray)
 
@@ -873,7 +873,7 @@ class ClassicalCode(AbstractCode):
             " time.  If this calculation takes too long, try computing the group with MAGMA by"
             ' passing the argument "with_magma=True" to the method that needs to compute the group.'
         )
-        if not external.gap.is_callable() and _magma.is_on_path():
+        if _magma.is_on_path() and not external.gap.is_callable():
             warning += (
                 "  GAP cannot be called from the command line here, but a MAGMA executable is on"
                 " PATH, so MAGMA may compute the group without copying commands by hand."

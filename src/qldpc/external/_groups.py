@@ -84,12 +84,13 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
     This function tries a local disk cache, then MAGMA if it can be called from the command line,
     and finally a manual copy/paste workflow.  The manual workflow prints the command, copies it to
     the system clipboard, and reads the pasted output from standard input (blocking, and raising
-    ``EOFError`` if standard input is closed).  If MAGMA fails to finish running the command without
-    reporting an error in it, this function warns and falls back to the manual workflow.
+    ``EOFError`` if standard input is closed).  If MAGMA reports an error, this function raises it.
+    If MAGMA stops for another reason, such as a crash, this function warns and falls back to the
+    manual workflow.
 
     Raises:
-        ValueError: If MAGMA reports an error in the command, or its output does not describe a
-            permutation group.
+        ValueError: If MAGMA reports an error, such as an error in the command, or its output does
+            not describe a permutation group.
     """
     cache_name = "magma_groups"
     cache = qldpc.cache.get_disk_cache(cache_name)
@@ -229,12 +230,12 @@ def _maybe_get_generators_from_groupnames(group: str) -> _GeneratorsList | None:
 def _parse_magma_generators(output: str) -> _GeneratorsList:
     """Parse the generators of a permutation group from MAGMA's description of the group.
 
-    MAGMA lists no generators of a trivial group, for which this function returns the identity.
+    MAGMA prints each generator in cycle notation, starting on a new line, and lists no generators
+    of a trivial group, for which this function returns the identity.
     """
-    # identify permutations in the output, which may wrap lines after commas
-    one_cycle_pattern = r"\((?:\d|,\s+)+\)"
-    permutation_pattern = rf"(?:{one_cycle_pattern})+"
-    permutations = re.findall(permutation_pattern, output, re.DOTALL)
+    # identify the lines that hold only cycles, allowing pasted output to wrap lines after commas
+    cycle_pattern = r"\(\d+(?:,\s+\d+)*\)"
+    permutations = re.findall(rf"^[ \t]*((?:{cycle_pattern})+)[ \t]*$", output, re.MULTILINE)
     if not permutations and re.search(r"^\s*Order = 1\s*$", output, re.MULTILINE):
         permutations = ["()"]
     if not permutations:

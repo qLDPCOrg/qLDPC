@@ -639,10 +639,11 @@ class Group:
         GAP may install the GAP GUAVA package, after asking for consent on standard input, and
         raises the warning warning_to_raise_if_calling_gap, if provided.  A MAGMA group is retrieved
         from a local disk cache if possible, else from MAGMA if MAGMA can be called from the command
-        line, and otherwise by such a manual copy/paste workflow.  If MAGMA fails to finish running
-        the command without reporting an error in it, qLDPC warns and falls back to the manual
-        workflow.  qLDPC runs MAGMA with a fixed random seed and without the user's startup file.
-        Retrieved generators are cached to disk.
+        line, and otherwise by such a manual copy/paste workflow.  qLDPC warns if a ``magma``
+        executable on ``PATH`` fails a test run.  qLDPC runs MAGMA with a fixed
+        random seed and without the user's startup file.  If MAGMA reports an error, qLDPC raises a
+        ValueError.  If MAGMA stops for another reason, such as a crash, qLDPC warns and falls back
+        to the manual workflow.  Retrieved generators are cached to disk.
         """
         from qldpc.external import _groups  # avoid circular import
 
