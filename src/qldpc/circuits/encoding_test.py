@@ -349,6 +349,74 @@ def test_state_stabilizers_with_repeated_reset_measurements(
         assert stabilizers == [stim.PauliString(string) for string in expected]
 
 
+@pytest.mark.parametrize("min_qubits", [0, None])
+def test_state_stabilizers_after_resets(
+    monkeypatch: pytest.MonkeyPatch, min_qubits: int | None
+) -> None:
+    """Find state stabilizers after resets of qubits in eigenstates of other Paulis.
+
+    The comment on each expected stabilizer gives the final state of its qubit.  The circuit has
+    too few qubits for the simulation to replace resets by gates, unless min_qubits is 0.  Then the
+    simulation replaces each reset of qubits 0 to 5 whose outcome would be random, including that of
+    qubit 1 next to the reset of qubit 6, which it keeps since qubit 6 is entangled with qubit 7.
+    Qubits 1 to 4 are in -1 eigenstates before their resets, so their replacements flip them first.
+    The feedback on the result of ``M 2`` checks that the replacement keeps the measurement record.
+    """
+    if min_qubits is not None:
+        monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", min_qubits)
+    circuit = stim.Circuit("""
+        RX 0
+        X 1 2 3 4
+        M 2
+        RY 2
+        CX rec[-1] 9
+        H 3
+        MX 3
+        R 3
+        H_YZ 4
+        RX 4
+        H 5
+        RY 5 5
+        H 6
+        CX 6 7
+        RX 6 1
+        REPEAT 2 {
+            RX 8
+        }
+    """)
+    expected = [
+        "+X_________",  # |+>
+        "+_X________",  # |+>
+        "+__Y_______",  # |+i>
+        "+____X_____",  # |+>
+        "+_____Y____",  # |+i>
+        "+______X___",  # |+>, while qubit 7 is in |0> or |1> at random
+        "+________X_",  # |+>
+        "+___Z______",  # |0>
+        "-_________Z",  # |1>
+    ]
+    stabilizers = circuits.get_state_stabilizers(circuit, 10)
+    assert stabilizers == [stim.PauliString(string) for string in expected]
+
+
+def test_cheap_resets_on_large_circuits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace resets by gates on a circuit with many qubits, but not on one with few qubits."""
+    calls = []
+    do_with_cheap_resets = encoding._do_with_cheap_resets
+
+    def recording_do_with_cheap_resets(
+        simulator: stim.TableauSimulator, circuit: stim.Circuit
+    ) -> None:
+        calls.append(circuit.num_qubits)
+        do_with_cheap_resets(simulator, circuit)
+
+    monkeypatch.setattr(encoding, "_do_with_cheap_resets", recording_do_with_cheap_resets)
+    for num_qubits in [2, 2000]:
+        simulator = encoding._simulate_noiseless_run(stim.Circuit(f"RX {num_qubits - 1}"))
+        assert simulator.peek_x(num_qubits - 1) == 1
+    assert calls == [2000]
+
+
 def test_deprecated_logical_state_stabilizers_argument_order() -> None:
     """The released argument order (state_prep_circuit, code, qubit_ids) warns and still works."""
     code = codes.SteaneCode()
