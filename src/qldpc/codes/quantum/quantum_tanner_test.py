@@ -1604,7 +1604,8 @@ def test_lifted_quantum_tanner_qtcode() -> None:
         quadripartite_code, bipartite_code = qt_codes
 
         # the codes on the two complexes differ, even when they have the same parity checks, as over
-        # D6, where σ exchanges the two components of the quadripartite complex
+        # D6, where σ exchanges the two components of the quadripartite complex over the group that
+        # A and B generate
         assert quadripartite_code != bipartite_code
         if not connected:
             assert np.array_equal(quadripartite_code.matrix, bipartite_code.matrix)

@@ -191,7 +191,7 @@ class QTCode(_SquareComplexCode):
     quadripartite: each vertex has a class (s, t), where multiplying the vertex by a member of A
     flips s, and multiplying it by a member of B flips t.  Vertices of classes (0, 0) and (1, 1)
     have X-type checks.  If bipartite is True, the complex is bipartite: each vertex has a class s,
-    which multiplying the vertex by a member of A or of B flips, and vertices of class 0 have X-type
+    where multiplying the vertex by a member of A or of B flips s.  Vertices of class 0 have X-type
     checks.  The bipartite complex needs A and B to satisfy the Total No Conjugacy condition of
     arXiv:2202.13641, Eq. (1): ``ag != gb`` for all a in A, b in B, and g in the group that A and B
     generate.  QTCode keeps only the component of the complex that contains the identity.  For each
@@ -677,9 +677,9 @@ class QTCode(_SquareComplexCode):
         }
 
         # Indent the data, but put each list of integers, such as a member or a row of a matrix, on
-        # one line.  The pattern matches a bracketed list that holds only digits, commas, and
-        # whitespace, so only the innermost lists of integers.  It cannot match inside a note, since
-        # json.dumps escapes line breaks inside strings.
+        # one line.  The pattern matches a bracketed list that starts with a line break and holds
+        # only digits, commas, and whitespace: an innermost list of integers.  It cannot match inside
+        # a note, since json.dumps escapes line breaks inside strings.
         text = re.sub(
             r"\[\n[\d,\s]*\]",
             lambda match: json.dumps(json.loads(match.group())),
@@ -943,8 +943,9 @@ class LQTCode(_SquareComplexCode):
 
     The group that LQTCode.get_known_permutation_automorphism_group returns includes translations of
     the complex that preserve the local codes.  With the optional pybliss package, it also includes
-    the automorphisms that bliss finds, as for QTCode.  It can omit other symmetries, such as those
-    from automorphisms of G or from exchanging A and B.
+    the automorphisms that bliss finds, as for QTCode.  It can omit other symmetries, such as
+    translations that match repeated members in another order, and symmetries from automorphisms of
+    G or from exchanging A and B.
 
     References:
 
