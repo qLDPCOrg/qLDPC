@@ -3,13 +3,51 @@
 """Module for communicating with the GAP computer algebra system.
 
 See https://www.gap-system.org.
+
+qLDPC runs GAP in process through ``passagemath-gap`` when that package is installed.  Otherwise,
+qLDPC runs GAP as a separate program.  It also does so after :func:`require_package` fails to
+install a GAP package through ``passagemath-gap`` and the package is available to the separate
+program, either already or after qLDPC installs it there, until the Python session ends or
+:func:`clear_cache` is called.
+
+qLDPC starts the separate program with a *launch command*: the value of the environment variable
+``QLDPC_GAP_COMMAND``, or ``gap`` if that variable is unset or blank.  For example, to use a GAP
+executable that is not on ``PATH``, set ``QLDPC_GAP_COMMAND`` to the executable's full path.  If the
+path contains spaces, the value of ``QLDPC_GAP_COMMAND`` must itself contain double quotes around
+the path.  If your shell removes double quotes, as bash does, quote or escape them.  In a running
+Python session, call :func:`clear_cache` after changing ``QLDPC_GAP_COMMAND``.
+
+qLDPC splits the launch command into arguments at whitespace outside double quotes, and removes the
+double quotes.  Backslashes have no special meaning, so Windows paths need no escaping.  An
+unmatched double quote raises a ``ValueError``.
+
+qLDPC runs the launch command as a new process, directly rather than through a shell, and appends
+options for GAP to its arguments.  If the launch command starts a wrapper, such as a script, rather
+than GAP itself, the wrapper must pass the options that qLDPC appends on to GAP.  Two of these
+options have further requirements:
+
+* ``-l ;DIR`` adds the directory ``DIR``, in qLDPC's user cache directory, to GAP's root
+  directories, and GAP looks for packages in the ``pkg`` subdirectories of its root directories.
+  qLDPC installs missing GAP packages in ``DIR/pkg``.  qLDPC writes ``DIR`` as a path on the system
+  where Python runs, so GAP finds these packages only if it can open that path as written.  For
+  example, if Python runs on Windows, GAP in the Windows Subsystem for Linux cannot open a Windows
+  path, such as one that starts with ``C:``.
+* ``-c CODE`` gives GAP the code to run.  Calls to :func:`get_output` with ``use_pipe=True``, such
+  as those that bound distances with QDistRnd, instead send the code to the standard input of the
+  process, so a wrapper must also pass its standard input on to GAP.
+
+qLDPC reads GAP's results from the standard output of the process, and raises a :class:`GAPError` if
+the process exits with a nonzero code or writes anything to standard error.  So a wrapper must write
+nothing of its own to either stream.
 """
 
 from __future__ import annotations
 
 import functools
 import importlib
+import os
 import re
+import shlex
 import subprocess
 from collections.abc import Callable, Sequence
 from typing import Protocol
@@ -33,6 +71,8 @@ class _LibGap(Protocol):
         """Return a callable GAP function."""
 
 
+_COMMAND_VARIABLE = "QLDPC_GAP_COMMAND"
+
 _libgap_packages: dict[str, tuple[str, str | None]] = {}
 _subprocess_packages: set[str] = set()
 
@@ -52,10 +92,11 @@ end, [])"""
 
 @functools.cache
 def is_callable() -> bool:
-    """Can we call GAP 4, directly through libgap or from the command line?
+    """Can we call GAP 4, in process through libgap or as a separate program?
 
     Unlike :func:`is_installed`, this check never prompts for input, so it is safe to use for
-    automatic backend selection and fallbacks.
+    automatic backend selection and fallbacks.  If ``passagemath-gap`` is not available, it raises a
+    ``ValueError`` when it cannot parse ``QLDPC_GAP_COMMAND``.
     """
     return _get_libgap() is not None or _is_gap_executable()
 
@@ -64,14 +105,22 @@ def is_callable() -> bool:
 def is_installed() -> bool:
     """Is GAP 4 available?
 
-    When neither libgap nor the command-line program is available, this function prompts on standard
-    input, so it blocks in a non-interactive context (and raises ``EOFError`` if standard input is
-    closed).  Use :func:`is_callable` for a check that never prompts.
+    When GAP can run neither through libgap nor as a separate program, this function prompts on
+    standard input, so it blocks in a non-interactive context (and raises ``EOFError`` if standard
+    input is closed).  It then returns True if the user agrees to copy GAP code and output between
+    Python and GAP manually.  Use :func:`is_callable` for a check that never prompts.  If
+    ``passagemath-gap`` is not available, this function raises a ``ValueError`` when it cannot parse
+    ``QLDPC_GAP_COMMAND``.
     """
     if is_callable():
         return True
-    print("GAP 4 cannot be called from the command line (with 'gap').")
-    print("Can you manually copy/paste commands and outputs between here and GAP? [y/N]")
+    print(
+        "GAP 4 cannot be called: passagemath-gap is not available, and this launch command does not"
+        " run GAP 4:"
+    )
+    print(f"    {_get_command_line()}")
+    print(f"To change this launch command, set {_COMMAND_VARIABLE}; see help(qldpc.external.gap).")
+    print("Can you manually copy/paste GAP code and output between here and GAP? [y/N]")
     answer = input().lower()
     return answer == "y" or answer == "yes"
 
@@ -80,17 +129,20 @@ def get_output(*commands: str, use_pipe: bool = False) -> str:
     """Get the output from the given GAP commands.
 
     When ``passagemath-gap`` is installed, this function evaluates commands through its in-process
-    libgap binding.  Otherwise, when GAP is callable, it runs the commands in a subprocess.
-    Finally, it falls back to a manual workflow that prints the commands, copies them to the system
-    clipboard, and reads the pasted output from standard input (blocking, and raising ``EOFError``
-    if standard input is closed), caching the result to disk.  Once :func:`require_package` has
-    fallen back from libgap to the GAP executable, every later call in the process uses the
-    executable.
+    libgap binding.  Otherwise, when GAP is callable, it runs the commands in GAP as a separate
+    program, which it starts as the module docstring describes.  Finally, it falls back to a manual
+    workflow that prints the commands, copies them to the system clipboard, and reads the pasted
+    output from standard input (blocking, and raising ``EOFError`` if standard input is closed),
+    caching the result to disk.  Once :func:`require_package` has fallen back from libgap to the
+    separate program, every later call uses that program until :func:`clear_cache` is called.
 
     Raises:
-        FileNotFoundError: If GAP 4 is not installed.
+        FileNotFoundError: If GAP 4 cannot run, and the user declines to copy GAP code and output
+            manually.
         GAPError: If GAP reports an error: through libgap, or with a nonzero exit code or output on
-            standard error from the GAP executable.
+            standard error from the separate program.
+        ValueError: If GAP must run as a separate program, but ``QLDPC_GAP_COMMAND`` cannot be
+            parsed.
     """
     if not is_installed():
         raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
@@ -155,16 +207,16 @@ def require_package(name: str, repo: str | None = None) -> bool:
 
     With the direct libgap backend, this checks the package through GAP.  A missing package prompts
     on standard input and, with the user's consent, is installed through GAP's PackageManager into
-    the user package directory visible to libgap.  If that installation fails but a GAP executable
-    is available, qLDPC prints instructions for installing the package for libgap before falling
-    back to the executable backend.  With the executable backend, qLDPC installs a missing package
-    by cloning its repository into the ``gap/pkg`` subdirectory of qLDPC's user cache directory
-    (see :func:`qldpc.cache.get_disk_cache_path`), which qLDPC adds to the GAP root directories.
+    the user package directory visible to libgap.  If that installation fails but GAP can run as a
+    separate program, qLDPC prints instructions for installing the package for libgap before falling
+    back to the separate program.  With the separate program, qLDPC installs a missing package by
+    cloning its repository into the ``gap/pkg`` subdirectory of qLDPC's user cache directory (see
+    :func:`qldpc.cache.get_disk_cache_path`), which qLDPC adds to the GAP root directories.
 
     Args:
         name: The GAP package name.
         repo: The package repository to install, if necessary.  With libgap, this is passed to GAP's
-            PackageManager; with the executable backend, it is cloned with Git.  Defaults to the
+            PackageManager; with the separate program, it is cloned with Git.  Defaults to the
             package name for PackageManager or f"https://github.com/gap-packages/{name}" for Git.
 
     Raises:
@@ -193,7 +245,7 @@ def require_package(name: str, repo: str | None = None) -> bool:
             if not _is_gap_executable():
                 raise
             print(error)
-            print("Falling back to the GAP executable for this package.")
+            print("Falling back to running GAP as a separate program.")
         else:
             _libgap_packages[name.lower()] = (name, repo)
             return installed
@@ -233,7 +285,8 @@ def clear_cache() -> None:
     """Forget which GAP backends and packages are available, so that later calls check again.
 
     Call this function after installing or removing GAP or a GAP package in a running Python
-    session, or after declining a prompt that asks whether GAP is available.
+    session, after changing ``QLDPC_GAP_COMMAND``, or after declining a prompt that asks whether GAP
+    is available.
     """
     for function in (is_callable, is_installed, _is_gap_executable, require_package):
         function.cache_clear()
@@ -258,13 +311,36 @@ def _get_libgap() -> _LibGap | None:
     return getattr(module, "libgap", None)
 
 
+def _get_command_line() -> str:
+    """Return the launch command of GAP, which the module docstring defines, as one string."""
+    return os.environ.get(_COMMAND_VARIABLE, "").strip() or "gap"
+
+
+def _get_command() -> list[str]:
+    """Split the launch command of GAP into arguments, as the module docstring describes."""
+    value = _get_command_line()
+    lexer = shlex.shlex(value, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.escape = ""
+    lexer.quotes = '"'
+    try:
+        return list(lexer)
+    except ValueError as error:
+        raise ValueError(f"Cannot parse {_COMMAND_VARIABLE}={value!r}: {error}") from error
+
+
 @functools.cache
 def _is_gap_executable() -> bool:
     """Can the GAP executable be used for package installation and evaluation?"""
-    commands = ["gap", "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
+    commands = [*_get_command(), "-q", "-c", r'Print(GAPInfo.Version, "\n");; QUIT;;']
     try:
-        result = subprocess.run(commands, capture_output=True, text=True, check=False)
-    except FileNotFoundError:
+        # GAP gets empty standard input, so it exits even if the program that the launch command
+        # starts ignores -c and starts an interactive GAP session.
+        result = subprocess.run(
+            commands, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False
+        )
+    except OSError:  # such as a missing program, or one that the system cannot run
         return False
     return bool(re.match(r"4\.\d+\.\d+", result.stdout.strip()))
 
@@ -327,7 +403,7 @@ def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> s
     commands = _sanitize_commands(commands)
     gap_root = qldpc.cache.get_disk_cache_path("gap")  # for packages that qLDPC installs
     shell_commands = [
-        "gap",
+        *_get_command(),
         "-l",
         f";{gap_root}",
         "-q",
@@ -336,7 +412,7 @@ def _get_output_subprocess(commands: Sequence[str], use_pipe: bool = False) -> s
     script_input = " ".join(commands)
     if not use_pipe:
         shell_commands.extend(["-c", script_input])
-        pipe_input = None
+        pipe_input = ""
     else:
         pipe_input = script_input
     result = subprocess.run(
