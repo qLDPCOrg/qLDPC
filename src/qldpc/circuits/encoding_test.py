@@ -364,15 +364,20 @@ def test_state_stabilizers_with_repeated_reset_measurements(
         ("X 0\nH_YZ 0", "R", "+Z"),
         ("H_YZ 0", "RX", "+X"),
         ("X 0\nH_YZ 0", "RX", "+X"),
+        ("X 0", "R", "+Z"),
+        ("X 0\nH 0", "RX", "+X"),
+        ("X 0\nH_YZ 0", "RY", "+Y"),
     ],
 )
 def test_state_stabilizers_after_replaced_resets(
     monkeypatch: pytest.MonkeyPatch, preparation: str, reset: str, expected: str
 ) -> None:
-    """Replace by gates the reset of a qubit in each eigenstate of another Pauli.
+    """Reset a qubit in an eigenstate of a single-qubit Pauli, with the simulation stepping.
 
     The preparation puts the qubit in the +1 or -1 eigenstate of Z, X, or Y, since H_YZ maps Z to
-    Y.  The simulation replaces resets by gates on every circuit when its threshold is 0.
+    Y.  The simulation steps through every circuit when its threshold is 0.  It replaces a reset of
+    a qubit in an eigenstate of another Pauli by gates, and keeps a reset of a qubit in the -1
+    eigenstate of the reset's Pauli, which must still prepare the +1 eigenstate.
     """
     monkeypatch.setattr(encoding, "_MIN_QUBITS_FOR_CHEAP_RESETS", 0)
     circuit = stim.Circuit(f"{preparation}\n{reset} 0")
