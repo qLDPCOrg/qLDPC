@@ -188,14 +188,15 @@ class QTCode(_SquareComplexCode):
 
     The qudits of the code are the faces of the left-right Cayley complex of A and B, whose vertices
     are members of a cover of G (see help(qldpc.objects.CayleyComplex)).  By default, the complex is
-    quadripartite: each vertex has a class (s, t), multiplying it by a member of A flips s,
-    multiplying it by a member of B flips t, and vertices of classes (0, 0) and (1, 1) have X-type
-    checks.  If bipartite is True, the complex is bipartite: each vertex has a class s, multiplying
-    it by a member of A or of B flips s, and vertices of class 0 have X-type checks.  The bipartite
-    complex needs A and B to satisfy the Total No Conjugacy condition of arXiv:2202.13641, Eq. (1):
-    ``ag != gb`` for all g in G, a in A, and b in B.  QTCode keeps only the component of the complex
-    that contains the identity.  For each vertex g with X-type checks, a in A, and b in B, the
-    complex has a face ``f(g,a,b) = {g, ag, gb, agb}``, whose corners ag and gb have Z-type checks::
+    quadripartite: each vertex has a class (s, t), where multiplying the vertex by a member of A
+    flips s, and multiplying it by a member of B flips t.  Vertices of classes (0, 0) and (1, 1)
+    have X-type checks.  If bipartite is True, the complex is bipartite: each vertex has a class s,
+    which multiplying the vertex by a member of A or of B flips, and vertices of class 0 have X-type
+    checks.  The bipartite complex needs A and B to satisfy the Total No Conjugacy condition of
+    arXiv:2202.13641, Eq. (1): ``ag != gb`` for all a in A, b in B, and g in the group that A and B
+    generate.  QTCode keeps only the component of the complex that contains the identity.  For each
+    vertex g with X-type checks, a in A, and b in B, the complex has a face
+    ``f(g,a,b) = {g, ag, gb, agb}``, whose corners ag and gb have Z-type checks::
 
          g ―――――――――― gb
 
@@ -676,9 +677,9 @@ class QTCode(_SquareComplexCode):
         }
 
         # Indent the data, but put each list of integers, such as a member or a row of a matrix, on
-        # one line.  The pattern needs a line break right after the bracket, which json.dumps writes
-        # only between the elements of a list, since it escapes line breaks inside strings, so it
-        # matches only the innermost lists of integers.
+        # one line.  The pattern matches a bracketed list that holds only digits, commas, and
+        # whitespace, so only the innermost lists of integers.  It cannot match inside a note, since
+        # json.dumps escapes line breaks inside strings.
         text = re.sub(
             r"\[\n[\d,\s]*\]",
             lambda match: json.dumps(json.loads(match.group())),
@@ -756,12 +757,15 @@ class QTCode(_SquareComplexCode):
             )
 
         def to_members(rows: list[list[int]]) -> set[abstract.GroupMember]:
-            """The members of a subset, whose rows must be distinct and in increasing order."""
+            """The members of a subset.
+
+            They must be distinct and in increasing order when written on a common number of points.
+            """
             members = [abstract.GroupMember(row) for row in rows]
             size = max((member.size for member in members), default=0)
             resized = [_get_member_on_points(member, size) for member in members]
             if resized != sorted(set(resized)):
-                raise ValueError("The members of a subset are not distinct and in increasing order")
+                raise ValueError("The members of a subset repeat or are not in increasing order")
             return set(members)
 
         def to_matrices(
@@ -882,8 +886,8 @@ class LQTCode(_SquareComplexCode):
     - ordered lists ``A = (a_0, ..., a_{m-1})`` and ``B = (b_0, ..., b_{n-1})`` of members of G,
       whose members may repeat and need not be symmetric, and which may be longer than G or empty;
       and
-    - classical local codes C_A^0 and C_A^1 of length m, and C_B^0 and C_B^1 of length n, over one
-      finite field.
+    - classical local codes C_A^0 and C_A^1 (code_a0 and code_a1) of length m, and C_B^0 and C_B^1
+      (code_b0 and code_b1) of length n, over one finite field.
 
     The code is built on a quadripartite square complex, whose vertices are the triples (g, s, t) in
     G x {0,1} x {0,1}, where (s, t) is the class of a vertex.  The squares of the complex are the
@@ -918,9 +922,9 @@ class LQTCode(_SquareComplexCode):
     permutation of positions in A that maps each member to its inverse, let ``C∘ι_A`` be the code
     whose coordinate i is coordinate ι_A(i) of a code C, and likewise for B.  Then the quadripartite
     ``QTCode(A, B, C_A, C_B)`` has the qudits, up to their order, and the stabilizer group of
-    ``LQTCode(G, A, B, C_A, C_B, code_a1=C_A∘ι_A, code_b1=C_B∘ι_B)`` (arXiv:2512.20532, Sec. 1)
-    restricted to the component K of its complex that contains (e, 0, 0).  The face ``f(g,a_i,b_j)``
-    of this QTCode for a vertex g of class (0, 0) is the square (i, j, g).  The bipartite
+    ``LQTCode(G, A, B, C_A, C_B, code_a1=C_A∘ι_A, code_b1=C_B∘ι_B)`` restricted to the component K
+    of its complex that contains (e, 0, 0) (arXiv:2512.20532, Sec. 1).  The face ``f(g,a_i,b_j)`` of
+    this QTCode for a vertex g of class (0, 0) is the square (i, j, g).  The bipartite
     ``QTCode(A, B, C_A, C_B, bipartite=True)`` has the qudits, up to their order, and the stabilizer
     group of the quotient of this LQTCode by the involution ``σ: (g, s, t) -> (g, 1-s, 1-t)`` of its
     complex, restricted to the image of K.  If σ does not map K onto itself, the two QTCodes have
@@ -938,9 +942,9 @@ class LQTCode(_SquareComplexCode):
     "min_weight" picks can depend on the order of coordinates.
 
     The group that LQTCode.get_known_permutation_automorphism_group returns includes translations of
-    the complex that preserve the local codes, matching repeated members in order.  With the
-    optional pybliss package, it also includes the automorphisms that bliss finds, as for QTCode.
-    It can omit other symmetries, such as those from automorphisms of G or from exchanging A and B.
+    the complex that preserve the local codes.  With the optional pybliss package, it also includes
+    the automorphisms that bliss finds, as for QTCode.  It can omit other symmetries, such as those
+    from automorphisms of G or from exchanging A and B.
 
     References:
 
@@ -1245,7 +1249,7 @@ class LQTCode(_SquareComplexCode):
         permutations that match repeated members in other orders, that come from automorphisms of G,
         that exchange A and B, or that preserve the stabilizer group but not each local check space.
         They also omit permutations that exchange classes of vertices, such as the involution σ of
-        the quadripartite complex of a QTCode (see LQTCode).
+        the complex (see LQTCode).
         """
         group_members = self._members_of_group
         positions = {member: position for position, member in enumerate(group_members)}
