@@ -44,7 +44,7 @@ samples reflect this sampler, rather than the fractions of pairs of symmetric su
 these parameters.  Second, different seeds can draw the same subsets, and thereby the same code.
 
 The script upper-bounds the code distances by minimizing over --num-trials randomized trials, and
-saves each code with its parameters to a text file in the "codes" subdirectory of --results-dir (by
+saves each code with its parameters to a JSON file in the "codes" subdirectory of --results-dir (by
 default, results/codes in this directory).  Codes that already have a saved file are skipped unless
 --overwrite is passed, even if that file used a different --num-trials, so an interrupted search
 resumes where it left off.
@@ -301,7 +301,7 @@ def run_and_save(
     codes_dir: pathlib.Path,
     overwrite: bool,
 ) -> None:
-    """Construct a quantum Tanner code, compute its parameters, and save it to a text file.
+    """Construct a quantum Tanner code, compute its parameters, and save it to a JSON file.
 
     Skips a code that already has a saved file, unless overwrite is True.  The subsets of the code
     are deterministic (see saved_codes.CodeSpec.build), so rerunning this function with the same
@@ -345,7 +345,7 @@ def run_and_save(
     # Save the code to a temporary file first, and then move it into place, so that an interrupted
     # job leaves no partial file that a resumed search would mistake for a finished code.
     temp_path = path.with_name(path.name + ".tmp")
-    code.save(str(temp_path), *saved_codes.get_code_header(num_trials, code_params, weight))
+    code.save_json(str(temp_path), *saved_codes.get_code_header(num_trials, code_params, weight))
     temp_path.replace(path)
 
     print(f" ({job_id}) (n, k, d) = {code_params}, stabilizer weight = {weight}")

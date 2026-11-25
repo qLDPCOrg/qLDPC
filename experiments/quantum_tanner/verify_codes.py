@@ -5,8 +5,8 @@
 
 This script regenerates every code saved by run_search.py from the specification and sample in its
 file name, and checks that the regenerated code equals the saved code.  It reports every code that
-fails this check, cannot be loaded or regenerated, or was saved before the search built
-minimum-weight local checks, and exits with an error if there are any.
+fails this check, cannot be loaded or regenerated, or records other local checks than the
+minimum-weight local checks of the search, and exits with an error if there are any.
 
 Example:
     python experiments/quantum_tanner/verify_codes.py
@@ -64,27 +64,20 @@ def get_verification_problem(path: pathlib.Path) -> str | None:
     """Say why a saved quantum Tanner code fails verification, or return None if it passes.
 
     A saved code passes if it can be loaded, if it records the minimum-weight local checks of the
-    search, and if regenerating it from its specification and sample reproduces it.  Files saved
-    before the search built minimum-weight local checks record no choice of local checks, and their
-    headers record the weights of other checks.
+    search, and if regenerating it from its specification and sample reproduces it.
     """
     # load the saved code, which fails if its file is truncated or malformed
     try:
-        saved_code = codes.QTCode.load(str(path))
-    except (IndexError, SyntaxError, ValueError) as error:
+        saved_code = codes.QTCode.load_json(str(path))
+    except ValueError as error:
         return f"Saved code cannot be loaded ({error!r})"
 
-    # the stabilizer weight in the header of the file belongs to the checks that the file records
-    choice = saved_codes.read_sections(path).get("local checks")
-    if choice is None:
+    # the stabilizer weight in the notes of the file belongs to the checks that the file records
+    choice = saved_codes.read_code_data(path)["local_checks"]
+    if choice != "min_weight":
         return (
-            "Saved code records no choice of local checks, so an earlier search saved it, and the"
-            " weights in its header belong to row-reduced parity checks"
-        )
-    if choice != ["min_weight"]:
-        return (
-            f"Saved code records the local checks {choice}, not ['min_weight'], so the weights in"
-            " its header belong to other parity checks"
+            f"Saved code records the local checks {choice!r}, not 'min_weight', so the weights in"
+            " its notes belong to other parity checks"
         )
 
     # regenerate the code from its file name, and compare
