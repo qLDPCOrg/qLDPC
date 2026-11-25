@@ -1490,21 +1490,21 @@ def test_batches_have_a_word_for_every_64_output_qubits() -> None:
     assert failure is not None and failure.fault_indices == (0,)
     assert failure.bound.lower_bound == 2 and syndrome_of(failure.bound.representative) == 2**64 + 3
 
-    # On the CSS state with stabilizers X on qubit 0, Z on qubits 2 and 64, X on qubits 1, 2, and
-    # 64, Z on each qubit j from 3 to 63, and X on qubit 1, the lightest errors with the syndrome
-    # 2**64 + 1 weigh three, and their Z parts flip bits in both words.  With a primitive fault of
-    # zero syndrome, a primitive fault with this syndrome forms a violating fault of fault weight
-    # two.
+    # On |+...+>, with the stabilizers X on qubits 0 and 1, X on qubit 64, X on each qubit j from 2
+    # to 63, and X on qubits 0 and 64, Z on qubit 0 has the syndrome 2**64 + 1, and the only Z
+    # error with the syndrome 2 acts on qubits 0, 1, and 64, so the errors with it weigh three.
+    # With a primitive fault of zero syndrome, a primitive fault with the syndrome 2 forms a
+    # violating fault of fault weight two.
     stabilizers = np.zeros((65, 130), dtype=np.uint8)
-    stabilizers[[0, 2, 2, 2, 64], [0, 1, 2, 64, 1]] = 1
-    stabilizers[[1, 1], [67, 129]] = 1
-    stabilizers[range(3, 64), range(68, 129)] = 1
-    rows = _fault_search._hashed_rows([2**64 + 1], 2)
-    fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers, True)
-    assert syndrome_of(fixed_errors[0]) == 2**64 + 1
-    failure = _fault_search.find_smallest_violation([1, 1], [2**64 + 1, 0], stabilizers, None, True)
+    stabilizers[[0, 0, 1, 64, 64], [0, 1, 64, 0, 64]] = 1
+    stabilizers[range(2, 64), range(2, 64)] = 1
+    fixed_errors = _fault_search._get_fixed_errors(
+        _fault_search._hashed_rows([2, 2**64 + 1], 2), stabilizers, True
+    )
+    assert [syndrome_of(error) for error in fixed_errors] == [2, 2**64 + 1]
+    failure = _fault_search.find_smallest_violation([1, 1], [2, 0], stabilizers, None, True)
     assert failure is not None and failure.fault_indices == (0, 1)
-    assert failure.bound.lower_bound == 3 and syndrome_of(failure.bound.representative) == 2**64 + 1
+    assert failure.bound.lower_bound == 3 and syndrome_of(failure.bound.representative) == 2
 
 
 def test_failures_report_the_smallest_faults() -> None:
