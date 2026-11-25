@@ -450,6 +450,14 @@ On bivariate bicycle and quantum Tanner codes, a run cost about as much as 3 to 
 A run costs more for `e` of 1 or 2 because it must find the other variables that could complete the support.
 To find them, it visits every available variable that shares a check with an available variable of an unsatisfied check.
 So these estimates indicate that even an ideal gate would save little time on these codes.
+A cheaper run of the bound was also tried.
+The residue of a vector modulo the span of the columns of the available variables of the unsatisfied checks is linear in the vector.
+So after the elimination, the run gave each check a 64-bit hash of its residue, and it then found the hash of the residue of any other variable with one lookup for each of its checks, and matched pairs of other variables in a hash table.
+A hash collision can only keep a state, so such a run prunes only states that the bound prunes.
+The run could also replace the unsatisfied checks by some whose available variables are pairwise disjoint, as the bound `b2` of [Section 3.4](#34-pruning) does, whenever this made `e` smaller.
+A run still cost about 10 to 20 states, mostly for the elimination and for finding the other variables.
+No search tried took less time than without the bound, whether it ran the bound at every state with `e` up to 2 or only where `W - s` reached a threshold.
+On the [[360,12,24]] bivariate bicycle code, the bound at every such state left about 11 times fewer states, but the search took about 1.3 times as long.
 
 **Forbidding the only available symbol of a satisfied check.**
 A completion holds an even number of the symbols that flip a check that the support satisfies.
