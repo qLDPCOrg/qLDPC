@@ -942,10 +942,10 @@ class LQTCode(_SquareComplexCode):
     "min_weight" picks can depend on the order of coordinates.
 
     The group that LQTCode.get_known_permutation_automorphism_group returns includes translations of
-    the complex that preserve the local codes, matching repeated members in order.  With the
-    optional pybliss package, it also includes the automorphisms that bliss finds, as for QTCode.
-    It can omit other symmetries, such as translations that match repeated members in other orders,
-    and symmetries from automorphisms of G or from exchanging A and B.
+    the complex that preserve the local codes and match repeated members of A and B in order.  With
+    the optional pybliss package, it also includes the automorphisms that bliss finds, as for
+    QTCode.  It can omit other symmetries, such as translations that match repeated members in other
+    orders, and symmetries from automorphisms of G or from exchanging A and B.
 
     References:
 

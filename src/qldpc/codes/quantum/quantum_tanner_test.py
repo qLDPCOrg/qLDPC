@@ -54,8 +54,8 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="different fields"):
         codes.QTCode(subset_a, subset_a, code_a, code_b)
 
-    # saving and loading QTCodes on both complexes, with notes that are kept as written, creating a
-    # missing directory and overwriting an existing file
+    # saving and loading QTCodes on both complexes, creating a missing directory, overwriting an
+    # existing file, and keeping notes as written, even one that looks like a list of integers
     cycle = abstract.GroupMember([1, 2, 0])
     swaps = [abstract.GroupMember(image) for image in [[1, 0, 2], [2, 1, 0], [0, 2, 1]]]
     bipartite_code = codes.QTCode([cycle, ~cycle], swaps, [[1, 1]], [[1, 1, 1]], bipartite=True)
