@@ -9,8 +9,6 @@ must keep the requirements on threads of its Section 5.
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 import numpy.typing as npt
 
@@ -29,8 +27,24 @@ from .._code_matrices import swap_pauli_halves
 from .._cosets import get_unit_syndrome_words, tabulate_singles, xor_selected, xor_selected_rows
 from .._tuning import MAX_VALUE
 from ..min_weight_bounds import MinWeightBound
-from .search import SupportSearch, _get_fixed_words, _search_supports
+from .search import SupportSearch, _CutTables, _get_fixed_words, _search_supports
 from .sparse_checks import get_sparser_rows
+
+# The tables of the compiled batch queries: the packed columns of the map of syndromes to the
+# sparser checks, then the tables of their search that ``_search_supports`` reads, in its order,
+# with those of the checks and of the cuts each a tuple.  They are a plain tuple, whose type Numba
+# infers faster than that of a record at each call.
+_BatchTables = tuple[
+    npt.NDArray[np.uint64],
+    tuple[
+        npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.uint64], npt.NDArray[np.uint64]
+    ],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    tuple[int, ...],
+    bool,
+    _CutTables,
+]
 
 ####################################################################################################
 # coset searches
@@ -189,17 +203,8 @@ class ConnectedClusterCosetSearch:
             ``get_min_weight_bound`` gives for it; or the number of syndromes and None if there is
             none.
         """
-        syndromes = np.ascontiguousarray(syndromes)
-        tables = self._get_batch_tables()
-
-        def search_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
-            """Search rows in order, up to the first without a light enough word."""
-            index, ends = _find_first_not_within_max_weight(
-                syndromes[start:end], max_weight, max_work, *tables
-            )
-            return start + index + int(ends), bool(ends)
-
-        index = _threads.run_blocks(len(syndromes), num_threads, split_work, lambda: search_rows)
+        floors = np.zeros(len(syndromes), dtype=np.int64)
+        index, _ = self._search_batch(syndromes, max_weight, floors, True, num_threads, split_work)
         if index == len(syndromes):
             return index, None
         return index, self.get_min_weight_bound(words_to_int(syndromes[index]), max_weight)
@@ -227,6 +232,22 @@ class ConnectedClusterCosetSearch:
             So the larger of the floor and this weight is the larger of the floor and the minimum
             weight, up to ``max_weight + 1``.
         """
+        return self._search_batch(syndromes, max_weight, floors, False, num_threads, split_work)[1]
+
+    def _search_batch(
+        self,
+        syndromes: npt.NDArray[np.uint64],
+        max_weight: int,
+        floors: npt.NDArray[np.int64],
+        stop_above_max_weight: bool,
+        num_threads: int,
+        split_work: int,
+    ) -> tuple[int, npt.NDArray[np.int64]]:
+        """Search the blocks of a batch with ``_find_min_weights``, run by ``_threads.run_blocks``.
+
+        Returns:
+            The index that ``_threads.run_blocks`` returns, and the weights that the blocks wrote.
+        """
         syndromes = np.ascontiguousarray(syndromes)
         floors = np.ascontiguousarray(floors)
         weights = np.empty(len(syndromes), dtype=np.int64)
@@ -234,21 +255,22 @@ class ConnectedClusterCosetSearch:
 
         def search_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
             """Search rows in order, and write their weights."""
-            num_done = _find_min_weights(
+            index, ends = _find_min_weights(
                 syndromes[start:end],
                 max_weight,
                 floors[start:end],
                 max_work,
+                stop_above_max_weight,
                 weights[start:end],
-                *tables,
+                tables,
             )
-            return start + num_done, False
+            return start + index + int(ends), bool(ends)
 
-        _threads.run_blocks(len(syndromes), num_threads, split_work, lambda: search_rows)
-        return weights
+        index = _threads.run_blocks(len(syndromes), num_threads, split_work, lambda: search_rows)
+        return index, weights
 
-    def _get_batch_tables(self) -> tuple[Any, ...]:
-        """The arguments of the compiled batch queries from ``map_columns`` on.
+    def _get_batch_tables(self) -> _BatchTables:
+        """The tables that the compiled batch queries read, as a plain tuple (see ``_BatchTables``).
 
         The search adds no sums of pairs of checks, so the syndrome of a query needs no map to them.
         The cuts of queries are tabulated (see ``SupportSearch.find_vector_with_packed_syndrome``).
@@ -257,12 +279,12 @@ class ConnectedClusterCosetSearch:
         assert search._query_cuts is not None
         return (
             self._packed_map_columns,
-            *search._check_tables,
+            search._check_tables[:],
             search._ranks,
             search._inverse_overlaps,
             _get_fixed_words(search._check_tables.symbol_masks.shape[1]),
             search._restrict_viable_symbols,
-            *search._query_cuts,
+            search._query_cuts,
         )
 
     def _get_word(self, symbols: npt.NDArray[np.int64]) -> int:
@@ -286,132 +308,42 @@ class ConnectedClusterCosetSearch:
 
 
 @always_compiled(nogil=True)
-def _find_first_not_within_max_weight(
-    syndromes: npt.NDArray[np.uint64],
-    max_weight: int,
-    max_work: int,
-    map_columns: npt.NDArray[np.uint64],
-    check_starts: npt.NDArray[np.int64],
-    check_symbols: npt.NDArray[np.int64],
-    symbol_masks: npt.NDArray[np.uint64],
-    test_columns: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    inverse_overlaps: npt.NDArray[np.int64],
-    fixed_words: tuple[int, ...],
-    restrict_viable_symbols: bool,
-    cut_symbol_starts: npt.NDArray[np.int64],
-    cut_symbol_entries: npt.NDArray[np.int64],
-    cut_starts: npt.NDArray[np.int64],
-    cut_entries: npt.NDArray[np.int64],
-    cut_capacities: npt.NDArray[np.int64],
-    cut_blocked_symbols: npt.NDArray[np.int64],
-) -> tuple[int, bool]:
-    """Search the coset of each syndrome in turn with ``_get_min_weight``, within a budget of work.
-
-    The arguments from ``map_columns`` on are those of ``_get_min_weight``.  The work of a query is
-    the number of states that its searches visit.  The search stops at the first syndrome whose
-    coset has no word within ``max_weight``, or once the work of this call reaches ``max_work``, or
-    after the last syndrome.  Threads run it at once, so it writes only to arrays that it allocates.
-
-    Returns:
-        If the search found a syndrome whose coset has no word within ``max_weight``, the index of
-        that syndrome and True.  Otherwise the number of syndromes searched and False.
-    """
-    mapped = np.empty(symbol_masks.shape[1], dtype=np.uint64)
-    work = 0
-    for index in range(len(syndromes)):
-        weight, num_states = _get_min_weight(
-            syndromes[index],
-            max_weight,
-            2,
-            mapped,
-            map_columns,
-            check_starts,
-            check_symbols,
-            symbol_masks,
-            test_columns,
-            ranks,
-            inverse_overlaps,
-            fixed_words,
-            restrict_viable_symbols,
-            cut_symbol_starts,
-            cut_symbol_entries,
-            cut_starts,
-            cut_entries,
-            cut_capacities,
-            cut_blocked_symbols,
-        )
-        if weight > max_weight:
-            return index, True
-        work += num_states
-        if work >= max_work:
-            return index + 1, False
-    return len(syndromes), False
-
-
-@always_compiled(nogil=True)
 def _find_min_weights(
     syndromes: npt.NDArray[np.uint64],
     max_weight: int,
     floors: npt.NDArray[np.int64],
     max_work: int,
+    stop_above_max_weight: bool,
     weights: npt.NDArray[np.int64],
-    map_columns: npt.NDArray[np.uint64],
-    check_starts: npt.NDArray[np.int64],
-    check_symbols: npt.NDArray[np.int64],
-    symbol_masks: npt.NDArray[np.uint64],
-    test_columns: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    inverse_overlaps: npt.NDArray[np.int64],
-    fixed_words: tuple[int, ...],
-    restrict_viable_symbols: bool,
-    cut_symbol_starts: npt.NDArray[np.int64],
-    cut_symbol_entries: npt.NDArray[np.int64],
-    cut_starts: npt.NDArray[np.int64],
-    cut_entries: npt.NDArray[np.int64],
-    cut_capacities: npt.NDArray[np.int64],
-    cut_blocked_symbols: npt.NDArray[np.int64],
-) -> int:
-    """Search the coset of each syndrome in turn with ``_get_min_weight``, from its floor.
+    tables: _BatchTables,
+) -> tuple[int, bool]:
+    """Search the coset of each syndrome in turn with ``_get_min_weight``, within a budget of work.
 
-    The arguments are those of ``_find_first_not_within_max_weight``, with the floor of each
-    syndrome in ``floors``, and with ``weights``, into whose entry ``i`` the search writes the
-    weight of syndrome ``i``.  It writes only ``weights`` and arrays that it allocates, so calls
-    that run at once may share every argument but ``weights``.
+    The search of syndrome ``i`` starts from its floor ``floors[i]``, and writes its weight to
+    ``weights[i]``.  The work of a query is the number of states that its searches visit.  The
+    search stops after the last syndrome, or once the work of this call reaches ``max_work``, or, if
+    ``stop_above_max_weight``, at the first syndrome whose coset has no word within ``max_weight``.
+    It writes only ``weights`` and arrays that it allocates, so calls that run at once may share
+    every argument but ``weights``.
 
     Returns:
-        The number of syndromes searched: all of them, or those up to the first at which the work of
-        this call reaches ``max_work``.
+        If the search stopped at a syndrome whose coset has no word within ``max_weight``, the index
+        of that syndrome and True.  Otherwise the number of syndromes searched and False.
     """
-    mapped = np.empty(symbol_masks.shape[1], dtype=np.uint64)
+    # A buffer for the packed syndrome of a query for the sparser checks (see ``_get_min_weight``).
+    mapped = np.empty(tables[0].shape[1], dtype=np.uint64)
     work = 0
     for index in range(len(syndromes)):
         weight, num_states = _get_min_weight(
-            syndromes[index],
-            max_weight,
-            floors[index],
-            mapped,
-            map_columns,
-            check_starts,
-            check_symbols,
-            symbol_masks,
-            test_columns,
-            ranks,
-            inverse_overlaps,
-            fixed_words,
-            restrict_viable_symbols,
-            cut_symbol_starts,
-            cut_symbol_entries,
-            cut_starts,
-            cut_entries,
-            cut_capacities,
-            cut_blocked_symbols,
+            syndromes[index], max_weight, floors[index], mapped, tables
         )
         weights[index] = weight
+        if stop_above_max_weight and weight > max_weight:
+            return index, True
         work += num_states
         if work >= max_work:
-            return index + 1
-    return len(syndromes)
+            return index + 1, False
+    return len(syndromes), False
 
 
 @always_compiled(inline=True)
@@ -420,39 +352,28 @@ def _get_min_weight(
     max_weight: int,
     first_limit: int,
     mapped: npt.NDArray[np.uint64],
-    map_columns: npt.NDArray[np.uint64],
-    check_starts: npt.NDArray[np.int64],
-    check_symbols: npt.NDArray[np.int64],
-    symbol_masks: npt.NDArray[np.uint64],
-    test_columns: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    inverse_overlaps: npt.NDArray[np.int64],
-    fixed_words: tuple[int, ...],
-    restrict_viable_symbols: bool,
-    cut_symbol_starts: npt.NDArray[np.int64],
-    cut_symbol_entries: npt.NDArray[np.int64],
-    cut_starts: npt.NDArray[np.int64],
-    cut_entries: npt.NDArray[np.int64],
-    cut_capacities: npt.NDArray[np.int64],
-    cut_blocked_symbols: npt.NDArray[np.int64],
+    tables: _BatchTables,
 ) -> tuple[int, int]:
     """Find the weight of a word of the coset of a syndrome, by increasing weight limits.
 
-    ``syndrome`` is a packed syndrome of the given checks, and row ``j`` of ``map_columns`` is the
-    packed syndrome for the sparser checks of the word whose given syndrome has only bit ``j`` set
-    (see ``ConnectedClusterCosetSearch``).  The search writes the mapped syndrome to ``mapped``.  It
-    gives the weight zero to the zero syndrome, and one to the syndrome of a symbol, which flips
-    the first check of the syndrome.  Otherwise it tries each weight limit from
-    ``max(2, first_limit)`` through ``max_weight`` with ``_search_supports``, as
+    ``syndrome`` is a packed syndrome of the given checks, and row ``j`` of ``map_columns``, the
+    first of ``tables``, is the packed syndrome for the sparser checks of the word whose given
+    syndrome has only bit ``j`` set (see ``ConnectedClusterCosetSearch``).  The search writes the
+    mapped syndrome to ``mapped``.  It gives the weight zero to the zero syndrome, and one to the
+    syndrome of a symbol, which flips the first check of the syndrome.  Otherwise it tries each
+    weight limit from ``max(2, first_limit)`` through ``max_weight`` with ``_search_supports``, as
     ``SupportSearch.find_vector_with_packed_syndrome`` does, and stops at the first within which it
-    finds a word (Section 3.8 of ``connected_cluster.md``).  The arguments from ``check_starts`` on
-    are those of ``_search_supports``, from the search of the sparser checks.
+    finds a word (Section 3.8 of ``connected_cluster.md``).  The other tables are those of
+    ``_search_supports``, from the search of the sparser checks.
 
     Returns:
         A weight and the number of states that the searches visited.  The weight is the minimum
         weight ``w`` of the coset, or ``max_weight + 1`` if that is smaller, unless ``2 <= w <
         first_limit``, when it is ``first_limit``, which must then be at most ``max_weight``.
     """
+    map_columns, check_tables, ranks, inverse_overlaps, fixed_words, restrict, cuts = tables
+    check_starts, check_symbols, symbol_masks, test_columns = check_tables
+
     # Map the syndrome to the sparser checks.  The map is invertible, so only the zero syndrome maps
     # to zero.
     mapped[:] = 0
@@ -482,6 +403,7 @@ def _get_min_weight(
     no_path = np.empty(0, dtype=np.int64)
     num_states = 0
     for limit in range(max(2, first_limit), max_weight + 1):
+        # Name each table, since star-unpacking the tuples here makes queries a few percent slower.
         support, item_states, _, _, _ = _search_supports(
             check_starts,
             check_symbols,
@@ -499,13 +421,13 @@ def _get_min_weight(
             mapped,
             fixed_words,
             True,
-            restrict_viable_symbols,
-            cut_symbol_starts,
-            cut_symbol_entries,
-            cut_starts,
-            cut_entries,
-            cut_capacities,
-            cut_blocked_symbols,
+            restrict,
+            cuts[0],
+            cuts[1],
+            cuts[2],
+            cuts[3],
+            cuts[4],
+            cuts[5],
         )
         num_states += item_states[0]
         if len(support):

@@ -365,7 +365,7 @@ A query at limit `W` can wander through many heavy supports before it reaches a 
 For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits; [problems.md](problems.md#the-coset-leader-search) gives the floor of its searches by CSS weight, from which a search starts its limits.
 A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` directly, since a caller may already raise `W` one step at a time.
 The queries of these batches mostly visit a few states each, so Python code around each query would take most of the time of a batch.
-So the batch queries of a coset search answer each block of a batch in one compiled call, `_find_first_not_within_max_weight` or `_find_min_weights` of `_connected_cluster/coset.py`, which maps, looks up, and searches each syndrome of the block, and calls `_search_supports` from compiled code.
+So the batch queries of a coset search answer each block of a batch in one call of the compiled loop `_find_min_weights` of `_connected_cluster/coset.py`, which maps, looks up, and searches each syndrome of the block, and calls `_search_supports` from compiled code.
 This makes the batches of `certify_bounded_fault_propagation` about 4 to 8 times faster than answering their queries one at a time from Python.
 For the first syndrome of a batch without a solution within `W`, `find_first_not_within_max_weight` returns the bound of a single query.
 
@@ -577,7 +577,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weight limits on threads: the frontier, work items, replay, claims of one item, ordered commit, and when to split | `_search_on_threads`; `_MAX_ITEMS`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `search_chunk_exponent` and `connected_cluster_split_shift`; `ITEMS_PER_THREAD`, `run_work_items`, and `run_items_until_first` of `_threads.py`; and `num_threads`, `search_chunk_exponent`, and `connected_cluster_split_shift` of `SearchTuning` in `_tuning.py` |
 | Chunks of a weight limit, on one thread and on threads | `_search_in_chunks`, `resume`, `ends`, and `max_states` of `_search_supports`, `chunk_states` of `SupportSearch`, and `search_chunk_exponent` of `SearchTuning` in `_tuning.py` |
-| Batches of syndrome queries on threads | `ConnectedClusterCosetSearch.find_first_not_within_max_weight` and `get_min_weights` in `_connected_cluster/coset.py`, which `CosetLeaderSearch` calls; their compiled loops `_find_first_not_within_max_weight` and `_find_min_weights`, which count the work of each query; and `run_blocks` of `_threads.py` |
+| Batches of syndrome queries on threads | `ConnectedClusterCosetSearch.find_first_not_within_max_weight` and `get_min_weights` in `_connected_cluster/coset.py`, which `CosetLeaderSearch` calls; their compiled loop `_find_min_weights`, which counts the work of each query; and `run_blocks` of `_threads.py` |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off; the test of `b1` that skips a child is in `_search_supports` |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
 | Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `_summed_pairs` of `SupportSearch` and its `find_vector_with_packed_syndrome`, which maps syndromes to them, its `_known_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
@@ -593,7 +593,7 @@ Numba compiles one version of `_search_supports` for each number of 64-bit words
 In each fixed version, the loops over the words have a fixed length.
 The argument `fixed_words`, which `_get_fixed_words` makes, selects the version.
 Threads run `_search_supports` at once, so it is compiled with `nogil=True`, and writes only to arrays that it allocates.
-So are the batch loops `_find_first_not_within_max_weight` and `_find_min_weights` of `_connected_cluster/coset.py`, which call it through the inlined `_get_min_weight`, and which also write the weights of their own rows.
+So is the batch loop `_find_min_weights` of `_connected_cluster/coset.py`, which calls it through the inlined `_get_min_weight`, and which also writes the weights of its own rows.
 
 ## 5. Correctness requirements
 
@@ -636,9 +636,9 @@ Changes to the search can use other bounds and orders, but must keep these requi
     A pruning rule may keep per-state data only if leaving the state undoes it, as `levels` and the loads of the overlap cuts do, and may add checks and known words only as tables built before the search, as the light sums of pairs of checks are ([Section 3.4](#34-pruning)).
     It must not carry memos, learned constraints, or sets of states already seen from one state or root to another, and must keep the depth-first order of the search.
     A change that breaks this, such as a best-first search ([Section 3.10](#310-techniques-not-used)), needs its own way to split a limit across threads.
-  - **Keep `_search_supports`, and the batch loops `_find_first_not_within_max_weight` and `_find_min_weights` of `_connected_cluster/coset.py`, writing only to arrays that they allocate**, and the loops also to the weights of their own rows, but never to the tables of the search, since threads run them without the global interpreter lock.
+  - **Keep `_search_supports`, and the batch loop `_find_min_weights` of `_connected_cluster/coset.py`, writing only to arrays that they allocate**, and the loop also to the weights of its own rows, but never to the tables of the search, since threads run them without the global interpreter lock.
     `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` in `_connected_cluster/search_test.py` runs threads with every array of their search, such as its tables, read-only, and gives each call of `_search_supports` on threads read-only views of its other arrays, such as the roots and paths of work items and the paths and ends of chunks, so that numba rejects a write to one in any branch of compiled code.
-    `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` does the same for batches of coset queries, whose batch loops get read-only views of every array but the weights that they write.
+    `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` does the same for batches of coset queries, whose batch loop gets read-only views of every array but the weights that it writes.
     Both check that the arrays are unchanged.
     Review checks the writes that these tests miss, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
   - **Write shared results only in a thread's own entries, or under a lock.**

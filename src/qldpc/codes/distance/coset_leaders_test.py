@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import inspect
 import itertools
 import threading
 from collections.abc import Sequence
@@ -854,9 +853,8 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
     weight and by CSS weight.  With chunks of one state, a batch moves to threads once its queries
     have visited a state for each thread.  The queries run with every array of their searches
     read-only: the threads of a batch share them, and so do the threads of callers that share a
-    search.  Each call of a compiled batch loop under these read-only tables also gets read-only
-    views of its other arrays, such as the syndromes of its block, apart from the weights that it
-    writes.
+    search.  Each call of the compiled batch loop also gets read-only views of its other arrays but
+    the weights that it writes: the syndromes of its block and their floors.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
@@ -869,31 +867,25 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
         thread_runs += 1
         run_work_items(*args, **kwargs)
 
-    # A call whose tables are read-only gets read-only views of every array but its output, as the
-    # calls on threads of distance searches do in ``_connected_cluster/search_test.py``, so that
-    # numba compiles one read-only version for both, and rejects a write to any array of a query,
-    # including in ``_search_supports``, which the loops call.
-    for name in ("_find_first_not_within_max_weight", "_find_min_weights"):
-        batch_loop = getattr(cluster_coset, name)
-        parameters = list(inspect.signature(batch_loop).parameters)
+    # Every query runs with read-only tables, so each call gets read-only views of its other arrays
+    # but its output too, as the calls on threads of distance searches do in
+    # ``_connected_cluster/search_test.py``.  So numba compiles one read-only version for both, and
+    # rejects a write to any array of a query, including in ``_search_supports``, which the loop
+    # calls.
+    find_min_weights = cluster_coset._find_min_weights
 
-        def search_read_only(
-            *args: Any,
-            batch_loop: Any = batch_loop,
-            masks_index: int = parameters.index("symbol_masks"),
-            output_index: int = parameters.index("weights") if "weights" in parameters else -1,
-        ) -> Any:
-            """Search with read-only views of the array arguments, if the tables are read-only."""
-            if not args[masks_index].flags.writeable:
-                args = tuple(
-                    _get_read_only(arg)
-                    if isinstance(arg, np.ndarray) and index != output_index
-                    else arg
-                    for index, arg in enumerate(args)
-                )
-            return batch_loop(*args)
+    def search_read_only(
+        syndromes: npt.NDArray[np.uint64],
+        max_weight: int,
+        floors: npt.NDArray[np.int64],
+        *args: Any,
+    ) -> Any:
+        """Search with read-only views of the syndromes and their floors."""
+        return find_min_weights(
+            _get_read_only(syndromes), max_weight, _get_read_only(floors), *args
+        )
 
-        monkeypatch.setattr(cluster_coset, name, search_read_only)
+    monkeypatch.setattr(cluster_coset, "_find_min_weights", search_read_only)
     monkeypatch.setattr(_threads, "run_work_items", run_counted)
     for matrix, css_weight in cases:
         num_qubits = len(matrix)
@@ -940,7 +932,7 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
     """
     later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
     run_work_items = _threads.run_work_items
-    find_first = cluster_coset._find_first_not_within_max_weight
+    find_min_weights = cluster_coset._find_min_weights
     minima = get_exhaustive_minima(_THREADED_STATE, False)
     heavy = np.flatnonzero(minima > 2).tolist()
     syndromes = [3, heavy[0]] + [heavy[1 + row % (len(heavy) - 1)] for row in range(30)]
@@ -966,19 +958,19 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
 
         run_work_items(num_items, num_threads, gated_start, **kwargs)
 
-    def gated_find_first(block: npt.NDArray[np.uint64], *args: Any) -> tuple[int, bool]:
+    def gated_search(block: npt.NDArray[np.uint64], *args: Any) -> tuple[int, bool]:
         """Search a block; later ones wait for the first range unless ``later_first``."""
         if not later_first and int(block[0, 0]) not in syndromes[:2]:
             later_started.set()
             assert first_ran.wait(timeout=THREAD_TIMEOUT)
-        return find_first(block, *args)
+        return find_min_weights(block, *args)
 
     batch = split_syndromes_into_words(syndromes, len(_THREADED_STATE))
     with use_tuning(num_threads=1, search_chunk_exponent=0):
         search = CosetLeaderSearch(_THREADED_STATE, method="connected_cluster")
     expected = search.find_first_not_within_max_weight(batch, 2)
     monkeypatch.setattr(_threads, "run_work_items", gated_run)
-    monkeypatch.setattr(cluster_coset, "_find_first_not_within_max_weight", gated_find_first)
+    monkeypatch.setattr(cluster_coset, "_find_min_weights", gated_search)
     with use_tuning(num_threads=2, search_chunk_exponent=0):
         search = CosetLeaderSearch(_THREADED_STATE, method="connected_cluster")
     index, bound = search.find_first_not_within_max_weight(batch, 2)

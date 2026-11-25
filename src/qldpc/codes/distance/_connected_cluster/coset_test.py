@@ -63,7 +63,7 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     but queries, single or in batches, search only the checks themselves (Sections 3.4 and 3.8 of
     ``connected_cluster.md``).
     """
-    batch_check_starts = _record_batch_argument(monkeypatch, "check_starts")
+    batch_tables = _record_batch_argument(monkeypatch, "tables")
     num_checks: list[int] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
@@ -89,7 +89,7 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     assert coset_search.get_min_weight_bound(0b101, 2).within_max_weight
     assert num_checks == [len(coset_search.checks)]
     _run_batches(coset_search, [0b101], 2)
-    assert [len(starts) - 1 for starts in batch_check_starts] == [len(coset_search.checks)] * 2
+    assert [len(tables[1][0]) - 1 for tables in batch_tables] == [len(coset_search.checks)] * 2
 
 
 def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -343,7 +343,7 @@ def test_connected_cluster_batches_match_exhaustive_minima() -> None:
 def _record_batch_argument(monkeypatch: pytest.MonkeyPatch, name: str) -> list[Any]:
     """Record an argument of each call of the compiled batch queries of ``coset``, and run them."""
     values: list[Any] = []
-    for entry_name in ("_find_first_not_within_max_weight", "_find_min_weights"):
+    for entry_name in ("_find_min_weights",):
         entry = getattr(coset, entry_name)
 
         def record(*args: Any, entry: Any = entry) -> Any:
@@ -382,14 +382,9 @@ def _count_batch_states(
 
     def searches_one(max_work: int) -> bool:
         """Whether the batch stops after the first copy within ``max_work``."""
-        if first:
-            num_done, _ = coset._find_first_not_within_max_weight(
-                batch, max_weight, max_work, *tables
-            )
-        else:
-            num_done = coset._find_min_weights(
-                batch, max_weight, floors, max_work, weights, *tables
-            )
+        num_done, _ = coset._find_min_weights(
+            batch, max_weight, floors, max_work, first, weights, tables
+        )
         return bool(num_done == 1)
 
     low, high = 0, 1
