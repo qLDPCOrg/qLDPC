@@ -46,8 +46,10 @@ from .min_weight_bounds import MinWeightBound
 CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
 """The methods of exact searches of coset leaders, such as those of :class:`CosetLeaderSearch`.
 
-- ``"auto"`` (the default): a choice of the methods below.  It takes ``"brouwer_zimmermann"``,
-  whose lower bounds are often higher.  The choice can depend on the version of qLDPC.
+- ``"auto"`` (the default): currently ``"brouwer_zimmermann"``, but this can change between versions
+  of qLDPC.  For searches by physical weight, ``"connected_cluster"`` can be much faster on states
+  whose stabilizer groups have sparse generators, such as encoded states of surface codes.  On other
+  states, it can be much slower.
 - ``"brouwer_zimmermann"``: searches the cosets of binary codes by information sets (see the
   `Brouwer-Zimmermann guide
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
