@@ -322,15 +322,19 @@ def test_get_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
             unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")) as run,
             unittest.mock.patch("qldpc.cache.get_disk_cache_path", return_value="_CACHE_"),
         ):
-            assert external.gap.get_output() == "_TEST_"
-        assert ";_CACHE_" in run.call_args.args[0]
+            assert external.gap.get_output("_CODE_") == "_TEST_"
+        arguments = run.call_args.args[0]
+        assert ";_CACHE_" in arguments
+        assert "_CODE_" in arguments[arguments.index("-c") + 1]
 
-        # GAP is callable, and succeeds with piped input
+        # GAP is callable, and succeeds with the code on standard input instead of in -c
         with (
             unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
-            unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")),
+            unittest.mock.patch("subprocess.run", return_value=get_mock_process("_TEST_")) as run,
         ):
-            assert external.gap.get_output(use_pipe=True) == "_TEST_"
+            assert external.gap.get_output("_CODE_", use_pipe=True) == "_TEST_"
+        assert "-c" not in run.call_args.args[0]
+        assert "_CODE_" in run.call_args.kwargs["input"]
 
         # GAP is not callable, so the user must pass around commands and outputs
         cache: dict[str, str] = {}
@@ -607,7 +611,7 @@ def test_require_package_libgap(capsys: pytest.CaptureFixture[str]) -> None:
     terminal_output, error_message = capsys.readouterr()
     assert not error_message
     assert "sage -gap" in terminal_output
-    assert "Falling back to the GAP executable" in terminal_output
+    assert "Falling back to running GAP as a separate program" in terminal_output
     assert external.gap._subprocess_packages == {"qdistrnd"}
 
     # without a repo, the fallback asks again before cloning the default repo
