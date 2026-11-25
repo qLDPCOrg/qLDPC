@@ -48,9 +48,9 @@ In `qldpc.circuits.encoding_test`, `test_state_stabilizers_after_replaced_resets
 **Migration:**
 
 1. In `get_state_stabilizers`, replace `simulator = _simulate_noiseless_run(circuit)` by `simulator = stim.TableauSimulator()` and `simulator.do(circuit)`.
-2. Delete `_simulate_noiseless_run`, `_do_with_cheap_resets`, `_MIN_QUBITS_FOR_CHEAP_RESETS`, `_RESET_PAULIS`, `_PAULI_FLIPS`, and `_PAULI_SWAPS`.
-3. Delete `test_state_stabilizers_after_replaced_resets` and `test_cheap_resets_on_large_circuits`.
-4. In `test_state_stabilizers_after_resets`, delete the parametrization, the `monkeypatch` and `min_qubits` arguments, and the docstring's sentences about replaced and kept resets.
+2. Delete `_simulate_noiseless_run`, `_do_with_cheap_resets`, `_MIN_QUBITS_FOR_CHEAP_RESETS`, `_RESET_PAULIS`, `_PAULI_FLIPS`, and `_PAULI_SWAPS`, with the comments and markers above them.
+3. Delete `test_state_stabilizers_after_replaced_resets` and `test_cheap_resets_on_large_circuits`, with the markers above them.
+4. In `test_state_stabilizers_after_resets`, delete the marker and parametrization above it, its `monkeypatch` and `min_qubits` arguments, the `if min_qubits is not None:` block that sets `_MIN_QUBITS_FOR_CHEAP_RESETS`, and the docstring's sentences about replaced and kept resets.
    Keep its circuit and expected stabilizers, which check resets after a measurement with feedback, repeated targets, and a REPEAT block.
 5. Delete this section.
 
