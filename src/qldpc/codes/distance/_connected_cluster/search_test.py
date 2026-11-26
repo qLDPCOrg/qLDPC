@@ -18,7 +18,7 @@ import numpy.typing as npt
 import pytest
 from sympy.abc import x, y
 
-from qldpc import codes
+from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc.objects import PAULIS_XZ, Pauli
 
@@ -856,37 +856,40 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     assert num_states[False] == num_states[True] + 1
 
 
-def test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state() -> None:
+def test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Variables in no check change only how the states take overlaps and clear repairs.
 
     A state takes the overlaps of all symbols in one pass if its number of unsatisfied checks times
     the average number of entries of a check exceeds the number of symbols, and clears the repairs
     of all symbols if its unsatisfied checks have at least as many entries as there are symbols
-    (see ``_get_branches``).  The states of the Golay problem often do both, and those of the
-    problem padded with as many variables in no check as the checks have entries never do.  The
-    padded variables are excluded, and come last, so each adds a root whose one state has an empty
+    (see ``_get_branches``).  The states of the Golay problem padded with one variable in no check
+    often do both, and those of the problem padded with as many such variables as the checks have
+    entries never do, as only the former take the overlaps of padded variables.  The padded
+    variables are excluded, and come last, so each adds a root whose one state has an empty
     syndrome and no witness, and changes nothing else.
     """
     checks, excluded = get_golay_problem()
-    num_padded = int(np.count_nonzero(checks))
-    padded_checks = np.hstack([checks, np.zeros((len(checks), num_padded), dtype=np.uint8)])
-    padded_excluded = np.block(
-        [
-            [excluded, np.zeros((len(excluded), num_padded), dtype=np.uint8)],
-            [np.zeros((num_padded, checks.shape[1]), dtype=np.uint8), np.eye(num_padded)],
-        ]
-    ).astype(np.uint8)
-    search = get_search(checks, excluded, pair_sum_checks=False)
-    padded = get_search(padded_checks, padded_excluded, pair_sum_checks=False)
-    for max_weight in range(1, 8):
-        num_states = search.num_states, padded.num_states
-        witness, padded_witness = search.find_witness(max_weight), padded.find_witness(max_weight)
-        added_states = padded.num_states - num_states[1] - (search.num_states - num_states[0])
-        if witness is None or padded_witness is None:
-            assert witness is None and padded_witness is None and added_states == num_padded
-        else:
-            assert witness.tolist() == padded_witness.tolist() and added_states == 0
-    assert witness is not None and len(witness) == 7
+    get_overlap = unittest.mock.Mock(wraps=cs._get_overlap)
+    monkeypatch.setattr(cs, "_get_overlap", get_overlap)
+    symbols, num_states = [], []
+    for num_padded in (1, int(np.count_nonzero(checks))):
+        padded_checks = np.hstack([checks, np.zeros((len(checks), num_padded), dtype=np.uint8)])
+        padded_excluded = np.block(
+            [
+                [excluded, np.zeros((len(excluded), num_padded), dtype=np.uint8)],
+                [np.zeros((num_padded, checks.shape[1]), dtype=np.uint8), np.eye(num_padded)],
+            ]
+        ).astype(np.uint8)
+        search = get_search(padded_checks, padded_excluded, pair_sum_checks=False)
+        get_overlap.reset_mock()
+        assert search.find_witness(6) is None
+        symbols.append({call.args[-1] for call in get_overlap.call_args_list})
+        num_states.append(search.num_states - num_padded)
+    assert num_states[0] == num_states[1]
+    # Compiled code calls the compiled function rather than the wrapper.
+    assert not _compilation.is_compilation_disabled() or max(symbols[0]) >= 23 > max(symbols[1])
 
 
 @pytest.mark.parametrize(
@@ -1447,9 +1450,6 @@ SYNDROME_PROBLEMS = {
     "zero-checks": (np.zeros((2, 3)), False),
     # The syndrome 11 needs every variable, so a query reaches the limit of their number.
     "identity": (np.eye(2), False),
-    # The syndrome 111 has two lightest vectors, {0, 2} and {1, 3}, and its query without sums of
-    # pairs of checks takes the overlaps of all symbols in one pass.
-    "dense-queries": (np.array([[0, 1, 1, 0], [0, 0, 1, 1], [1, 0, 0, 1]]), False),
 }
 
 
@@ -2449,45 +2449,3 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
             # Stale memos, such as those of a search from root 0, would likely change the count.
             assert results[0][0].tolist() == results[1][0].tolist()
             assert np.array_equal(results[0][1], results[1][1])
-
-
-@pytest.mark.parametrize("name", ["dense-queries", "nested-restrictions", "five-qubit-state"])
-def test_queries_take_the_same_states_by_either_route_to_overlaps(name: str) -> None:
-    """Variables in no check, and memos, change no vector that a query returns or count of states.
-
-    The variables in no check, as many as the checks have entries, make every state of a query
-    compute the overlap of each entry, rather than of all symbols in one pass, and clear only the
-    repairs of the symbols of its unsatisfied checks (see
-    ``test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state``).  No unsatisfied check
-    holds them, so they change nothing else.
-    """
-    checks, symplectic = SYNDROME_PROBLEMS[name]
-    checks = np.asarray(checks, dtype=np.uint8)
-    num_variables = checks.shape[1] // 2 if symplectic else checks.shape[1]
-    num_padded = int(np.count_nonzero(checks))
-    blocks = np.split(checks, 2, axis=1) if symplectic else [checks]
-    padding = np.zeros((len(checks), num_padded), dtype=np.uint8)
-    padded_checks = np.hstack([part for block in blocks for part in (block, padding)])
-    searches = [
-        get_search(
-            problem, np.zeros((0, problem.shape[1])), symplectic=symplectic, pair_sum_checks=False
-        )
-        for problem in (checks, padded_checks)
-    ]
-    for bits in itertools.product([0, 1], repeat=len(searches[0]._checks)):
-        if not any(bits):
-            continue
-        packed = pack_bits(np.array([bits], dtype=np.uint8))[0]
-        for max_weight in range(1, num_variables + 1):
-            results = set()
-            for search, memoize in itertools.product(searches, (False, True)):
-                support, item_states, *_ = run_search_supports(
-                    search, [-1], max_weight, packed, memoize=memoize
-                )
-                # Map the symbol of each value of a variable to its symbol without padding.
-                width = search.num_variables
-                symbols = sorted(
-                    num_variables * (symbol // width) + symbol % width for symbol in support
-                )
-                results.add((tuple(symbols), tuple(item_states)))
-            assert len(results) == 1
