@@ -328,12 +328,12 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
     syndromes = [(0b011, 0b101, 0b110)[row % 3] for row in range(34)]
     syndromes[2] = 0b111
     batch = split_syndromes_into_words(syndromes, 3)
-    floors = np.arange(len(syndromes)) % 3
-    weights = coset_search.get_min_weights(batch, 2, floors, num_threads=2, split_work=1)
+    floors = np.arange(len(syndromes)) % 4
+    weights = coset_search.get_min_weights(batch, 3, floors, num_threads=2, split_work=1)
     minima = np.array([syndrome.bit_count() for syndrome in syndromes])
     within = minima <= floors
     assert np.all(weights[within] <= floors[within])
-    assert np.array_equal(weights[~within], np.minimum(minima, 3)[~within])
+    assert np.array_equal(weights[~within], minima[~within])
     index, bound = coset_search.find_first_not_within_max_weight(
         batch, 2, num_threads=2, split_work=1
     )
