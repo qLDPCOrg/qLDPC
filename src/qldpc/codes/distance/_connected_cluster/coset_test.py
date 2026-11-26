@@ -232,9 +232,13 @@ def test_connected_cluster_batch_loop_answers_by_general_tables_within_its_work(
     minimum weight, and a packed syndrome fills exactly one word.  An empty ``fixed_words`` selects
     the version of ``_search_supports`` for any number of words, which wider checks need, and the
     loop must not take its number of words from it.  The batch repeats a syndrome of one bit, so
-    that each query must clear the mapped syndrome of the last.  The loop stops once its work
-    reaches ``max_work``: three queries of the syndrome 3 that visit ``n`` states each stop after
-    two at the work ``2 n``, and leave the weight of the third unwritten.
+    that each query must clear the mapped syndrome of the last.
+
+    The loop stops once its work reaches ``max_work``.  Three queries of the syndrome 3, from the
+    floors 0, 2, and 2, each visit the ``n`` states of a single search at limit two, so they stop
+    after two at the work ``2 n``.  With no work allowed, the loop stops after its first query,
+    though that query looks up its word and visits no states.  Either way, the weights of the
+    queries after the stop stay unwritten.
     """
     coset_search = coset.ConnectedClusterCosetSearch(
         np.eye(64, dtype=np.uint8),
@@ -247,24 +251,54 @@ def test_connected_cluster_batch_loop_answers_by_general_tables_within_its_work(
     tables = coset_search._get_batch_tables()
     syndromes = [1, 1, 3, 1 << 63, (1 << 63) | 1, 0, 7]
     batch = split_syndromes_into_words(syndromes, 64)
-    floors = np.zeros(len(batch), dtype=np.int64)
     minima = np.array([syndrome.bit_count() for syndrome in syndromes])
     for batch_tables in (tables, tables[:4] + ((),) + tables[5:]):
-        for max_weight in (1, 2):
-            weights = np.full(len(batch), -1, dtype=np.int64)
-            assert coset._find_min_weights(
-                batch, max_weight, floors, MAX_VALUE, False, weights, batch_tables
-            ) == (len(batch), False)
-            assert np.array_equal(weights, np.minimum(minima, max_weight + 1))
+        weights = np.full(len(batch), -1, dtype=np.int64)
+        zeros = np.zeros(len(batch), dtype=np.int64)
+        assert coset._find_min_weights(
+            batch, 2, zeros, MAX_VALUE, False, weights, batch_tables
+        ) == (len(batch), False)
+        assert np.array_equal(weights, np.minimum(minima, 3))
 
     num_states = _count_single_states(coset_search, 3, range(2, 3))
     assert num_states
-    batch = split_syndromes_into_words([3, 3, 3], 64)
-    weights = np.full(3, -1, dtype=np.int64)
-    assert coset._find_min_weights(
-        batch, 2, floors[:3], 2 * num_states, False, weights, tables
-    ) == (2, False)
-    assert weights.tolist() == [2, 2, -1]
+    for syndromes, floors, max_work, expected in [
+        ([3, 3, 3], [0, 2, 2], 2 * num_states, [2, 2, -1]),
+        ([0, 1, 3], [0, 0, 0], 0, [0, -1, -1]),
+    ]:
+        weights = np.full(3, -1, dtype=np.int64)
+        num_searched = len(expected) - expected.count(-1)
+        assert coset._find_min_weights(
+            split_syndromes_into_words(syndromes, 64),
+            2,
+            np.array(floors, dtype=np.int64),
+            max_work,
+            False,
+            weights,
+            tables,
+        ) == (num_searched, False)
+        assert weights.tolist() == expected
+
+
+def test_connected_cluster_batches_count_words_of_checks_not_of_variables() -> None:
+    """Batch queries size the syndromes of their searches by the checks, not by the variables.
+
+    The two checks ``[I2 | 0]`` act on the first two of 65 variables, so the bit count of a
+    syndrome is its minimum weight.  A syndrome fills one 64-bit word, and the variables fill two.
+    """
+    checks = np.hstack([np.eye(2, dtype=np.uint8), np.zeros((2, 63), dtype=np.uint8)])
+    coset_search = coset.ConnectedClusterCosetSearch(
+        checks,
+        symplectic=False,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=True,
+    )
+    batch = split_syndromes_into_words([1, 3], 2)
+    assert coset_search.get_min_weights(batch, 2, np.zeros(2, dtype=np.int64)).tolist() == [1, 2]
+    index, bound = coset_search.find_first_not_within_max_weight(batch, 1)
+    assert index == 1 and bound is not None and not bound.within_max_weight
 
 
 @pytest.mark.parametrize("cuts", [True, False])
@@ -426,10 +460,8 @@ def test_connected_cluster_batches_of_two_words_match_block_minima(
         above = np.flatnonzero(minima > max_weight).tolist()
         index, bound = coset_search.find_first_not_within_max_weight(batch, max_weight, **options)
         assert index == (above[0] if above else len(batch))
-        if above:
-            assert bound == coset_search.get_min_weight_bound(syndromes[index], max_weight)
-        else:
-            assert bound is None
+        single = coset_search.get_min_weight_bound(syndromes[index], max_weight) if above else None
+        assert bound == single
 
 
 def test_connected_cluster_batches_match_exhaustive_minima() -> None:
