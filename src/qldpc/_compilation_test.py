@@ -333,11 +333,13 @@ def test_versions_compiled_at_the_same_time_are_loaded_only_for_their_argument_t
 ) -> None:
     """A version compiled for some argument types is never loaded for others.
 
-    The docstring of ``_compilation`` explains how processes that compile a function at once can
-    leave numba's index pointing at code compiled for other argument types.  Without the check of
-    keys, a later process here would run code compiled for F-ordered arrays on a C-ordered array and
-    return a wrong entry.  Each new dispatcher stands for a process, and replacing the index file
-    stages the order of the writes.
+    TEMPORARY until numba loads a data file only if its own version saved it for the key that it
+    loads (numba/numba#10862): see numba_workarounds.md,
+    "Data files that hold code for another key".
+
+    Without the check of keys, a later process here would run code compiled for F-ordered arrays on
+    a C-ordered array and return a wrong entry.  Each new dispatcher stands for a process, and
+    replacing the index file stages the order of the writes.
     """
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     matrix = np.array([[0, 1], [2, 3]], dtype=np.uint8)
@@ -368,10 +370,12 @@ def test_code_saved_by_another_version_of_numba_is_compiled_again(
 ) -> None:
     """Code that another version of numba saved for the same key is compiled again, not loaded.
 
-    ``_KeyCheckedCacheFile`` explains how the index of this version can name a data file that
-    another version of numba wrote, and why its code is not unpickled.  In one case, this version
-    can unpickle that code.  In the other, the code refers to a module that this version lacks, as
-    code that numba 0.61.2 saved does for numba 0.67.0.
+    TEMPORARY until numba loads a data file only if its own version saved it for the key that it
+    loads (numba/numba#10862): see numba_workarounds.md,
+    "Data files that hold code for another key".
+
+    In one case, this version can unpickle the code.  In the other, the code refers to a module that
+    this version lacks, as code that numba 0.61.2 saved does for numba 0.67.0.
     """
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
 
@@ -400,6 +404,10 @@ def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class
 ) -> None:
     """qLDPC caches only through a cache-file object exactly of the class that qLDPC extends.
 
+    TEMPORARY until numba loads a data file only if its own version saved it for the key that it
+    loads (numba/numba#10862): see numba_workarounds.md,
+    "Data files that hold code for another key".
+
     Here ``object`` stands for the class that qLDPC extends, so numba's cache-file object is of a
     subclass of it.
     """
@@ -416,13 +424,19 @@ def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class
     [False, pytest.param(True, marks=pytest.mark.skipif(not hasattr(os, "fork"), reason=""))],
 )
 def test_code_compiled_in_different_processes_has_distinct_names(fork: bool) -> None:
-    """Check the workaround for a numba bug that gives different code the same name."""
+    """Check the workaround for a numba bug that gives different code the same name.
+
+    TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
+    "Clashing names of code compiled in different processes".
+    """
     code = _PRINT_SYMBOL_NAMES + (_IN_PARENT_AND_FORKED_CHILD if fork else "print_names()\n")
     outputs = run_python(code).splitlines() if fork else [run_python(code), run_python(code)]
     first, second = (set(output.split()) for output in outputs)
     assert first and second and not first & second
 
 
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
+# "Clashing names of code compiled in different processes".
 def test_compiled_code_is_not_cached_without_the_workaround_for_a_numba_bug(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -669,6 +683,8 @@ def add_to(value):
     return increment(value)
 """
 
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
+# "Clashing names of code compiled in different processes".
 # A program whose ``print_names`` compiles a function that sorts, and prints the names in its code
 # that hold numba's count of compiled functions, in tags such as ``B5v5006``.
 _PRINT_SYMBOL_NAMES = """
@@ -685,6 +701,8 @@ def print_names():
     print(*{name for name in names if re.search("B[0-9]+v[0-9]+", name)}, flush=True)
 """
 
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
+# "Clashing names of code compiled in different processes".
 _IN_PARENT_AND_FORKED_CHILD = """
 if os.fork() == 0:
     print_names()
@@ -705,6 +723,8 @@ def _add_one(value: int) -> int:
     return value + 1
 
 
+# TEMPORARY until numba loads a data file only if its own version saved it for the key that it loads
+# (numba/numba#10862): see numba_workarounds.md, "Data files that hold code for another key".
 def _get_top_right_entry(matrix: npt.NDArray[np.uint8]) -> int:
     return matrix[0, -1]
 
