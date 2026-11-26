@@ -130,18 +130,20 @@ def test_every_entry_of_the_tables_matches_its_definition(pytestconfig: pytest.C
     """Every entry of the tables of tails, and the bounds that they give, match their definitions.
 
     The fill transposes the tables of 64 rows at once, four words of each at a time.  The random
-    tails have three or five tiles of rows of tables, the last with one row, on two blocks of two to
-    256 values, where the last block may be narrower.  The other tails have one row of tables, on a
-    block of sixteen columns, and an entry of 16, the largest distance.  The tables fill contiguous
-    storage, and every other byte of storage, whose bytes between them stay unchanged.
+    tails have five tiles of rows of tables, the last with one row, on two blocks of four or 256
+    values, where the last block may be narrower.  The tails of 65 rows have one full tile.  The
+    tails of two rows have one row of tables, on a block of sixteen columns, and an entry of 16, the
+    largest distance.  The tables fill contiguous storage, and every other byte of storage backward,
+    whose bytes between them stay unchanged.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = []
-    for num_rows, block_bits in itertools.product([130, 258], [1, 2, 8]):
-        tails = get_random_tails(rng, num_rows, block_bits + int(rng.integers(1, block_bits + 1)))
+    for block_bits in [2, 8]:
+        tails = get_random_tails(rng, 258, block_bits + int(rng.integers(1, block_bits + 1)))
         # A one in the last column keeps the last block as wide as the columns make it.
-        tails[rng.integers(num_rows), -1] = 1
+        tails[rng.integers(258), -1] = 1
         cases.append((tails, block_bits))
+    cases.append((get_random_tails(rng, 65, 1), 1))
     # The only sum of two equal rows of ones is zero, at distance 16 from the value with all ones.
     cases.append((np.ones((2, 16), dtype=np.uint8), 16))
 
@@ -155,13 +157,16 @@ def test_every_entry_of_the_tables_matches_its_definition(pytestconfig: pytest.C
         num_bytes = (num_rows - 1) * sum(sizes)
         # Every value of blocks of up to four values, and otherwise a few, including all ones.
         values = {(1 << block_bits) - 1, *rng.permutation(1 << block_bits)[:4].tolist()}
-        for step in [1, 2]:
+        for step in [1, -2]:
             # Fill storage of a value that no entry takes, so that every entry left unwritten and
             # every byte written between entries shows.
-            storage = np.full(step * num_bytes, 255, dtype=np.uint8)
-            tables = cb.CompletionTables.build(pack_bits(tails), block_bits, out=storage[::step])
-            assert np.all(storage.reshape(-1, step)[:, 1:] == 255)
-            entries = np.split(storage[::step].reshape(-1, num_rows - 1), np.cumsum(sizes)[:-1])
+            storage = np.full(abs(step) * num_bytes, 255, dtype=np.uint8)
+            out = storage[::step]
+            tables = cb.CompletionTables.build(pack_bits(tails), block_bits, out=out)
+            gaps = np.ones(len(storage), dtype=bool)
+            gaps[np.arange(len(storage))[::step]] = False
+            assert np.all(storage[gaps] == 255)
+            entries = np.split(out.reshape(-1, num_rows - 1), np.cumsum(sizes)[:-1])
             for block_entries, block_minima in zip(entries, minima, strict=True):
                 np.testing.assert_array_equal(block_entries.T, block_minima)
 
@@ -181,7 +186,9 @@ def test_tables_without_blocks_bound_nothing() -> None:
     rows = np.zeros((2, 1), dtype=np.uint64)
     prefix = np.zeros(1, dtype=np.uint64)
     for tables in (cb.CompletionTables.build(rows, 4), cb.NO_TABLES):
-        bound = cb.get_completion_bound(tables.tables, tables.offsets, 4, 0, prefix, 10**9)
+        bound = cb.get_completion_bound(
+            tables.tables, tables.offsets, tables.block_bits, 0, prefix, 10**9
+        )
         assert bound == 0
 
 
