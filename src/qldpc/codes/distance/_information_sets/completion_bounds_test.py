@@ -98,16 +98,54 @@ def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
             )
 
 
-def test_bounds_of_a_basis_of_many_rows_match_their_definition(pytestconfig: pytest.Config) -> None:
-    """Bounds from the tables of a basis of many rows, from every row on, match their definition."""
+def get_value(bits: npt.NDArray[np.uint8]) -> int:
+    """The value of a block of columns, with its first column in the lowest bit."""
+    return int(bits.astype(np.int64) @ (1 << np.arange(len(bits))))
+
+
+def get_block_minima(
+    tails: npt.NDArray[np.uint8], start: int, block_bits: int
+) -> npt.NDArray[np.int64]:
+    """The least weights on a block of its values plus two rows from each row on, by enumeration.
+
+    The block has the columns from ``start`` on, at most ``block_bits`` of them.  Entry ``[s, x]``
+    is the least weight on the block of ``x`` plus two rows from row ``s`` on.
+    """
+    block = tails[:, start : start + block_bits]
+    values = np.array([get_value(row) for row in block])
+    points = np.arange(1 << block.shape[1])
+    weights = np.array([point.bit_count() for point in range(len(points))])
+    num_rows = len(tails)
+    minima = np.empty((num_rows - 1, len(points)), dtype=np.int64)
+    for first in range(num_rows - 1):
+        sums = (values[:, None] ^ values[None, :])[first:, first:]
+        pairs = np.unique(sums[np.triu_indices(num_rows - first, 1)])
+        minima[first] = weights[points[:, None] ^ pairs[None, :]].min(axis=1)
+    return minima
+
+
+def test_every_entry_of_the_tables_matches_its_definition(pytestconfig: pytest.Config) -> None:
+    """Every entry of the tables of random tails matches its definition.
+
+    The fill transposes the tables of 64 rows at once, four words of each at a time.  The first
+    tails have fewer rows of tables, on blocks of fewer than eight values.  The second have more, on
+    blocks of 256 values.  Where blocks have more than one column, the last block is narrower.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    tails = get_random_tails(rng, 67, 6)
-    tables = cb.CompletionTables.build(pack_bits(tails), 4)
-    for first in range(len(tails) - 1):
-        prefix = rng.integers(0, 2, (1, tails.shape[1]), dtype=np.uint8)
-        packed = pack_bits(prefix)[0]
-        bound = cb.get_completion_bound(tables.tables, tables.offsets, 4, first, packed, 10**9)
-        assert bound == get_bound_oracle(tails, prefix[0], first, 4)
+    for num_rows, block_bits in [(63, int(rng.choice([1, 2]))), (66, 8)]:
+        last_bits = int(rng.integers(1, block_bits)) if block_bits > 1 else 1
+        num_columns = block_bits * int(rng.integers(1, 3)) + last_bits
+        tails = get_random_tails(rng, num_rows, num_columns)
+        # A one in the last column keeps the last block as wide as the columns make it.
+        tails[rng.integers(num_rows), -1] = 1
+        tables = cb.CompletionTables.build(pack_bits(tails), block_bits)
+        offsets = tables.offsets
+        entries = tables.tables.reshape(offsets[-1], num_rows - 1)
+        for block, start in enumerate(range(0, num_columns, block_bits)):
+            block_entries = entries[offsets[block] : offsets[block + 1]]
+            np.testing.assert_array_equal(
+                block_entries.T, get_block_minima(tails, start, block_bits)
+            )
 
 
 def test_tables_without_blocks_bound_nothing() -> None:
