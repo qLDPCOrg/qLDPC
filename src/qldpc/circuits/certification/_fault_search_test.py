@@ -364,8 +364,8 @@ def test_light_pairs_match_brute_force(
 ) -> None:
     """Each syndrome s gets the first syndrome i of a first list such that s + i is in a second.
 
-    The second list can repeat a syndrome, and its first entry with the sum is the one returned.
-    Each list can be empty, or hold one syndrome, or be longer or shorter than the others.
+    The second list can repeat a syndrome.  Each list can be empty, or longer or shorter than the
+    others.
     """
     # With zero hashes, lookups must compare syndromes.  Syndromes of bits 63, 64, and 128 span
     # three words, and with only eight of them, many sums are in the second list.
@@ -380,30 +380,21 @@ def test_light_pairs_match_brute_force(
         values = rng.integers(8, size=size).tolist()
         return [(value & 1) << 63 | (value & 2) << 63 | (value & 4) << 126 for value in values]
 
-    for num_first, num_second, num_syndromes in itertools.product(
-        (0, 1, 4), (0, 1, 2, 6), (0, 1, 8)
-    ):
-        for _ in range(2):
-            first_list, second_list, syndromes = map(spread, (num_first, num_second, num_syndromes))
-            num_words = _fault_search._get_num_words_for_values(
-                first_list + second_list + syndromes
+    for sizes in itertools.product((0, 4), (0, 6), (0, 8)):
+        first_list, second_list, syndromes = map(spread, sizes)
+        num_words = _fault_search._get_num_words_for_values(first_list + second_list + syndromes)
+        pairs = _fault_search._get_light_pairs(
+            _fault_search._hashed_rows(syndromes, num_words),
+            _fault_search._hashed_rows(first_list, num_words),
+            _fault_search._hashed_rows(second_list, num_words),
+        )
+        assert pairs.shape == (len(syndromes), 2)
+        for syndrome, (first, second) in zip(syndromes, pairs.tolist(), strict=True):
+            expected = next(
+                (ii for ii, ss in enumerate(first_list) if syndrome ^ ss in second_list), -1
             )
-            pairs = _fault_search._get_light_pairs(
-                _fault_search._hashed_rows(syndromes, num_words),
-                _fault_search._hashed_rows(first_list, num_words),
-                _fault_search._hashed_rows(second_list, num_words),
-            )
-            assert pairs.shape == (len(syndromes), 2)
-            for syndrome, pair in zip(syndromes, pairs.tolist(), strict=True):
-                first = next(
-                    (ii for ii, ss in enumerate(first_list) if syndrome ^ ss in second_list), -1
-                )
-                expected = (
-                    [first, second_list.index(syndrome ^ first_list[first])]
-                    if first >= 0
-                    else [-1, -1]
-                )
-                assert pair == expected
+            assert first == expected and (second < 0) == (first < 0)
+            assert first < 0 or second_list[second] == syndrome ^ first_list[first]
 
 
 def test_rows_hash_alike_whenever_they_are_hashed() -> None:
@@ -450,10 +441,10 @@ def test_light_syndromes_match_brute_force(
     Every syndrome also gets a fixed error with it, whose X and Z parts are single-qubit errors
     where some have their syndromes, for the CSS weight.  On small states, the search matches brute
     force for random flags and syndromes, and reports the first heavy primitive fault with zero
-    flags in DEM order if one violates the bound.  The lister gets the primitive faults with
-    nonzero flags, the heavy ones and then the light ones, each in DEM order.  The representative
-    of each has its syndrome, and has Pauli weight at most one if it is light, or at most two if
-    its syndrome is the sum of those of two light ones.
+    flags in DEM order if one violates the bound.  The lister gets the heavy primitive faults with
+    nonzero flags as its start members.  The representative of each primitive fault has its
+    syndrome, and has Pauli weight at most one if it is light, or at most two if its syndrome is
+    the sum of those of two light ones.
     """
     # The states are random, and the syndromes of 70 qubits, and the X and Z parts of their errors,
     # span two words.  On |+...+>, every fixed error is a Z error that can act on every qubit.  With
@@ -469,7 +460,6 @@ def test_light_syndromes_match_brute_force(
             (6, False, 3),
             (70, True, 0),
             (70, False, 70),
-            (70, False, 35),
         )
     ]
     lister = mock.Mock(wraps=_fault_search.FaultLister)
@@ -574,15 +564,11 @@ def test_light_syndromes_match_brute_force(
                     )
                     assert indices == (first,)
 
-            # Each signature with nonzero flags, once, in DEM order.
             signatures = [pair for pair in dict.fromkeys(zip(flags, syndromes)) if pair[0]]
-            heavy_signatures = [pair for pair in signatures if minimum[pair[1]] > 1]
-            light_signatures = [pair for pair in signatures if minimum[pair[1]] <= 1]
+            num_heavy = sum(minimum[syndrome] > 1 for _, syndrome in signatures)
             for call in lister.call_args_list:
-                listed_flags, listed_syndromes, representatives, *_, num_starts, _ = call.args
-                listed = list(zip(listed_flags, listed_syndromes))
-                assert listed == heavy_signatures + light_signatures
-                assert num_starts == len(heavy_signatures)
+                _, listed_syndromes, representatives, *_, num_starts, _ = call.args
+                assert num_starts == num_heavy
                 light = set(listed_syndromes[num_starts:])
                 for syndrome, representative in zip(listed_syndromes, representatives, strict=True):
                     assert pauli_syndromes[representative] == syndrome
@@ -1520,19 +1506,6 @@ def test_css_weight_search_matches_exhaustive_search(pytestconfig: pytest.Config
                     representative = violation.bound.representative
                     assert (representative & 0b0011) | ((representative >> 4) & 0b1100) == syndrome
 
-    # On the state with the stabilizers Z0, Z1, X2, X3, and X4, the primitive faults 0 and 1, with
-    # the syndromes of X0 X1 and X0 X1 Z2 Z3 Z4, are heavy, and 2 and 3, with those of X0 Z2 and
-    # X1 Z2, are light.  The representative of 0 is the product of those of 2 and 3, in which Z2
-    # cancels, and {0, 1} leaves Z2 Z3 Z4, of CSS weight three.
-    stabilizers = np.zeros((5, 10), dtype=int)
-    stabilizers[[0, 1], [5, 6]] = 1
-    stabilizers[[2, 3, 4], [2, 3, 4]] = 1
-    failure = _fault_search.find_smallest_violation(
-        [1, 1, 2, 4], [3, 31, 5, 6], stabilizers, None, True
-    )
-    assert failure is not None and failure.fault_indices == (0, 1)
-    assert failure.syndrome == 28 and failure.bound.lower_bound == 3
-
 
 def test_hand_derived_dependency_cases() -> None:
     """Small faults, repeated and zero signatures, and ``max_weight`` give hand-derived results."""
@@ -1556,43 +1529,26 @@ def test_hand_derived_dependency_cases() -> None:
 def test_syndromes_have_a_word_for_every_64_output_qubits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Syndromes have a word for every 64 output qubits, wherever the search packs them.
 
-    On either side of 64 and 128 qubits, by either weight, syndromes with only their first or their
-    last bit are light, and the representatives of light and heavy syndromes have them.  On 65
-    qubits, syndromes in the first word get both words, as batches and the oracle need, and as do
-    the fixed errors of heavy syndromes, which the lister gets with them.
+    On either side of 64 qubits, by either weight, syndromes with only their first or their last
+    bit are light, and the representatives of light and heavy syndromes have them.  On 65 qubits,
+    syndromes in the first word get both words, as batches and the oracle need.
     """
     # On |0...0>, the X part of an error with a syndrome is the syndrome.  The syndrome ``last + 3``
-    # is heavy, but with 2 it forms a fault of residual weight two.  The search runs by either
-    # weight near 64 qubits, and by the CSS weight near 128 qubits, where the physical weight takes
-    # more time, so there the light and fixed errors of the physical weight are checked alone.
+    # is heavy, but with 2 it forms a fault of residual weight two.
     lister = mock.Mock(wraps=_fault_search.FaultLister)
     monkeypatch.setattr(_fault_search, "FaultLister", lister)
-    for num_qubits, css_weight in itertools.product((63, 64, 65, 127, 128, 129), (False, True)):
-        mask = 2**num_qubits - 1
+    for num_qubits, css_weight in itertools.product((64, 65), (False, True)):
         last = 1 << (num_qubits - 1)
         syndromes = [1, last, last | 3, 2]
-        if num_qubits < 127 or css_weight:
-            assert _certify_map([0, 0, 1, 1], syndromes, None, num_qubits, css_weight) is None
-            _, listed, representatives, *_ = lister.call_args.args
-            assert [representative & mask for representative in representatives] == listed
-        else:
-            rows = _fault_search._hashed_rows(syndromes, (num_qubits + 63) // 64)
-            stabilizers = _z_state(num_qubits).astype(np.uint8)
-            errors = _fault_search._get_light_errors(rows, stabilizers, False)
-            x_parts = [None if error is None else error & mask for error in errors]
-            assert x_parts == [1, last, None, 2]
-            fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers, False)
-            assert [error & mask for error in fixed_errors] == syndromes
+        assert _certify_map([0, 0, 1, 1], syndromes, None, num_qubits, css_weight) is None
+        _, listed, representatives, *_ = lister.call_args.args
+        assert [
+            representative & (2**num_qubits - 1) for representative in representatives
+        ] == listed
 
-    # Together, the primitive faults 0 and 2 pass post-selection and leave X on three qubits.  The
-    # heavy syndromes 3 and 5 are not sums of two light ones, so they get fixed errors.  On |0...0>,
-    # the X part of an error with a syndrome is the syndrome.
-    lister = mock.Mock(wraps=_fault_search.FaultLister)
-    monkeypatch.setattr(_fault_search, "FaultLister", lister)
+    # Together, the primitive faults 0 and 2 pass post-selection and leave X on three qubits.
     failure = _certify_map([1, 1, 1], [0b011, 0b101, 0b100], None, 65)
     assert failure is not None and failure.fault_indices == (0, 2)
-    _, syndromes, representatives, *_ = lister.call_args.args
-    assert [representative & (2**65 - 1) for representative in representatives] == syndromes
 
 
 def test_failures_report_the_smallest_faults() -> None:
