@@ -29,6 +29,14 @@ The cost thus grows with the weight of the checks, with `W`, and with the number
 The search raises `W` until it finds a nontrivial word ([Section 3.6](#36-from-a-search-to-the-distance)), each limit costing roughly a constant factor more than the last, so dense checks, whose factor is large, make the search slow unless the distance is small.
 Checks much lighter than the distance, as in surface codes, also slow the search: a support can leave few checks unsatisfied yet need many more variables, so the bounds of Section 3.4 prune little.
 
+Each state costs time in proportion to the entries of its unsatisfied checks, which it visits in a few passes.
+The first weighs each unsatisfied check by the overlaps of its available variables ([Section 3.4](#34-pruning)), and about half to two thirds of the states end in it, pruned.
+An overlap counts the set bits of one 64-bit word for each 64 checks.
+A state estimates the entries of its unsatisfied checks as their number times the average number of entries of a check, and if the estimate exceeds the number of symbols, as with dense checks, it first takes the overlaps of all symbols in one pass over their columns, and reads them in the first pass.
+A state that forbids the variables that are not viable then adds the weight of each unsatisfied check to the repair of each of its symbols, and allows the viable ones in another pass; its branches reuse these repairs.
+The passes choose by selects rather than branches where they can, since the processor would often mispredict whether a variable is available or viable.
+So a state of a code with heavy checks, many unsatisfied checks, or many checks costs more.
+
 The stabilizers that `get_distance_css` and `get_distance_pauli` derive for a subsystem code can be much heavier than its lightest stabilizer generators ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
 A caller who knows sparse stabilizer generators can search them as given with `get_distance_from_checks`, whose docstring says which matrices to pass.
 
@@ -363,9 +371,10 @@ A query at limit `W` can wander through many heavy supports before it reaches a 
 For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits; [problems.md](problems.md#the-coset-leader-search) gives the floor of its searches by CSS weight.
 A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` directly, since a caller may already raise `W` one step at a time.
 
-Without reuse, a state computes the overlap and repair ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
-The checks of a syndrome query can stay dense after the rounds, so a symbol can flip many unsatisfied checks, and the query computes both at most once per symbol and state.
-A distance search, whose checks are usually sparse, recomputes both, since the bookkeeping would cost more than it saves.
+Unless it takes the overlaps of all symbols in one pass ([Section 2](#2-what-the-cost-of-the-search-depends-on)), a state computes the overlap ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
+The checks of a syndrome query can stay dense after the rounds, so a symbol can flip many unsatisfied checks, and the query then memoizes the overlap of each symbol within the state.
+A distance search, whose checks are usually sparse, recomputes the overlaps, since the bookkeeping would cost more than it saves.
+Neither memoizes repairs: in both, a state that forbids the variables that are not viable sums the repairs of all its symbols at once, by adding the weight of each unsatisfied check to each of its symbols, and its branches reuse them.
 
 **The distance of a vector from a classical code.**
 The vectors with a given syndrome form a coset, whose least weight can also come from a distance search rather than a syndrome query.
@@ -585,7 +594,8 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Distance of a vector `v` from a classical code with generator matrix `G_C` | `_get_coset_weight` of `distances.py`, which `ClassicalCode.get_distance_exact(vector=v)` calls, and which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one ([Section 3.8](#38-vectors-with-a-given-syndrome)) |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch.find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
-| Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
+| Overlaps that a syndrome query memoizes within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
+| Overlaps of all symbols in one pass, and repairs summed check by check, in distance searches and syndrome queries | `symbol_overlaps` and `symbol_repairs` of `_get_branches` |
 | Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, `CosetLeaderSearch` in `coset_leaders.py`, and `MinWeightBound` in `min_weight_bounds.py`, the bound of one query |
 | Sparser checks with the same span | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `distances.py` |
 | Rounds of sparsifying | `max_coset_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |

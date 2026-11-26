@@ -18,7 +18,7 @@ import numpy.typing as npt
 import pytest
 from sympy.abc import x, y
 
-from qldpc import codes
+from qldpc import _compilation, codes
 from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc.objects import PAULIS_XZ, Pauli
 
@@ -854,6 +854,44 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
         assert search.find_witness(3) is None
         num_states[restrict_viable_symbols] = search.num_states
     assert num_states[False] == num_states[True] + 1
+
+
+def test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Variables in no check change only how the states take overlaps and clear repairs.
+
+    A state takes the overlaps of all symbols in one pass if its number of unsatisfied checks times
+    the average number of entries of a check exceeds the number of symbols, and clears the repairs
+    of all symbols if its unsatisfied checks have at least as many entries as there are symbols
+    (see ``_get_branches``).  The states of the Golay problem padded with one variable in no check
+    often do both, and those of the problem padded with as many such variables as the checks have
+    entries never do, as only the former take the overlaps of padded variables.  The padded
+    variables are excluded, and come last, so each adds a root whose one state has an empty
+    syndrome and no witness, and changes nothing else.
+    """
+    checks, excluded = get_golay_problem()
+    # Compiled code cannot call a wrapper, so only plain Python checks which route each state takes.
+    check_routes = _compilation.is_compilation_disabled()
+    get_overlap = unittest.mock.Mock(wraps=cs._get_overlap)
+    if check_routes:
+        monkeypatch.setattr(cs, "_get_overlap", get_overlap)
+    symbols, num_states = [], []
+    for num_padded in (1, int(np.count_nonzero(checks))):
+        padded_checks = np.hstack([checks, np.zeros((len(checks), num_padded), dtype=np.uint8)])
+        padded_excluded = np.block(
+            [
+                [excluded, np.zeros((len(excluded), num_padded), dtype=np.uint8)],
+                [np.zeros((num_padded, checks.shape[1]), dtype=np.uint8), np.eye(num_padded)],
+            ]
+        ).astype(np.uint8)
+        search = get_search(padded_checks, padded_excluded, pair_sum_checks=False)
+        get_overlap.reset_mock()
+        assert search.find_witness(6) is None
+        symbols.append({call.args[-1] for call in get_overlap.call_args_list})
+        num_states.append(search.num_states - num_padded)
+    assert num_states[0] == num_states[1]
+    assert not check_routes or max(symbols[0]) >= 23 > max(symbols[1])
 
 
 @pytest.mark.parametrize(
