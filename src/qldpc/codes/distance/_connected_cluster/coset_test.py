@@ -15,7 +15,7 @@ import pytest
 from qldpc._binary import get_kernel, int_to_words
 
 from .._cosets import xor_selected
-from .._tuning import use_tuning
+from .._tuning import MAX_VALUE, use_tuning
 from ..conftest import (
     get_binary_minima,
     get_binary_syndrome,
@@ -225,6 +225,48 @@ def test_connected_cluster_batches_search_as_single_queries() -> None:
     assert _count_batch_states(coset_search, 21, 3) == num_states
 
 
+def test_connected_cluster_batch_loop_answers_by_general_tables_within_its_work() -> None:
+    """The compiled batch loop weighs cosets by fixed or general word tables, within its work.
+
+    For the checks I64, a syndrome is the lightest word of its coset, so its bit count is its
+    minimum weight, and a packed syndrome fills exactly one word.  An empty ``fixed_words`` selects
+    the version of ``_search_supports`` for any number of words, which wider checks need, and the
+    loop must not take its number of words from it.  The batch repeats a syndrome of one bit, so
+    that each query must clear the mapped syndrome of the last.  The loop stops once its work
+    reaches ``max_work``: three queries of the syndrome 3 that visit ``n`` states each stop after
+    two at the work ``2 n``, and leave the weight of the third unwritten.
+    """
+    coset_search = coset.ConnectedClusterCosetSearch(
+        np.eye(64, dtype=np.uint8),
+        symplectic=False,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=True,
+    )
+    tables = coset_search._get_batch_tables()
+    syndromes = [1, 1, 3, 1 << 63, (1 << 63) | 1, 0, 7]
+    batch = split_syndromes_into_words(syndromes, 64)
+    floors = np.zeros(len(batch), dtype=np.int64)
+    minima = np.array([syndrome.bit_count() for syndrome in syndromes])
+    for batch_tables in (tables, tables[:4] + ((),) + tables[5:]):
+        for max_weight in (1, 2):
+            weights = np.full(len(batch), -1, dtype=np.int64)
+            assert coset._find_min_weights(
+                batch, max_weight, floors, MAX_VALUE, False, weights, batch_tables
+            ) == (len(batch), False)
+            assert np.array_equal(weights, np.minimum(minima, max_weight + 1))
+
+    num_states = _count_single_states(coset_search, 3, range(2, 3))
+    assert num_states
+    batch = split_syndromes_into_words([3, 3, 3], 64)
+    weights = np.full(3, -1, dtype=np.int64)
+    assert coset._find_min_weights(
+        batch, 2, floors[:3], 2 * num_states, False, weights, tables
+    ) == (2, False)
+    assert weights.tolist() == [2, 2, -1]
+
+
 @pytest.mark.parametrize("cuts", [True, False])
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])
 def test_connected_cluster_answers_match_exhaustive_minima(
@@ -331,44 +373,36 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
     assert index == 0 and bound is not None and bound.lower_bound == 3
 
 
-@pytest.mark.parametrize("symplectic", [True, False])
 def test_connected_cluster_batches_of_two_words_match_block_minima(
-    pytestconfig: pytest.Config, symplectic: bool
+    pytestconfig: pytest.Config,
 ) -> None:
     """Batch queries of syndromes of two words agree with block minima and with single queries.
 
-    The checks are copies of a block on their own variables, so the minimum weight of a coset is
-    the sum of the minima of the syndromes of its copies.  The searches of Paulis check with 17
-    copies of a random graph state with phases, whose last copy has its four checks in the second
-    64-bit word.  The searches of X or Z parts check with 22 copies of the checks of a repetition
-    code of length four, whose last copy has its first check in the first word and the other two in
-    the second.  Without rounds of sparsifying, each sparser check acts only on the variables of
-    the copy at its position.  The batch starts with each nonzero syndrome of the last copy alone,
-    those of weight one first, so that at ``max_weight`` one the first syndrome without a word
-    within it has weight two, and goes on with random syndromes of two copies.  The batches run on
-    one to three threads in turn, with random split work and floors, and the first syndrome without
-    a word within ``max_weight`` gets the bound of a single query.
+    The checks are 17 copies of a random graph state with phases on their own qubits, so the
+    minimum weight of a coset is the sum of the minima of the syndromes of its copies, and the last
+    copy has its four checks in the second 64-bit word.  Without rounds of sparsifying, each sparser
+    check acts only on the qubits of the copy at its position.  The batch starts with each nonzero
+    syndrome of the last copy alone, those of weight one first, so that at ``max_weight`` one the
+    first syndrome without a word within it has weight two, and goes on with random syndromes of two
+    copies.  The batches run on one to three threads in turn, with random split work and floors, and
+    the first syndrome without a word within ``max_weight`` gets the bound of a single query.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    if symplectic:
-        edges = [pair for pair in itertools.combinations(range(4), 2) if rng.integers(2)]
-        block = get_graph_state(4, edges, phase=True)
-        block_minima = get_exhaustive_minima(block, False)
-    else:
-        block = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=np.uint8)
-        block_minima = get_binary_minima(block)
-    halves = np.split(block, 2 if symplectic else 1, axis=1)
+    edges = [pair for pair in itertools.combinations(range(4), 2) if rng.integers(2)]
+    block = get_graph_state(4, edges, phase=True)
+    block_minima = get_exhaustive_minima(block, False)
     num_copies = 64 // len(block) + 1
-    checks = np.hstack([np.kron(np.eye(num_copies, dtype=np.uint8), half) for half in halves])
+    eye = np.eye(num_copies, dtype=np.uint8)
+    checks = np.hstack([np.kron(eye, half) for half in np.split(block, 2, axis=1)])
     coset_search = coset.ConnectedClusterCosetSearch(
         checks,
-        symplectic=symplectic,
+        symplectic=True,
         max_rounds=0,
         rounds_without_improvement=1,
         restrict_viable_symbols=True,
         stabilizer_overlap_cuts=True,
     )
-    copy_of_columns = np.tile(np.repeat(np.arange(num_copies), 4), len(halves))
+    copy_of_columns = np.tile(np.repeat(np.arange(num_copies), 4), 2)
     rows, columns = np.nonzero(coset_search.checks)
     assert np.array_equal(rows // len(block), copy_of_columns[columns])
 
