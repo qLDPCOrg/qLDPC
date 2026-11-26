@@ -184,6 +184,25 @@ def test_x_and_z_syndromes_span_several_words(pytestconfig: pytest.Config) -> No
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
 
+def test_min_weights_by_css_weight_read_parts_of_several_words() -> None:
+    """By CSS weight, batches of minimum weights read syndromes of X and Z parts of two words.
+
+    On |0>^65, the pure-Z stabilizers check the X parts, and on |+>^65 the pure-X stabilizers
+    check the Z parts.  Either way, the bit count of a syndrome is its minimum weight, and the
+    syndromes of the searched part fill two 64-bit words.  Both methods map the syndromes of a
+    batch to those of its parts in the same code.
+    """
+    num_qubits = 65
+    identity = np.eye(num_qubits, dtype=np.uint8)
+    zeros = np.zeros_like(identity)
+    syndromes = [1 << 64, 1 | (1 << 64), 0, 1]
+    batch = split_syndromes_into_words(syndromes, num_qubits)
+    for matrix in (np.hstack([zeros, identity]), np.hstack([identity, zeros])):
+        search = CosetLeaderSearch(matrix, css_weight=True)
+        weights = search.get_min_weights(batch, 2)
+        assert weights.tolist() == [syndrome.bit_count() for syndrome in syndromes]
+
+
 def test_css_weight_counts_the_larger_sector() -> None:
     """X0 Z1 on |0+> has CSS weight one but physical weight two."""
     matrix = np.array([[0, 0, 1, 0], [0, 1, 0, 0]], dtype=np.uint8)
