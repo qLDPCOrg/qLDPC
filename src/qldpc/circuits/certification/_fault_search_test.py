@@ -365,40 +365,45 @@ def test_light_pairs_match_brute_force(
     """Each syndrome s gets the first syndrome i of a first list such that s + i is in a second.
 
     The second list can repeat a syndrome, and its first entry with the sum is the one returned.
+    Each list can be empty, or hold one syndrome, or be longer or shorter than the others.
     """
-    # With zero hashes, lookups must compare syndromes.  Syndromes of bits 63, 64, 127, and 128 span
-    # three words.
+    # With zero hashes, lookups must compare syndromes.  Syndromes of bits 63, 64, and 128 span
+    # three words, and with only eight of them, many sums are in the second list.
     if collide:
         monkeypatch.setattr(
             _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
         )
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
 
-    def spread(values: npt.NDArray[np.int_]) -> list[int]:
-        """Move bits 0 to 3 of each value to bits 63, 64, 127, and 128."""
-        return [
-            sum(((int(value) >> bit) & 1) << shift for bit, shift in enumerate((63, 64, 127, 128)))
-            for value in values
-        ]
+    def spread(size: int) -> list[int]:
+        """Random syndromes of bits 63, 64, and 128."""
+        values = rng.integers(8, size=size).tolist()
+        return [(value & 1) << 63 | (value & 2) << 63 | (value & 4) << 126 for value in values]
 
-    for _ in range(20):
-        first_list = spread(rng.integers(16, size=4))
-        second_list = spread(rng.integers(16, size=6))
-        syndromes = spread(rng.integers(16, size=8))
-        num_words = _fault_search._get_num_words_for_values(first_list + second_list + syndromes)
-        pairs = _fault_search._get_light_pairs(
-            _fault_search._hashed_rows(syndromes, num_words),
-            _fault_search._hashed_rows(first_list, num_words),
-            _fault_search._hashed_rows(second_list, num_words),
-        )
-        for syndrome, pair in zip(syndromes, pairs.tolist(), strict=True):
-            first = next(
-                (ii for ii, ss in enumerate(first_list) if syndrome ^ ss in second_list), -1
+    for num_first, num_second, num_syndromes in itertools.product(
+        (0, 1, 4), (0, 1, 2, 6), (0, 1, 8)
+    ):
+        for _ in range(2):
+            first_list, second_list, syndromes = map(spread, (num_first, num_second, num_syndromes))
+            num_words = _fault_search._get_num_words_for_values(
+                first_list + second_list + syndromes
             )
-            expected = (
-                [first, second_list.index(syndrome ^ first_list[first])] if first >= 0 else [-1, -1]
+            pairs = _fault_search._get_light_pairs(
+                _fault_search._hashed_rows(syndromes, num_words),
+                _fault_search._hashed_rows(first_list, num_words),
+                _fault_search._hashed_rows(second_list, num_words),
             )
-            assert pair == expected
+            assert pairs.shape == (len(syndromes), 2)
+            for syndrome, pair in zip(syndromes, pairs.tolist(), strict=True):
+                first = next(
+                    (ii for ii, ss in enumerate(first_list) if syndrome ^ ss in second_list), -1
+                )
+                expected = (
+                    [first, second_list.index(syndrome ^ first_list[first])]
+                    if first >= 0
+                    else [-1, -1]
+                )
+                assert pair == expected
 
 
 def test_rows_hash_alike_whenever_they_are_hashed() -> None:
@@ -1551,14 +1556,33 @@ def test_hand_derived_dependency_cases() -> None:
 def test_syndromes_have_a_word_for_every_64_output_qubits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Syndromes have a word for every 64 output qubits, wherever the search packs them.
 
-    On either side of 64 and 128 qubits, syndromes with only their first or their last bit are
-    light.  On 65 qubits, syndromes in the first word get both words, as batches and the oracle
-    need, and as do the fixed errors of heavy syndromes, which the lister gets with them.
+    On either side of 64 and 128 qubits, by either weight, syndromes with only their first or their
+    last bit are light, and the representatives of light and heavy syndromes have them.  On 65
+    qubits, syndromes in the first word get both words, as batches and the oracle need, and as do
+    the fixed errors of heavy syndromes, which the lister gets with them.
     """
-    # The CSS weight takes less time on many qubits, and the physical weight takes the same words.
-    for num_qubits in (63, 64, 65, 127, 128, 129):
-        syndromes = [1, 1 << (num_qubits - 1)]
-        assert _certify_map([0, 0], syndromes, None, num_qubits, True) is None
+    # On |0...0>, the X part of an error with a syndrome is the syndrome.  The syndrome ``last + 3``
+    # is heavy, but with 2 it forms a fault of residual weight two.  The search runs by either
+    # weight near 64 qubits, and by the CSS weight near 128 qubits, where the physical weight takes
+    # more time, so there the light and fixed errors of the physical weight are checked alone.
+    lister = mock.Mock(wraps=_fault_search.FaultLister)
+    monkeypatch.setattr(_fault_search, "FaultLister", lister)
+    for num_qubits, css_weight in itertools.product((63, 64, 65, 127, 128, 129), (False, True)):
+        mask = 2**num_qubits - 1
+        last = 1 << (num_qubits - 1)
+        syndromes = [1, last, last | 3, 2]
+        if num_qubits < 127 or css_weight:
+            assert _certify_map([0, 0, 1, 1], syndromes, None, num_qubits, css_weight) is None
+            _, listed, representatives, *_ = lister.call_args.args
+            assert [representative & mask for representative in representatives] == listed
+        else:
+            rows = _fault_search._hashed_rows(syndromes, (num_qubits + 63) // 64)
+            stabilizers = _z_state(num_qubits).astype(np.uint8)
+            errors = _fault_search._get_light_errors(rows, stabilizers, False)
+            x_parts = [None if error is None else error & mask for error in errors]
+            assert x_parts == [1, last, None, 2]
+            fixed_errors = _fault_search._get_fixed_errors(rows, stabilizers, False)
+            assert [error & mask for error in fixed_errors] == syndromes
 
     # Together, the primitive faults 0 and 2 pass post-selection and leave X on three qubits.  The
     # heavy syndromes 3 and 5 are not sums of two light ones, so they get fixed errors.  On |0...0>,
