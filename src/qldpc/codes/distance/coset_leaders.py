@@ -34,11 +34,7 @@ from ._brouwer_zimmermann.coset import (
     get_pauli_search,
 )
 from ._code_matrices import as_binary_matrix, as_integer, swap_pauli_halves
-from ._connected_cluster.coset import (
-    ConnectedClusterCosetSearch,
-    find_first_cluster_bound,
-    get_min_cluster_weights,
-)
+from ._connected_cluster.coset import ConnectedClusterCosetSearch
 from ._cosets import xor_selected, xor_selected_rows
 from ._tuning import get_tuning
 from .min_weight_bounds import MinWeightBound
@@ -208,16 +204,16 @@ class CosetLeaderSearch:
         # its X part (problems.md, "The coset-leader search"), and likewise for Z.
         x_syndrome_map = multiply_binary(z_transform, z_combinations)
         z_syndrome_map = multiply_binary(x_transform, x_combinations)
-        # Only the batch queries of the BZ searches read the packed columns of the maps.
-        if self._brouwer_zimmermann_searches:
-            self._map_columns = (
-                pack_bits(np.ascontiguousarray(x_syndrome_map.T)),
-                pack_bits(np.ascontiguousarray(z_syndrome_map.T)),
-            )
+        # The batch queries read the packed columns of the maps.
+        self._map_columns = (
+            pack_bits(np.ascontiguousarray(x_syndrome_map.T)),
+            pack_bits(np.ascontiguousarray(z_syndrome_map.T)),
+        )
 
         # Entry ``i`` of ``_joint_map_columns`` holds column ``i`` of the X map in its low
         # ``_num_x_syndrome_bits`` bits, and that of the Z map above them.  So ``_split_syndrome``
-        # maps a syndrome by XORing the entries of its set bits, which is cheap for few set bits.
+        # maps the syndrome of a single query by XORing the entries of its set bits, which is cheap
+        # for few set bits.
         self._num_x_syndrome_bits = len(z_rows)
         self._joint_map_columns = row_ints(
             np.ascontiguousarray(np.vstack([x_syndrome_map, z_syndrome_map]).T)
@@ -288,20 +284,12 @@ class CosetLeaderSearch:
         self._check_syndromes(syndromes)
         max_weight = self._as_max_weight(max_weight)
 
-        # The connected-cluster searches answer one syndrome at a time.
-        if self._connected_cluster_searches:
-            return find_first_cluster_bound(
-                self._connected_cluster_searches,
-                syndromes,
-                max_weight,
-                self._split_syndrome,
-                self._join_part_bounds,
-                **self._thread_options,
-            )
-
-        # With one search, take its bound and the lightest error that it weighed.
-        if len(self._brouwer_zimmermann_searches) == 1:
-            return self._brouwer_zimmermann_searches[0].find_first_not_within_max_weight(
+        # With one search, take its bound.
+        searches: tuple[ConnectedClusterCosetSearch | BrouwerZimmermannCosetSearch, ...] = (
+            self._connected_cluster_searches or self._brouwer_zimmermann_searches
+        )
+        if len(searches) == 1:
+            return searches[0].find_first_not_within_max_weight(
                 syndromes, max_weight, **self._thread_options
             )
 
@@ -310,7 +298,7 @@ class CosetLeaderSearch:
         # syndromes before the first whose X part has none, and ``get_min_weight_bound`` joins the
         # bounds of both parts.
         index = len(syndromes)
-        for search, map_columns in zip(self._brouwer_zimmermann_searches, self._map_columns):
+        for search, map_columns in zip(searches, self._map_columns):
             part_syndromes = _map_syndromes(syndromes[:index], map_columns)
             index, _ = search.find_first_not_within_max_weight(
                 part_syndromes, max_weight, **self._thread_options
@@ -342,29 +330,20 @@ class CosetLeaderSearch:
         self._check_syndromes(syndromes)
         max_weight = self._as_max_weight(max_weight)
 
-        # The connected-cluster searches answer one syndrome at a time.
-        if self._connected_cluster_searches:
-            return get_min_cluster_weights(
-                self._connected_cluster_searches,
-                syndromes,
-                max_weight,
-                self._split_syndrome,
-                **self._thread_options,
-            )
-
         # Every search starts from weight zero, except those of the Z parts below.
         floors = np.zeros(len(syndromes), dtype=np.int64)
 
         # With one search, take its weights.
-        if len(self._brouwer_zimmermann_searches) == 1:
-            return self._brouwer_zimmermann_searches[0].get_min_weights(
+        searches = self._connected_cluster_searches or self._brouwer_zimmermann_searches
+        if len(searches) == 1:
+            return searches[0].get_min_weights(
                 syndromes, max_weight, floors, **self._thread_options
             )
 
         # With two searches, search the Z parts only of the classes whose X parts are within
         # ``max_weight``, with the weight of the X part as the floor (problems.md, "The coset-leader
         # search").
-        x_search, z_search = self._brouwer_zimmermann_searches
+        x_search, z_search = searches
         x_syndromes = _map_syndromes(syndromes, self._map_columns[0])
         weights = x_search.get_min_weights(x_syndromes, max_weight, floors, **self._thread_options)
         rows = np.flatnonzero(weights <= max_weight)
