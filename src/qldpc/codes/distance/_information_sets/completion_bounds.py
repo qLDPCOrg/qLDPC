@@ -18,6 +18,7 @@ for nogil code in the docstring of ``qldpc/_compilation.py``.
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,6 +29,10 @@ from qldpc._compilation import always_compiled
 
 from .._tuning import SearchTuning
 from . import certificates
+
+# The shifts that take byte ``i`` of a word of packed bytes to its lowest byte are
+# ``_FIRST_BYTE_SHIFT + _BYTE_SHIFT_STEP * i``.
+_FIRST_BYTE_SHIFT, _BYTE_SHIFT_STEP = (0, 8) if sys.byteorder == "little" else (56, -8)
 
 ####################################################################################################
 # completion tables
@@ -40,9 +45,10 @@ class CompletionTables:
     The tables belong to the packed tails of one systematic basis, with its rows in the order in
     which a search sums them (Section 3.9).  Block ``b`` covers the tail columns from
     ``b * block_bits`` up to, but not including, ``(b + 1) * block_bits``, and the last block may be
-    narrower.  Viewed with shape ``(num_rows - 1, offsets[-1])``, entry ``offsets[b] + x`` of row
-    ``s`` of ``tables`` is the least weight of ``x + P_i + P_j`` on block ``b`` over the pairs
-    ``s <= i < j``, where ``x`` is the value of a tail on the block.
+    narrower.  Viewed with shape ``(offsets[-1], num_rows - 1)``, entry ``s`` of row
+    ``offsets[b] + x`` of ``tables`` is the least weight of ``x + P_i + P_j`` on block ``b`` over
+    the pairs ``s <= i < j``, where ``x`` is the value of a tail on the block.  Section 3.9 says why
+    the rows ``s`` are innermost.
     """
 
     tables: npt.NDArray[np.uint8]
@@ -210,14 +216,17 @@ def get_completion_bound(
     ``tables``, ``offsets``, and ``block_bits`` are those of ``CompletionTables``.  The sum stops
     once it reaches ``limit``, so the result is the bound or a lower value of at least ``limit``.
     """
-    base = first * offsets[-1]
+    # Tables without blocks, such as ``NO_TABLES``, have no rows to count and bound nothing.
+    if len(offsets) == 1:
+        return np.int64(0)
+    num_table_rows = len(tables) // offsets[-1]
     # Bytes from the tables add up in int64, which no number of blocks can overflow.
     bound = np.int64(0)
     for block in range(len(offsets) - 1):
         # Take each value within the size of its own table, so that ones of the prefix past the last
         # tail column with a one never index another table.
         value = _get_block_value(prefix, block * block_bits, offsets[block + 1] - offsets[block])
-        bound += np.int64(tables[base + offsets[block] + np.int64(value)])
+        bound += np.int64(tables[(offsets[block] + np.int64(value)) * num_table_rows + first])
         if bound >= limit:
             break
     return bound
@@ -354,9 +363,17 @@ def _fill_tables(
 
     On each block, the table of row ``s`` holds the distance from each value to the nearest sum of a
     pair of rows from ``s`` on.  A breadth-first search computes it from the table of row ``s + 1``.
+    The tables of up to 64 rows collect in a tile, whose transpose then fills ``tables``.  Reading
+    the tile a word at a time, rather than a byte at a time, makes this transpose about a third
+    cheaper.
     """
     num_rows = rows.shape[0]
-    row_bytes = offsets[-1]
+    num_table_rows = num_rows - 1
+    tile_rows, tile_words = 64, 4
+    # The first block, if any, is the widest.  A row of the tile holds at least one word.
+    widest = offsets[1] if len(offsets) > 1 else 0
+    tile = np.empty((min(tile_rows, num_table_rows), max(widest, 8)), dtype=np.uint8)
+    words = tile.view(np.uint64)
     for block in range(len(offsets) - 1):
         start = block * block_bits
         size = offsets[block + 1] - offsets[block]
@@ -392,8 +409,24 @@ def _fill_tables(
                         distances[neighbor] = distance
                         queue[tail] = neighbor
                         tail += 1
-            begin = first * row_bytes + offsets[block]
-            tables[begin : begin + size] = distances
+            low = first - first % tile_rows
+            tile[first - low, :size] = distances
+
+            # Once the tile's first row is stored, copy the tile into the tables of the block, a
+            # few words of each row at a time, so that the words stay in the caches.
+            if first == low:
+                num_words = -(-size // 8)
+                block_start = offsets[block] * num_table_rows
+                for begin in range(0, num_words, tile_words):
+                    for row in range(low, min(low + tile_rows, num_table_rows)):
+                        for word in range(begin, min(begin + tile_words, num_words)):
+                            entries = words[row - low, word]
+                            entry = block_start + 8 * word * num_table_rows + row
+                            for point in range(8):
+                                if point < size:
+                                    shift = np.uint64(_FIRST_BYTE_SHIFT + _BYTE_SHIFT_STEP * point)
+                                    byte = np.uint8((entries >> shift) & np.uint64(255))
+                                    tables[entry + point * num_table_rows] = byte
 
 
 @always_compiled

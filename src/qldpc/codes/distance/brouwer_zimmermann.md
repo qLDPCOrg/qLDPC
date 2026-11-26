@@ -457,6 +457,7 @@ The breadth-first search halts at each value whose distance it does not lower, s
 With blocks of `β` columns, the tables take `(r - 1) Σ_b 2^|J_b|` bytes, and building them costs about `2^β β^2` steps for each block, plus a step for each pair of rows on each block, and writing each table.
 A lookup reads one entry per block.
 The scan looks up the bound each time it tries a new first row `s` for the pair that completes a prefix, and if `w + B ≥ U`, skips every completion of the prefix from row `s` on.
+Until it skips, the scan looks up the bounds of one prefix for consecutive `s`, so the tables store the entries of every `s` for one value on a block next to each other, where these lookups share cache lines.
 A bound for a larger `s` is stronger, so a support is skipped exactly if the bound of its own `s` reaches `U - w`.
 The threads of a split layer ([Section 4.5](brouwer_zimmermann_code.md#45-behavior-spanning-files)), and coset queries that run at once, each read shared tables, so a table must be complete before any scan reads it, and unchanged while scans do ([Section 5](brouwer_zimmermann_code.md#5-correctness-requirements)).
 Heuristic search in artificial intelligence calls such tables additive pattern databases: their entries for disjoint parts of a problem add up to a lower bound.
