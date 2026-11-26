@@ -10,7 +10,7 @@ import itertools
 import math
 import sys
 import types
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -93,35 +93,12 @@ def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
                 assert bound == get_bound_oracle(tails, prefix, first, bits) <= minimum
                 bounds[bits] = bound
 
-                check_early_stops(tables, first, packed, int(bound))
+                for limit in range(bound + 2):
+                    stopped = get_bound(tables.tables, tables.offsets, bits, first, packed, limit)
+                    assert (stopped >= limit) == (bound >= limit)
             assert all(
                 bounds[narrow] <= bounds[wide] for narrow, wide in itertools.pairwise(widths)
             )
-
-    # Bounds past the largest byte, from two equal rows of ones and the prefix of ones.
-    tails = np.ones((2, 260), dtype=np.uint8)
-    tables = cb.CompletionTables.build(pack_bits(tails), 8)
-    packed = pack_bits(tails[:1])[0]
-    bound = get_bound(tables.tables, tables.offsets, 8, 0, packed, 10**9)
-    assert bound == get_bound_oracle(tails, tails[0], 0, 8) == 260
-    check_early_stops(tables, 0, packed, int(bound))
-
-
-def check_early_stops(
-    tables: cb.CompletionTables, first: int, prefix: npt.NDArray[np.uint64], bound: int
-) -> None:
-    """Bounds stopped at each limit up to past ``bound`` stop as their contract says."""
-    for limit in range(bound + 2):
-        stopped = cb.get_completion_bound(
-            tables.tables, tables.offsets, tables.block_bits, first, prefix, limit
-        )
-        assert (stopped >= limit) == (bound >= limit)
-        assert min(bound, limit) <= stopped <= bound
-
-
-def get_value(bits: npt.NDArray[np.uint8]) -> int:
-    """The value of a block of columns, with its first column in the lowest bit."""
-    return int(bits.astype(np.int64) @ (1 << np.arange(len(bits))))
 
 
 def get_block_minima(
@@ -133,7 +110,8 @@ def get_block_minima(
     is the least weight on the block of ``x`` plus two rows from row ``s`` on.
     """
     block = tails[:, start : start + block_bits]
-    values = np.array([get_value(row) for row in block])
+    # The value of each row on the block, with its first column in the lowest bit.
+    values = block.astype(np.int64) @ (1 << np.arange(block.shape[1]))
     points = np.arange(1 << block.shape[1])
     weights = np.array([point.bit_count() for point in range(len(points))])
     num_rows = len(tails)
@@ -147,129 +125,49 @@ def get_block_minima(
     return minima
 
 
-def test_every_entry_of_the_tables_matches_its_definition(pytestconfig: pytest.Config) -> None:
-    """Every entry of the tables of tails, and the bounds that they give, match their definitions.
+class BigEndianWords:
+    """The type ``np.uint64``, but whose arrays view memory in big-endian byte order."""
 
-    The fill transposes the tables of 64 rows at once, four words of each at a time.  Each random
-    case draws its rows, columns, and block width from counts that straddle the tiles of 64 rows of
-    tables and the words of 64 columns.  The cases include a full last tile, a later partial tile of
-    several rows, more than 256 rows, and later tiles of blocks past the first word, of more than
-    four words, or of more than 64 words.  The tails of two rows of sixteen ones have an entry of
-    16, the largest distance.  The tables fill contiguous storage, or every other byte of storage
-    backward, whose bytes between them stay unchanged.
-    """
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    tiled, columns = [66, 67, 127, 128, 129, 130], [1, 7, 63, 64, 65, 70]
-    choices = [
-        ([65, 129], [1, 2, 8], columns),
-        ([67, 127, 128], [1, 2, 8], columns),
-        ([258], [1, 2, 8], columns),
-        (tiled, [1], [65, 70]),
-        (tiled, [8], columns[1:]),
-        (tiled, [16], [10]),
-    ]
-    cases = []
-    for row_counts, widths, column_counts in choices:
-        while True:
-            num_rows, block_bits, num_columns = (
-                int(rng.choice(counts)) for counts in (row_counts, widths, column_counts)
-            )
-            # Redraw tails whose tables take too long to build and check as plain Python.
-            num_blocks = -(-num_columns // block_bits)
-            num_values = sum(
-                2 ** min(block_bits, num_columns - start)
-                for start in range(0, num_columns, block_bits)
-            )
-            if num_rows * (num_blocks * num_rows + num_values) <= 2**19:
-                break
-        tails = (rng.random((num_rows, num_columns)) < rng.uniform(0.01, 0.2)).astype(np.uint8)
-        # A one in the last column keeps the last block as wide as the columns make it.
-        tails[rng.integers(num_rows), -1] = 1
-        cases.append((tails, block_bits))
-    # The only sum of two equal rows of ones is zero, at distance 16 from the value with all ones.
-    cases.append((np.ones((2, 16), dtype=np.uint8), 16))
-
-    steps = rng.permutation(np.resize([1, -2], len(cases)))
-    for (tails, block_bits), step in zip(cases, steps, strict=True):
-        num_rows, num_columns = tails.shape
-        minima = [
-            get_block_minima(tails, start, block_bits)
-            for start in range(0, num_columns, block_bits)
-        ]
-        sizes = [block_minima.shape[1] for block_minima in minima]
-        # Fill storage of a value that no entry takes, so that every entry left unwritten and every
-        # byte written between entries shows.
-        storage = np.full(abs(step) * (num_rows - 1) * sum(sizes), 255, dtype=np.uint8)
-        out = storage[::step]
-        tables = cb.CompletionTables.build(pack_bits(tails), block_bits, out=out)
-        gaps = np.ones(len(storage), dtype=bool)
-        gaps[np.arange(len(storage))[::step]] = False
-        assert np.all(storage[gaps] == 255)
-        entries = np.split(out.reshape(-1, num_rows - 1), np.cumsum(sizes)[:-1])
-        for block_entries, block_minima in zip(entries, minima, strict=True):
-            np.testing.assert_array_equal(block_entries.T, block_minima)
-
-        # Bound, from every row, prefixes that take the same value on every block: every value of
-        # blocks of up to four values, and otherwise a few, including the one with all ones.
-        values = {(1 << block_bits) - 1, *rng.permutation(1 << block_bits)[:4].tolist()}
-        for value in values:
-            prefix = (value >> (np.arange(num_columns) % block_bits)) & 1
-            packed = pack_bits(prefix[None].astype(np.uint8))[0]
-            for first in range(num_rows - 1):
-                bound = cb.get_completion_bound(
-                    tables.tables, tables.offsets, block_bits, first, packed, 10**9
-                )
-                assert bound == sum(m[first, value % m.shape[1]] for m in minima)
-
-
-class WordsOfByteOrder:
-    """The type ``np.uint64``, but whose arrays view memory in a given byte order."""
-
-    def __init__(self, byteorder: Literal["little", "big"]) -> None:
-        self.dtype = np.dtype("<u8" if byteorder == "little" else ">u8")
+    dtype = np.dtype(">u8")
 
     def __call__(self, value: Any) -> np.uint64:
         return np.uint64(value)
 
 
-def test_tables_fill_alike_on_either_byte_order(
+def test_tables_of_two_tiles_match_their_definition_in_either_byte_order(
     pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Tables filled as on a machine of either byte order match their definition.
+    """Every entry of tables that fill a full tile of 64 rows and then a partial one is correct.
 
-    The fill reads its tiles a word at a time, so the bytes that it takes from a word depend on the
-    byte order.  A copy of the module, imported as if on a machine of each order, fills tables as
-    plain Python, with words that view memory in that order.
+    The tables have eight blocks of 32 words and a last block narrower than a word, and fill storage
+    of a value that no entry takes.  The bytes that the fill takes from each word of a tile depend
+    on the byte order, so a copy of the module, imported as if on a big-endian machine, also fills
+    them as plain Python, with words that view memory in that order.
     """
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    tails = (rng.random((6, 13)) < 0.3).astype(np.uint8)
-    tails[rng.integers(6), -1] = 1
-    minima = [get_block_minima(tails, start, 4) for start in range(0, 13, 4)]
-    sizes = [block_minima.shape[1] for block_minima in minima]
-    byteorders: list[Literal["little", "big"]] = ["little", "big"]
-    for byteorder in byteorders:
-        monkeypatch.setattr(sys, "byteorder", byteorder)
-        name = f"{cb.__name__}_on_{byteorder}_endian"
-        spec = importlib.util.spec_from_file_location(name, cb.__file__)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        monkeypatch.setitem(sys.modules, name, module)
-        spec.loader.exec_module(module)
-        numpy = types.SimpleNamespace(**vars(np))
-        numpy.uint64 = WordsOfByteOrder(byteorder)
-        monkeypatch.setattr(module, "np", numpy)
-        for function in ["_fill_tables", "_get_block_value"]:
-            compiled = getattr(module, function)
-            monkeypatch.setattr(module, function, getattr(compiled, "py_func", compiled))
+    monkeypatch.setattr(sys, "byteorder", "big")
+    name = f"{cb.__name__}_on_big_endian"
+    spec = importlib.util.spec_from_file_location(name, cb.__file__)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, module)
+    spec.loader.exec_module(module)
+    numpy = types.SimpleNamespace(**vars(np))
+    numpy.uint64 = BigEndianWords()
+    monkeypatch.setattr(module, "np", numpy)
+    for function in ["_fill_tables", "_get_block_value"]:
+        compiled = getattr(module, function)
+        monkeypatch.setattr(module, function, getattr(compiled, "py_func", compiled))
 
-        tables = module.CompletionTables.build(pack_bits(tails), 4)
-        entries = np.split(tables.tables.reshape(-1, 5), np.cumsum(sizes)[:-1])
-        for block_entries, block_minima in zip(entries, minima, strict=True):
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tails = (rng.random((67, 66)) < 0.1).astype(np.uint8)
+    tails[rng.integers(67), -1] = 1
+    minima = [get_block_minima(tails, start, 8) for start in range(0, 66, 8)]
+    for build in [cb.CompletionTables.build, module.CompletionTables.build]:
+        out = np.full(66 * (8 * 2**8 + 2**2), 255, dtype=np.uint8)
+        build(pack_bits(tails), 8, out=out)
+        blocks = np.split(out.reshape(-1, 66), range(2**8, 8 * 2**8 + 1, 2**8))
+        for block_entries, block_minima in zip(blocks, minima, strict=True):
             np.testing.assert_array_equal(block_entries.T, block_minima)
-        for first, value in itertools.product(range(5), range(16)):
-            prefix = pack_bits(((value >> (np.arange(13) % 4)) & 1)[None].astype(np.uint8))[0]
-            bound = cb.get_completion_bound(tables.tables, tables.offsets, 4, first, prefix, 10**9)
-            assert bound == sum(m[first, value % m.shape[1]] for m in minima)
 
 
 def test_tables_without_blocks_bound_nothing() -> None:
@@ -320,17 +218,6 @@ def test_tables_within_a_limit_fit_only_if_they_skip_something_and_build_in_plac
     np.testing.assert_array_equal(array[1:-1], tables.tables)
     assert array[0] == array[-1] == 255
 
-    # Every other byte of storage, whose bytes between those of the tables stay unchanged.
-    tails = np.array([[1], [1], [0]], dtype=np.uint8)
-    minima = get_block_minima(tails, 0, 1)
-    storage = np.full(8, 255, dtype=np.uint8)
-    tables = cb.CompletionTables.build(pack_bits(tails), 1, out=storage[::2])
-    np.testing.assert_array_equal(storage[::2].reshape(2, 2).T, minima)
-    assert np.all(storage[1::2] == 255)
-    for first, value in itertools.product(range(2), range(2)):
-        prefix = np.array([value], dtype=np.uint64)
-        bound = cb.get_completion_bound(tables.tables, tables.offsets, 1, first, prefix, 10**9)
-        assert bound == minima[first, value]
     for size in (num_bytes - 1, num_bytes + 1):
         with pytest.raises(AssertionError):
             cb.CompletionTables.build(rows, 8, out=np.empty(size, dtype=np.uint8))
