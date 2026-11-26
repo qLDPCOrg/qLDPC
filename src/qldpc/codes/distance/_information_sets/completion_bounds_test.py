@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
 import itertools
 import math
-from typing import Any
+import sys
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -93,6 +95,7 @@ def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
                 for limit in range(bound + 2):
                     stopped = get_bound(tables.tables, tables.offsets, bits, first, packed, limit)
                     assert (stopped >= limit) == (bound >= limit)
+                    assert min(int(bound), limit) <= stopped <= bound
             assert all(
                 bounds[narrow] <= bounds[wide] for narrow, wide in itertools.pairwise(widths)
             )
@@ -129,56 +132,94 @@ def get_block_minima(
 def test_every_entry_of_the_tables_matches_its_definition(pytestconfig: pytest.Config) -> None:
     """Every entry of the tables of tails, and the bounds that they give, match their definitions.
 
-    The fill transposes the tables of 64 rows at once, four words of each at a time.  The random
-    tails have five tiles of rows of tables, the last with one row, on two blocks of four or 256
-    values, where the last block may be narrower.  The tails of 65 rows have one full tile.  The
-    tails of two rows have one row of tables, on a block of sixteen columns, and an entry of 16, the
-    largest distance.  The tables fill contiguous storage, and every other byte of storage backward,
-    whose bytes between them stay unchanged.
+    The fill transposes the tables of 64 rows at once, four words of each at a time.  Each random
+    case draws its rows, columns, and block width from counts that straddle the tiles of 64 rows of
+    tables and the words of 64 columns.  The cases include a full last tile, a later partial tile of
+    several rows, more than 256 rows, and later tiles of blocks past the first word or of more than
+    four words.  The tails of two rows of sixteen ones have an entry of 16, the largest distance.
+    The tables fill contiguous storage, or every other byte of storage backward, whose bytes between
+    them stay unchanged.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tiled, columns = [66, 67, 127, 128, 129, 130], [1, 7, 63, 64, 65, 70]
+    choices = [
+        ([65, 129], [1, 2, 8], columns),
+        ([67, 127, 128], [1, 2, 8], columns),
+        ([258], [1, 2, 8], columns),
+        (tiled, [1], [65, 70]),
+        (tiled, [8], columns[1:]),
+    ]
     cases = []
-    for block_bits in [2, 8]:
-        tails = get_random_tails(rng, 258, block_bits + int(rng.integers(1, block_bits + 1)))
+    for row_counts, widths, column_counts in choices:
+        while True:
+            num_rows, block_bits, num_columns = (
+                int(rng.choice(counts)) for counts in (row_counts, widths, column_counts)
+            )
+            # Redraw tails whose tables take too long to build and check as plain Python.
+            num_blocks = -(-num_columns // block_bits)
+            if num_rows * num_blocks * (num_rows + 2**block_bits) <= 2**19:
+                break
+        tails = (rng.random((num_rows, num_columns)) < rng.uniform(0.01, 0.2)).astype(np.uint8)
         # A one in the last column keeps the last block as wide as the columns make it.
-        tails[rng.integers(258), -1] = 1
+        tails[rng.integers(num_rows), -1] = 1
         cases.append((tails, block_bits))
-    cases.append((get_random_tails(rng, 65, 1), 1))
     # The only sum of two equal rows of ones is zero, at distance 16 from the value with all ones.
     cases.append((np.ones((2, 16), dtype=np.uint8), 16))
 
-    for tails, block_bits in cases:
+    steps = rng.permutation(np.resize([1, -2], len(cases)))
+    for (tails, block_bits), step in zip(cases, steps, strict=True):
         num_rows, num_columns = tails.shape
         minima = [
             get_block_minima(tails, start, block_bits)
             for start in range(0, num_columns, block_bits)
         ]
         sizes = [block_minima.shape[1] for block_minima in minima]
-        num_bytes = (num_rows - 1) * sum(sizes)
-        # Every value of blocks of up to four values, and otherwise a few, including all ones.
-        values = {(1 << block_bits) - 1, *rng.permutation(1 << block_bits)[:4].tolist()}
-        for step in [1, -2]:
-            # Fill storage of a value that no entry takes, so that every entry left unwritten and
-            # every byte written between entries shows.
-            storage = np.full(abs(step) * num_bytes, 255, dtype=np.uint8)
-            out = storage[::step]
-            tables = cb.CompletionTables.build(pack_bits(tails), block_bits, out=out)
-            gaps = np.ones(len(storage), dtype=bool)
-            gaps[np.arange(len(storage))[::step]] = False
-            assert np.all(storage[gaps] == 255)
-            entries = np.split(out.reshape(-1, num_rows - 1), np.cumsum(sizes)[:-1])
-            for block_entries, block_minima in zip(entries, minima, strict=True):
-                np.testing.assert_array_equal(block_entries.T, block_minima)
+        # Fill storage of a value that no entry takes, so that every entry left unwritten and every
+        # byte written between entries shows.
+        storage = np.full(abs(step) * (num_rows - 1) * sum(sizes), 255, dtype=np.uint8)
+        out = storage[::step]
+        tables = cb.CompletionTables.build(pack_bits(tails), block_bits, out=out)
+        gaps = np.ones(len(storage), dtype=bool)
+        gaps[np.arange(len(storage))[::step]] = False
+        assert np.all(storage[gaps] == 255)
+        entries = np.split(out.reshape(-1, num_rows - 1), np.cumsum(sizes)[:-1])
+        for block_entries, block_minima in zip(entries, minima, strict=True):
+            np.testing.assert_array_equal(block_entries.T, block_minima)
 
-            # Bound, from every row, prefixes that take the same value on every block.
-            for value in values:
-                prefix = (value >> (np.arange(num_columns) % block_bits)) & 1
-                packed = pack_bits(prefix[None].astype(np.uint8))[0]
-                for first in range(num_rows - 1):
-                    bound = cb.get_completion_bound(
-                        tables.tables, tables.offsets, block_bits, first, packed, 10**9
-                    )
-                    assert bound == sum(m[first, value % m.shape[1]] for m in minima)
+        # Bound, from every row, prefixes that take the same value on every block: every value of
+        # blocks of up to four values, and otherwise a few, including the one with all ones.
+        values = {(1 << block_bits) - 1, *rng.permutation(1 << block_bits)[:4].tolist()}
+        for value in values:
+            prefix = (value >> (np.arange(num_columns) % block_bits)) & 1
+            packed = pack_bits(prefix[None].astype(np.uint8))[0]
+            for first in range(num_rows - 1):
+                bound = cb.get_completion_bound(
+                    tables.tables, tables.offsets, block_bits, first, packed, 10**9
+                )
+                assert bound == sum(m[first, value % m.shape[1]] for m in minima)
+
+
+def test_byte_shifts_take_each_byte_of_a_word_on_either_byte_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a machine of either byte order, the byte shifts take each byte of a word to its lowest.
+
+    The fill reads its tiles a word at a time, so its shifts depend on the byte order.  A copy of
+    the module, imported as if on a machine of each order, gives the shifts of that order.
+    """
+    memory = bytes(range(1, 9))
+    byteorders: list[Literal["little", "big"]] = ["little", "big"]
+    for byteorder in byteorders:
+        monkeypatch.setattr(sys, "byteorder", byteorder)
+        name = f"{cb.__name__}_on_{byteorder}_endian"
+        spec = importlib.util.spec_from_file_location(name, cb.__file__)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, name, module)
+        spec.loader.exec_module(module)
+        word = int.from_bytes(memory, byteorder)
+        shifts = [module._FIRST_BYTE_SHIFT + module._BYTE_SHIFT_STEP * i for i in range(8)]
+        assert bytes(word >> shift & 255 for shift in shifts) == memory
 
 
 def test_tables_without_blocks_bound_nothing() -> None:
