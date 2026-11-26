@@ -125,27 +125,47 @@ def get_block_minima(
 
 
 def test_every_entry_of_the_tables_matches_its_definition(pytestconfig: pytest.Config) -> None:
-    """Every entry of the tables of random tails matches its definition.
+    """Every entry of the tables of tails, and the bounds that they give, match their definitions.
 
-    The fill transposes the tables of 64 rows at once, four words of each at a time.  The first
-    tails have fewer rows of tables, on blocks of fewer than eight values.  The second have more, on
-    blocks of 256 values.  Where blocks have more than one column, the last block is narrower.
+    The fill transposes the tables of 64 rows at once, four words of each at a time.  The random
+    tails have three tiles of rows of tables, on blocks of fewer than eight values, and where blocks
+    have two columns, the last has one.  The other tails have one row of tables, on a block of
+    sixteen columns, and an entry of 16, the largest distance.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for num_rows, block_bits in [(63, int(rng.choice([1, 2]))), (66, 8)]:
-        last_bits = int(rng.integers(1, block_bits)) if block_bits > 1 else 1
-        num_columns = block_bits * int(rng.integers(1, 3)) + last_bits
-        tails = get_random_tails(rng, num_rows, num_columns)
-        # A one in the last column keeps the last block as wide as the columns make it.
-        tails[rng.integers(num_rows), -1] = 1
-        tables = cb.CompletionTables.build(pack_bits(tails), block_bits)
-        offsets = tables.offsets
-        entries = tables.tables.reshape(offsets[-1], num_rows - 1)
-        for block, start in enumerate(range(0, num_columns, block_bits)):
-            block_entries = entries[offsets[block] : offsets[block + 1]]
-            np.testing.assert_array_equal(
-                block_entries.T, get_block_minima(tails, start, block_bits)
-            )
+    block_bits = int(rng.choice([1, 2]))
+    tails = get_random_tails(rng, 130, block_bits * int(rng.integers(1, 3)) + 1)
+    # A one in the last column keeps the last block as wide as the columns make it.
+    tails[rng.integers(130), -1] = 1
+    # The only sum of two equal rows of ones is zero, at distance 16 from the value with all ones.
+    cases = [
+        (tails, block_bits, range(1 << block_bits)),
+        (np.ones((2, 16), dtype=np.uint8), 16, [2**16 - 1]),
+    ]
+
+    for tails, block_bits, values in cases:
+        num_rows, num_columns = tails.shape
+        minima = [
+            get_block_minima(tails, start, block_bits)
+            for start in range(0, num_columns, block_bits)
+        ]
+        sizes = [block_minima.shape[1] for block_minima in minima]
+        # Fill storage of a value that no entry takes, so that every entry left unwritten shows.
+        out = np.full((num_rows - 1) * sum(sizes), 255, dtype=np.uint8)
+        tables = cb.CompletionTables.build(pack_bits(tails), block_bits, out=out)
+        entries = np.split(out.reshape(-1, num_rows - 1), np.cumsum(sizes)[:-1])
+        for block_entries, block_minima in zip(entries, minima, strict=True):
+            np.testing.assert_array_equal(block_entries.T, block_minima)
+
+        # Bound, from every row, prefixes that take the same value on every block.
+        for value in values:
+            prefix = (value >> (np.arange(num_columns) % block_bits)) & 1
+            packed = pack_bits(prefix[None].astype(np.uint8))[0]
+            for first in range(num_rows - 1):
+                bound = cb.get_completion_bound(
+                    tables.tables, tables.offsets, block_bits, first, packed, 10**9
+                )
+                assert bound == sum(m[first, value % m.shape[1]] for m in minima)
 
 
 def test_tables_without_blocks_bound_nothing() -> None:
@@ -193,6 +213,13 @@ def test_tables_within_a_limit_fit_only_if_they_skip_something_and_build_in_plac
     cb.CompletionTables.build(rows, 8, out=array[1:-1])
     np.testing.assert_array_equal(array[1:-1], tables.tables)
     assert array[0] == array[-1] == 255
+
+    # Strided storage, whose bytes between those of the tables stay unchanged.
+    tails = np.array([[0], [1]], dtype=np.uint8)
+    storage = np.full(4, 255, dtype=np.uint8)
+    cb.CompletionTables.build(pack_bits(tails), 1, out=storage[::2])
+    np.testing.assert_array_equal(storage[::2], get_block_minima(tails, 0, 1)[0])
+    assert np.all(storage[1::2] == 255)
     for size in (num_bytes - 1, num_bytes + 1):
         with pytest.raises(AssertionError):
             cb.CompletionTables.build(rows, 8, out=np.empty(size, dtype=np.uint8))
