@@ -307,8 +307,8 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
     For the checks I3, a syndrome is the lightest word of its coset, so its bit count is its minimum
     weight.  The search of the first syndrome of a batch does the work at which the rest of the
     batch moves to blocks, which up to two threads run.  In the first batch, the second syndrome
-    starts a block, and its floor of zero gives its weight 2, where the floor 3 of the first
-    syndrome would give 3.  The second batch is long enough for blocks of several rows, with
+    starts a block, and its floor of zero gives its weight 2, where the floor 3 of the first or the
+    last syndrome would give 3.  The second batch is long enough for blocks of several rows, with
     differing floors, whose syndromes of weight 2 each do work.  Its first syndrome without a word
     within ``max_weight`` follows such a syndrome in its block.
     """
@@ -320,10 +320,10 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
         restrict_viable_symbols=True,
         stabilizer_overlap_cuts=True,
     )
-    batch = split_syndromes_into_words([0b111, 0b011], 3)
-    floors = np.array([3, 0], dtype=np.int64)
+    batch = split_syndromes_into_words([0b111, 0b011, 0b111], 3)
+    floors = np.array([3, 0, 3], dtype=np.int64)
     weights = coset_search.get_min_weights(batch, 3, floors, num_threads=2, split_work=1)
-    assert weights[0] <= 3 and weights[1] == 2
+    assert weights[0] <= 3 and weights[1] == 2 and weights[2] <= 3
 
     syndromes = [(0b011, 0b101, 0b110)[row % 3] for row in range(34)]
     syndromes[2] = 0b111
