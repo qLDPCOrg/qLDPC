@@ -308,9 +308,10 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
     weight.  The search of the first syndrome of a batch does the work at which the rest of the
     batch moves to blocks, which up to two threads run.  In the first batch, the second syndrome
     starts a block, and its floor of zero gives its weight 2, where the floor 3 of the first or the
-    last syndrome would give 3.  The second batch is long enough for blocks of several rows, with
-    differing floors, whose syndromes of weight 2 each do work.  Its first syndrome without a word
-    within ``max_weight`` follows such a syndrome in its block.
+    last syndrome would give 3.  The second batch is long enough for blocks of several rows, whose
+    syndromes of weight 2 each do work.  Its floors, from 0 to 3, follow no pattern, so that a block
+    that took the floors of other rows would answer some row wrongly.  Its first syndrome without a
+    word within ``max_weight`` follows a syndrome of weight 2 in its block.
     """
     coset_search = coset.ConnectedClusterCosetSearch(
         np.eye(3, dtype=np.uint8),
@@ -328,7 +329,7 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
     syndromes = [(0b011, 0b101, 0b110)[row % 3] for row in range(34)]
     syndromes[2] = 0b111
     batch = split_syndromes_into_words(syndromes, 3)
-    floors = np.arange(len(syndromes)) % 4
+    floors = np.random.default_rng(1).integers(0, 4, size=len(syndromes))
     weights = coset_search.get_min_weights(batch, 3, floors, num_threads=2, split_work=1)
     minima = np.array([syndrome.bit_count() for syndrome in syndromes])
     within = minima <= floors
