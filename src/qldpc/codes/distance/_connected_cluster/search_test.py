@@ -871,8 +871,11 @@ def test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state(
     syndrome and no witness, and changes nothing else.
     """
     checks, excluded = get_golay_problem()
+    # Compiled code cannot call a wrapper, so only plain Python checks which route each state takes.
+    check_routes = _compilation.is_compilation_disabled()
     get_overlap = unittest.mock.Mock(wraps=cs._get_overlap)
-    monkeypatch.setattr(cs, "_get_overlap", get_overlap)
+    if check_routes:
+        monkeypatch.setattr(cs, "_get_overlap", get_overlap)
     symbols, num_states = [], []
     for num_padded in (1, int(np.count_nonzero(checks))):
         padded_checks = np.hstack([checks, np.zeros((len(checks), num_padded), dtype=np.uint8)])
@@ -888,8 +891,7 @@ def test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state(
         symbols.append({call.args[-1] for call in get_overlap.call_args_list})
         num_states.append(search.num_states - num_padded)
     assert num_states[0] == num_states[1]
-    # Compiled code calls the compiled function rather than the wrapper.
-    assert not _compilation.is_compilation_disabled() or max(symbols[0]) >= 23 > max(symbols[1])
+    assert not check_routes or max(symbols[0]) >= 23 > max(symbols[1])
 
 
 @pytest.mark.parametrize(
