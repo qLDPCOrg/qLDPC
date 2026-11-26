@@ -5,7 +5,7 @@
 qLDPC, for example in its distance and counting searches, runs two kinds of functions that numba
 compiles.  They are written in the subset of Python and NumPy that numba supports.
 
-Always-compiled functions, such as bit packing, row reduction and the scan of a chunk of
+Always-compiled functions, such as bit packing, row reduction, and the scan of a chunk of
 combinations, are compiled by numba the first time that they are used.  Compiled-on-request
 functions are compiled on first use after :func:`~qldpc.codes.distance.compile_search_setup`
 requests their compilation (see below).  The compiled code of both kinds is cached on disk.  Numba
@@ -20,18 +20,9 @@ directory.  At most once a day, it also deletes the directories unused for more 
 hold code of other versions of its own package directory's source files, or of package directories
 that it cannot find, such as deleted checkouts (see :func:`_delete_outdated_cache_directories`).
 
-Several processes can compile the same function at the same time, such as parallel test workers
-after a change to the source.  Numba saves each compiled version of a function in a data file, and
-keeps an index that maps the key of each compiled version, which includes its argument types, to its
-data file.  It names the data file of a new compiled version by the lowest number that the index it
-read does not use, and nothing stops another process from writing the index between its read and its
-write.  Two processes that compile a function for different argument types at once can thus write
-the same data file, and leave the index pointing at code compiled for other argument types (`numba
-issue #10862 <https://github.com/numba/numba/issues/10862>`_).  Numba checks little more than the
-size of the items of array arguments before it runs such code, which can then raise an error or
-silently return wrong results.  This module therefore saves numba's version and the key of each
-compiled version with its code, and loads the code only if both match.  Otherwise numba compiles the
-function again for that key, and saves the new code in place of the code that did not match.
+Numba's disk cache can serve code compiled for other argument types, such as when several processes
+compile a function at once, or code saved by another version of numba, so this module checks what it
+loads (see ``_KeyCheckedCacheFile``).
 
 Compiled-on-request functions, such as the building of overlapping basis families, are registered
 with :func:`compiled_on_request`.  They run as plain Python until
@@ -49,8 +40,8 @@ compiling them a one-time cost.  Use :func:`compiled_on_request` for the larger 
 orchestrate a search, which select and bound its information sets, build its basis families, and
 drive its scan.  Compiling them takes long, and if they were always compiled, the first program that
 makes a search after each change to the source files of qLDPC would compile them, even for one
-search. Define them only in :mod:`qldpc.codes.distance`, whose tests CI runs with them compiled.  A
-function that is neither runs as plain Python.  A small always-compiled helper that hot loops call
+search.  Define them only in :mod:`qldpc.codes.distance`, whose tests CI runs with them compiled.
+A function that is neither runs as plain Python.  A small always-compiled helper that hot loops call
 can be marked ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function may
 call always-compiled and compiled-on-request functions.  An always-compiled function may call only
 always-compiled functions, since it is compiled and cached by itself.  The tests of these rules find
@@ -286,11 +277,10 @@ def is_compilation_disabled() -> bool:
 def _work_around_numba_name_clashes() -> bool:
     """Work around a numba bug by starting numba's count of compiled functions at random.
 
-    Numba names compiled code by function name, argument types, and this count, which starts at one
-    in each process.  Functions that numba generates from one template, such as the sorts behind
-    ``np.sort`` and ``np.argsort``, can thus get the same name for different code in different
-    processes, and a process that loads both from the disk cache runs one in place of the other.
-    Code that numba compiled before qLDPC was imported keeps its names.
+    TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
+    "Clashing names of code compiled in different processes".
+
+    Code that numba compiled before qLDPC was imported keeps the names that numba's count gave it.
 
     Returns:
         Whether the count, which is internal to numba, was where this function expects.
@@ -303,7 +293,8 @@ def _work_around_numba_name_clashes() -> bool:
     return True
 
 
-# WORKAROUND FOR A NUMBA BUG, in each process and forked child.  Without it, qLDPC caches nothing.
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
+# "Clashing names of code compiled in different processes".
 _NUMBA_NAME_CLASHES_AVOIDED = _work_around_numba_name_clashes()
 if hasattr(os, "register_at_fork"):
     os.register_at_fork(after_in_child=_work_around_numba_name_clashes)
@@ -339,7 +330,9 @@ def _compile_with_cache_in(
     setting, the report, and the object are internal to numba, so this function checks the report
     and the class of the object.
     """
-    # Cache nothing without the workaround for numba's clashing names.
+    # TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
+    # "Clashing names of code compiled in different processes".
+    # Cache nothing without the workaround.
     if not _NUMBA_NAME_CLASHES_AVOIDED:
         _warn_not_cached(
             f"its workaround for a numba bug does not work with numba {numba.__version__}",
@@ -363,6 +356,9 @@ def _compile_with_cache_in(
         _warn_not_cached(f"numba does not use {directory}")
         return None
 
+    # TEMPORARY until numba loads a data file only if its own version saved it for the key that it
+    # loads (numba/numba#10862): see numba_workarounds.md,
+    # "Data files that hold code for another key".
     # Make numba's cache-file object check what it loads, if it has exactly the class that qLDPC
     # extends.  Changing the class of an object of a subclass would drop the overrides of the
     # subclass.  The class is changed, rather than the object replaced, to keep the paths and source
@@ -382,13 +378,15 @@ def _compile_with_cache_in(
 class _KeyCheckedCacheFile(caching.IndexDataCacheFile):
     """Numba's cache-file object of a function, which loads only code saved for the same key.
 
+    TEMPORARY until numba loads a data file only if its own version saved it for the key that it
+    loads (numba/numba#10862): see numba_workarounds.md,
+    "Data files that hold code for another key".
+
     Each data file holds numba's version, and a pickle of the key of its compiled version with the
     code.  A load unpickles the pickle only if numba's version matches, since another version of
     numba may not be able to unpickle it.  It returns the code only if the key matches too.
     Otherwise numba compiles the function again for that key, and saves the new code in the same
-    data file.  Environments with different versions of numba can share the directory: each reads
-    only an index that its own version wrote, but any of them can write a data file.  The module
-    docstring explains how a data file can hold code for another key.
+    data file.
     """
 
     def save(self, key: object, data: object) -> None:
