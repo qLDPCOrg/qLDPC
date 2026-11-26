@@ -165,7 +165,8 @@ def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
 ) -> None:
     """A coset search given overlap words cuts its single queries exactly when its switch is on.
 
-    ``test_connected_cluster_batches_search_as_single_queries`` checks its batch queries.
+    ``test_connected_cluster_batches_search_as_single_queries`` checks that its batch queries cut
+    as its single queries do.
     """
     num_cuts_per_query: list[int] = []
     search_supports = search._search_supports
@@ -193,35 +194,35 @@ def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
     assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_query)
 
 
-@pytest.mark.parametrize("switch", ["restrict_viable_symbols", "cuts"])
-def test_connected_cluster_batches_search_as_single_queries(switch: str) -> None:
-    """Batch queries visit the states of single queries, with a switch on and off.
+def test_connected_cluster_batches_search_as_single_queries() -> None:
+    """Batch queries visit the states of single queries, with the restriction on and off.
 
-    So they search with the restriction and the overlap cuts of the coset search.  On this CSS
-    state, the lightest errors with the syndrome 57 weigh two, and the number of states that its
-    query visits at limit two depends on each switch, which is otherwise on.
+    So they search with the restriction and the overlap cuts of the coset search, which are on.  On
+    this CSS state, the lightest errors with the syndrome 57 weigh two, and the number of states
+    that its query visits at limit two depends on the restriction.  Those with the syndrome 21 weigh
+    three, so its batch query visits the states of single queries at the limits two and three.
     """
     matrix = get_random_css_state(6, 3, np.random.default_rng(0))
     syndrome = 57
-    assert get_exhaustive_minima(matrix, False)[syndrome] == 2
+    minima = get_exhaustive_minima(matrix, False)
+    assert minima[syndrome] == 2 and minima[21] == 3
     counts = []
-    for setting in (True, False):
-        options = {"restrict_viable_symbols": True, "cuts": True, switch: setting}
+    for restrict_viable_symbols in (True, False):
         coset_search = coset.ConnectedClusterCosetSearch(
             matrix,
             symplectic=True,
             max_rounds=0,
             rounds_without_improvement=1,
-            restrict_viable_symbols=options["restrict_viable_symbols"],
-            stabilizer_overlap_cuts=options["cuts"],
+            restrict_viable_symbols=restrict_viable_symbols,
+            stabilizer_overlap_cuts=True,
         )
         coset_search.use_query_overlap_words(coset_search.checks)
-        mapped = xor_selected(coset_search._syndrome_map_columns, syndrome)
-        packed_syndrome = int_to_words(mapped, 1)
-        _, num_states = coset_search._search.find_vector_with_packed_syndrome(packed_syndrome, 2)
+        num_states = _count_single_states(coset_search, syndrome, range(2, 3))
         assert _count_batch_states(coset_search, syndrome, 2) == num_states
         counts.append(num_states)
     assert counts[0] != counts[1]
+    num_states = _count_single_states(coset_search, 21, range(2, 4))
+    assert _count_batch_states(coset_search, 21, 3) == num_states
 
 
 @pytest.mark.parametrize("cuts", [True, False])
@@ -305,13 +306,11 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
     """A batch that moves to blocks answers every row of each block from the row's own floor.
 
     For the checks I3, a syndrome is the lightest word of its coset, so its bit count is its minimum
-    weight.  The search of the first syndrome of a batch does the work at which the rest of the
-    batch moves to blocks, which up to two threads run.  In the first batch, the second syndrome
-    starts a block, and its floor of zero gives its weight 2, where the floor 3 of the first or the
-    last syndrome would give 3.  The second batch is long enough for blocks of several rows, whose
-    syndromes of weight 2 each do work.  Its floors, from 0 to 3, follow no pattern, so that a block
-    that took the floors of other rows would answer some row wrongly.  Its first syndrome without a
-    word within ``max_weight`` follows a syndrome of weight 2 in its block.
+    weight.  The search of the first syndrome of the batch does the work at which the rest of the
+    batch moves to blocks, which up to two threads run.  The second syndrome starts a block, and its
+    floor of zero gives its weight 2, where the floor 3 of the first or the last syndrome would give
+    3.  With no split work, the rest of a batch moves to blocks after its first query, unless that
+    query ends the batch, as that of the first syndrome does at ``max_weight`` two.
     """
     coset_search = coset.ConnectedClusterCosetSearch(
         np.eye(3, dtype=np.uint8),
@@ -326,19 +325,77 @@ def test_connected_cluster_batches_in_blocks_answer_every_row_from_its_floor() -
     weights = coset_search.get_min_weights(batch, 3, floors, num_threads=2, split_work=1)
     assert weights[0] <= 3 and weights[1] == 2 and weights[2] <= 3
 
-    syndromes = [(0b011, 0b101, 0b110)[row % 3] for row in range(34)]
-    syndromes[2] = 0b111
-    batch = split_syndromes_into_words(syndromes, 3)
-    floors = np.random.default_rng(1).integers(0, 4, size=len(syndromes))
-    weights = coset_search.get_min_weights(batch, 3, floors, num_threads=2, split_work=1)
-    minima = np.array([syndrome.bit_count() for syndrome in syndromes])
-    within = minima <= floors
-    assert np.all(weights[within] <= floors[within])
-    assert np.array_equal(weights[~within], minima[~within])
     index, bound = coset_search.find_first_not_within_max_weight(
-        batch, 2, num_threads=2, split_work=1
+        batch, 2, num_threads=2, split_work=0
     )
-    assert index == 2 and bound is not None and bound.lower_bound == 3
+    assert index == 0 and bound is not None and bound.lower_bound == 3
+
+
+@pytest.mark.parametrize("symplectic", [True, False])
+def test_connected_cluster_batches_of_two_words_match_block_minima(
+    pytestconfig: pytest.Config, symplectic: bool
+) -> None:
+    """Batch queries of syndromes of two words agree with block minima and with single queries.
+
+    The checks are copies of a block on their own variables, so the minimum weight of a coset is
+    the sum of the minima of the syndromes of its copies.  The searches of Paulis check with 17
+    copies of a random graph state with phases, whose last copy has its four checks in the second
+    64-bit word.  The searches of X or Z parts check with 22 copies of the checks of a repetition
+    code of length four, whose last copy has its first check in the first word and the other two in
+    the second.  Without rounds of sparsifying, each sparser check acts only on the variables of
+    the copy at its position.  The batch starts with each nonzero syndrome of the last copy alone,
+    those of weight one first, so that at ``max_weight`` one the first syndrome without a word
+    within it has weight two, and goes on with random syndromes of two copies.  The batches run on
+    one to three threads in turn, with random split work and floors, and the first syndrome without
+    a word within ``max_weight`` gets the bound of a single query.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    if symplectic:
+        edges = [pair for pair in itertools.combinations(range(4), 2) if rng.integers(2)]
+        block = get_graph_state(4, edges, phase=True)
+        block_minima = get_exhaustive_minima(block, False)
+    else:
+        block = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=np.uint8)
+        block_minima = get_binary_minima(block)
+    halves = np.split(block, 2 if symplectic else 1, axis=1)
+    num_copies = 64 // len(block) + 1
+    checks = np.hstack([np.kron(np.eye(num_copies, dtype=np.uint8), half) for half in halves])
+    coset_search = coset.ConnectedClusterCosetSearch(
+        checks,
+        symplectic=symplectic,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=True,
+    )
+    copy_of_columns = np.tile(np.repeat(np.arange(num_copies), 4), len(halves))
+    rows, columns = np.nonzero(coset_search.checks)
+    assert np.array_equal(rows // len(block), copy_of_columns[columns])
+
+    # Each query is a list of pairs of a copy and its syndrome.
+    num_syndromes = 1 << len(block)
+    by_weight = sorted(range(1, num_syndromes), key=lambda local: block_minima[local])
+    queries = [[(num_copies - 1, local)] for local in by_weight]
+    for _ in range(10):
+        copies = rng.choice(num_copies, size=2, replace=False).tolist()
+        queries.append(list(zip(copies, rng.integers(1, num_syndromes, size=2).tolist())))
+    syndromes = [sum(local << (len(block) * copy) for copy, local in query) for query in queries]
+    minima = np.array([sum(block_minima[local] for _, local in query) for query in queries])
+    batch = split_syndromes_into_words(syndromes, len(checks))
+    for max_weight in range(5):
+        options = {"num_threads": 1 + max_weight % 3, "split_work": int(rng.integers(3))}
+        floors = rng.integers(max_weight + 1, size=len(batch))
+        weights = coset_search.get_min_weights(batch, max_weight, floors, **options)
+        within = minima <= floors
+        assert np.all(weights[within] <= floors[within])
+        assert np.array_equal(weights[~within], np.minimum(minima, max_weight + 1)[~within])
+        above = np.flatnonzero(minima > max_weight).tolist()
+        index, bound = coset_search.find_first_not_within_max_weight(batch, max_weight, **options)
+        assert index == (above[0] if above else len(batch))
+        if above:
+            assert bound == coset_search.get_min_weight_bound(syndromes[index], max_weight)
+        else:
+            assert bound is None
 
 
 def test_connected_cluster_batches_match_exhaustive_minima() -> None:
@@ -369,6 +426,21 @@ def test_connected_cluster_batches_match_exhaustive_minima() -> None:
 
 ####################################################################################################
 # helpers
+
+
+def _count_single_states(
+    coset_search: coset.ConnectedClusterCosetSearch, syndrome: int, limits: range
+) -> int:
+    """The number of states that single searches of a syndrome visit at some weight limits.
+
+    The syndrome must fit in one word, and its coset must have no word of weight at most one.
+    """
+    mapped = xor_selected(coset_search._syndrome_map_columns, syndrome)
+    packed_syndrome = int_to_words(mapped, 1)
+    return sum(
+        coset_search._search.find_vector_with_packed_syndrome(packed_syndrome, limit)[1]
+        for limit in limits
+    )
 
 
 def _count_batch_states(

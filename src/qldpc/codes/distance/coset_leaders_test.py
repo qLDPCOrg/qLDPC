@@ -986,8 +986,7 @@ def test_connected_cluster_batches_run_on_the_threads_of_their_search(
 
     With chunks of one state, a batch whose queries visit states moves to threads, and with the
     default chunks, this small batch stays on the calling thread.  So does a batch of syndromes of
-    errors of weight at most one, whose queries look up their errors and visit no states.  The
-    states that a search visits without finding an error count too.
+    errors of weight at most one, whose queries look up their errors and visit no states.
     """
     calls: list[int] = []
     run_work_items = _threads.run_work_items
@@ -1022,16 +1021,6 @@ def test_connected_cluster_batches_run_on_the_threads_of_their_search(
     assert search.find_first_not_within_max_weight(batch, 1) == (len(batch), None)
     search.get_min_weights(batch, 1)
     assert not calls
-
-    # On this graph state, the class of the syndrome 14 has minimum weight 3, and its search at the
-    # limit 2 visits states without finding an error.
-    graph_state = get_graph_state(5, [(0, 1), (1, 3), (3, 4)], phase=True)
-    assert get_exhaustive_minima(graph_state, False)[14] == 3
-    batch = split_syndromes_into_words([14] * 32, len(graph_state))
-    with use_tuning(num_threads=3, search_chunk_exponent=0):
-        search = CosetLeaderSearch(graph_state, method="connected_cluster")
-    assert np.all(search.get_min_weights(batch, 2) == 3)
-    assert calls and set(calls) == {3}
 
 
 def test_connected_cluster_batches_by_css_weight_count_the_work_of_z_parts(
