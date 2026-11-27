@@ -60,7 +60,7 @@ Where documentation belongs
   Code and documents cite a guide section by the label that the guide gives that section, an anchor ``<a name="sec-…"></a>`` on the line above its heading, as in ``brouwer_zimmermann.md#sec-completion-tables``; a change that cites a section without a label adds one.
   Each function, class, or module that relies on a guide section cites it once, in its docstring or in the comment on the code that relies on it, and may state in a clause what the section proves; rendered text, such as a public docstring, links to the section.
   Guides name code no more finely than its modules, its public API, as the :doc:`code standard <code>` defines it, and settings, such as the fields of ``SearchTuning`` and environment variables; code that a guide explains is found by searching for the labels that it cites.
-  When a rule or check ties code to a document, it requires the code to point to the document, rather than the document to list the code.
+  When a rule or check ties code to a document, it requires the code to point to the document, rather than the document to list the code; a list that must be complete is generated from the code, as AutoAPI lists the public symbols.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
   Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
   Measurements that only check a choice made on other grounds, such as a heuristic, go in the pull request description when review needs them; a heuristic may still state the rough costs that it assumes.
