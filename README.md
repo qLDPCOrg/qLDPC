@@ -6,6 +6,7 @@ It provides shared implementations and scientific conventions that researchers a
 Most code-level tools work over arbitrary finite fields.
 Circuit tools currently only support qubit codes.
 
+<a name="sec-goals"></a>
 ## 🎯 Goals
 
 - **Enable exploration.**
@@ -25,7 +26,7 @@ Circuit tools currently only support qubit codes.
   Compute exact distances of binary codes with an [optimized Brouwer-Zimmermann search](src/qldpc/codes/distance/brouwer_zimmermann.md) or a [connected-cluster search](src/qldpc/codes/distance/connected_cluster.md), which can be much faster on quantum codes with sparse checks.
   By default, each search chooses its method, and enumerates every word if that is cheap.
   Costly exact distance searches by the Brouwer-Zimmermann and connected-cluster methods, costly batches of coset-leader queries, and the costly fault listings of `certify_bounded_fault_propagation` run on several threads.
-  Callers that run searches in process pools or in their own threads should keep each search on one thread, as [Exact-search performance and tuning](https://qldpc.readthedocs.io/exact_search_tuning.html#start-from-a-symptom) explains.
+  Callers that run searches in process pools or in their own threads should keep each search on one thread, as [Exact-search performance and tuning](https://qldpc.readthedocs.io/exact_search_tuning.html#tuning-symptoms) explains.
   Bound code distance using [QDistRnd](https://arxiv.org/abs/2308.15140) or [`sqetch`](https://github.com/a7b/yarn/tree/main/sqetch).
 - **Code structure and analysis.**
   Work with check matrices, Tanner graphs, canonical logical operators, subsystem gauge operators, and code-capacity error estimates.
@@ -102,7 +103,7 @@ For a development checkout, follow the [development installation instructions](h
 | Learn the concepts through runnable examples | [Examples](https://qldpc.readthedocs.io/examples/index.html) |
 | Browse code families, functions, and exact signatures | [API reference](https://qldpc.readthedocs.io/autoapi/index.html) |
 | Construct and analyze a code | [qLDPC basics](https://qldpc.readthedocs.io/examples/basics.html) |
-| Estimate logical error rates | [Logical-error-rate examples](https://qldpc.readthedocs.io/examples/index.html#logical-error-rates) |
+| Estimate logical error rates | [Logical-error-rate examples](https://qldpc.readthedocs.io/examples/index.html#examples-logical-error-rates) |
 | Build memory circuits or noise models | [Circuit examples](https://qldpc.readthedocs.io/examples/index.html) |
 | Change or extend qLDPC safely | [Contributing guide](https://qldpc.readthedocs.io/contributing/index.html) |
 
@@ -132,6 +133,7 @@ Some searches are expensive, some bounds are heuristic, experimental APIs can ch
 
 Questions, feedback, and ideas are welcome through [GitHub issues](https://github.com/qLDPCOrg/qLDPC/issues/new) or by email at [mika.perlin@gmail.com](mailto:mika.perlin@gmail.com).
 
+<a name="sec-ai-usage"></a>
 ## AI usage
 
 AI assistants are used in qLDPC's development and maintenance.

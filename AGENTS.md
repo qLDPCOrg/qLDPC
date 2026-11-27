@@ -1,6 +1,6 @@
 # Working on qLDPC
 
-Read the [project goals](README.md#-goals) before proposing, implementing, or reviewing a change, and let them guide its scope, design, validation, and explanation.
+Read the [project goals](README.md#sec-goals) before proposing, implementing, or reviewing a change, and let them guide its scope, design, validation, and explanation.
 Apply them to the requested work, not to justify unrelated changes; a change need not advance every goal or include a tutorial.
 
 The [contributing guide](docs/source/contributing/index.rst) explains how to set up, validate, and review a change.
@@ -19,6 +19,7 @@ For what the code does, use this order:
 For how code should be written, the [standards](docs/source/contributing/standards/index.rst) take precedence over existing code.
 Re-derive behavior from the current branch before documenting or changing it, and check whether the code already does what a request asks.
 
+<a name="sec-reviews"></a>
 ## Reviews
 
 Run each **full review** or **quick review** as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
@@ -28,24 +29,25 @@ Point out when a change would be easier to review as a sequence of smaller pull 
 
 ## Decisions and recommendations
 
-Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
-If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#standard-triage) by name, run it as it describes; settle decisions by it only when they explicitly ask you to.
+Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#decisions-adding-process).
+If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#decisions-standard-triage) by name, run it as it describes; settle decisions by it only when they explicitly ask you to.
 
 ## Working on a change
 
 1. While writing a change, run the drafting checks of the [validation commands](docs/source/contributing/index.rst#validation-commands).
-2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for, unless the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
+2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for, unless the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#review-rounds) and evidently correct.
    If you work for a person who is not a maintainer, run one only if they ask, since maintainers review each pull request.
-   If the review does not pass, stop and report, unless the person you work for has explicitly waived it for the hand-off, as [handing off a change](#handing-off-a-change) describes.
+   If the review does not pass, stop and report, unless the person you work for has explicitly waived it for the hand-off, as [handing off a change](#sec-handing-off) describes.
 3. Run the [extended checks](docs/source/contributing/index.rst#validation-commands) only if the person you work for asks for them by name, or has said that they will be away while the change is completed.
    Fix each failure that the change causes, then return to step 2.
    Report any other failure, such as one that also occurs on the main branch, as an open decision.
-4. Hand the change off as [handing off a change](#handing-off-a-change) describes.
+4. Hand the change off as [handing off a change](#sec-handing-off) describes.
 
 A request to finish a change, as in "finish this PR", asks for steps 2 to 4.
 Run checks individually, never through `checks/all_.py`, and run tests over the whole repository only in the extended checks.
 Leave notebook runs and the GAP integration tests to CI.
 
+<a name="sec-handing-off"></a>
 ## Handing off a change
 
 Hand a pull request to the person you work for, who pushes it, only once the following conditions hold for its changes and for those of each pull request that it builds on and that has unpushed commits.
@@ -55,7 +57,7 @@ A hand-off claims that these conditions hold.
 For a pull request that you may not hand off because a review has not passed, give no push command, title, or description, and report the review as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
 For each pull request that you hand off, give in your message, not only in a file:
 
-1. its review status, as [reviews](#reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, each decision that standard triage settled, and each open decision;
+1. its review status, as [reviews](#sec-reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, each decision that standard triage settled, and each open decision;
 2. one shell block that pushes the branch and then opens GitHub's page for a new pull request, as in:
 
    ```bash
@@ -77,7 +79,7 @@ Say in which order they should merge.
 These files state the rules for working on qLDPC, or enforce them:
 
 - this file;
-- the "Goals" and "AI usage" sections of [`README.md`](README.md);
+- the "[Goals](README.md#sec-goals)" and "[AI usage](README.md#sec-ai-usage)" sections of `README.md`;
 - every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
 - the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compiled_code_rules_test.py`](src/qldpc/_compiled_code_rules_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
@@ -89,8 +91,8 @@ How they approve it depends on the pull request that makes it:
 - **A pull request that exists to change protected files:** the maintainer inspects its branch, since that is easier than reading a patch.
   Commit the change to the branch, and run any review that step 2 calls for.
   Then give the maintainer, in a code block that they can copy and paste, a `cd` command to the branch's worktree.
-  Ask them to inspect the branch, and give them what item 1 of [handing off a change](#handing-off-a-change) lists.
-  [Hand the pull request off](#handing-off-a-change) only once they approve it.
+  Ask them to inspect the branch, and give them what item 1 of [handing off a change](#sec-handing-off) lists.
+  [Hand the pull request off](#sec-handing-off) only once they approve it.
   If you revise the branch after that, ask again.
   For a small change or revision, you may show its diff in your message instead of the `cd` command.
 - **A pull request about something else that also changes protected files:** the maintainer approves a patch, which shows those changes apart from the rest.
