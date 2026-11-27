@@ -39,7 +39,7 @@ _PATH = re.compile(r"(?<![\w./:-])([\w./-]*\.md)#([\w-]+)")
 _LOCAL = re.compile(r"\]\(#([\w-]+)\)")
 # a Markdown link to a section of a reStructuredText page, by a relative path or by the page's
 # URL on Read the Docs, and a Sphinx label in such a page; pages that Read the Docs builds from
-# notebooks or from the code, under autoapi/, are not checked
+# the code, under autoapi/, or from a notebook docs/source/<page>.ipynb, are not checked
 _RST_LINK = re.compile(r"\]\(([^)\s#]*\.rst)#([\w-]+)\)")
 _RST_URL = re.compile(r"qldpc\.readthedocs\.io/(?:en/[\w.-]+/)?([\w/-]+)\.html#([\w.-]+)")
 _SPHINX_LABEL = re.compile(r"^\.\. _([\w-]+):$", re.MULTILINE)

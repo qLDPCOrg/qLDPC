@@ -859,8 +859,8 @@ def _list_by_shared_flags(
     passes that it has finished, and its next call moves the rows of an unfinished pass to the
     start of the array.  It writes only to ``levels``, ``chosen_row_sums``, ``basis``, ``pivots``,
     ``unavailable``, ``marks``, ``bounds``, ``walk_state``, and ``codewords``, and only reads the
-    other arrays, so that calls with their own such arrays can run at once without the global
-    interpreter lock, as ``fault_propagation.md#sec-thread-requirements`` requires.
+    other arrays, as ``fault_propagation.md#sec-thread-requirements`` requires.  So calls that each
+    have their own such arrays can run concurrently without the global interpreter lock.
     """
     # Column 0 of the class rows holds the hash of the flags, and the other columns the flags.  The
     # keys of the map of classes serve as rows of one column, a hash and no syndrome words, so that
@@ -1109,8 +1109,8 @@ def _expand_class_tuples(
     member, then its syndrome.  ``choice_slots_used`` lists the slots in use, to clear them for the
     next class tuple.  The expansion returns once the batch has ``batch_size`` faults, once the
     table should grow (see ``_table_should_grow``), or once every class tuple is expanded.  A full
-    table takes no more syndromes.  It runs without the global interpreter lock, writes only to
-    the arrays of the batch, of the table of syndromes, and of its state, and only reads
+    table takes no more syndromes.  The expansion runs without the global interpreter lock, writes
+    only to the arrays of the batch, of the table of syndromes, and of its state, and only reads
     ``class_tuples``, ``class_offsets``, ``class_members``, and ``primitive_rows``, as
     ``fault_propagation.md#sec-thread-requirements`` requires.
     """
