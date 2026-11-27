@@ -50,11 +50,10 @@ CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
   :guide:`Brouwer-Zimmermann guide <codes/distance/brouwer_zimmermann.md>`).
 - ``"connected_cluster"``: makes generators of the stabilizer group sparser, and grows errors from
   the syndrome through them, so it can be fast only if those generators are sparse (see the
-  `connected-cluster guide
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
-  It weighs errors by CSS weight only on CSS states.  For a syndrome whose errors all weigh more
-  than a positive maximum weight, the lower bound that it gives is that maximum weight plus one,
-  whereas ``"brouwer_zimmermann"`` often proves a higher one.
+  :guide:`connected-cluster guide <codes/distance/connected_cluster.md>`).  It weighs errors by CSS
+  weight only on CSS states.  For a syndrome whose errors all weigh more than a positive maximum
+  weight, the lower bound that it gives is that maximum weight plus one, whereas
+  ``"brouwer_zimmermann"`` often proves a higher one.
 """
 
 ####################################################################################################
@@ -166,8 +165,8 @@ class CosetLeaderSearch:
                 )
             else:
                 # The stabilizers commute with each other, so the sparser stabilizers have a zero
-                # syndrome and are known words for the overlap cuts (Section 3.8 of
-                # connected_cluster.md).
+                # syndrome and are known words for the overlap cuts
+                # (``connected_cluster.md#sec-syndromes``).
                 search = cluster_search(matrix, symplectic=True)
                 search.use_query_overlap_words(search.checks)
                 self._connected_cluster_searches = (search,)
@@ -191,7 +190,7 @@ class CosetLeaderSearch:
             z_part_search = cluster_search(x_rows, symplectic=False)
             # The X parts of the pure-X stabilizers, which the other search checks with, commute
             # with the pure-Z stabilizers, so they have a zero syndrome and are known words for the
-            # overlap cuts, and likewise for Z parts (Section 3.8 of connected_cluster.md).
+            # overlap cuts, and likewise for Z parts (``connected_cluster.md#sec-syndromes``).
             x_part_search.use_query_overlap_words(z_part_search.checks)
             z_part_search.use_query_overlap_words(x_part_search.checks)
             self._connected_cluster_searches = (x_part_search, z_part_search)

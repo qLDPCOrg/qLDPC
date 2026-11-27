@@ -9,7 +9,7 @@ This guide, for contributors, explains how the package turns problems of [the gr
 The distance of a CSS code is the smaller of the distances of its two sectors, so a search of the distance normally searches both.
 Let `G_X` and `G_Z` be the X-type and Z-type gauge generators of the code, which are its checks if it is a stabilizer code, and let `S_X` and `S_Z` be the spaces of its X-type and Z-type stabilizers.
 The X sector is `S_Z^⊥`, and its trivial words are those in `rowspan(G_X)`.
-The Z sector is `S_X^⊥`, and its trivial words are those in `rowspan(G_Z)` (Section 3.1 of `connected_cluster.md`).
+The Z sector is `S_X^⊥`, and its trivial words are those in `rowspan(G_Z)` ([The problem](connected_cluster.md#sec-problem) in `connected_cluster.md`).
 `_search_css` in `distances.py` searches only the X sector if it finds a qubit permutation `π` that maps `rowspan(G_X)` onto `rowspan(G_Z)` and `rowspan(G_Z)` onto `rowspan(G_X)`.
 The two sectors then have the same distance, so the result is the same, and so are the meanings of `cutoff` and `upper_bound`, since one sector has a nontrivial word of a given weight exactly when the other does.
 
@@ -127,7 +127,7 @@ A better rule could use:
 - more features of the sectors, such as the weights of their checks.
 
 It could also resume the probe rather than start a new BZ search.
-It must read from a search only what is the same on any number of threads, as [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md` and Section 5 of `connected_cluster.md` require ("Decide only from what a layer leaves the same on any number of threads" in the first).
+It must read from a search only what is the same on any number of threads, as [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md` and [Correctness requirements](connected_cluster.md#sec-requirements) in `connected_cluster.md` require ("Decide only from what a layer leaves the same on any number of threads" in the first).
 For example, the counts of supports that a BZ layer on threads weighs and skips depend on the timing of its threads, but the predictions of its completion tables do not.
 To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
 A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.
@@ -159,13 +159,13 @@ Both batch queries search their batches with compiled loops, `_find_first_not_wi
 The comment of `search_chunk_exponent` in `_tuning.py` says when a batch moves to threads, and in what units its queries count their work; `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks ("Coset batches on threads" in [Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior) of `brouwer_zimmermann_code.md`).
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
-With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query (Section 3.8 of `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
-This method weighs errors by CSS weight only on CSS states (Section 3.8 of `connected_cluster.md`).
+With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query ([Vectors with a given syndrome](connected_cluster.md#sec-syndromes) in `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
+This method weighs errors by CSS weight only on CSS states ([Vectors with a given syndrome](connected_cluster.md#sec-syndromes) in `connected_cluster.md`).
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
 `CosetLeaderSearch` runs the batch queries of these searches, `find_first_not_within_max_weight` and `get_min_weights` of `ConnectedClusterCosetSearch`, as it runs those of BZ searches, with the same maps of syndromes to X and Z parts and the same floors.
-They try increasing weight limits, which can find light errors sooner than one search at `max_weight`, and answer each block of a batch in one compiled call (Section 3.8 of `connected_cluster.md`).
+They try increasing weight limits, which can find light errors sooner than one search at `max_weight`, and answer each block of a batch in one compiled call ([Vectors with a given syndrome](connected_cluster.md#sec-syndromes) in `connected_cluster.md`).
 They move a costly batch to threads with `run_blocks` too, by the same rule; a query that looks up its error visits no states, and so does no work.
-Their answers are those of one thread (Section 3.11 of `connected_cluster.md`).
+Their answers are those of one thread ([Threads](connected_cluster.md#sec-threads) in `connected_cluster.md`).
 `find_first_not_within_max_weight` returns the bound that `get_min_weight_bound` gives for the first syndrome without an error within `max_weight`.
 
 The table "Routes and the names that control them" of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) names the fields that configure the searches of `CosetLeaderSearch`.

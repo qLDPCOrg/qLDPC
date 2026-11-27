@@ -53,17 +53,16 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   <codes/distance/brouwer_zimmermann.md>`,
   which enumerates words of increasing weight in several information sets, and stops once a lower
   bound that the sets prove meets the lightest word found.
-- ``"connected_cluster"``: the `connected-cluster algorithm
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ of
-  Dumer, Kovalev, and Pryadko (`arXiv:1611.07164 <https://arxiv.org/abs/1611.07164>`_), with the
-  branch and bound of Okada and Kasai (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).
-  It searches the words whose supports the parity checks of a code connect, so it can be fast only
-  if the checks are sparse, and functions that take generators reject it.  On quantum LDPC codes it
-  is often much faster than ``"brouwer_zimmermann"``, but it can be much slower on some of them, and
-  on classical LDPC codes whose checks are only moderately sparse.  For a subsystem code,
-  :func:`get_distance_css` and :func:`get_distance_pauli` search sparser generators of the
-  stabilizers that they derive; a caller who knows sparse ones can pass them to
-  :func:`get_distance_from_checks`.
+- ``"connected_cluster"``: the :guide:`connected-cluster algorithm
+  <codes/distance/connected_cluster.md>` of Dumer, Kovalev, and Pryadko (`arXiv:1611.07164
+  <https://arxiv.org/abs/1611.07164>`_), with the branch and bound of Okada and Kasai
+  (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).  It searches the words whose supports
+  the parity checks of a code connect, so it can be fast only if the checks are sparse, and
+  functions that take generators reject it.  On quantum LDPC codes it is often much faster than
+  ``"brouwer_zimmermann"``, but it can be much slower on some of them, and on classical LDPC codes
+  whose checks are only moderately sparse.  For a subsystem code, :func:`get_distance_css` and
+  :func:`get_distance_pauli` search sparser generators of the stabilizers that they derive; a caller
+  who knows sparse ones can pass them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also fastest
   for classical codes of low dimension whose distance is a large fraction of their length, on which
   the time and setup memory of ``"brouwer_zimmermann"`` can grow with the square of the length.
@@ -461,9 +460,10 @@ def get_distance_pauli(
     stabilizers = get_pauli_stabilizers(gauge)
 
     # For a subsystem code, a connected-cluster search takes sparser checks that span the derived
-    # stabilizers, joined by the gauge generators that are stabilizers (Section 3.9 of
-    # connected_cluster.md).  get_pauli_stabilizers returns gauge itself for a stabilizer code.  The
-    # code has one sector, so the count of sectors to search needs no slicing.
+    # stabilizers, joined by the gauge generators that are stabilizers
+    # (``connected_cluster.md#sec-sparser-stabilizers``).  get_pauli_stabilizers returns gauge
+    # itself for a stabilizer code.  The code has one sector, so the count of sectors to search
+    # needs no slicing.
     def get_cluster_sectors(
         count: int,
     ) -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]]:
@@ -690,7 +690,8 @@ def _get_css_cluster_sectors(
     """The sectors of ``_search_css``, with the checks that a connected-cluster search takes.
 
     The derived stabilizers of a subsystem code can be dense, so its sectors take sparser checks
-    with the same span (Section 3.9 of ``connected_cluster.md``).  Other sectors are unchanged.
+    with the same span (``connected_cluster.md#sec-sparser-stabilizers``).  Other sectors are
+    unchanged.
     """
     if not subsystem:
         return sectors
@@ -722,8 +723,8 @@ def _get_sparser_stabilizers(
     ``stabilizers`` is the basis that ``get_css_stabilizers`` or ``get_pauli_stabilizers`` derives,
     and ``kept_stabilizers`` holds the gauge generators that are stabilizers.  The checks are
     ``stabilizers`` made sparser in up to ``max_distance_sparsifying_rounds`` rounds, preceded by
-    the rows of ``kept_stabilizers`` no heavier than the heaviest sparser row (Section 3.9 of
-    ``connected_cluster.md``).
+    the rows of ``kept_stabilizers`` no heavier than the heaviest sparser row
+    (``connected_cluster.md#sec-sparser-stabilizers``).
     """
     rows = stabilizers
     if tuning.max_distance_sparsifying_rounds:
@@ -926,8 +927,8 @@ def _get_coset_weight(
         if weight <= cutoff:
             return weight
         # With H the checks, v the vector, and G_C the generators, the distance search of the checks
-        # [H | Hv] and the excluded rows [G_C | 0] finds the weight of the coset plus one (Section
-        # 3.8 of connected_cluster.md).
+        # [H | Hv] and the excluded rows [G_C | 0] finds the weight of the coset plus one
+        # (``connected_cluster.md#sec-syndromes``).
         augmented_checks = np.hstack([checks, (checks @ vector)[:, None] % 2])
         code_words = np.hstack([generators, np.zeros((len(generators), 1), dtype=generators.dtype)])
         found = get_distance_from_checks(

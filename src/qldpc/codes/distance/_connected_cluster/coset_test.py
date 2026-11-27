@@ -59,9 +59,9 @@ def test_connected_cluster_coset_searches_make_checks_sparser_with_their_rounds(
 def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPatch) -> None:
     """The coset searches of ``CosetLeaderSearch`` search their sparser checks without pair sums.
 
-    The checks of a repetition code have light sums of pairs, which distance searches would add,
-    but queries search only the checks themselves (Sections 3.4 and 3.8 of
-    ``connected_cluster.md``).
+    The checks of a repetition code have light sums of pairs, which distance searches would add, but
+    queries search only the checks themselves (``connected_cluster.md#sec-pruning`` and
+    ``connected_cluster.md#sec-syndromes``).
     """
     num_checks: list[int] = []
     search_supports = search._search_supports

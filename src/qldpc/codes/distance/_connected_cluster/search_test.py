@@ -121,7 +121,7 @@ def get_known_words(problem: Problem, symplectic: bool, pair_sums: bool) -> npt.
     """The known words of a distance search: the excluded rows, with light pair sums of some.
 
     With ``pair_sums``, they include the light sums of pairs of those excluded rows that are no
-    heavier than the heaviest check (Section 3.4 of ``connected_cluster.md``).
+    heavier than the heaviest check (``connected_cluster.md#sec-pruning``).
     """
     checks, excluded = problem
     if not pair_sums:
@@ -145,7 +145,7 @@ def passes_overlap_cuts(
     ``g`` lets each variable of ``g`` add 2 to the load if the vector equals ``g`` there, and 1 if
     it is nonzero and differs, except the variable of ``g`` that ranks lowest, unless the problem is
     binary, ``|g|`` is odd, and ``odd_rule`` is true.  A vector passes the cut if its load is at
-    most ``|g| - 1`` (Section 3.4 of ``connected_cluster.md``).
+    most ``|g| - 1`` (``connected_cluster.md#sec-pruning``).
     """
     width = words.shape[1]
     num_variables = width // 2 if symplectic else width
@@ -373,10 +373,11 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(
     """A root finds a witness at the distance exactly if it is the least variable of a lightest one.
 
     With the overlap cuts, the lightest witness must also pass the cut of each known word: each
-    excluded row, and with ``pair_sums``, the light sums of pairs of them.  Sections 3.3 and 3.4 of
-    ``connected_cluster.md`` prove this completeness, with or without the sums of pairs of checks,
-    and some lightest witness passes every cut.  In "steane-X", the sums of the excluded rows cut
-    the lightest witnesses whose least variable is 1, but not those whose least variable is 0.
+    excluded row, and with ``pair_sums``, the light sums of pairs of them.
+    ``connected_cluster.md#sec-depth-first-search`` and ``connected_cluster.md#sec-pruning`` prove
+    this completeness, with or without the sums of pairs of checks, and some lightest witness passes
+    every cut.  In "steane-X", the sums of the excluded rows cut the lightest witnesses whose least
+    variable is 1, but not those whose least variable is 0.
     """
     problem = PROBLEMS[name]
     checks, excluded = problem
@@ -417,8 +418,9 @@ def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
 
     The ranks order the orbits under the permutation by their lowest indices, and the variables
     within each orbit by index.  A root finds a witness at the distance exactly if it ranks lowest
-    in a lightest witness that passes every cut under these ranks (Sections 3.4 and 3.5 of
-    ``connected_cluster.md``).  Under cuts by index, another root would find one.
+    in a lightest witness that passes every cut under these ranks
+    (``connected_cluster.md#sec-pruning`` and ``connected_cluster.md#sec-symmetries``).  Under cuts
+    by index, another root would find one.
     """
     checks, excluded, automorphism = get_ranked_cut_problem()
     num_variables = len(automorphism)
@@ -497,7 +499,7 @@ def test_odd_excluded_words_cut_their_lowest_ranked_variable_too() -> None:
     The word ``g = {2, 3, 4}`` is excluded, and the lightest witnesses, such as ``{4, 5}``, weigh 2.
     The witnesses of weight at most 3 whose least variable is 2, such as ``{2, 3, 5}``, hold two
     variables of ``g``, so they fail its cut, though they would pass it without variable 2.  So the
-    search from root 2 finds no witness at limit 3 (Section 3.4 of ``connected_cluster.md``).
+    search from root 2 finds no witness at limit 3 (``connected_cluster.md#sec-pruning``).
     """
     checks = np.array([[1, 0, 1, 1, 0, 0], [0, 1, 0, 1, 1, 1]], dtype=np.uint8)
     excluded = np.array([[0, 0, 1, 1, 1, 0]], dtype=np.uint8)
@@ -520,13 +522,13 @@ def test_cosets_of_classical_codes_are_cut_by_their_generators(
 ) -> None:
     """The distance of a coset of a classical code agrees with brute force, with or without cuts.
 
-    The pair sums of Section 3.4 of ``connected_cluster.md`` keep the distance too.
+    The pair sums of ``connected_cluster.md#sec-pruning`` keep the distance too.
 
     For a code with checks ``H`` and generator matrix ``G``, and a vector ``v``, the words of the
     checks ``[H | Hv]`` are the code words with a zero appended, and the vectors of the coset of
     ``v`` with a one appended.  The search excludes ``[G | 0]``, so its witnesses are the vectors of
     the coset.  The rows of ``G`` are known words, here of weights 2 and 3, so the cuts act exactly
-    when the switch is on (Section 3.4 of ``connected_cluster.md``).
+    when the switch is on.
     """
     num_cuts_per_search: list[int] = []
     search_supports = cs._search_supports
@@ -820,31 +822,32 @@ def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     )
     assert search.find_witness(7) is None
 
-    # The bound on the states fails if states stop forbidding variables for their subtrees (Section
-    # 3.4 of connected_cluster.md).  A heuristic that moves the count across it needs a new bound.
+    # The bound on the states fails if states stop forbidding variables for their subtrees
+    # (connected_cluster.md#sec-pruning).  A heuristic that moves the count across it needs a new
+    # bound.
     assert search.num_states < 1500
 
 
 def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     """Without restrict_viable_symbols, a search visits exactly one more state.
 
-    The bound Y of Section 3.4 of connected_cluster.md still prunes that state.
+    The bound Y of ``connected_cluster.md#sec-pruning`` still prunes that state.
     """
     # Variable 0 is in all four checks, whose only nonzero word, {1, 2, 3, 4}, has weight 4.  At
     # limit W = 3, the state S = {0} leaves every check unsatisfied, with weights 1/3, 1/2, 1/3, and
     # 1/3.  Their total Y = 3/2 exceeds W - |S| - 1 = 1, so the state allows only the variables that
-    # repair at least Y - 1 = 1/2 (Section 3.4 of connected_cluster.md).  Variable 2, only in check
-    # 0, repairs 1/3.  Check 0 then allows only variable 1, the fewest, so the search with the
-    # restriction branches only to {0, 1}.  Without the restriction, each check has two available
-    # variables, so the search branches on check 0, the first, whose available variables are 1 and
-    # 2.  So only the search without the restriction visits {0, 2}.  That state leaves checks 1, 2,
-    # and 3 unsatisfied with weight 1/2 each, and Y = 3/2 > W - 2 prunes it.  Both searches visit
-    # {0, 1}, whose children the bound b1 of Section 3.4 skips.  From each later root, both visit
-    # only the root, since the variables of lower rank are blocked.  {1} leaves checks 0, 2, and 3
-    # unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a
-    # check with no available variable.  If the search without the restriction stopped pruning by Y,
-    # it would also visit a child of {1}, and the equality would fail.  The counts rely on ties
-    # going to the first check, so a change of the tie-break needs a new instance.
+    # repair at least Y - 1 = 1/2.  Variable 2, only in check 0, repairs 1/3.  Check 0 then allows
+    # only variable 1, the fewest, so the search with the restriction branches only to {0, 1}.
+    # Without the restriction, each check has two available variables, so the search branches on
+    # check 0, the first, whose available variables are 1 and 2.  So only the search without the
+    # restriction visits {0, 2}.  That state leaves checks 1, 2, and 3 unsatisfied with weight 1/2
+    # each, and Y = 3/2 > W - 2 prunes it.  Both searches visit {0, 1}, whose children the bound b1
+    # of Okada and Kasai skips.  From each later root, both visit only the root, since the variables
+    # of lower rank are blocked.  {1} leaves checks 0, 2, and 3 unsatisfied with weight 1 each, and
+    # Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a check with no available variable.  If
+    # the search without the restriction stopped pruning by Y, it would also visit a child of {1},
+    # and the equality would fail.  The counts rely on ties going to the first check, so a change of
+    # the tie-break needs a new instance.
     checks = np.array(
         [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
     )
@@ -933,7 +936,7 @@ def test_connected_cluster_distance_searches_read_the_switches_of_their_tuning(
 def test_pair_sums_of_checks_save_states() -> None:
     """Light sums of pairs of checks leave fewer states to visit before a lightest witness.
 
-    These problems have such sums (Section 3.4 of ``connected_cluster.md``).
+    These problems have such sums (``connected_cluster.md#sec-pruning``).
     """
     problems = [
         (PROBLEMS["nested-restrictions"], False),
@@ -962,8 +965,8 @@ def test_only_known_words_no_heavier_than_the_heaviest_check_are_summed(
     """A distance search sums no pair of known words with one heavier than the heaviest check.
 
     The sums of heavy words, such as the rows of the generator matrix that the distance of a vector
-    excludes, would cost much to find (Section 3.4 of ``connected_cluster.md``).  Here the checks
-    weigh 2, 3, and 2, and the excluded rows 2, 3, and 4, so the search sums only the first two.
+    excludes, would cost much to find (``connected_cluster.md#sec-pruning``).  Here the checks weigh
+    2, 3, and 2, and the excluded rows 2, 3, and 4, so the search sums only the first two.
     """
     summed: list[list[list[int]]] = []
 
@@ -988,8 +991,9 @@ def test_syndrome_queries_cut_by_no_sums_of_known_words() -> None:
     """Syndrome queries cut by the excluded rows, but not by the sums of pairs of them.
 
     Only distance searches cut by these sums.  The two excluded rows sum to the light word {4, 5}.
-    Its cut would forbid variable 5 from the start, and the query at limit 3 would return
-    {0, 2, 3} rather than {0, 4} (Sections 3.4 and 3.8 of ``connected_cluster.md``).
+    Its cut would forbid variable 5 from the start, and the query at limit 3 would return {0, 2, 3}
+    rather than {0, 4} (``connected_cluster.md#sec-pruning`` and
+    ``connected_cluster.md#sec-syndromes``).
     """
     checks = np.array([[0, 1, 1, 1, 0, 0], [0, 0, 1, 0, 1, 1], [1, 1, 1, 0, 1, 1]], dtype=np.uint8)
     excluded = np.array([[1, 1, 1, 0, 1, 0], [1, 1, 1, 0, 0, 1]], dtype=np.uint8)
@@ -1016,7 +1020,7 @@ def test_automorphisms_must_keep_the_row_space_of_the_excluded_rows(symplectic: 
     swap of variables 0 and 1 keeps the excluded row 110, or Z0 Z1, but the swap of 1 and 2 does
     not.  Accepting the second swap would let the search skip variable 2 as a root, which is sound
     only for permutations that keep the excluded rows too, so it could give a wrong distance
-    (Section 3.5 of ``connected_cluster.md``).  A symplectic problem moves the X and Z parts of each
+    (``connected_cluster.md#sec-symmetries``).  A symplectic problem moves the X and Z parts of each
     qubit together.
     """
     if symplectic:
@@ -1695,7 +1699,7 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     # The roots and paths of the work items, which _search_on_threads makes for the threads, and the
     # paths and ends of chunks are not reached from the search.  So a call on threads, whose tables
     # are read-only, gets read-only views of every array, so that numba compiles one version for
-    # every such call, and rejects a write to any of its arrays (Section 5 of connected_cluster.md).
+    # every such call, and rejects a write to any of its arrays.
     def search_read_only(*args: Any) -> Any:
         if not get_kernel_arguments(args)["symbol_masks"].flags.writeable:
             args = tuple(get_read_only(arg) if isinstance(arg, np.ndarray) else arg for arg in args)
@@ -1887,8 +1891,8 @@ def test_the_frontier_deepens_to_about_a_chunk_of_states_for_each_item(
     The Golay code has one root under its cyclic shifts.  With chunks of one state, its last three
     limits on two threads predict more than 40 chunks, so their frontiers deepen to at least
     ``_MAX_ITEMS`` items, here 40.  With chunks without a limit, every frontier stops once it has
-    ``ITEMS_PER_THREAD`` items for each thread, here one, which takes fewer than 40 items (Section
-    3.11 of ``connected_cluster.md``).
+    ``ITEMS_PER_THREAD`` items for each thread, here one, which takes fewer than 40 items
+    (``connected_cluster.md#sec-threads``).
     """
     calls = record_thread_counts(monkeypatch)
     num_items: list[int] = []
@@ -2242,7 +2246,7 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
     # Variable 2, in checks 0 and 3, has overlap 2, and variables 0 and 1 have overlap 1, so the
     # checks weigh 1/2, 1, and 1/2, and Y = 2.  Since 1 + Y > W, the restriction allows only the
     # variables that repair at least Y - 1 = 1: variable 1, of check 1, and variable 2, which
-    # repairs checks 0 and 3 (Section 3.4 of connected_cluster.md).  Each check then has one allowed
+    # repairs checks 0 and 3 (connected_cluster.md#sec-pruning).  Each check then has one allowed
     # variable, so the search branches on check 0, the first, and enters {2}.  Its child {1, 2}
     # leaves check 2 unsatisfied with no room left, so b1 skips it.  Without the restriction, check
     # 1 is the first check with the fewest available variables, one, so the search branches only to

@@ -9,7 +9,7 @@ whether brute force is cheap, ``is_cheap_to_enumerate``, and the search by cost,
 a connected-cluster search that switches to a Brouwer-Zimmermann (BZ) search once that is predicted
 to cost less.  The rule decides only from results that are the same on any number of threads, since
 both searches can run on several threads (``brouwer_zimmermann_code.md#sec-requirements`` and
-Section 5 of ``connected_cluster.md``).
+``connected_cluster.md#sec-requirements``).
 """
 
 from __future__ import annotations

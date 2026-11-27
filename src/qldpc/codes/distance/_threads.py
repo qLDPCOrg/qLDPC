@@ -46,7 +46,7 @@ _Output = TypeVar("_Output")
 
 # The fewest work items for each thread that a search aims for when it splits work across threads: a
 # layer of a BZ search (brouwer_zimmermann_code.md#sec-cross-file-behavior) or a weight limit of a
-# connected-cluster search (Section 3.11 of connected_cluster.md).  More items balance the threads
+# connected-cluster search (connected_cluster.md#sec-threads).  More items balance the threads
 # better at the end of the work; the number changes no result.
 ITEMS_PER_THREAD = 32
 

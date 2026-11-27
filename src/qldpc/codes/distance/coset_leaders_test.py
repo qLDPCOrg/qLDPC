@@ -646,8 +646,8 @@ def test_connected_cluster_searches_get_the_stabilizers_in_their_kernel(
     """Each connected-cluster search gets the stabilizers in its kernel as overlap words.
 
     A Pauli search gets its own sparser stabilizers, and the search of X parts the X parts of the
-    pure-X stabilizers, which the search of Z parts checks with, and vice versa (Section 3.8 of
-    ``connected_cluster.md``).
+    pure-X stabilizers, which the search of Z parts checks with, and vice versa
+    (``connected_cluster.md#sec-syndromes``).
     """
     # Record the overlap words that each search gets.
     received: dict[int, tuple[coset_leaders.ConnectedClusterCosetSearch, set[bytes]]] = {}
