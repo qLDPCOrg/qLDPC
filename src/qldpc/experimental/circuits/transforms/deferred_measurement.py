@@ -581,7 +581,7 @@ def _append_parity_gadget(
 # stim's instructions and targets.  Even where stim.Circuit.append is fast, as in stim 1.17, running
 # the passes on stim's objects takes about 10 times as long.
 #
-# TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md, "stim.Circuit.append in stim 1.16".
+# TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
 # The passes build each output circuit by parsing its text once (see _get_circuit), since stim 1.16
 # appends instructions slowly.
 
@@ -623,8 +623,7 @@ class _GateTarget(NamedTuple):
             return stim.target_sweep_bit(self.value)
         if self.kind:
             return stim.target_pauli(self.value, self.kind, self.inverted)
-        # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-        # "stim.Circuit.append in stim 1.16".
+        # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
         return stim.target_inv(self.value) if self.inverted else stim.GateTarget(self.value)
 
 
@@ -657,8 +656,7 @@ class _CircuitInstruction(NamedTuple):
     def to_stim(self) -> stim.CircuitInstruction:
         """This instruction as a stim instruction, with combiners in Pauli products.
 
-        TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-        "stim.Circuit.append in stim 1.16".
+        TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
         """
         targets = []
         for group in self.groups:
@@ -717,8 +715,7 @@ def _get_circuit(instructions: list[_CircuitInstruction]) -> stim.Circuit:
     instead.  Both give the same circuit, since stim fuses consecutive compatible instructions both
     when parsing and when appending.
     """
-    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    # "stim.Circuit.append in stim 1.16".
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
     if all(math.isfinite(arg) for instruction in instructions for arg in instruction.arguments):
         return stim.Circuit("\n".join(map(str, instructions)))
     circuit = stim.Circuit()

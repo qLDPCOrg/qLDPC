@@ -58,8 +58,7 @@ def test_pauli_product_measurement_edge_cases() -> None:
         circuits.get_pauli_product_measurements([[1, 0, 0, 1]], qubits=[3, 3])
     with pytest.raises(ValueError, match="imaginary sign"):
         circuits.get_pauli_product_measurements([stim.PauliString("iXZ")])
-    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    # "stim.Circuit.append in stim 1.16".
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
     with pytest.raises(ValueError, match="all-identity"):
         common._get_pauli_product_text(stim.PauliString("__"))
 
@@ -110,7 +109,7 @@ def test_new_instruction() -> None:
     """Build the same instructions as stim's CircuitInstruction constructor.
 
     TEMPORARY until stim.CircuitInstruction's constructor is as fast as stim.Circuit.append: see
-    circuits/stim_workarounds.md, "The stim.CircuitInstruction constructor".
+    circuits/stim_workarounds.md#sec-instruction-constructor.
     """
     product = [stim.target_x(0), stim.target_combiner(), stim.target_z(1)]
     cases: list[tuple[str, list[stim.GateTarget], list[float], str]] = [

@@ -3,12 +3,12 @@
 This guide lists the code in qLDPC that exists only because a path of [Stim](https://github.com/quantumlib/Stim) is slow, with one section for each path, and says how to remove the code once Stim is fast.
 Algorithmic choices, ordinary uses of Stim's API, and caches that would stay useful do not belong here.
 
-Each site carries a marker that names its section, so `git grep "TEMPORARY until"` lists every site.
+Each site carries a marker that cites its section by its label, the `sec-…` name of the anchor above the section's heading, so `git grep "TEMPORARY until"` lists every site.
 A function that the migration deletes has the marker right after its docstring's summary line.
 Anything else that the migration deletes or changes has the marker as a comment above it:
 
 ```python
-# TEMPORARY until <trigger>: see circuits/stim_workarounds.md, "<section title>".
+# TEMPORARY until <trigger>: see circuits/stim_workarounds.md#<label>.
 ```
 
 A trigger `stim>=X` holds once qLDPC's `pyproject.toml` requires Stim `X` or later; any other trigger is a behavior of Stim that its section's script checks.
@@ -16,6 +16,7 @@ The values below are from stim 1.17.dev1793242987 on macOS on arm64.
 The cost of some of Stim's Python bindings varies widely between platforms ([quantumlib/Stim#1087](https://github.com/quantumlib/Stim/issues/1087)), so check a trigger on that platform too.
 To migrate, follow the section's steps, delete every import of a name that they delete, check that the call that the section names gets no slower, and delete the section.
 
+<a name="sec-tableau-resets"></a>
 ## Resets with random outcomes in stim.TableauSimulator
 
 `stim.TableauSimulator` collapses a qubit by transposing its whole tableau, so a reset whose outcome is random takes time quadratic in the number of qubits, even if the qubit is unentangled: about 2.5 ms on 2,000 qubits, while a gate takes 0.3 µs.
@@ -45,6 +46,7 @@ print(reset_time(4000) / reset_time(1000))
 
 **Check:** `get_state_stabilizers(circuit, 2000)` for `circuit = stim.Circuit("\n".join(f"RX {q}\nCX {q} {q + 1}" for q in range(0, 2000, 2)))`, which takes about 0.2 s.
 
+<a name="sec-circuit-append"></a>
 ## stim.Circuit.append in stim 1.16
 
 In stim 1.16, `stim.Circuit.append` converts each target slowly ([quantumlib/Stim#1087](https://github.com/quantumlib/Stim/issues/1087), fixed in stim 1.17 by [quantumlib/Stim#1090](https://github.com/quantumlib/Stim/pull/1090)): appending `CX 1 2` takes about 300 µs, while parsing its text takes 0.4 µs.
@@ -64,6 +66,7 @@ So the marked code builds circuits by parsing their text once.
 
 **Check:** `certify_bounded_fault_propagation` on the circuit of `test_steane_preparation_meets_css_weight_but_not_physical_weight`, which takes about 1 ms, and `to_deferred_measurement_form` on `stim.Circuit.generated("surface_code:rotated_memory_z", distance=9, rounds=9, after_clifford_depolarization=1e-3, before_measure_flip_probability=1e-3, after_reset_flip_probability=1e-3)`, which takes about 60 ms.
 
+<a name="sec-dem-targets"></a>
 ## Targets of detector error models
 
 Finding the detectors of the errors of a detector error model through Stim's Python objects takes about 3 times as long as parsing the model's text, so `_get_primitive_fault_signatures` parses the text.
@@ -114,6 +117,7 @@ print(timeit.timeit(from_objects, number=5) / timeit.timeit(from_text, number=5)
 
 **Check:** `_get_primitive_fault_signatures(circuit, [], [], range(circuit.num_detectors))` for the circuit of the script, which takes about 25 ms.
 
+<a name="sec-instruction-constructor"></a>
 ## The stim.CircuitInstruction constructor
 
 The constructor of `stim.CircuitInstruction` takes about 30 µs per `stim.GateTarget`, so `common._new_instruction` appends the instruction to an empty circuit and indexes it, which takes about 2 µs.
@@ -147,6 +151,7 @@ print(timeit.timeit(construct, number=200) / timeit.timeit(append_and_index, num
 
 **Check:** `SI1000NoiseModel(1e-3).noisy_circuit(stim.Circuit.generated("surface_code:rotated_memory_z", distance=11, rounds=11))` after `scheduling._get_instruction_operations.cache_clear()`, which takes about 30 ms.
 
+<a name="sec-circuit-iteration"></a>
 ## Iterating over stim circuits
 
 Iterating over a `stim.Circuit` takes about 90 µs more than indexing its instructions, which adds up over the many small circuits of noise models, so `common._get_instructions` indexes the circuit.

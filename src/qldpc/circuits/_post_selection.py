@@ -19,8 +19,7 @@ def get_flag_detectors(circuit: stim.Circuit) -> stim.Circuit:
     """Get a detector for each measurement that no detector or observable addresses."""
     # Stim counts the measurements of the whole circuit each time that it is asked.
     num_measurements = circuit.num_measurements
-    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    # "stim.Circuit.append in stim 1.16".
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
     return stim.Circuit(
         "\n".join(
             f"DETECTOR rec[{measurement - num_measurements}]"

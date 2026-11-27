@@ -353,7 +353,7 @@ def test_state_stabilizers_with_cheap_resets(monkeypatch: pytest.MonkeyPatch) ->
     """Replacing resets by gates on large circuits gives the stabilizers of plain simulation.
 
     TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    circuits/stim_workarounds.md#sec-tableau-resets.
     """
     num_qubits_stepped = []
     do_with_cheap_resets = encoding._do_with_cheap_resets

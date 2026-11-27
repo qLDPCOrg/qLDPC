@@ -277,8 +277,7 @@ def is_compilation_disabled() -> bool:
 def _work_around_numba_name_clashes() -> bool:
     """Work around a numba bug by starting numba's count of compiled functions at random.
 
-    TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
-    "Clashing names of code compiled in different processes".
+    TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md#sec-name-clashes.
 
     Code that numba compiled before qLDPC was imported keeps the names that numba's count gave it.
 
@@ -293,8 +292,7 @@ def _work_around_numba_name_clashes() -> bool:
     return True
 
 
-# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
-# "Clashing names of code compiled in different processes".
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md#sec-name-clashes.
 _NUMBA_NAME_CLASHES_AVOIDED = _work_around_numba_name_clashes()
 if hasattr(os, "register_at_fork"):
     os.register_at_fork(after_in_child=_work_around_numba_name_clashes)
@@ -330,8 +328,7 @@ def _compile_with_cache_in(
     setting, the report, and the object are internal to numba, so this function checks the report
     and the class of the object.
     """
-    # TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
-    # "Clashing names of code compiled in different processes".
+    # TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md#sec-name-clashes.
     # Cache nothing without the workaround.
     if not _NUMBA_NAME_CLASHES_AVOIDED:
         _warn_not_cached(
@@ -357,8 +354,7 @@ def _compile_with_cache_in(
         return None
 
     # TEMPORARY until numba loads a data file only if its own version saved it for the key that it
-    # loads (numba/numba#10862): see numba_workarounds.md,
-    # "Data files that hold code for another key".
+    # loads (numba/numba#10862): see numba_workarounds.md#sec-foreign-data-files.
     # Make numba's cache-file object check what it loads, if it has exactly the class that qLDPC
     # extends.  Changing the class of an object of a subclass would drop the overrides of the
     # subclass.  The class is changed, rather than the object replaced, to keep the paths and source
@@ -379,8 +375,7 @@ class _KeyCheckedCacheFile(caching.IndexDataCacheFile):
     """Numba's cache-file object of a function, which loads only code saved for the same key.
 
     TEMPORARY until numba loads a data file only if its own version saved it for the key that it
-    loads (numba/numba#10862): see numba_workarounds.md,
-    "Data files that hold code for another key".
+    loads (numba/numba#10862): see numba_workarounds.md#sec-foreign-data-files.
 
     Each data file holds numba's version, and a pickle of the key of its compiled version with the
     code.  A load unpickles the pickle only if numba's version matches, since another version of

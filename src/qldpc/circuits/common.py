@@ -103,8 +103,7 @@ def get_pauli_product_measurements(
     if qubits is not None and len(set(qubits)) != len(qubits):
         raise ValueError("Qubit labels for Pauli-product measurements must be distinct")
 
-    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    # "stim.Circuit.append in stim 1.16".
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
     lines = []
     for string in cast(Sequence[stim.PauliString], pauli_strings):
         if not any(pauli in "XYZ" for pauli in str(string)):
@@ -125,8 +124,7 @@ def _get_pauli_product_text(
 ) -> str:
     """Get the stim text of the targets of an MPP instruction that measures a Pauli string.
 
-    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    "stim.Circuit.append in stim 1.16".
+    TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
 
     Entry ``j`` of the string acts on qubit ``qubits[j]``, or on qubit ``j`` if ``qubits`` is None.
     The string must not be the identity, and its sign must be 1 or -1.
@@ -205,7 +203,7 @@ def _get_instructions(
     """The instructions and REPEAT blocks of a circuit, in order.
 
     TEMPORARY until iterating over a stim.Circuit is as fast as indexing it: see
-    circuits/stim_workarounds.md, "Iterating over stim circuits".
+    circuits/stim_workarounds.md#sec-circuit-iteration.
 
     Stim's iterator over a circuit takes tens of microseconds to finish, which adds up when noise
     models handle many small circuits, so this indexes the circuit instead.
@@ -219,7 +217,7 @@ def _new_instruction(
     """Build a ``stim.CircuitInstruction`` by appending it to an empty circuit.
 
     TEMPORARY until stim.CircuitInstruction's constructor is as fast as stim.Circuit.append: see
-    circuits/stim_workarounds.md, "The stim.CircuitInstruction constructor".
+    circuits/stim_workarounds.md#sec-instruction-constructor.
 
     Stim's ``CircuitInstruction`` constructor takes tens of microseconds per target, while appending
     an instruction to a circuit takes about a microsecond.  An instruction that a circuit rejects,

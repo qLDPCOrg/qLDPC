@@ -230,7 +230,7 @@ def get_state_stabilizers(
     # fixed parities below reuses this run.
     simulator = stim.TableauSimulator()
     # TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-    # circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    # circuits/stim_workarounds.md#sec-tableau-resets.
     if circuit.num_qubits < _MIN_QUBITS_FOR_CHEAP_RESETS:
         simulator.do(circuit)
     else:
@@ -370,14 +370,14 @@ class _UndeterminedSignError(ValueError):
 
 
 # TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+# circuits/stim_workarounds.md#sec-tableau-resets.
 # Simulating a circuit one instruction at a time, as _do_with_cheap_resets does, costs about 1-2 µs
 # per instruction, while a reset whose outcome is random costs Stim about 0.6 n² ns on n qubits.  So
 # get_state_stabilizers simulates a circuit on fewer qubits than this in one call.
 _MIN_QUBITS_FOR_CHEAP_RESETS = 256
 
 # TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-# circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+# circuits/stim_workarounds.md#sec-tableau-resets.
 # The Pauli whose +1 eigenstate each reset prepares.  For each Pauli, the stim.TableauSimulator
 # method of a Pauli gate that anticommutes with it.  For each pair of distinct Paulis, the method of
 # a Clifford gate that swaps them.
@@ -390,7 +390,7 @@ def _do_with_cheap_resets(simulator: stim.TableauSimulator, circuit: stim.Circui
     """Simulate a noiseless circuit as simulator.do(circuit) does, replacing costly resets by gates.
 
     TEMPORARY until stim.TableauSimulator resets an unentangled qubit in linear time: see
-    circuits/stim_workarounds.md, "Resets with random outcomes in stim.TableauSimulator".
+    circuits/stim_workarounds.md#sec-tableau-resets.
 
     A reset whose outcome is random costs Stim's tableau simulator time quadratic in the number of
     qubits, since it collapses the qubit by transposing the whole tableau.  But if the qubit is in
@@ -468,8 +468,7 @@ def _get_fixed_parities_by_simulation(
     # even number of them.  Stim rejects a random observable even with gauge detectors allowed, so
     # the model leaves out the circuit's observables, which change neither its state nor its
     # measurement record.
-    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md,
-    # "stim.Circuit.append in stim 1.16".
+    # TEMPORARY until stim>=1.17: see circuits/stim_workarounds.md#sec-circuit-append.
     lines = []
     for candidate in candidates.astype(bool):
         xs = np.zeros(num_qubits, dtype=bool)
