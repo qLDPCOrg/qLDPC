@@ -60,7 +60,8 @@ _PROBES_PER_REDUCTION = 64
 # The number of rows of the array into which the walk by shared flags lists the class codewords of
 # a pass over a root, which takes at most ``8 m`` MiB for fault weight ``m``.  Sorting a full array
 # takes about as much again and 16 MiB more, so about ``16 m + 16`` MiB in all.  A root with more
-# class codewords takes several passes, each listing the next of them in lexicographic order.
+# class codewords takes several passes, each listing the next of them in lexicographic order
+# (``fault_propagation.md#sec-shared-flags``).
 _MAX_ROOT_CODEWORDS = 2**20
 
 # A listing of class codewords moves to threads once the calling thread, listing alone, has done
@@ -110,7 +111,8 @@ def find_smallest_violation(
     ``flags`` and ``syndromes`` hold, for each primitive fault in DEM order, its flags or its
     syndrome packed into an integer.  ``max_weight``, a positive integer or None, limits the fault
     weight.  ``stabilizers``, ``css_weight``, and ``method`` configure the oracle of the search, a
-    ``CosetLeaderSearch``.
+    ``CosetLeaderSearch``.  ``fault_propagation.md#sec-first-violation`` proves that the search
+    finds a violating fault of the smallest fault weight if there is one.
     """
     # Keep the first primitive fault of each distinct nonzero signature (see
     # ``fault_propagation.md#sec-dropped-signatures``).
@@ -207,7 +209,9 @@ def _search_irreducible_faults(
     primitives = heavy + light
 
     # The oracle needs only small tables, so the lister may use the whole memory limit.  It lists on
-    # as many threads as the oracle's searches use.
+    # as many threads as the oracle's searches use, a number read here, on the calling thread, since
+    # the threads of a listing must not read the tuning
+    # (``fault_propagation.md#sec-thread-requirements``).
     lister = FaultLister(
         [flag for flag, _, _, _ in primitives],
         [syndrome for _, syndrome, _, _ in primitives],
@@ -434,7 +438,8 @@ class FaultLister:
         # Expand each batch of class tuples into faults.  Whenever the expansion pauses, grow the
         # table of syndromes if it should grow, and check the batch of faults if it is full.  At the
         # end, check the last batch.  Closing the batches of class tuples stops the threads that
-        # list them, if any, when a violation ends the listing early or an exception is raised.
+        # list them, if any, when a violation ends the listing early or an exception is raised
+        # (``fault_propagation.md#sec-thread-requirements``).
         with contextlib.closing(self._iter_class_tuples(fault_weight)) as class_tuple_batches:
             for class_tuples in class_tuple_batches:
                 expansion_state[0], expansion_state[1] = 0, -1
@@ -540,7 +545,7 @@ class FaultLister:
                 # and the batches that ``iterate_in_order`` holds should take little memory.  Hand
                 # on no empty batch, since empty batches would count toward its cap on held batches
                 # and stall the threads that list ahead; check the stop event after each call of the
-                # walk instead.
+                # walk instead (``fault_propagation.md#sec-thread-requirements``).
                 for class_codewords in thread_walk.list_range(
                     num_listed + start, num_listed + end, _PROBES_PER_CALL
                 ):
@@ -656,7 +661,8 @@ def _get_root_weights(
     that share each flag bit are spread over the order of the classes.  The weights are divided by
     ``C(q - 1, m - 2)``, so that each is the product of the factors
     ``(q - 1 - r - j) / (q - 1 - j)`` for ``j < m - 2``, each from 0 to 1, and never overflows.  A
-    weight is zero if ``q - 1 - r < m - 2``.
+    weight is zero if ``q - 1 - r < m - 2``.  ``fault_propagation.md#sec-listing-on-threads``
+    explains how the weights split a listing.
     """
     remaining = num_classes - 1 - np.arange(num_roots, dtype=np.float64)
     offsets = np.arange(fault_weight - 2, dtype=np.float64)
@@ -851,7 +857,10 @@ def _list_by_shared_flags(
     pause, or once the array is full and holds rows of earlier passes.  It returns the rows of the
     passes that it has finished, and its next call moves the rows of an unfinished pass to the
     start of the array.  Threads run this without the global interpreter lock, each with its own
-    state and arrays, so it keeps the rules of ``fault_propagation.md#sec-thread-requirements``.
+    state and arrays.  So it writes only to ``levels``, ``chosen_row_sums``, ``basis``, ``pivots``,
+    ``unavailable``, ``marks``, ``bounds``, ``walk_state``, and ``codewords``, which belong to its
+    walk, and only reads the other arrays, which the threads share, as
+    ``fault_propagation.md#sec-thread-requirements`` requires.
     """
     # Column 0 of the class rows holds the hash of the flags, and the other columns the flags.  The
     # keys of the map of classes serve as rows of one column, a hash and no syndrome words, so that
@@ -1101,8 +1110,10 @@ def _expand_class_tuples(
     next class tuple.  The expansion returns once the batch has ``batch_size`` faults, once the
     table should grow (see ``_table_should_grow``), or once every class tuple is expanded.  A full
     table takes no more syndromes.  The calling thread runs this without the global interpreter
-    lock, so that threads that list class codewords meanwhile can take it, and it keeps the rules
-    of ``fault_propagation.md#sec-thread-requirements``.
+    lock, so that threads that list class codewords meanwhile can take it.  So it writes only to
+    the arrays of the batch, of the table of syndromes, and of its state, which belong to the
+    calling thread, and only reads ``class_tuples``, ``class_offsets``, ``class_members``, and
+    ``primitive_rows``, as ``fault_propagation.md#sec-thread-requirements`` requires.
     """
     # Column 0 of the primitive rows holds the hash of the syndrome, the next columns hold the
     # syndrome, and the rest hold the X and then the Z part of the representative.

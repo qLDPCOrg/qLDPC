@@ -674,7 +674,7 @@ def test_listing_on_threads_checks_the_faults_of_one_thread(
     thread and leaves no thread running.  The same holds with a full table of syndromes.  The
     threads run with read-only views of the arrays of the lister that they read, and leave them
     unchanged.  The calling thread consumes the listing on a thread of its own, so that a deadlock
-    fails the test.
+    fails the test.  This checks ``fault_propagation.md#sec-thread-requirements``.
     """
     monkeypatch.setattr(_fault_search, "_MAX_ROOT_CODEWORDS", max_root_codewords)
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", split_probes)
@@ -848,7 +848,8 @@ def test_a_thread_of_a_listing_hands_on_no_empty_batch_and_stops_when_asked(
     With calls of one probe of work, most calls of the walk list no class codeword.  The function
     that a listing on threads gives ``iterate_in_order`` for each thread lists the range of all the
     roots, as one thread would, in batches that are never empty.  With its stop event set, it
-    returns after one call of the walk, which lists no class codeword.
+    returns after one call of the walk, which lists no class codeword.  This checks
+    ``fault_propagation.md#sec-thread-requirements``.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
     monkeypatch.setattr(_fault_search, "_PROBES_PER_CALL", 1)
@@ -896,7 +897,8 @@ def test_entry_points_without_the_lock_cite_the_requirements_on_threads() -> Non
     """Each entry point without lock cites the requirements on threads of ``fault_propagation.md``.
 
     The entry points are the functions of this package compiled with ``nogil=True``, which threads
-    run, and whose rules those requirements state.
+    run, and whose rules those requirements state.  This checks
+    ``fault_propagation.md#sec-thread-requirements``.
     """
     entry_points = conftest.get_entry_points_without_the_lock(pathlib.Path(__file__).parent)
     assert entry_points
@@ -913,7 +915,8 @@ def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(
 
     The calling thread lists the first root alone, and the thread of the first range of the other
     roots lists it only once a later range is listed.  Of two violations, one in each of these
-    ranges, the lister finds the first, as one thread does.
+    ranges, the lister finds the first, as one thread does.  This checks
+    ``fault_propagation.md#sec-thread-requirements``.
     """
     monkeypatch.setattr(_fault_search, "_get_root_weights", lambda q, s, m: np.full(s, 1.0))
     monkeypatch.setattr(_fault_search, "_PROBES_PER_REDUCTION", 4)
@@ -982,7 +985,8 @@ def test_only_costly_listings_move_to_threads(
     left over 6 for its own, exceeds the split, so the listing starts threads.  A split of 600
     comes after the first three roots, in ranges of 1 and 2, whose 652 probes, times 6 left over
     their 15, fall far short of it, so the calling thread lists the other roots too.  Either way,
-    the lister checks the faults of one thread.
+    the lister checks the faults of one thread.  This checks
+    ``fault_propagation.md#sec-listing-on-threads``.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", split_probes)
     iterations: list[int] = []
@@ -1013,7 +1017,8 @@ def test_listing_on_threads_stops_its_threads_when_an_exception_is_raised(
 
     With 35 class codewords of fault weight three, of seven roots, in batches of one class codeword,
     and one held batch for each thread, the threads cannot finish while the calling thread takes no
-    more, so only closing the listing stops them.
+    more, so only closing the listing stops them.  This checks
+    ``fault_propagation.md#sec-thread-requirements``.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
@@ -1054,7 +1059,8 @@ def test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads() -> N
     """A thread of a listing that reads the tuning through ``get_tuning`` fails.
 
     ``conftest.py`` here gives the tests of this package the fixture ``check_code_on_threads`` of
-    the distance package, which makes it fail.
+    the distance package, which makes it fail.  This checks
+    ``fault_propagation.md#sec-thread-requirements``.
     """
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[object]]:
@@ -1075,6 +1081,7 @@ def test_certifications_list_on_the_threads_of_the_search_tuning(
     The circuit of ``test_flagged_circuit_with_permuted_signed_outputs`` in
     ``fault_propagation_test.py``, without its damaging fault, lists faults up to fault weight
     three.  With every listing moved to threads, the certificate on three threads is that of one.
+    This checks ``fault_propagation.md#sec-thread-requirements``.
     """
     monkeypatch.setattr(_fault_search, "_SPLIT_PROBES_PER_THREAD", 0)
     thread_counts: list[int] = []
