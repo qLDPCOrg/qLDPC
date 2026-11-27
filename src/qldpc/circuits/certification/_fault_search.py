@@ -4,8 +4,7 @@
 
 The search sees only the flags and the syndrome of each primitive fault, never a circuit.
 ``fault_propagation.md`` defines the search's terms, describes the search, and proves that it is
-exact, and ``FaultLister`` defines the terms of its implementation.  Comments and docstrings cite
-the guide's sections by title.
+exact, and ``FaultLister`` defines the terms of its implementation.
 """
 
 from __future__ import annotations
