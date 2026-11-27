@@ -60,7 +60,7 @@ Where documentation belongs
   A list that must be complete, such as a reference of public items or settings, is generated where a standard tool can generate it, as AutoAPI lists the public symbols; otherwise a check requires it to cover each item.
   Apart from such checks, a rule or check that ties code to a document requires the code to point to the document, not the reverse.
 * Refer to qLDPC's code and documents by name or label, never by line or section number.
-  Guides that explain a package's code are Markdown files in its directory; user documentation and the standards are reStructuredText under ``docs/source/``.
+  Pages written under ``docs/source/`` are reStructuredText, which Sphinx renders; documents elsewhere, such as package guides and READMEs, are Markdown.
   Code and documents cite a section of a Markdown document, such as a guide or a README, by its label, as in ``brouwer_zimmermann.md#sec-completion-tables``.
   The label is an anchor ``<a name="sec-…"></a>`` alone on the line above the section's heading, and a change that cites an unlabeled section adds one.
   Rendered reStructuredText, such as a public docstring or a page under ``docs/source/``, links to the label through the ``:guide:`` role with the guide's path under ``src/qldpc/``, or through the ``:repo:`` role with the path of another document from the root of the repository.
