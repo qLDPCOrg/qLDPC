@@ -26,8 +26,9 @@ _SKIPPED = {"__pycache__", "autoapi", "build"}
 
 _ANCHOR = re.compile(r'<a name="([^"]*)"></a>')
 _LABEL = re.compile(r"sec-[a-z0-9]+(?:-[a-z0-9]+)*")
-# a link to a file on GitHub's main branch, with its path from the root of the repository
-_URL = re.compile(r"github\.com/qLDPCOrg/qLDPC/blob/main/([\w./-]+\.md)(?:#([\w-]+))?")
+# a link to a file on GitHub's main branch, with its path from the root of the repository, or to the
+# repository itself, whose page shows README.md
+_URL = re.compile(r"github\.com/qLDPCOrg/qLDPC(?:/blob/main/([\w./-]+\.md))?(?:#([\w-]+))?")
 # a :guide: role, with or without an explicit title, with its path from src/qldpc/
 _ROLE = re.compile(r":guide:`(?:[^`<]*<)?([\w./-]+\.md)(?:#([\w-]+))?>?`")
 # a :repo: role, with or without an explicit title, with its path from the root of the repository
@@ -86,9 +87,11 @@ def test_broken_citations_are_found(
         "# :repo:`src/qldpc/codes/guide.md#sec-kept`, :repo:`codes/guide.md#sec-kept`\n"
     )
     (tmp_path / "labels.rst").write_text('Labels look like ``<a name="sec-…"></a>``.\n')
+    (tmp_path / "README.md").write_text('<a name="sec-goals"></a>\n## 🎯 Goals\n')
     (tmp_path / "notes.rst").write_text(
         "guide.md#sec-kept and https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/"
         "codes/guide.md#kept, and https://github.com/qLDPCOrg/qLDPC/blob/main/guide.md#sec-kept\n"
+        "https://github.com/qLDPCOrg/qLDPC#-goals and https://github.com/qLDPCOrg/qLDPC#sec-goals\n"
     )
     monkeypatch.setattr(sys.modules[__name__], "_ROOT", tmp_path)
     monkeypatch.setattr(sys.modules[__name__], "_SOURCE", source)
@@ -97,6 +100,7 @@ def test_broken_citations_are_found(
     try:
         test_labels_sit_above_headings()
         assert _get_broken_citations() == [
+            ("notes.rst", "README.md#-goals"),
             ("notes.rst", "github.com/qLDPCOrg/qLDPC/blob/main/guide.md#sec-kept"),
             ("notes.rst", "src/qldpc/codes/guide.md#kept"),
             ("src/qldpc/codes/guide.md", "src/qldpc/codes/guide.md#sec-gone"),
@@ -147,7 +151,7 @@ def _citations(path: pathlib.Path) -> list[tuple[str | None, str, str]]:
     for directory, pattern in ((_ROOT, _URL), (_SOURCE, _ROLE), (_ROOT, _REPO_ROLE)):
         for match in pattern.finditer(text):
             target, fragment = match.groups()
-            guide = _get_file(directory / target)
+            guide = _get_file(directory / (target or "README.md"))
             if guide is None or fragment is not None:
                 citations.append((guide, fragment or "", match.group()))
     # paths in URLs and roles start from fixed directories, so they are not read again as paths
