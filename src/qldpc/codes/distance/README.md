@@ -215,7 +215,7 @@ They are not arguments of public functions, whose arguments say what to compute 
   The comment also names the kind of the default and how the value was found, or says why the default was chosen by hand, as the "Retuning" section of the module docstring requires.
   Where a guide section or a cost model explains the field's heuristic, the comment points there.
   A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
-  Comments, docstrings, and guides in this package follow the [writing standard's rule on measurements](../../../../docs/source/contributing/standards/writing.rst#where-documentation-belongs).
+  Comments, docstrings, and guides in this package follow the [writing standard's rule on measurements](../../../../docs/source/contributing/standards/writing.rst#writing-documentation).
 - Change a default only as the "Retuning" section allows; [experiments/distance_tuning](../../../../experiments/distance_tuning/README.md) says how to check one.
 - [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the module's values from these comments, after hand-written tables that lead from symptoms and routes to the values.
   The tables are selective; add a value to them when it is how a reader would fix a symptom or control a route.
