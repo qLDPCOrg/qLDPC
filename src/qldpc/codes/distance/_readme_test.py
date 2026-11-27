@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests that the guides of this package name only files that the package has."""
+"""Tests that the README and problems.md of this package name only files that the package has."""
 
 import re
 from pathlib import Path
