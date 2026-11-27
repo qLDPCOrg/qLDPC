@@ -522,7 +522,11 @@ def _scan(
         Updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked up,
         and of supports skipped.
     """
-    rows, support, prefixes = basis.rows, workspace.support, workspace.prefixes
+    # Read the fields of the records once.  Reading them in the loops would count references to
+    # their arrays at each read, and threads that share the arrays would contend for the counts.
+    rows, labels, rank, width = basis
+    support, prefixes, representative, best_support = workspace
+    table_bytes, table_offsets, block_bits = tables
     num_rows = rows.shape[0]
     weight = len(support)
     # With pair steps, the scan steps through heads, the first ``weight - 1`` rows of each support,
@@ -535,26 +539,38 @@ def _scan(
     evaluated, lookups, skipped = 0, 0, 0
     while True:
         if not pair_steps:
-            depth = advance_support(rows, basis.width, support, prefixes, depth)
+            depth = advance_support(rows, width, support, prefixes, depth)
             if depth < 0:
                 return best, depth, evaluated, lookups, skipped
         elif depth < weight - 1:
-            depth = advance_support(head_rows, basis.width, head, prefixes, depth)
+            depth = advance_support(head_rows, width, head, prefixes, depth)
             if depth < 0:
                 return best, depth, evaluated, lookups, skipped
-            if ends_after_item and _passes_item(support, last_item):
-                return best, -1, evaluated, lookups, skipped
+            # End the range once the fixed rows of the support pass ``last_item``, in
+            # lexicographic order.  The test stays here rather than in an inlined helper, whose
+            # arguments Numba counted references to at each head, which made scans on threads about
+            # a fifth slower.
+            if ends_after_item:
+                for selected in range(len(last_item)):
+                    if support[selected] != last_item[selected]:
+                        if support[selected] > last_item[selected]:
+                            return best, -1, evaluated, lookups, skipped
+                        break
             first = support[pair_depth]
 
             # Skip the completions from row ``first`` on if their bound reaches the lesser of the
             # skip bound and the best weight.  The scan tests for tables at each prefix rather than
             # taking a constant flag, with which Numba would merge the lookup into the loop and
             # count references to the tables at each lookup.
-            if len(tables.tables):
+            prefix = prefixes[pair_depth]
+            if len(table_bytes):
                 lookups += 1
-                if _completions_reach(
-                    basis, tables, support, prefixes[pair_depth], min(skip_bound, best), ranked
-                ):
+                least_pivot_ones = _get_completion_pivot_ones(support, num_rows, rank, ranked)
+                limit = min(skip_bound, best) - least_pivot_ones
+                bound = get_completion_bound(
+                    table_bytes, table_offsets, block_bits, first, prefix, limit
+                )
+                if bound >= limit:
                     remaining = num_rows - first
                     skipped += remaining * (remaining - 1) // 2
                     support[pair_depth] = num_rows
@@ -563,35 +579,54 @@ def _scan(
                     continue
 
             # Otherwise add row ``first`` to the prefix, and try every later row as the last row.
-            for word in range(basis.width):
-                prefixes[weight - 1, word] = prefixes[pair_depth, word] ^ rows[first, word]
+            for word in range(width):
+                prefixes[weight - 1, word] = prefix[word] ^ rows[first, word]
             depth = weight - 1
             support[depth] = first + 1
             if chunked and evaluated + lookups >= batch_size:
                 return best, depth, evaluated, lookups, skipped
 
         # Weigh the words of the supports that differ from this one only in their last row,
-        # returning at the cutoff or at the end of the chunk.
-        best, evaluated, stopped = _weigh_last_rows(
-            basis,
-            workspace,
-            x_mask,
-            depth,
-            best,
-            cutoff,
-            batch_size,
-            evaluated,
-            lookups,
-            deleted_pivots,
-            test_labels,
-            record,
-            css_weight,
-            chunked,
-            ranked,
-            record_support,
-        )
-        if stopped:
-            return best, depth, evaluated, lookups, skipped
+        # returning at the cutoff or at the end of the chunk.  The last row enters the support only
+        # where the support is read.
+        row = support[depth]
+        # Count the pivot rows of the head once, before trying the last rows.
+        head_pivots = np.int64(0)
+        if ranked:
+            head_pivots = np.int64(_count_pivot_rows(support, depth, rank))
+        while row < num_rows:
+            # Add the pivot ones of the rows, then the packed tail, until the word is no lighter
+            # than the best.
+            pivot_ones = np.int64(0)
+            if deleted_pivots:
+                if ranked:
+                    pivot_ones = head_pivots + (1 if row < rank else 0)
+                else:
+                    pivot_ones = np.int64(weight)
+            candidate = _weigh(
+                prefixes, depth, rows, row, width, pivot_ones, best, x_mask, css_weight
+            )
+
+            # Keep a lighter word if its labels make it eligible.
+            lighter = bool(candidate < best)
+            if lighter and test_labels:
+                support[depth] = row
+                lighter = _is_eligible(labels, support)
+            if lighter:
+                best = int(candidate)
+                if record:
+                    for word in range(width):
+                        representative[word] = prefixes[depth, word] ^ rows[row, word]
+                if record_support:
+                    for selected in range(depth):
+                        best_support[selected] = support[selected]
+                    best_support[depth] = row
+
+            row += 1
+            evaluated += 1
+            if best <= cutoff or (chunked and evaluated + lookups >= batch_size):
+                support[depth] = row
+                return best, depth, evaluated, lookups, skipped
         if pair_steps:
             depth = pair_depth
             support[depth] += 1
@@ -600,114 +635,22 @@ def _scan(
 
 
 @always_compiled(inline=True)
-def _passes_item(support: npt.NDArray[np.int64], last_item: npt.NDArray[np.int64]) -> bool:
-    """Decide whether the first ``len(last_item)`` rows of a support pass ``last_item``.
+def _get_completion_pivot_ones(
+    support: npt.NDArray[np.int64], num_rows: int, rank: int, ranked: bool
+) -> int:
+    """The least number of pivot ones of a completion of the prefix of a support.
 
-    The rows compare in lexicographic order, the order of the work items of a layer.
-    """
-    for selected in range(len(last_item)):
-        if support[selected] != last_item[selected]:
-            return bool(support[selected] > last_item[selected])
-    return False
-
-
-@always_compiled(inline=True)
-def _completions_reach(
-    basis: PackedBasis,
-    tables: CompletionTableView,
-    support: npt.NDArray[np.int64],
-    prefix: npt.NDArray[np.uint64],
-    limit: int,
-    ranked: bool,
-) -> bool:
-    """Decide whether tables prove that the completions of a prefix weigh at least ``limit``.
-
-    The prefix is the first ``len(support) - 2`` rows of ``support``, whose XOR with the offset is
-    ``prefix``, and its completions add two rows from row ``s = support[len(support) - 2]`` on, as
-    ``pair_steps`` of ``_scan`` describes.  Their bound is that of the tables plus the least number
-    of pivot ones that such a completion can have: one for each of its rows, or with ``ranked``, one
-    for each row below ``basis.rank`` (``brouwer_zimmermann.md#sec-completion-bound`` and
-    ``brouwer_zimmermann.md#sec-completion-cosets``).
+    The prefix is the first ``len(support) - 2`` rows of ``support``, and its completions add two
+    rows from row ``support[len(support) - 2]`` on, as ``pair_steps`` of ``_scan`` describes.  Each
+    row of a completion has a pivot one, or with ``ranked``, each row below ``rank``, the first
+    ``rank`` of the ``num_rows`` rows of the basis (``brouwer_zimmermann.md#sec-completion-bound``
+    and ``brouwer_zimmermann.md#sec-completion-cosets``).
     """
     weight = len(support)
-    pair_depth = weight - 2
-    pivot_ones = weight
-    if ranked:
-        # At most ``num_rows - rank`` rows of a pair lack pivots.
-        pivot_ones = max(0, 2 - (basis.rows.shape[0] - basis.rank))
-        pivot_ones += _count_pivot_rows(support, pair_depth, basis.rank)
-    reduced_limit = limit - pivot_ones
-    bound = get_completion_bound(
-        tables.tables, tables.offsets, tables.block_bits, support[pair_depth], prefix, reduced_limit
-    )
-    return bool(bound >= reduced_limit)
-
-
-@always_compiled(inline=True)
-def _weigh_last_rows(
-    basis: PackedBasis,
-    workspace: ScanWorkspace,
-    x_mask: npt.NDArray[np.uint64],
-    depth: int,
-    best: int,
-    cutoff: int,
-    batch_size: int,
-    evaluated: int,
-    lookups: int,
-    deleted_pivots: bool,
-    test_labels: bool,
-    record: bool,
-    css_weight: bool,
-    chunked: bool,
-    ranked: bool,
-    record_support: bool,
-) -> tuple[int, int, bool]:
-    """Weigh the words of the supports that differ from a complete support only in their last row.
-
-    The last row runs from ``support[depth]``, with ``depth = len(support) - 1``, to the last row of
-    the basis.  The arguments are those of ``_scan``, which has weighed ``evaluated`` supports and
-    looked up ``lookups`` bounds so far.  The last row enters ``support`` only where the support is
-    read.
-
-    Returns:
-        The updated ``best`` and ``evaluated``, and whether the weighing stopped at the cutoff or at
-        the end of the chunk, with ``support[depth]`` at the next row to weigh.
-    """
-    rows, support = basis.rows, workspace.support
-    num_rows = rows.shape[0]
-    row = support[depth]
-    # Count the pivot rows of the head once, before trying the last rows.
-    head_pivots = np.int64(0)
-    if ranked:
-        head_pivots = np.int64(_count_pivot_rows(support, depth, basis.rank))
-    while row < num_rows:
-        # Add the pivot ones of the rows, then the packed tail, until the word is no lighter than
-        # the best.
-        pivot_ones = np.int64(0)
-        if deleted_pivots:
-            if ranked:
-                pivot_ones = head_pivots + (1 if row < basis.rank else 0)
-            else:
-                pivot_ones = np.int64(len(support))
-        candidate = _weigh(
-            workspace.prefixes, depth, rows, row, basis.width, pivot_ones, best, x_mask, css_weight
-        )
-
-        # Keep a lighter word if its labels make it eligible.
-        lighter = bool(candidate < best)
-        if lighter and test_labels:
-            support[depth] = row
-            lighter = _is_eligible(basis.labels, support)
-        if lighter:
-            best = int(candidate)
-            _record_word(workspace, rows, basis.width, depth, row, record, record_support)
-
-        row += 1
-        evaluated += 1
-        if best <= cutoff or (chunked and evaluated + lookups >= batch_size):
-            support[depth] = row
-            return best, evaluated, True
-    return best, evaluated, False
+    if not ranked:
+        return weight
+    # At most ``num_rows - rank`` rows of the pair lack pivots.
+    return max(0, 2 - (num_rows - rank)) + _count_pivot_rows(support, weight - 2, rank)
 
 
 @always_compiled(inline=True)
@@ -755,31 +698,6 @@ def _weigh(
     if css_weight:
         candidate = max(candidate, z_ones)
     return candidate
-
-
-@always_compiled(inline=True)
-def _record_word(
-    workspace: ScanWorkspace,
-    rows: npt.NDArray[np.uint64],
-    width: int,
-    depth: int,
-    row: int,
-    record: bool,
-    record_support: bool,
-) -> None:
-    """Record the word of the support whose last row is ``row``, as ``_scan`` describes.
-
-    With ``record``, the word ``prefixes[depth] ^ rows[row]`` goes into
-    ``workspace.representative``, and with ``record_support``, the support goes into
-    ``workspace.best_support``.
-    """
-    if record:
-        for word in range(width):
-            workspace.representative[word] = workspace.prefixes[depth, word] ^ rows[row, word]
-    if record_support:
-        for selected in range(depth):
-            workspace.best_support[selected] = workspace.support[selected]
-        workspace.best_support[depth] = row
 
 
 @always_compiled(inline=True)
