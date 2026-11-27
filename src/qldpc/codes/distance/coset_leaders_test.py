@@ -646,8 +646,8 @@ def test_connected_cluster_searches_get_the_stabilizers_in_their_kernel(
     """Each connected-cluster search gets the stabilizers in its kernel as overlap words.
 
     A Pauli search gets its own sparser stabilizers, and the search of X parts the X parts of the
-    pure-X stabilizers, which the search of Z parts checks with, and vice versa (Section 3.8 of
-    ``connected_cluster.md``).
+    pure-X stabilizers, which the search of Z parts checks with, and vice versa
+    (``connected_cluster.md#sec-syndromes``).
     """
     # Record the overlap words that each search gets.
     received: dict[int, tuple[coset_leaders.ConnectedClusterCosetSearch, set[bytes]]] = {}
@@ -858,7 +858,8 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
     have visited a state for each thread.  The queries run with every array of their searches
     read-only: the threads of a batch share them, and so do the threads of callers that share a
     search.  Each call of the compiled batch loop also gets read-only views of its other arrays but
-    the weights that it writes: the syndromes of its block and their floors.
+    the weights that it writes: the syndromes of its block and their floors.  The test checks rules
+    on threads of ``connected_cluster.md#sec-requirements``.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
@@ -932,7 +933,8 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
     moves the rest of the batch to two threads, in blocks of one query each.  Every later class has
     no error of weight 2.  The range of the first block runs either after a later range has run, or
     while a later block that has started its queries waits for it.  Either way, the batch gives the
-    index and bound of one thread.
+    index and bound of one thread.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
     run_work_items = _threads.run_work_items

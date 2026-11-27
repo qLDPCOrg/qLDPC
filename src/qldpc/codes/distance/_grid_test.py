@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests of the grid of problems, methods, and modes in "The grid" of this package's README.
+"""Tests of the grid of problems, methods, and modes in ``README.md#sec-grid``.
 
 The first table of that section says which methods each problem takes, and how they run.  These
 tests check the table against the methods that each problem's entry point accepts, and run every
@@ -240,8 +240,7 @@ def _check_counts(method: Any, rng: np.random.Generator, threads: bool) -> None:
     counts_x, counts_z, distance, full = enumerate_logical_ops(code)
 
     # A count by brouwer_zimmermann or auto at its default weight runs a distance search, which can
-    # use threads (see "The grid" in the README), so the default-weight count runs on one thread
-    # here.
+    # use threads (``README.md#sec-grid``), so the default-weight count runs on one thread here.
     count_pauli = method != "macwilliams" or code.is_self_dual
     with _tuning.use_tuning(num_threads=1):
         counts = count_logical_ops_css(

@@ -137,7 +137,7 @@ Distances across packages
 The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
 For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare distance: the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
 
-Exact distances of binary codes use an optimized :guide:`Brouwer-Zimmermann search <codes/distance/brouwer_zimmermann.md>` or, for sparse parity checks, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_, and nonbinary codes use exhaustive enumeration.
+Exact distances of binary codes use an optimized :guide:`Brouwer-Zimmermann search <codes/distance/brouwer_zimmermann.md>` or, for sparse parity checks, a :guide:`search over supports that are connected in the Tanner graph <codes/distance/connected_cluster.md>`, and nonbinary codes use exhaustive enumeration.
 By default, ``method="auto"`` chooses a method for each search (see :data:`~qldpc.codes.distance.DistanceMethod`).
 It enumerates every word if that is cheap.
 Otherwise, it takes the Brouwer-Zimmermann search for a classical code and in :func:`~qldpc.codes.distance.get_distance_from_generators`.

@@ -5,7 +5,8 @@
 :class:`SearchTuning` collects the values with which a search for an exact distance, a count of
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
-routes to these values.
+routes to these values.  :guide:`Tuning <codes/distance/README.md#sec-tuning>` in the README of the
+distance package says which values belong here, and how contributors document and test them.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -133,9 +134,9 @@ class SearchTuning:
     """Settings of exact searches and counts, such as thresholds, limits, batch sizes, and switches.
 
     The descriptions of the fields use the following terms.  The section
-    `Terms <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#terms>`__
-    of the README of the distance package defines sectors, search bases, and searches by Hamming
-    weight more fully, and also defines other terms, such as information set and automorphism.
+    :guide:`Terms <codes/distance/README.md#sec-terms>` of the README of the distance package
+    defines sectors, search bases, and searches by Hamming weight more fully, and also defines
+    other terms, such as information set and automorphism.
 
     - Sector: a space of words that a search or count examines separately for nontrivial words,
       such as the X sector of a CSS stabilizer code: the X-type operators that commute with the Z
@@ -155,12 +156,14 @@ class SearchTuning:
     - Candidate/set evaluation: the examination of one support in one search basis (:guide:`The
       stopping certificate <codes/distance/brouwer_zimmermann.md#sec-stopping-certificate>`).
     - Symbol: in a connected-cluster search, a coordinate of a binary word, or, in a search of Pauli
-      operators, a qubit with one of the values X, Y, and Z (Section 3.7 of
-      ``connected_cluster.md``).
+      operators, a qubit with one of the values X, Y, and Z (:guide:`Qubit codes that are not CSS
+      <codes/distance/connected_cluster.md#sec-non-css>`).
     - State: in a connected-cluster search, a set of symbols that the search has chosen, with the
-      symbols that it forbids adding (Section 3.3 of ``connected_cluster.md``).
+      symbols that it forbids adding (:guide:`The depth-first search
+      <codes/distance/connected_cluster.md#sec-depth-first-search>`).
     - Weight limit: the largest weight of the words that a connected-cluster search of a sector
-      looks for; the search raises it step by step (Section 3.6 of ``connected_cluster.md``).
+      looks for; the search raises it step by step (:guide:`From a search to the distance
+      <codes/distance/connected_cluster.md#sec-search-to-distance>`).
     - Searches by Hamming weight: the BZ searches of a ``CosetLeaderSearch`` that weigh each binary
       word that they scan by its Hamming weight divided by a fixed number.  The number is two for
       the searches by physical weight, which scan the images of Pauli errors under the map of
@@ -282,11 +285,12 @@ class SearchTuning:
     # Fields of distance searches of CSS codes.
 
     #: Whether a distance search of both sectors of a CSS code looks for a qubit permutation that
-    #: maps one sector onto the other, and then searches only one sector (section "Searching one
-    #: sector of a CSS code" of ``problems.md``).  This applies to the BZ and connected-cluster
-    #: methods, and to ``"auto"`` unless it enumerates.  ``False`` skips the lookup, and the search
-    #: stays exact.  Defaults to ``True``, a switch; ``False`` is for comparisons, and for many
-    #: cheap searches of large codes, on which the lookup can cost more than it saves.
+    #: maps one sector onto the other, and then searches only one sector (:guide:`Searching one
+    #: sector of a CSS code <codes/distance/problems.md#sec-one-sector>`).  This applies to the BZ
+    #: and connected-cluster methods, and to ``"auto"`` unless it enumerates.  ``False`` skips the
+    #: lookup, and the search stays exact.  Defaults to ``True``, a switch; ``False`` is for
+    #: comparisons, and for many cheap searches of large codes, on which the lookup can cost more
+    #: than it saves.
     sector_maps: bool = True
 
     # Fields of the automatic choice of a method.
@@ -294,11 +298,12 @@ class SearchTuning:
     #: ``method="auto"`` enumerates every word if the enumeration examines at most this many packed
     #: 64-bit integers.  A space of dimension ``dim``, with words of ``width`` bits, needs
     #: ``2**dim * ceil(width / 64)`` integers.  The enumeration sums this number over the spaces of
-    #: the search, such as the two sectors of a CSS code (section "Choosing a method" of
-    #: ``problems.md``).  Zero never enumerates.  Defaults to ``2**20``, chosen by hand: an
-    #: enumeration of about a millisecond, the fixed cost of a Brouwer-Zimmermann search of a small
-    #: code.  On larger spaces, a Brouwer-Zimmermann search is usually faster (section "Refining the
-    #: choice" of ``problems.md`` names exceptions).
+    #: the search, such as the two sectors of a CSS code (:guide:`Choosing a method
+    #: <codes/distance/problems.md#sec-choosing-a-method>`).  Zero never enumerates.  Defaults to
+    #: ``2**20``, chosen by hand: an enumeration of about a millisecond, the fixed cost of a
+    #: Brouwer-Zimmermann search of a small code.  On larger spaces, a Brouwer-Zimmermann search is
+    #: usually faster (:guide:`Refining the choice
+    #: <codes/distance/problems.md#sec-refining-the-choice>` names exceptions).
     auto_brute_force_max_words: int = 2**20
 
     #: The work, in candidate/set evaluations, that ``method="auto"`` lets its connected-cluster
@@ -306,8 +311,8 @@ class SearchTuning:
     #: predicted work of its next weight limit stays within this value, counting each state as
     #: ``connected_cluster_state_evaluations``.  Beyond it, the search probes with a
     #: Brouwer-Zimmermann search, and then considers switching to one.  Zero probes as soon as that
-    #: sum is positive.  Defaults to ``10**8``, chosen by hand: a fraction of a second (section
-    #: "Choosing a method" of ``problems.md`` says why).
+    #: sum is positive.  Defaults to ``10**8``, chosen by hand: a fraction of a second
+    #: (:guide:`Choosing a method <codes/distance/problems.md#sec-choosing-a-method>` says why).
     auto_free_work: int = 100_000_000
 
     #: The most work, in candidate/set evaluations, that the Brouwer-Zimmermann probe of
@@ -316,15 +321,15 @@ class SearchTuning:
     #: partitioned information sets, whatever ``overlapping_minimum_work`` and
     #: ``partition_work_ratio`` say.  It stops before a layer that would take it over this work, so
     #: zero stops it after its setup.  Defaults to ``10**8``, a budget of setup effort, which the
-    #: choice of a method spends: a fraction of a second (section "Choosing a method" of
-    #: ``problems.md``).
+    #: choice of a method spends: a fraction of a second (:guide:`Choosing a method
+    #: <codes/distance/problems.md#sec-choosing-a-method>`).
     auto_probe_work: int = 100_000_000
 
     #: The cost of a state of a connected-cluster search in candidate/set evaluations, which lets
-    #: ``method="auto"`` compare the work of the two searches (section "Choosing a method" of
-    #: ``problems.md``).  Raising it switches to a Brouwer-Zimmermann search sooner.  Zero never
-    #: probes or switches.  Defaults to 500, chosen by hand: the cost of a state, hundreds of
-    #: evaluations.
+    #: ``method="auto"`` compare the work of the two searches (:guide:`Choosing a method
+    #: <codes/distance/problems.md#sec-choosing-a-method>`).  Raising it switches to a
+    #: Brouwer-Zimmermann search sooner.  Zero never probes or switches.  Defaults to 500, chosen by
+    #: hand: the cost of a state, hundreds of evaluations.
     connected_cluster_state_evaluations: int = 500
 
     # Fields of connected-cluster searches.
@@ -337,41 +342,46 @@ class SearchTuning:
     #: ``MAX_VALUE``.  Zero gets them before the first limit, and ``MAX_VALUE`` never.  The coset
     #: searches of ``CosetLeaderSearch`` never use automorphisms.  Defaults to ``5 * 10**4``, a
     #: derived value: the cost of finding automorphisms, verifying them, and ordering their orbits
-    #: for a large code, tens of thousands of states (Section 3.5 of ``connected_cluster.md``).
+    #: for a large code, tens of thousands of states (:guide:`Symmetries
+    #: <codes/distance/connected_cluster.md#sec-symmetries>`).
     automorphism_minimum_states: int = 50_000
 
     #: Whether a connected-cluster search, of distances or of vectors with a given syndrome,
-    #: restricts the subtree of each state to viable symbols (Section 3.4 of
-    #: ``connected_cluster.md``).  ``False`` skips the restriction, and the search stays exact.
-    #: Defaults to ``True``, a switch; ``False`` is for comparisons, such as ablations.
+    #: restricts the subtree of each state to viable symbols (:guide:`Pruning
+    #: <codes/distance/connected_cluster.md#sec-pruning>`).  ``False`` skips the restriction, and
+    #: the search stays exact.  Defaults to ``True``, a switch; ``False`` is for comparisons, such
+    #: as ablations.
     restrict_viable_symbols: bool = True
 
     #: Whether a connected-cluster search, of distances or of vectors with a given syndrome, applies
     #: overlap cuts from known words, such as stabilizers or gauge generators, to forbid symbols at
-    #: each state (Sections 3.4, 3.7, and 3.8 of ``connected_cluster.md``).  ``False`` skips these
-    #: cuts, and the search stays exact.  Defaults to ``True``, a switch; ``False`` is for
-    #: comparisons, such as ablations.
+    #: each state (:guide:`Pruning <codes/distance/connected_cluster.md#sec-pruning>`, :guide:`Qubit
+    #: codes that are not CSS <codes/distance/connected_cluster.md#sec-non-css>`, and
+    #: :guide:`Vectors with a given syndrome <codes/distance/connected_cluster.md#sec-syndromes>`).
+    #: ``False`` skips these cuts, and the search stays exact.  Defaults to ``True``, a switch;
+    #: ``False`` is for comparisons, such as ablations.
     stabilizer_overlap_cuts: bool = True
 
     #: Whether a connected-cluster distance search adds sums of pairs of its checks as redundant
-    #: checks, and sums of pairs of its known words as known words, keeping only light sums (Section
-    #: 3.4 of ``connected_cluster.md``).  ``False`` skips the sums, and the search stays exact.  The
-    #: coset searches of ``CosetLeaderSearch`` never add them.  Defaults to ``True``, a switch;
-    #: ``False`` is for comparisons, such as ablations.
+    #: checks, and sums of pairs of its known words as known words, keeping only light sums
+    #: (:guide:`Pruning <codes/distance/connected_cluster.md#sec-pruning>`).  ``False`` skips the
+    #: sums, and the search stays exact.  The coset searches of ``CosetLeaderSearch`` never add
+    #: them.  Defaults to ``True``, a switch; ``False`` is for comparisons, such as ablations.
     pair_sum_checks: bool = True
 
     #: The most rounds in which a ``CosetLeaderSearch`` with the connected-cluster method makes its
     #: checks sparser when it is built.  Each round is a row reduction in a random order of the
     #: columns.  Zero only adds checks to each other while that makes them lighter, and
     #: ``MAX_VALUE`` leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to
-    #: 400, a budget of setup effort, which a search spends once for all its queries (Section 3.8 of
-    #: ``connected_cluster.md``).
+    #: 400, a budget of setup effort, which a search spends once for all its queries
+    #: (:guide:`Vectors with a given syndrome <codes/distance/connected_cluster.md#sec-syndromes>`).
     max_coset_sparsifying_rounds: int = 400
 
     #: The most rounds in which a connected-cluster distance search of a subsystem code makes the
     #: stabilizers that it derives sparser; zero skips sparsifying, and ``MAX_VALUE`` leaves the
     #: rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 50, a budget of setup
-    #: effort (Section 3.9 of ``connected_cluster.md``).
+    #: effort (:guide:`Sparser stabilizers of subsystem codes
+    #: <codes/distance/connected_cluster.md#sec-sparser-stabilizers>`).
     max_distance_sparsifying_rounds: int = 50
 
     #: Making checks sparser stops after this many rounds in a row that leave the total weight of
@@ -380,8 +390,10 @@ class SearchTuning:
     #: ``max_distance_sparsifying_rounds``, whichever applies, is ``MAX_VALUE`` too.  The field is
     #: shared: a connected-cluster ``CosetLeaderSearch`` reads it when it is built, and so does a
     #: connected-cluster distance search of a subsystem code, for the stabilizers that it derives
-    #: (Sections 3.8 and 3.9 of ``connected_cluster.md``).  Defaults to 200, a budget of setup
-    #: effort.
+    #: (:guide:`Vectors with a given syndrome <codes/distance/connected_cluster.md#sec-syndromes>`
+    #: and :guide:`Sparser stabilizers of subsystem codes
+    #: <codes/distance/connected_cluster.md#sec-sparser-stabilizers>`).  Defaults to 200, a budget
+    #: of setup effort.
     sparsifying_rounds_without_improvement: int = 200
 
     # Fields of completion tables.
@@ -514,7 +526,9 @@ class SearchTuning:
     #: connected-cluster distance search visits at most a chunk of states in one call on each
     #: thread, except in the passes that choose its work items.  On threads, it splits a weight
     #: limit into work items of about a chunk of states each, within bounds on their number
-    #: (Sections 3.6 and 3.11 of ``connected_cluster.md``).  The gates that decide when work moves
+    #: (:guide:`From a search to the distance
+    #: <codes/distance/connected_cluster.md#sec-search-to-distance>` and :guide:`Threads
+    #: <codes/distance/connected_cluster.md#sec-threads>`).  The gates that decide when work moves
     #: to threads also count in chunks; their thresholds, chosen by hand, should pass only work that
     #: costs many times as much as starting threads.  On several threads, a layer of a set in a BZ
     #: search moves to threads if it has at least three rows and more than ``num_threads`` chunks of
@@ -533,10 +547,10 @@ class SearchTuning:
     #: ``(num_threads << search_chunk_exponent) >> connected_cluster_split_shift`` states; each step
     #: of the shift halves that gate.  Unlike lowering ``search_chunk_exponent``, a larger shift
     #: lets smaller limits split without changing the size of chunks or the time before an interrupt
-    #: takes effect (Section 3.11 of ``connected_cluster.md``).  At most 62.  Defaults to 2, chosen
-    #: by hand.  At the default exponent and this shift, a limit that splits is predicted to cost at
-    #: least about as much as the work of splitting it among threads.  A small search on eight
-    #: threads ran about 1.6 times faster at a shift of 2 than at 0.
+    #: takes effect (:guide:`Threads <codes/distance/connected_cluster.md#sec-threads>`).  At most
+    #: 62.  Defaults to 2, chosen by hand.  At the default exponent and this shift, a limit that
+    #: splits is predicted to cost at least about as much as the work of splitting it among threads.
+    #: A small search on eight threads ran about 1.6 times faster at a shift of 2 than at 0.
     connected_cluster_split_shift: int = dataclasses.field(default=2, metadata={"maximum": 62})
 
     #: The number of threads on which searches run costly work.  A BZ distance search scans a costly
@@ -548,13 +562,13 @@ class SearchTuning:
     #: calling thread alone.  ``None`` takes the value of the environment variable
     #: ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
     #: ``numba.config.NUMBA_NUM_THREADS``.  The row on cores in "Start from a symptom" of
-    #: :doc:`/exact_search_tuning` says how to set and cap it, and the section "Threads" of the
-    #: README of ``qldpc/codes/distance`` says when ``QLDPC_NUM_THREADS`` also sets numba's own
-    #: count.  The description of ``search_chunk_exponent`` says when work moves to threads
-    #: (:guide:`Behavior spanning files
-    #: <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>` and Section 3.11 of
-    #: ``connected_cluster.md``).  Defaults to ``None``, chosen by hand: a search uses the cores
-    #: that numba counts unless its caller caps them.
+    #: :doc:`/exact_search_tuning` says how to set and cap it, and :guide:`Threads
+    #: <codes/distance/README.md#sec-threads>` in the README of the distance package says when
+    #: ``QLDPC_NUM_THREADS`` also sets numba's own count.  The description of
+    #: ``search_chunk_exponent`` says when work moves to threads (:guide:`Behavior spanning files
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>` and :guide:`Threads
+    #: <codes/distance/connected_cluster.md#sec-threads>`).  Defaults to ``None``, chosen by hand: a
+    #: search uses the cores that numba counts unless its caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
     #: A count by the BZ or brute-force method scans in chunks.  Each chunk lies within one
@@ -588,9 +602,9 @@ class SearchTuning:
     #: in a table, by syndrome, of the products of a single-qubit X error and a single-qubit Z
     #: error, each possibly the identity.  It builds the table if the distinct syndromes of the two
     #: kinds of error make at most this many pairs, and otherwise matches syndromes at each query
-    #: (section "The coset-leader search" of ``problems.md``).  Zero disables the table.  Defaults
-    #: to ``2**18``, a budget of memory: a table of tens of megabytes, reached at 511 qubits whose
-    #: single-qubit errors have distinct syndromes.
+    #: (:guide:`The coset-leader search <codes/distance/problems.md#sec-coset-leader-search>`).
+    #: Zero disables the table.  Defaults to ``2**18``, a budget of memory: a table of tens of
+    #: megabytes, reached at 511 qubits whose single-qubit errors have distinct syndromes.
     max_css_single_pairs: int = 2**18
 
     def __post_init__(self) -> None:

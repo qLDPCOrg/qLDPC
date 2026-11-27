@@ -357,7 +357,7 @@ It counts `64` units for each such reduction: that of the root at the start of e
 This count estimates the time of the walk; it decides only when a listing moves to threads and when a thread pauses, never what the walk lists.
 A listing is **costly** if, once the calling thread, listing alone, has done `2^18` probes of work for each thread, at least as much work for each thread is estimated to be left, as described below.
 A costly listing runs on `SearchTuning.num_threads` threads, as the oracle's searches do.
-[Threads](../../codes/distance/README.md#threads) in the README of the distance package gives the default of that number.
+[Threads](../../codes/distance/README.md#sec-threads) in the README of the distance package gives the default of that number.
 Only listing class codewords moves to threads, since it takes most of the lister's time: in trials of an earlier version of the search, which listed class codewords by another walk, four fifths or more whenever the lister took over half a second.
 The calling thread expands the class codewords into faults in the order in which a listing on a single thread lists them, which we call the **serial order**, while the threads list later ones.
 So the search looks up and skips the same faults, keeps the same table of syndromes, and sends the oracle the same syndromes in the same batches as on one thread, and its result does not depend on the number of threads.

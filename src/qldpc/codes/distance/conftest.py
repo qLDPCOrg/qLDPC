@@ -483,8 +483,8 @@ def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail workers of ``run_work_items`` on Python calls of ``get_tuning`` or numba-parallel code.
 
     The guide of each search method or package that uses this fixture states the rules on threads,
-    as ``brouwer_zimmermann_code.md#sec-requirements`` does for the Brouwer-Zimmermann method.
-    While a worker runs, on a new
+    as ``brouwer_zimmermann_code.md#sec-requirements`` does for the Brouwer-Zimmermann method, and
+    ``README.md#sec-working-here`` says which tests check them.  While a worker runs, on a new
     thread or on the thread that called ``run_work_items``, a call from Python of numba code
     compiled with ``parallel=True``, such as some of galois's, or of ``_tuning.get_tuning``, raises
     an ``AssertionError``, which ``run_work_items`` raises again.  The workers include the threads

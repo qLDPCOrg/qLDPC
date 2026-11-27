@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Sparser checks with the span of given checks, and light sums of checks to add to them.
+"""Sparser checks with the span of given checks, and light sums of pairs of checks.
 
-``get_sparser_rows`` makes checks sparser for the coset searches of ``coset.py`` and for the
-distance searches of subsystem codes in ``qldpc.codes.distance.distances`` (Sections 3.8 and 3.9 of
-``connected_cluster.md``).  ``get_light_pair_sums`` finds light sums of pairs of rows, which
-``SupportSearch`` of ``search.py`` adds as redundant checks, and, in distance searches, as known
-words (Section 3.4).
+``get_sparser_rows`` makes checks sparser without changing their span
+(``connected_cluster.md#sec-syndromes`` and ``connected_cluster.md#sec-sparser-stabilizers``).
+``get_light_pair_sums`` finds light sums of pairs of rows, which a search can add as redundant
+checks, or as known words (``connected_cluster.md#sec-pruning``).
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ def get_sparser_rows(
 
     Starting from the rows of ``_sparsify``, each round adds the rows of a row reduction in a random
     order of the columns as candidates, and keeps a lightest basis of the candidates, weighed by
-    ``get_row_weights`` (Section 3.8 of ``connected_cluster.md``).  The rounds stop after
+    ``get_row_weights`` (``connected_cluster.md#sec-syndromes``).  The rounds stop after
     ``max_rounds``, or at the end of a round once ``rounds_without_improvement`` rounds in a row
     have left the total weight unchanged, and ``_sparsify`` makes a last pass.
 
@@ -83,9 +82,9 @@ def get_light_pair_sums(
     """Light sums of pairs of rows, whose total weight is at most that of the rows.
 
     A sum of rows ``i < j`` is light if it is not zero and no heavier than the heavier of the two,
-    as ``get_row_weights`` weighs them (Section 3.4 of ``connected_cluster.md``).  The distinct
-    light sums that differ from every row are taken lightest first, with ties in the order of their
-    pairs, until the next would make their total weight exceed that of the rows.
+    as ``get_row_weights`` weighs them (``connected_cluster.md#sec-pruning``).  The distinct light
+    sums that differ from every row are taken lightest first, with ties in the order of their pairs,
+    until the next would make their total weight exceed that of the rows.
 
     Returns:
         The sums, and the pair ``(i, j)`` of rows of each.

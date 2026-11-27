@@ -2,10 +2,10 @@
 
 """Exact counts of the logical operators of a given weight in binary CSS codes.
 
-:class:`CSSLogicalCounter` states the conventions of the counts.  :guide:`Counting logical
-operators <codes/distance/brouwer_zimmermann.md#sec-counting>` explains the Brouwer-Zimmermann
-method, full Pauli counts, and the counters of deformed codes.  The section "The MacWilliams method"
-of ``problems.md`` explains the MacWilliams method.
+:class:`CSSLogicalCounter` states the conventions of the counts.  :guide:`Counting logical operators
+<codes/distance/brouwer_zimmermann.md#sec-counting>` explains the Brouwer-Zimmermann method, full
+Pauli counts, and the counters of deformed codes.  :guide:`The MacWilliams method
+<codes/distance/problems.md#sec-macwilliams>` explains the MacWilliams method.
 
 ``compile_search_setup`` is here because it serves programs that make very many counts, and it
 compiles by running counts of a small code.
@@ -575,9 +575,9 @@ class CSSLogicalCounter:
     ) -> CSSLogicalCounts:
         """Count logical operators by the weight distributions of the checks of a stabilizer code.
 
-        The section "The MacWilliams method" of ``problems.md`` derives the counts.  The checks of
-        a self-dual code may share one distribution, even if a deformation gave them different
-        bases, since equal spaces have equal distributions.
+        ``problems.md#sec-macwilliams`` derives the counts.  The checks of a self-dual code may
+        share one distribution, even if a deformation gave them different bases, since equal spaces
+        have equal distributions.
         """
         # Walk the check spaces once per counter.
         if self._enumerators is None:
@@ -704,7 +704,10 @@ def compile_search_setup() -> None:
 
 
 def _get_logical_count_method(method: LogicalCountMethod) -> _ChosenLogicalCountMethod:
-    """Validate a logical-count method, and return the method that the count runs."""
+    """Validate a logical-count method, and return the method that the count runs.
+
+    ``"auto"`` takes the Brouwer-Zimmermann method (``problems.md#sec-choosing-a-method``).
+    """
     if not isinstance(method, str) or method not in get_args(LogicalCountMethod):
         raise ValueError(
             f"Unknown logical-count method {method!r}; choose from"

@@ -6,7 +6,7 @@ Exact-search performance and tuning
 This page suggests what to try first when exact distance searches or logical-operator counts are slow or memory-hungry, often by changing values of the private module ``qldpc.codes.distance._tuning``.
 The :ref:`table of routes <tuning-routes>` below leads from the routes that searches and counts take, such as which optional steps they run, to the values that control them.
 Before you change a value, read :ref:`the documentation of that module <tuning-module>` below: what its privacy means, what tuning can and cannot change, how to change the tuning, and how the defaults are chosen.
-The :guide:`Brouwer-Zimmermann guide <codes/distance/brouwer_zimmermann.md>` and the `connected-cluster guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ explain the methods.
+The :guide:`Brouwer-Zimmermann guide <codes/distance/brouwer_zimmermann.md>` and the :guide:`connected-cluster guide <codes/distance/connected_cluster.md>` explain the methods.
 The parts of the Brouwer-Zimmermann guide on the source code of the method, its heuristics, and its correctness requirements are in :guide:`brouwer_zimmermann_code.md <codes/distance/brouwer_zimmermann_code.md>`.
 
 .. _tuning-symptoms:
@@ -23,12 +23,12 @@ Start from a symptom
    * - A distance search of a classical code of low dimension, whose distance is a large fraction of its length, is slow
      - Pass ``method="brute_force"`` to enumerate every word instead.
    * - A distance search of a quantum LDPC code by ``method="brouwer_zimmermann"`` is slow
-     - Pass ``method="connected_cluster"``, which is often much faster on such codes, though not on all of them (:guide:`Section 2 <codes/distance/connected_cluster.md#sec-cost>` of the connected-cluster guide), or ``method="auto"``, the default, which, unless enumerating is cheap, starts with that search and may switch to the Brouwer-Zimmermann method.
+     - Pass ``method="connected_cluster"``, which is often much faster on such codes, though not on all of them (:guide:`What the cost of the search depends on <codes/distance/connected_cluster.md#sec-cost>` of the connected-cluster guide), or ``method="auto"``, the default, which, unless enumerating is cheap, starts with that search and may switch to the Brouwer-Zimmermann method.
    * - A distance search by ``method="auto"``, the default, is slow
      - Time the search with ``method="brouwer_zimmermann"`` and with ``method="connected_cluster"``, and pass the faster method.
        With a large ``cutoff``, ``"auto"`` cannot switch to the Brouwer-Zimmermann method before it has searched past the cutoff, and with one near the distance it may never switch, so pass ``method="brouwer_zimmermann"``.
        To make ``"auto"`` stay longer with a connected-cluster search, lower :attr:`~SearchTuning.connected_cluster_state_evaluations`, and to make it switch to the Brouwer-Zimmermann method sooner, raise that field.
-       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`__ in ``problems.md`` of the distance package).
+       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (:guide:`Choosing a method <codes/distance/problems.md#sec-choosing-a-method>` in ``problems.md`` of the distance package).
        Before it decides, ``"auto"`` runs a short Brouwer-Zimmermann search, its probe.
        Raise :attr:`~SearchTuning.auto_probe_work` so that the probe finishes more often, which gives the answer.
        A probe that does not finish still caps the connected-cluster search at the probe's upper bound on the distance.
@@ -68,14 +68,14 @@ Start from a symptom
        Without that variable, enter ``use_tuning(num_threads=1)`` in the function that each worker runs, since new threads and spawned processes normally start with the default tuning.
        A ``CosetLeaderSearch`` keeps the thread count of the tuning that was active when it was built, so build one that the workers share within ``use_tuning(num_threads=1)`` as well.
        Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota rounded down, or to 1 if the quota is below 1.
-       The section `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count, and which other variables limit BLAS threads.
+       The section :guide:`Threads <codes/distance/README.md#sec-threads>` of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count, and which other variables limit BLAS threads.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.search_chunk_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        Lowering :attr:`~SearchTuning.search_chunk_exponent` also lowers the amounts of work at which searches and batch queries move to threads (see its description below).
        A Brouwer-Zimmermann distance search on several threads scans chunks :attr:`~SearchTuning.num_threads` times as large, so the wait grows with the number of threads.
        A connected-cluster distance search runs chunks of at most ``2**search_chunk_exponent`` states on each thread, and takes an interrupt once the running chunks end.
        Before a weight limit splits across threads, the calling thread divides the work of the limit into items that the threads then claim.
-       It does so in passes, and each pass is one compiled call that is not split into chunks, so an interrupt waits for the current pass (:guide:`Section 3.6 <codes/distance/connected_cluster.md#sec-search-to-distance>` of ``connected_cluster.md``).
+       It does so in passes, and each pass is one compiled call that is not split into chunks, so an interrupt waits for the current pass (:guide:`From a search to the distance <codes/distance/connected_cluster.md#sec-search-to-distance>` of ``connected_cluster.md``).
        A connected-cluster coset query takes an interrupt only after the query ends.
        On one thread (``num_threads=1``, or ``QLDPC_NUM_THREADS=1``), a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method takes an interrupt only after one compiled call over the whole batch ends.
        Once a batch query by either method has moved to threads, the query takes an interrupt only when each thread has ended its current block of queries, and a smaller batch has smaller blocks.
@@ -114,11 +114,11 @@ Routes and the names that control them
    * - Searching one sector of a CSS code whose sectors a qubit permutation maps onto each other
      - :attr:`SearchTuning.sector_maps`
      -
-     - `Searching one sector of a CSS code <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#searching-one-sector-of-a-css-code>`__ in ``problems.md`` of the distance package
+     - :guide:`Searching one sector of a CSS code <codes/distance/problems.md#sec-one-sector>` in ``problems.md`` of the distance package
    * - Choosing a method, which ``method="auto"`` does for each distance search
      - :attr:`SearchTuning.auto_brute_force_max_words`, :attr:`SearchTuning.auto_free_work`, :attr:`SearchTuning.auto_probe_work`, :attr:`SearchTuning.connected_cluster_state_evaluations`
      -
-     - `Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`__ in ``problems.md`` of the distance package
+     - :guide:`Choosing a method <codes/distance/problems.md#sec-choosing-a-method>` in ``problems.md`` of the distance package
    * - Estimating the work of searches of information sets, which chooses between their routes
      -
      - :data:`BINOMIAL_CACHE_SIZE`
@@ -142,27 +142,27 @@ Routes and the names that control them
    * - Searching from one root for each orbit of the permutation automorphisms of a code, in connected-cluster searches
      - :attr:`SearchTuning.automorphism_minimum_states`
      -
-     - :guide:`Section 3.5 <codes/distance/connected_cluster.md#sec-symmetries>`
+     - :guide:`Symmetries <codes/distance/connected_cluster.md#sec-symmetries>`
    * - Restricting the subtrees of a connected-cluster search to viable symbols, in distance searches and in the coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch`
      - :attr:`SearchTuning.restrict_viable_symbols`
      -
-     - :guide:`Section 3.4 <codes/distance/connected_cluster.md#sec-pruning>`
+     - :guide:`Pruning <codes/distance/connected_cluster.md#sec-pruning>`
    * - Forbidding symbols that would make a support meet a known word, such as a stabilizer or gauge generator, in more than about half of it, in connected-cluster distance searches and in the coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch`
      - :attr:`SearchTuning.stabilizer_overlap_cuts`
      -
-     - :guide:`Section 3.4 <codes/distance/connected_cluster.md#sec-pruning>`
+     - :guide:`Pruning <codes/distance/connected_cluster.md#sec-pruning>`
    * - Adding light sums of pairs of checks, and of pairs of known words, as redundant checks and known words, in connected-cluster distance searches
      - :attr:`SearchTuning.pair_sum_checks`
      -
-     - :guide:`Section 3.4 <codes/distance/connected_cluster.md#sec-pruning>`
+     - :guide:`Pruning <codes/distance/connected_cluster.md#sec-pruning>`
    * - Making the checks of the connected-cluster coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch` sparser
      - :attr:`SearchTuning.max_coset_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -
-     - :guide:`Section 3.8 <codes/distance/connected_cluster.md#sec-syndromes>`
+     - :guide:`Vectors with a given syndrome <codes/distance/connected_cluster.md#sec-syndromes>`
    * - Making the stabilizers that connected-cluster distance searches derive for subsystem codes sparser
      - :attr:`SearchTuning.max_distance_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -
-     - :guide:`Section 3.9 <codes/distance/connected_cluster.md#sec-sparser-stabilizers>`
+     - :guide:`Sparser stabilizers of subsystem codes <codes/distance/connected_cluster.md#sec-sparser-stabilizers>`
    * - Whether a search basis in a layer of a distance search, or a step of a count, uses completion tables to skip hopeless supports
      - :attr:`SearchTuning.completion_bound_minimum_layer_work`, :attr:`SearchTuning.completion_bound_max_cost_percent`
      -
@@ -182,7 +182,7 @@ Routes and the names that control them
    * - Distance searches by the Brouwer-Zimmermann or connected-cluster method: time before a keyboard interrupt takes effect, and the overhead of returning to Python
      - :attr:`SearchTuning.search_chunk_exponent`
      -
-     - :guide:`Behavior spanning files <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>` of ``brouwer_zimmermann_code.md``, and :guide:`Section 3.6 <codes/distance/connected_cluster.md#sec-search-to-distance>` of ``connected_cluster.md``
+     - :guide:`Behavior spanning files <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>` of ``brouwer_zimmermann_code.md``, and :guide:`From a search to the distance <codes/distance/connected_cluster.md#sec-search-to-distance>` of ``connected_cluster.md``
    * - Distance searches by the Brouwer-Zimmermann method: the threads that scan a costly layer of a set
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.search_chunk_exponent`
      -
@@ -190,11 +190,11 @@ Routes and the names that control them
    * - Batch queries of :class:`~qldpc.codes.distance.CosetLeaderSearch`: when a costly batch moves to threads, and how many
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.search_chunk_exponent`
      -
-     - :guide:`Behavior spanning files <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>` of ``brouwer_zimmermann_code.md``, and :guide:`Section 3.11 <codes/distance/connected_cluster.md#sec-threads>` of ``connected_cluster.md`` ("Syndrome queries")
+     - :guide:`Behavior spanning files <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>` of ``brouwer_zimmermann_code.md``, and :guide:`Threads <codes/distance/connected_cluster.md#sec-threads>` of ``connected_cluster.md`` ("Syndrome queries")
    * - Distance searches by the connected-cluster method: the threads that search a costly weight limit
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.search_chunk_exponent`, :attr:`SearchTuning.connected_cluster_split_shift`
      -
-     - :guide:`Section 3.11 <codes/distance/connected_cluster.md#sec-threads>`
+     - :guide:`Threads <codes/distance/connected_cluster.md#sec-threads>` of ``connected_cluster.md``
    * - Certifications of bounded fault propagation: when a costly fault listing moves to threads, and how many
      - :attr:`SearchTuning.num_threads`
      -
@@ -206,7 +206,7 @@ Routes and the names that control them
    * - Counts by the MacWilliams method
      - :attr:`SearchTuning.macwilliams_shared_walk_rank`, :attr:`SearchTuning.macwilliams_chunk_size`
      - :data:`KRAWTCHOUK_CACHE_SIZE`
-     - `The MacWilliams method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#the-macwilliams-method>`__ in ``problems.md`` of the distance package
+     - :guide:`The MacWilliams method <codes/distance/problems.md#sec-macwilliams>` in ``problems.md`` of the distance package
    * - Searches of the lightest Pauli errors by CSS weight on a CSS state, by the Brouwer-Zimmermann method
      - :attr:`SearchTuning.disjoint_random_column_orders`, and for costly queries :attr:`SearchTuning.coset_route_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, :attr:`SearchTuning.coset_completion_block_bits`, and :attr:`SearchTuning.coset_completion_max_table_bytes`
      - :data:`CSS_SEARCH_CACHE_SIZE`

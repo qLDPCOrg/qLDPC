@@ -46,7 +46,7 @@ _Output = TypeVar("_Output")
 
 # The fewest work items for each thread that a search aims for when it splits work across threads: a
 # layer of a BZ search (brouwer_zimmermann_code.md#sec-cross-file-behavior) or a weight limit of a
-# connected-cluster search (Section 3.11 of connected_cluster.md).  More items balance the threads
+# connected-cluster search (connected_cluster.md#sec-threads).  More items balance the threads
 # better at the end of the work; the number changes no result.
 ITEMS_PER_THREAD = 32
 
@@ -56,7 +56,7 @@ def get_num_threads(num_threads: int | None) -> int:
 
     The default is the value of the environment variable ``QLDPC_NUM_THREADS`` when qLDPC was
     imported, if it was set (see ``qldpc/_num_threads.py``), and otherwise
-    ``numba.config.NUMBA_NUM_THREADS`` (see "Threads" in the README of this package).
+    ``numba.config.NUMBA_NUM_THREADS`` (``README.md#sec-threads``).
     """
     if num_threads is not None:
         return num_threads
@@ -189,13 +189,15 @@ def run_items_until_first(
     Each thread calls ``start_worker`` at most once, as in ``run_work_items``, with a function
     ``needed``.  ``start_worker`` returns a function that runs an item, given its index, and returns
     whether the item ends the work, as the first item with a witness of a search does.  An item that
-    ends the work lowers a limit to itself, and the threads skip every item after the limit,
-    including the rest of a range that they have claimed.  ``needed(item)`` says whether an item is
-    still before the limit and the stop event of ``run_work_items`` is not set, so that a function
-    that runs an item in chunks can call it between them, and stop.  The limit only falls, and every
-    item before it runs, so the item returned is the first that ends the work, as on one thread, or
-    ``num_items`` if no item does.  Items after the returned one may have run, in part or in full,
-    so a caller reads only results up to it.  Exceptions propagate as in ``run_work_items``.
+    ends the work lowers a limit to itself under a lock, as the requirements on threads of each
+    method's guide require of a result that threads share.  The threads skip every item after the
+    limit, including the rest of a range that they have claimed.
+    ``needed(item)`` says whether an item is still before the limit and the stop event of
+    ``run_work_items`` is not set, so that a function that runs an item in chunks can call it
+    between them, and stop.  The limit only falls, and every item before it runs, so the item
+    returned is the first that ends the work, as on one thread, or ``num_items`` if no item does.
+    Items after the returned one may have run, in part or in full, so a caller reads only results up
+    to it.  Exceptions propagate as in ``run_work_items``.
     """
     lock = threading.Lock()
     first = num_items

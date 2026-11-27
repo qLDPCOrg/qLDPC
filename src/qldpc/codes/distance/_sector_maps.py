@@ -3,8 +3,7 @@
 """Qubit permutations that map the X sector of a CSS code onto its Z sector.
 
 A distance search of both sectors of a CSS code needs to search only one of them if such a
-permutation exists.  The section "Searching one sector of a CSS code" of ``problems.md`` proves
-this.
+permutation exists.  ``problems.md#sec-one-sector`` proves this.
 """
 
 from __future__ import annotations
@@ -34,8 +33,8 @@ def get_sector_map(
     reduced row echelon form.  The result is the identity if the row spaces are equal.  Otherwise,
     if the optional pybliss package is installed, the result is a permutation that swaps the
     multisets of nonzero rows of ``gauge_x`` and ``gauge_z``, if such a permutation exists.  In
-    every other case it is None, even if some permutation swaps the row spaces (section "Searching
-    one sector of a CSS code" of ``problems.md``).  Every result passes ``maps_sectors``.
+    every other case it is None, even if some permutation swaps the row spaces
+    (``problems.md#sec-one-sector``).  Every result passes ``maps_sectors``.
     """
     # Swapped row spaces have equal ranks.  Row spaces of equal ranks are equal if one holds the
     # other, which a few random words of the row space of gauge_z test cheaply before the exact

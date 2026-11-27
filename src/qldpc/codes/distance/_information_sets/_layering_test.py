@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from qldpc.conftest import check_import_layering
 
-# The layers of the modules, from the lowest to the highest, consistent with the dependencies that
-# the section "How the modules depend on each other" of the README of qldpc.codes.distance gives.
-# Add each new module to one.
+# These layers, from lowest to highest, are the complete order of the modules;
+# ``README.md#sec-layers`` of qldpc.codes.distance gives only the main levels.  Add each new module
+# to one.
 _LAYERS = (
     ("certificates", "matroid_partition", "support_stepping"),
     ("basis_families", "completion_bounds"),

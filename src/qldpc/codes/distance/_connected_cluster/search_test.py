@@ -121,7 +121,7 @@ def get_known_words(problem: Problem, symplectic: bool, pair_sums: bool) -> npt.
     """The known words of a distance search: the excluded rows, with light pair sums of some.
 
     With ``pair_sums``, they include the light sums of pairs of those excluded rows that are no
-    heavier than the heaviest check (Section 3.4 of ``connected_cluster.md``).
+    heavier than the heaviest check (``connected_cluster.md#sec-pruning``).
     """
     checks, excluded = problem
     if not pair_sums:
@@ -145,7 +145,7 @@ def passes_overlap_cuts(
     ``g`` lets each variable of ``g`` add 2 to the load if the vector equals ``g`` there, and 1 if
     it is nonzero and differs, except the variable of ``g`` that ranks lowest, unless the problem is
     binary, ``|g|`` is odd, and ``odd_rule`` is true.  A vector passes the cut if its load is at
-    most ``|g| - 1`` (Section 3.4 of ``connected_cluster.md``).
+    most ``|g| - 1`` (``connected_cluster.md#sec-pruning``).
     """
     width = words.shape[1]
     num_variables = width // 2 if symplectic else width
@@ -335,7 +335,16 @@ QUBIT_PROBLEMS = {
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])
 @pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
 def test_the_distance_matches_enumeration(name: str, restrict_viable_symbols: bool) -> None:
-    """The distance search, and a search through each weight limit, agree with an enumeration."""
+    """The distance search, and a search through each weight limit, agree with an enumeration.
+
+    It checks "Prune only by bounds that hold for every witness that extends the state", "Forbid a
+    variable for a subtree as not viable only if no completion of the state within the weight limit
+    holds it", "Give the same exact distances, and the same answers and lower bounds of coset
+    queries, with ``restrict_viable_symbols`` and ``stabilizer_overlap_cuts`` on and off", "Give the
+    same exact distances, and answers of the syndrome queries of ``_connected_cluster/search.py``,
+    with ``pair_sum_checks`` on and off", "Use a proven weight divisor", and "Return the exact
+    minimum unless a cutoff permits an early exit" of ``connected_cluster.md#sec-requirements``.
+    """
     problem = PROBLEMS[name]
     distance = get_brute_force_distance(problem)
     for cuts, pair_sums in itertools.product((True, False), repeat=2):
@@ -373,10 +382,15 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(
     """A root finds a witness at the distance exactly if it is the least variable of a lightest one.
 
     With the overlap cuts, the lightest witness must also pass the cut of each known word: each
-    excluded row, and with ``pair_sums``, the light sums of pairs of them.  Sections 3.3 and 3.4 of
-    ``connected_cluster.md`` prove this completeness, with or without the sums of pairs of checks,
-    and some lightest witness passes every cut.  In "steane-X", the sums of the excluded rows cut
-    the lightest witnesses whose least variable is 1, but not those whose least variable is 0.
+    excluded row, and with ``pair_sums``, the light sums of pairs of them.
+    ``connected_cluster.md#sec-depth-first-search`` and ``connected_cluster.md#sec-pruning`` prove
+    this completeness, with or without the sums of pairs of checks, and some lightest witness passes
+    every cut.  In "steane-X", the sums of the excluded rows cut the lightest witnesses whose least
+    variable is 1, but not those whose least variable is 0.
+
+    It checks "Forbid a symbol by an overlap cut at a state only if the canonical witness, or
+    canonical solution, does not extend the state or lacks the symbol" of
+    ``connected_cluster.md#sec-requirements``.
     """
     problem = PROBLEMS[name]
     checks, excluded = problem
@@ -417,8 +431,13 @@ def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
 
     The ranks order the orbits under the permutation by their lowest indices, and the variables
     within each orbit by index.  A root finds a witness at the distance exactly if it ranks lowest
-    in a lightest witness that passes every cut under these ranks (Sections 3.4 and 3.5 of
-    ``connected_cluster.md``).  Under cuts by index, another root would find one.
+    in a lightest witness that passes every cut under these ranks
+    (``connected_cluster.md#sec-pruning`` and ``connected_cluster.md#sec-symmetries``).  Under cuts
+    by index, another root would find one.
+
+    It checks "Forbid a symbol by an overlap cut at a state only if the canonical witness, or
+    canonical solution, does not extend the state or lacks the symbol" of
+    ``connected_cluster.md#sec-requirements``.
     """
     checks, excluded, automorphism = get_ranked_cut_problem()
     num_variables = len(automorphism)
@@ -476,6 +495,12 @@ def test_overlap_cuts_keep_the_distances_of_random_codes(pytestconfig: pytest.Co
     The hypergraph product of two repetition codes of 3 or 4 bits, with random trees of checks, has
     distance 3 or 4 and stabilizers of weight at most 5, some of them odd, whose cuts are tight on
     lightest witnesses.  BZ gives an independent answer.
+
+    It checks the ``stabilizer_overlap_cuts`` part of "Give the same exact distances, and the same
+    answers and lower bounds of coset queries, with ``restrict_viable_symbols`` and
+    ``stabilizer_overlap_cuts`` on and off", and "Give the same exact distances, and answers of the
+    syndrome queries of ``_connected_cluster/search.py``, with ``pair_sum_checks`` on and off" of
+    ``connected_cluster.md#sec-requirements``.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(2):
@@ -497,7 +522,11 @@ def test_odd_excluded_words_cut_their_lowest_ranked_variable_too() -> None:
     The word ``g = {2, 3, 4}`` is excluded, and the lightest witnesses, such as ``{4, 5}``, weigh 2.
     The witnesses of weight at most 3 whose least variable is 2, such as ``{2, 3, 5}``, hold two
     variables of ``g``, so they fail its cut, though they would pass it without variable 2.  So the
-    search from root 2 finds no witness at limit 3 (Section 3.4 of ``connected_cluster.md``).
+    search from root 2 finds no witness at limit 3 (``connected_cluster.md#sec-pruning``).
+
+    It checks "Forbid a symbol by an overlap cut at a state only if the canonical witness, or
+    canonical solution, does not extend the state or lacks the symbol" of
+    ``connected_cluster.md#sec-requirements``.
     """
     checks = np.array([[1, 0, 1, 1, 0, 0], [0, 1, 0, 1, 1, 1]], dtype=np.uint8)
     excluded = np.array([[0, 0, 1, 1, 1, 0]], dtype=np.uint8)
@@ -520,13 +549,18 @@ def test_cosets_of_classical_codes_are_cut_by_their_generators(
 ) -> None:
     """The distance of a coset of a classical code agrees with brute force, with or without cuts.
 
-    The pair sums of Section 3.4 of ``connected_cluster.md`` keep the distance too.
+    The pair sums of ``connected_cluster.md#sec-pruning`` keep the distance too.
 
     For a code with checks ``H`` and generator matrix ``G``, and a vector ``v``, the words of the
     checks ``[H | Hv]`` are the code words with a zero appended, and the vectors of the coset of
     ``v`` with a one appended.  The search excludes ``[G | 0]``, so its witnesses are the vectors of
     the coset.  The rows of ``G`` are known words, here of weights 2 and 3, so the cuts act exactly
-    when the switch is on (Section 3.4 of ``connected_cluster.md``).
+    when the switch is on.
+
+    It checks "Add only checks in the span of the checks, and only known words in ``rowspan(G)`` for
+    a distance search or in ``ker(H)`` for a syndrome query" and "Give the same exact distances, and
+    answers of the syndrome queries of ``_connected_cluster/search.py``, with ``pair_sum_checks`` on
+    and off" of ``connected_cluster.md#sec-requirements``.
     """
     num_cuts_per_search: list[int] = []
     search_supports = cs._search_supports
@@ -579,6 +613,10 @@ def test_query_overlap_words_cut_queries_but_not_witnesses() -> None:
     Its cut lets a query at limit 2 return only the lighter vector of its syndrome.  The search adds
     no sum of the two checks, with which the query would return the lighter vector even without the
     cut.
+
+    It checks "Forbid a symbol by an overlap cut at a state only if the canonical witness, or
+    canonical solution, does not extend the state or lacks the symbol" of
+    ``connected_cluster.md#sec-requirements``.
     """
     checks = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
     search = get_search(checks, np.zeros((0, 3), dtype=np.uint8), pair_sum_checks=False)
@@ -640,6 +678,10 @@ def test_query_overlap_words_must_satisfy_the_checks_and_need_the_switch() -> No
     """Query words must be a binary matrix as wide as the checks, and satisfy them.
 
     They cut only with the switch on.
+
+    It checks "Add only checks in the span of the checks, and only known words in ``rowspan(G)`` for
+    a distance search or in ``ker(H)`` for a syndrome query" of
+    ``connected_cluster.md#sec-requirements``.
     """
     checks = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
     search = get_search(
@@ -668,6 +710,10 @@ def test_each_support_is_visited_once_above_its_least_variable(
 
     The overlap cuts are off, since the excluded words would cut some of these supports, and so are
     the sums of pairs of checks, which would add the check {0, 3}.  On threads, every limit splits.
+
+    It checks "Forbid each earlier sibling's symbol, and every value of the variables of lower rank
+    than the root" and "Preserve the logical test", and rules on threads, of
+    ``connected_cluster.md#sec-requirements``.
     """
     # The checks {0, 1, 2} and {1, 2, 3} have the words {0, 1, 3}, {0, 2, 3}, and {1, 2}.  At limit
     # 4, root 0 visits {0}, {0, 1}, {0, 1, 2}, {0, 1, 3}, {0, 2}, and {0, 2, 3}, since its branch on
@@ -710,7 +756,11 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
 
 
 def test_each_root_excludes_the_orbits_before_its_own() -> None:
-    """The search from the root of an orbit uses no variable of an earlier orbit."""
+    """The search from the root of an orbit uses no variable of an earlier orbit.
+
+    It checks "Forbid each earlier sibling's symbol, and every value of the variables of lower rank
+    than the root" of ``connected_cluster.md#sec-requirements``.
+    """
     code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     order = np.random.default_rng(0).permutation(len(code))
     automorphisms = np.argsort(order)[code._get_permutation_automorphisms()[:, order]]
@@ -732,7 +782,11 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
 
 
 def test_each_root_ranks_lowest_in_its_orbit() -> None:
-    """No variable of an orbit ranks below its root, as a word that needs them all shows."""
+    """No variable of an orbit ranks below its root, as a word that needs them all shows.
+
+    It checks "Verify the automorphisms, and make each root the lowest-ranked variable of its orbit
+    under all generators" of ``connected_cluster.md#sec-requirements``.
+    """
     # The checks join consecutive variables of two interleaved cycles, of 60 and 30 variables.  Each
     # cycle is a word, and an orbit of the shift along both cycles.
     labels = np.random.default_rng(5).permutation([0] * 59 + [1] * 30)
@@ -819,31 +873,32 @@ def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     )
     assert search.find_witness(7) is None
 
-    # The bound on the states fails if states stop forbidding variables for their subtrees (Section
-    # 3.4 of connected_cluster.md).  A heuristic that moves the count across it needs a new bound.
+    # The bound on the states fails if states stop forbidding variables for their subtrees
+    # (connected_cluster.md#sec-pruning).  A heuristic that moves the count across it needs a new
+    # bound.
     assert search.num_states < 1500
 
 
 def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     """Without restrict_viable_symbols, a search visits exactly one more state.
 
-    The bound Y of Section 3.4 of connected_cluster.md still prunes that state.
+    The bound Y of ``connected_cluster.md#sec-pruning`` still prunes that state.
     """
     # Variable 0 is in all four checks, whose only nonzero word, {1, 2, 3, 4}, has weight 4.  At
     # limit W = 3, the state S = {0} leaves every check unsatisfied, with weights 1/3, 1/2, 1/3, and
     # 1/3.  Their total Y = 3/2 exceeds W - |S| - 1 = 1, so the state allows only the variables that
-    # repair at least Y - 1 = 1/2 (Section 3.4 of connected_cluster.md).  Variable 2, only in check
-    # 0, repairs 1/3.  Check 0 then allows only variable 1, the fewest, so the search with the
-    # restriction branches only to {0, 1}.  Without the restriction, each check has two available
-    # variables, so the search branches on check 0, the first, whose available variables are 1 and
-    # 2.  So only the search without the restriction visits {0, 2}.  That state leaves checks 1, 2,
-    # and 3 unsatisfied with weight 1/2 each, and Y = 3/2 > W - 2 prunes it.  Both searches visit
-    # {0, 1}, whose children the bound b1 of Section 3.4 skips.  From each later root, both visit
-    # only the root, since the variables of lower rank are blocked.  {1} leaves checks 0, 2, and 3
-    # unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a
-    # check with no available variable.  If the search without the restriction stopped pruning by Y,
-    # it would also visit a child of {1}, and the equality would fail.  The counts rely on ties
-    # going to the first check, so a change of the tie-break needs a new instance.
+    # repair at least Y - 1 = 1/2.  Variable 2, only in check 0, repairs 1/3.  Check 0 then allows
+    # only variable 1, the fewest, so the search with the restriction branches only to {0, 1}.
+    # Without the restriction, each check has two available variables, so the search branches on
+    # check 0, the first, whose available variables are 1 and 2.  So only the search without the
+    # restriction visits {0, 2}.  That state leaves checks 1, 2, and 3 unsatisfied with weight 1/2
+    # each, and Y = 3/2 > W - 2 prunes it.  Both searches visit {0, 1}, whose children the bound b1
+    # of Okada and Kasai skips.  From each later root, both visit only the root, since the variables
+    # of lower rank are blocked.  {1} leaves checks 0, 2, and 3 unsatisfied with weight 1 each, and
+    # Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a check with no available variable.  If
+    # the search without the restriction stopped pruning by Y, it would also visit a child of {1},
+    # and the equality would fail.  The counts rely on ties going to the first check, so a change of
+    # the tie-break needs a new instance.
     checks = np.array(
         [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
     )
@@ -869,6 +924,9 @@ def test_taking_the_overlaps_of_all_symbols_at_once_changes_no_state(
     entries never do, as only the former take the overlaps of padded variables.  The padded
     variables are excluded, and come last, so each adds a root whose one state has an empty
     syndrome and no witness, and changes nothing else.
+
+    It checks "Reuse an overlap or a repair only within the state that computed it" of
+    ``connected_cluster.md#sec-requirements``.
     """
     checks, excluded = get_golay_problem()
     # Compiled code cannot call a wrapper, so only plain Python checks which route each state takes.
@@ -932,7 +990,7 @@ def test_connected_cluster_distance_searches_read_the_switches_of_their_tuning(
 def test_pair_sums_of_checks_save_states() -> None:
     """Light sums of pairs of checks leave fewer states to visit before a lightest witness.
 
-    These problems have such sums (Section 3.4 of ``connected_cluster.md``).
+    These problems have such sums (``connected_cluster.md#sec-pruning``).
     """
     problems = [
         (PROBLEMS["nested-restrictions"], False),
@@ -961,8 +1019,8 @@ def test_only_known_words_no_heavier_than_the_heaviest_check_are_summed(
     """A distance search sums no pair of known words with one heavier than the heaviest check.
 
     The sums of heavy words, such as the rows of the generator matrix that the distance of a vector
-    excludes, would cost much to find (Section 3.4 of ``connected_cluster.md``).  Here the checks
-    weigh 2, 3, and 2, and the excluded rows 2, 3, and 4, so the search sums only the first two.
+    excludes, would cost much to find (``connected_cluster.md#sec-pruning``).  Here the checks weigh
+    2, 3, and 2, and the excluded rows 2, 3, and 4, so the search sums only the first two.
     """
     summed: list[list[list[int]]] = []
 
@@ -987,8 +1045,9 @@ def test_syndrome_queries_cut_by_no_sums_of_known_words() -> None:
     """Syndrome queries cut by the excluded rows, but not by the sums of pairs of them.
 
     Only distance searches cut by these sums.  The two excluded rows sum to the light word {4, 5}.
-    Its cut would forbid variable 5 from the start, and the query at limit 3 would return
-    {0, 2, 3} rather than {0, 4} (Sections 3.4 and 3.8 of ``connected_cluster.md``).
+    Its cut would forbid variable 5 from the start, and the query at limit 3 would return {0, 2, 3}
+    rather than {0, 4} (``connected_cluster.md#sec-pruning`` and
+    ``connected_cluster.md#sec-syndromes``).
     """
     checks = np.array([[0, 1, 1, 1, 0, 0], [0, 0, 1, 0, 1, 1], [1, 1, 1, 0, 1, 1]], dtype=np.uint8)
     excluded = np.array([[1, 1, 1, 0, 1, 0], [1, 1, 1, 0, 0, 1]], dtype=np.uint8)
@@ -999,7 +1058,11 @@ def test_syndrome_queries_cut_by_no_sums_of_known_words() -> None:
 
 
 def test_wrong_automorphisms_are_rejected() -> None:
-    """A permutation that does not map the kernel of the checks to itself raises an error."""
+    """A permutation that does not map the kernel of the checks to itself raises an error.
+
+    It checks "Verify the automorphisms, and make each root the lowest-ranked variable of its orbit
+    under all generators" of ``connected_cluster.md#sec-requirements``.
+    """
     swap = np.arange(7)[None]
     swap[0, :2] = [1, 0]
     search = get_search(*PROBLEMS["steane-X"], get_automorphisms=lambda: swap)
@@ -1015,8 +1078,11 @@ def test_automorphisms_must_keep_the_row_space_of_the_excluded_rows(symplectic: 
     swap of variables 0 and 1 keeps the excluded row 110, or Z0 Z1, but the swap of 1 and 2 does
     not.  Accepting the second swap would let the search skip variable 2 as a root, which is sound
     only for permutations that keep the excluded rows too, so it could give a wrong distance
-    (Section 3.5 of ``connected_cluster.md``).  A symplectic problem moves the X and Z parts of each
+    (``connected_cluster.md#sec-symmetries``).  A symplectic problem moves the X and Z parts of each
     qubit together.
+
+    It checks "Verify the automorphisms, and make each root the lowest-ranked variable of its orbit
+    under all generators" of ``connected_cluster.md#sec-requirements``.
     """
     if symplectic:
         problem = (
@@ -1095,7 +1161,10 @@ def test_stepped_searches_advance_the_sector_with_the_lowest_lower_bound(
 
 
 def test_the_logical_test_reads_every_block() -> None:
-    """The logical test finds a witness that fails only tests past the first block of 64."""
+    """The logical test finds a witness that fails only tests past the first block of 64.
+
+    It checks "Preserve the logical test" of ``connected_cluster.md#sec-requirements``.
+    """
     problem = PROBLEMS["steane-X"]
     search = get_search(*problem)
     zeros = np.zeros((search.num_variables, 1), dtype=np.uint64)
@@ -1142,6 +1211,16 @@ def test_random_qubit_problems_match_enumeration(
     With the overlap cuts, a root finds a lightest witness only if one passes the cut of every known
     word, which with ``pair_sums`` include the light sums of pairs of gauge generators.  Each run
     mixes each of ``SMALL_QUBIT_CODES`` in a random frame of its own.
+
+    It checks "Prune only by bounds that hold for every witness that extends the state", "Forbid a
+    variable for a subtree as not viable only if no completion of the state within the weight limit
+    holds it", "Forbid a symbol by an overlap cut at a state only if the canonical witness, or
+    canonical solution, does not extend the state or lacks the symbol", "Give the same exact
+    distances, and the same answers and lower bounds of coset queries, with
+    ``restrict_viable_symbols`` and ``stabilizer_overlap_cuts`` on and off", "Give the same exact
+    distances, and answers of the syndrome queries of ``_connected_cluster/search.py``, with
+    ``pair_sum_checks`` on and off", and "Give each variable at most one value" of
+    ``connected_cluster.md#sec-requirements``.
     """
     # The five-qubit code in two frames: in the first, a state needs Y on a qubit after an earlier
     # sibling of the state tried X there, and in the second, a state needs the other values of the
@@ -1257,7 +1336,11 @@ def test_a_broken_search_fails_instead_of_looping(
 
 
 def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A search can stop early at a witness within its cutoff, or at a known upper bound."""
+    """A search can stop early at a witness within its cutoff, or at a known upper bound.
+
+    It checks "Return the exact minimum unless a cutoff permits an early exit" of
+    ``connected_cluster.md#sec-requirements``.
+    """
     problem = PROBLEMS["toric-X"]
     limits = []
     find_witness = cs.SupportSearch.find_witness
@@ -1461,6 +1544,12 @@ def test_syndrome_queries_match_enumeration(name: str, pair_sums: bool) -> None:
     """A query finds a vector with a syndrome exactly if the limit reaches the least weight.
 
     With ``pair_sums``, the search maps the syndrome to the light sums of pairs of its checks.
+
+    It checks "Add only checks in the span of the checks, and only known words in ``rowspan(G)`` for
+    a distance search or in ``ker(H)`` for a syndrome query", "Give the same exact distances, and
+    answers of the syndrome queries of ``_connected_cluster/search.py``, with ``pair_sum_checks`` on
+    and off", "Give each variable at most one value", and "Start a syndrome query from its syndrome
+    alone" of ``connected_cluster.md#sec-requirements``.
     """
     checks, symplectic = SYNDROME_PROBLEMS[name]
     checks = np.asarray(checks, dtype=np.uint8)
@@ -1678,12 +1767,13 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     """In chunks and on threads, each weight limit finds the witness and states of one call.
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
-    both on or both off, as ``get_threaded_cases`` says (Section 3.11 of ``connected_cluster.md``).
+    both on or both off, as ``get_threaded_cases`` says (``connected_cluster.md#sec-threads``).
     Chunks of one state resume the search after every state, on one thread and on threads.  The
-    threads run with every array of the search read-only, and so is every array that their calls
-    of ``_search_supports`` take.  The first witness of some limit is in each of the positions that
+    threads run with every array of the search read-only, and so is every array that their calls of
+    ``_search_supports`` take.  The first witness of some limit is in each of the positions that
     ``get_threaded_cases`` names, in a case with at least as many roots as the 8 threads.  So a
     witness above the frontier shows that the frontier deepens to more items than one per thread.
+    The test checks rules on threads of ``connected_cluster.md#sec-requirements``.
     """
     calls = record_thread_counts(monkeypatch)
     positions = record_witness_positions(monkeypatch)
@@ -1693,7 +1783,7 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     # The roots and paths of the work items, which _search_on_threads makes for the threads, and the
     # paths and ends of chunks are not reached from the search.  So a call on threads, whose tables
     # are read-only, gets read-only views of every array, so that numba compiles one version for
-    # every such call, and rejects a write to any of its arrays (Section 5 of connected_cluster.md).
+    # every such call, and rejects a write to any of its arrays.
     def search_read_only(*args: Any) -> Any:
         if not get_kernel_arguments(args)["symbol_masks"].flags.writeable:
             args = tuple(get_read_only(arg) if isinstance(arg, np.ndarray) else arg for arg in args)
@@ -1756,7 +1846,8 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
       witnesses, and visits the states, of one thread.
 
     A limit tabulates its cuts before it calls ``_search_on_threads``, so no tabulation can happen
-    while threads run.  The test checks this as well.
+    while threads run.  The test checks this as well.  These are rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     events: list[str] = []
     tabulations: list[tuple[npt.NDArray[np.int64], tuple[npt.NDArray[np.int64], ...]]] = []
@@ -1838,9 +1929,9 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
     At exponent 0, every limit on eight threads that is predicted to visit more than two states
     splits, into many items.  A cutoff makes the search exit at its first limit, which visits
     states; on eight threads, the frontier passes of that limit find the witness.  Except at that
-    limit on eight threads, the searches of the limits run in chunks of
-    ``2**search_chunk_exponent`` states, here one, and some stop early (Section 3.6 of
-    ``connected_cluster.md``).
+    limit on eight threads, the searches of the limits run in chunks of ``2**search_chunk_exponent``
+    states, here one, and some stop early (``connected_cluster.md#sec-search-to-distance``).  The
+    test checks rules on threads of ``connected_cluster.md#sec-requirements``.
     """
     tune(search_chunk_exponent=0)
     calls = record_thread_counts(monkeypatch)
@@ -1884,8 +1975,8 @@ def test_the_frontier_deepens_to_about_a_chunk_of_states_for_each_item(
     The Golay code has one root under its cyclic shifts.  With chunks of one state, its last three
     limits on two threads predict more than 40 chunks, so their frontiers deepen to at least
     ``_MAX_ITEMS`` items, here 40.  With chunks without a limit, every frontier stops once it has
-    ``ITEMS_PER_THREAD`` items for each thread, here one, which takes fewer than 40 items (Section
-    3.11 of ``connected_cluster.md``).
+    ``ITEMS_PER_THREAD`` items for each thread, here one, which takes fewer than 40 items
+    (``connected_cluster.md#sec-threads``).
     """
     calls = record_thread_counts(monkeypatch)
     num_items: list[int] = []
@@ -1985,7 +2076,8 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
 
     Every symbol of this problem is a witness, so each of its 100 roots is an item with a witness.
     On two threads, item 0 runs either after a later item has run, or while a later item that has
-    started searching waits for it.
+    started searching waits for it.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
     run_work_items = _threads.run_work_items
@@ -2043,7 +2135,8 @@ def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_l
     are the items on two threads, and the limit runs in chunks of one state.  The search of item 0
     finds that witness, or raises an error, while the other thread searches the first chunk of item
     1.  After the witness, that thread searches no further chunk of item 1, though it had more to
-    search; after the error, the stop event ends it.
+    search; after the error, the stop event ends it.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     later_started, first_ran = threading.Event(), threading.Event()
     stops: list[threading.Event] = []
@@ -2128,7 +2221,8 @@ def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
     and the interrupt waits until the other thread has searched a chunk.  Most roots of the toric
     code are items whose searches at this limit, which has no witness, span several chunks of one
     state.  So the search ends before the limit does, and the other thread starts at most one chunk
-    once the interrupt has set the stop event of the threads.
+    once the interrupt has set the stop event of the threads.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     problem = get_sectors(codes.ToricCode(6))[0]
     serial = get_search(*problem)
@@ -2236,7 +2330,7 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
     # Variable 2, in checks 0 and 3, has overlap 2, and variables 0 and 1 have overlap 1, so the
     # checks weigh 1/2, 1, and 1/2, and Y = 2.  Since 1 + Y > W, the restriction allows only the
     # variables that repair at least Y - 1 = 1: variable 1, of check 1, and variable 2, which
-    # repairs checks 0 and 3 (Section 3.4 of connected_cluster.md).  Each check then has one allowed
+    # repairs checks 0 and 3 (connected_cluster.md#sec-pruning).  Each check then has one allowed
     # variable, so the search branches on check 0, the first, and enters {2}.  Its child {1, 2}
     # leaves check 2 unsatisfied with no room left, so b1 skips it.  Without the restriction, check
     # 1 is the first check with the fewest available variables, one, so the search branches only to
@@ -2402,7 +2496,12 @@ def test_a_split_call_finds_the_witness_and_counts_the_states_of_one(
 
 
 def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
-    """A failed syndrome query leaves no syndrome, restriction, or block to later roots."""
+    """A failed syndrome query leaves no syndrome, restriction, or block to later roots.
+
+    It checks "Forbid a variable for a subtree as not viable only if no completion of the state
+    within the weight limit holds it", "Give each variable at most one value", and "Start a syndrome
+    query from its syndrome alone" of ``connected_cluster.md#sec-requirements``.
+    """
     checks = np.array(
         [
             [1, 1, 1, 1, 1, 1],
@@ -2434,7 +2533,11 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
 
 @pytest.mark.parametrize("name", ["nested-restrictions", "five-qubit-state"])
 def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
-    """Memoizing changes neither the support that a query returns nor its number of states."""
+    """Memoizing changes neither the support that a query returns nor its number of states.
+
+    It checks "Reuse an overlap or a repair only within the state that computed it" of
+    ``connected_cluster.md#sec-requirements``.
+    """
     checks, symplectic = SYNDROME_PROBLEMS[name]
     search = get_search(
         checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic, pair_sum_checks=False

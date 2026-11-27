@@ -2,9 +2,19 @@
 
 """Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first.
 
-The batch queries of a coset search answer each block of a batch in one compiled call.  Several
-threads can run these calls at once, as Section 3.11 of ``connected_cluster.md`` says, so a change
-must keep the requirements on threads of its Section 5.
+A ``ConnectedClusterCosetSearch`` makes its checks sparser with ``get_sparser_rows``, tabulates the
+words of weight zero or one by syndrome, and searches the sparser checks with a ``SupportSearch``
+(``connected_cluster.md#sec-syndromes``).  A single query, ``get_min_weight_bound``, looks up its
+syndrome in the table, and otherwise searches the weight limit ``max_weight`` with
+``SupportSearch.find_vector_with_packed_syndrome``.  The batch queries,
+``find_first_not_within_max_weight`` and ``get_min_weights``, split a batch into blocks with
+``_threads.run_blocks``, and answer each block in one call of the compiled loop
+``_find_min_weights``.  For each syndrome of the block, the loop calls ``_get_min_weight``, which
+maps the syndrome to the sparser checks, compares it with the checks of single symbols, and tries
+increasing weight limits with ``_search_supports``.  Several threads can run these calls at once
+(``connected_cluster.md#sec-threads``), so a change must keep the requirements on threads of
+``connected_cluster.md#sec-requirements``.  ``problems.md#sec-coset-leader-search`` says how
+``CosetLeaderSearch`` answers its queries with these searches.
 """
 
 from __future__ import annotations
@@ -55,7 +65,7 @@ class ConnectedClusterCosetSearch:
 
     The words and syndromes are those of a ``BrouwerZimmermannCosetSearch``: packed Paulis, or X or
     Z parts of Paulis.  The coset search makes its checks sparser, with the same span, and searches
-    from the syndrome of each query, mapped to them (Section 3.8 of ``connected_cluster.md``).
+    from the syndrome of each query, mapped to them (``connected_cluster.md#sec-syndromes``).
     ``get_min_weight_bound`` searches only the weight limit ``max_weight``, and gives these lower
     bounds on the weight of the words of a coset:
 
@@ -99,7 +109,7 @@ class ConnectedClusterCosetSearch:
         columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
         self._singles, _, _ = tabulate_singles(columns, num_variables, symplectic=symplectic)
 
-        # Make the checks sparser, with the same span (Section 3.8 of connected_cluster.md).
+        # Make the checks sparser, with the same span.
         rows, transform = get_sparser_rows(
             matrix,
             symplectic=symplectic,
@@ -121,7 +131,7 @@ class ConnectedClusterCosetSearch:
             automorphism_minimum_states=MAX_VALUE,
             restrict_viable_symbols=restrict_viable_symbols,
             stabilizer_overlap_cuts=stabilizer_overlap_cuts,
-            # Sums of pairs of checks made queries slower (Section 3.8 of connected_cluster.md).
+            # Sums of pairs of checks made queries slower (connected_cluster.md#sec-syndromes).
             pair_sum_checks=False,
         )
         # Tabulate the cuts of queries now, so that queries only read the search.
@@ -154,8 +164,9 @@ class ConnectedClusterCosetSearch:
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
 
-        The search tries only the weight limit ``max_weight``, if it is at least two (Section 3.8 of
-        ``connected_cluster.md``).  The class docstring states the lower bounds of the answers.
+        The search tries only the weight limit ``max_weight``, if it is at least two
+        (``connected_cluster.md#sec-syndromes``).  The class docstring states the lower bounds of
+        the answers.
         """
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)
@@ -194,9 +205,8 @@ class ConnectedClusterCosetSearch:
         one (``_get_min_weight``).  On more than one thread, the calling thread searches the batch
         alone until its queries have done ``split_work`` work, one unit for each state that their
         searches visit, and ``num_threads`` threads then search the rest of it
-        (``_threads.run_blocks``; Section 3.11 of ``connected_cluster.md``).  The result is the same
-        on any number of threads.  ``CosetLeaderSearch`` passes the thread options of its tuning.
-        The defaults search on the calling thread alone.
+        (``_threads.run_blocks``; ``connected_cluster.md#sec-threads``).  The result is the same on
+        any number of threads.  The defaults search on the calling thread alone.
 
         Returns:
             The index of the first such syndrome and the ``MinWeightBound`` that
@@ -364,7 +374,7 @@ def _get_min_weight(
     syndrome of a symbol, which flips the first check of the syndrome.  Otherwise it tries each
     weight limit from ``max(2, first_limit)`` through ``max_weight`` with ``_search_supports``, as
     ``SupportSearch.find_vector_with_packed_syndrome`` does, and stops at the first within which it
-    finds a word (Section 3.8 of ``connected_cluster.md``).  The other tables are those of
+    finds a word (``connected_cluster.md#sec-syndromes``).  The other tables are those of
     ``_search_supports``, from the search of the sparser checks.
 
     Returns:

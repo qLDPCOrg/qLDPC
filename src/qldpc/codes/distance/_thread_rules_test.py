@@ -2,14 +2,14 @@
 
 """Check the rules on code that threads run, which tests of results can miss.
 
-The correctness requirements of ``brouwer_zimmermann_code.md`` and ``connected_cluster.md``, and
-the docstring of ``qldpc/_compilation.py``, state the rules.  An entry point compiled with
-``nogil=True`` runs on several threads at once, without Python's global interpreter lock, and so
-does every compiled function that it calls.  A race between these threads would rarely change a
-result that tests compare.  So a test here finds each such entry point of this package in the code,
-and checks that its docstring cites the requirements of its method's guide.
-``test_nothing_asks_numba_for_parallel_code`` of ``qldpc/_compiled_code_rules_test.py`` keeps
-qLDPC's own compiled code from being numba-parallel.
+The correctness requirements of ``brouwer_zimmermann_code.md`` and ``connected_cluster.md``, and the
+docstring of ``qldpc/_compilation.py``, state the rules, and ``README.md#sec-working-here`` says
+which tests check them.  An entry point compiled with ``nogil=True`` runs on several threads at
+once, without Python's global interpreter lock, and so does every compiled function that it calls.
+A race between these threads would rarely change a result that tests compare.  So a test here finds
+each such entry point of this package in the code, and checks that its docstring cites the
+requirements of its method's guide.  ``test_nothing_asks_numba_for_parallel_code`` of
+``qldpc/_compiled_code_rules_test.py`` keeps qLDPC's own compiled code from being numba-parallel.
 
 While every test of this package runs, its fixture ``check_code_on_threads`` of ``conftest.py``
 checks that the Python code that threads run calls no numba-parallel code and reads the tuning only

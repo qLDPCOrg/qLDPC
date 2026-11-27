@@ -20,6 +20,9 @@ def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
     """``_sparsify`` keeps the span, and leaves no row that adding another row would lighten.
 
     Parts of 70 columns take two packed words each.
+
+    It checks "Keep the span of the checks of a coset query" of
+    ``connected_cluster.md#sec-requirements``.
     """
 
     def get_weights(rows: npt.NDArray[np.uint8], symplectic: bool) -> npt.NDArray[np.int_]:
@@ -48,6 +51,9 @@ def test_rounds_of_random_reductions_make_rows_sparser() -> None:
     """Rounds reach a lightest basis, which adding rows to each other misses.
 
     The rounds reach it also with the X and Z parts of the rows swapped, which keeps the weights.
+
+    It checks "Keep the span of the checks of a coset query" of
+    ``connected_cluster.md#sec-requirements``.
     """
     # Three independent words of the span act on three qubits each, a lightest basis of total weight
     # 9, and one of them has two Ys, so weighing bits would miss it.  Adding rows to each other

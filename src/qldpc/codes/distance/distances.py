@@ -43,27 +43,26 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   excludes no nonzero word, as for a classical code, takes ``"brouwer_zimmermann"``.  Any other
   search, as for a quantum code or a circuit, runs ``"connected_cluster"``, and switches to
   ``"brouwer_zimmermann"`` if that is predicted to cost less.  A short ``"brouwer_zimmermann"``
-  probe may give the result first, or cap the connected-cluster search (`Choosing a method
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`_
-  in ``problems.md`` of the distance package).  Functions that take generators choose between
-  ``"brute_force"`` and ``"brouwer_zimmermann"``.  Which method ``"auto"`` takes can depend on the
-  tuning (see :doc:`/exact_search_tuning`) and on the version of qLDPC.  Every method gives the same
-  result, unless the search exits early at a ``cutoff`` (see :func:`get_distance_from_generators`).
+  probe may give the result first, or cap the connected-cluster search (:guide:`Choosing a method
+  <codes/distance/problems.md#sec-choosing-a-method>` in ``problems.md`` of the distance
+  package).  Functions that take generators choose between ``"brute_force"`` and
+  ``"brouwer_zimmermann"``.  Which method ``"auto"`` takes can depend on the tuning (see
+  :doc:`/exact_search_tuning`) and on the version of qLDPC.  Every method gives the same result,
+  unless the search exits early at a ``cutoff`` (see :func:`get_distance_from_generators`).
 - ``"brouwer_zimmermann"``: the :guide:`Brouwer-Zimmermann algorithm
   <codes/distance/brouwer_zimmermann.md>`,
   which enumerates words of increasing weight in several information sets, and stops once a lower
   bound that the sets prove meets the lightest word found.
-- ``"connected_cluster"``: the `connected-cluster algorithm
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ of
-  Dumer, Kovalev, and Pryadko (`arXiv:1611.07164 <https://arxiv.org/abs/1611.07164>`_), with the
-  branch and bound of Okada and Kasai (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).
-  It searches the words whose supports the parity checks of a code connect, so it can be fast only
-  if the checks are sparse, and functions that take generators reject it.  On quantum LDPC codes it
-  is often much faster than ``"brouwer_zimmermann"``, but it can be much slower on some of them, and
-  on classical LDPC codes whose checks are only moderately sparse.  For a subsystem code,
-  :func:`get_distance_css` and :func:`get_distance_pauli` search sparser generators of the
-  stabilizers that they derive; a caller who knows sparse ones can pass them to
-  :func:`get_distance_from_checks`.
+- ``"connected_cluster"``: the :guide:`connected-cluster algorithm
+  <codes/distance/connected_cluster.md>` of Dumer, Kovalev, and Pryadko (`arXiv:1611.07164
+  <https://arxiv.org/abs/1611.07164>`_), with the branch and bound of Okada and Kasai
+  (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).  It searches the words whose supports
+  the parity checks of a code connect, so it can be fast only if the checks are sparse, and
+  functions that take generators reject it.  On quantum LDPC codes it is often much faster than
+  ``"brouwer_zimmermann"``, but it can be much slower on some of them, and on classical LDPC codes
+  whose checks are only moderately sparse.  For a subsystem code, :func:`get_distance_css` and
+  :func:`get_distance_pauli` search sparser generators of the stabilizers that they derive; a caller
+  who knows sparse ones can pass them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also fastest
   for classical codes of low dimension whose distance is a large fraction of their length, on which
   the time and setup memory of ``"brouwer_zimmermann"`` can grow with the square of the length.
@@ -461,9 +460,10 @@ def get_distance_pauli(
     stabilizers = get_pauli_stabilizers(gauge)
 
     # For a subsystem code, a connected-cluster search takes sparser checks that span the derived
-    # stabilizers, joined by the gauge generators that are stabilizers (Section 3.9 of
-    # connected_cluster.md).  get_pauli_stabilizers returns gauge itself for a stabilizer code.  The
-    # code has one sector, so the count of sectors to search needs no slicing.
+    # stabilizers, joined by the gauge generators that are stabilizers
+    # (``connected_cluster.md#sec-sparser-stabilizers``).  get_pauli_stabilizers returns gauge
+    # itself for a stabilizer code.  The code has one sector, so the count of sectors to search
+    # needs no slicing.
     def get_cluster_sectors(
         count: int,
     ) -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]]:
@@ -504,15 +504,15 @@ def _search_css(
     ``_get_automorphism_getter``, and ``tuning`` is the tuning that the search reads when it starts.
     """
     # Each sector takes the stabilizers of the other type as checks, and excludes the gauge
-    # generators of its own type.  get_css_stabilizers returns gauge_x and gauge_z themselves unless
-    # the code is a subsystem code.
+    # generators of its own type (connected_cluster.md#sec-problem).  get_css_stabilizers returns
+    # gauge_x and gauge_z themselves unless the code is a subsystem code.
     stabilizers_x, stabilizers_z = get_css_stabilizers(gauge_x, gauge_z)
     subsystem = stabilizers_x is not gauge_x
     sector_of_type = {Pauli.X: (stabilizers_z, gauge_x), Pauli.Z: (stabilizers_x, gauge_z)}
     sectors = [sector_of_type[sector_pauli] for sector_pauli in paulis]
 
     # A qubit permutation that maps the X sector onto the Z sector leaves only the X sector to
-    # search (section "Searching one sector of a CSS code" of problems.md).
+    # search (``problems.md#sec-one-sector``).
     def has_sector_map() -> bool:
         basis_x = get_independent_rows(gauge_x)
         return get_sector_map(gauge_x, gauge_z, basis_x) is not None
@@ -563,7 +563,8 @@ def _search(
     onto the second.  Then only the first is searched.
 
     ``symplectic`` is as for ``get_distance_from_checks``, and the other arguments are as for
-    ``_search_css``.
+    ``_search_css``.  For ``method="auto"``, this chooses the method of each search
+    (``problems.md#sec-choosing-a-method``).
     """
     width = sectors[0][1].shape[1]
     nested_bases: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
@@ -610,8 +611,8 @@ def _search(
             method = "brute_force"
 
     # Search only the first sector if a qubit permutation maps it onto the second, except by brute
-    # force (section "Searching one sector of a CSS code" of problems.md).  The later steps build
-    # bases and checks only for the sectors left here.
+    # force (``problems.md#sec-one-sector``).  The later steps build bases and checks only for the
+    # sectors left here.
     if method != "brute_force" and has_sector_map is not None and has_sector_map():
         sectors = sectors[:1]
 
@@ -690,7 +691,8 @@ def _get_css_cluster_sectors(
     """The sectors of ``_search_css``, with the checks that a connected-cluster search takes.
 
     The derived stabilizers of a subsystem code can be dense, so its sectors take sparser checks
-    with the same span (Section 3.9 of ``connected_cluster.md``).  Other sectors are unchanged.
+    with the same span (``connected_cluster.md#sec-sparser-stabilizers``).  Other sectors are
+    unchanged.
     """
     if not subsystem:
         return sectors
@@ -722,8 +724,8 @@ def _get_sparser_stabilizers(
     ``stabilizers`` is the basis that ``get_css_stabilizers`` or ``get_pauli_stabilizers`` derives,
     and ``kept_stabilizers`` holds the gauge generators that are stabilizers.  The checks are
     ``stabilizers`` made sparser in up to ``max_distance_sparsifying_rounds`` rounds, preceded by
-    the rows of ``kept_stabilizers`` no heavier than the heaviest sparser row (Section 3.9 of
-    ``connected_cluster.md``).
+    the rows of ``kept_stabilizers`` no heavier than the heaviest sparser row
+    (``connected_cluster.md#sec-sparser-stabilizers``).
     """
     rows = stabilizers
     if tuning.max_distance_sparsifying_rounds:
@@ -914,11 +916,11 @@ def _get_coset_weight(
 ) -> int:
     """The minimum weight of the coset of a vector that is not a word of a binary classical code.
 
-    The code has the parity checks ``checks`` and the generators ``generators``.  Callers pass both
-    because they already have them.  The syndrome of ``vector`` must be nonzero.  A search of the
-    coset stops at the first vector that weighs at most ``cutoff``, and returns that weight, an
-    upper bound.  An automorphism of the code need not map the coset of the vector onto itself, so
-    the searches of the coset use no automorphisms.
+    The code has the parity checks ``checks`` and the generators ``generators``.  The syndrome of
+    ``vector`` must be nonzero.  A search of the coset stops at the first vector that weighs at most
+    ``cutoff``, and returns that weight, an upper bound.  An automorphism of the code need not map
+    the coset of the vector onto itself, so the searches of the coset use no automorphisms.
+    ``README.md#sec-grid`` says which methods find the weight, and how.
     """
     if method == "connected_cluster":
         # The vector itself is within the cutoff, or bounds the weight of its coset.
@@ -926,8 +928,8 @@ def _get_coset_weight(
         if weight <= cutoff:
             return weight
         # With H the checks, v the vector, and G_C the generators, the distance search of the checks
-        # [H | Hv] and the excluded rows [G_C | 0] finds the weight of the coset plus one (Section
-        # 3.8 of connected_cluster.md).
+        # [H | Hv] and the excluded rows [G_C | 0] finds the weight of the coset plus one
+        # (``connected_cluster.md#sec-syndromes``).
         augmented_checks = np.hstack([checks, (checks @ vector)[:, None] % 2])
         code_words = np.hstack([generators, np.zeros((len(generators), 1), dtype=generators.dtype)])
         found = get_distance_from_checks(

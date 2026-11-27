@@ -179,7 +179,7 @@ qLDPC goes beyond [The Brouwer-Zimmermann algorithm](#sec-algorithm) as follows;
 - Both: certifying with the images of one information set under automorphisms while scanning only that set ([Images of an information set under automorphisms](#sec-automorphisms)).
 
 [Work estimates and exhaustive enumeration](#sec-work-estimates) defines the work estimate with which searches choose their search bases, and [Worked example](#sec-worked-example) works an example.
-[Counting logical operators](#sec-counting) adapts the search to counts of logical operators, and [problems.md](problems.md#the-macwilliams-method) explains the MacWilliams method of counting.
+[Counting logical operators](#sec-counting) adapts the search to counts of logical operators, and [problems.md](problems.md#sec-macwilliams) explains the MacWilliams method of counting.
 
 <a name="sec-overlapping-bases"></a>
 ### Overlapping search bases
@@ -263,7 +263,7 @@ So a coset search of an even code rounds each bound up to that parity, which it 
 ### Sharing witnesses between CSS sectors
 
 The distance of a CSS code is `min(d_x, d_z)`, the lesser of the distances of its X and Z sectors.
-qLDPC runs one BZ search for each sector (only of the X sector if a qubit permutation maps each sector onto the other; [problems.md](problems.md#searching-one-sector-of-a-css-code)), advances them in round-robin order, one layer at a time, and lets a witness of either sector, a nontrivial logical operator, lower the `U` of both.
+qLDPC runs one BZ search for each sector (only of the X sector if a qubit permutation maps each sector onto the other; [problems.md](problems.md#sec-one-sector)), advances them in round-robin order, one layer at a time, and lets a witness of either sector, a nontrivial logical operator, lower the `U` of both.
 Each search keeps its own certificate, search bases, coverage, and weight divisor, since its certificate bounds only the unexamined words of its sector.
 For example, if the X sector finds a witness of weight seven and the Z sector has only even words, the Z search stops once its own certificate reaches `U = 7`, having shown only `d_z ≥ 8`.
 A joint search therefore determines `min(d_x, d_z)`, but not always both sector distances.
@@ -300,7 +300,7 @@ Deletion shrinks a stored row from `ceil(N_stored/64)` to `ceil((N_stored - r_i)
 With `N_stored ≤ 64`, as in [Worked example](#sec-worked-example), a row takes at most one machine word either way.
 Deletion saves packed words, not time in proportion, since label XORs, comparisons with `U`, and loop overhead do not shrink.
 
-Coset searches by Hamming weight ([Terms](README.md#terms) in README.md) also weigh words by their tails, in the queries that they predict to examine many words ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics)).
+Coset searches by Hamming weight ([Terms](README.md#sec-terms) in README.md) also weigh words by their tails, in the queries that they predict to examine many words ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics)).
 The offset of a search basis is zero on its pivot columns ([Overlapping search bases](#sec-overlapping-bases)), so the count of pivot ones still holds, and the tail keeps every remaining column, even one on which no row has a one, since an offset can have ones there.
 
 <a name="sec-work-estimates"></a>
@@ -418,7 +418,7 @@ Bliss finds the automorphisms of the Tanner graph of each set, whose edges are c
 These Tanner-graph automorphisms permute the checks and leave their Paulis unchanged, so they preserve the stabilizers, gauge operators, and logical operators, and for a CSS code those of each sector.
 They form a subgroup of the automorphisms of the code, which suffices, since any group of automorphisms gives a sound certificate.
 For a classical code, bliss searches only the parity check matrix, whose automorphisms permute checks and bits.
-G. Lee (Appendix C.4) likewise finds the automorphisms of Tanner graphs automatically, but for the roots of a connected-cluster search ([Section 3.5 of connected_cluster.md](connected_cluster.md#sec-symmetries); [References](#sec-references)).
+G. Lee (Appendix C.4) likewise finds the automorphisms of Tanner graphs automatically, but for the roots of a connected-cluster search ([Symmetries](connected_cluster.md#sec-symmetries); [References](#sec-references)).
 
 With or without `pybliss`, the class of the code can supply generators of automorphisms that its construction provides.
 Quantum code classes supply them through a method of `QuditCode` that they override, such as the translations of the group of an `MBCode`, and classical code classes through a method of `ClassicalCode`, both in [codes/common.py](../common.py).
@@ -578,7 +578,7 @@ Completion tables skip the completions whose bound reaches the incumbent, or, on
 So the search skips no word lighter than its answer, and in a coset without a word within `ω`, it weighs and skips exactly the words of a query at `ω`.
 A search of Pauli errors by CSS weight weighs words by that weight, and keeps those lighter than `U`.
 
-For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then, if its weight `w_x` is at most `ω`, the Z part with the floor `w_x`, where any word within `w_x` ends the search ([problems.md](problems.md#the-coset-leader-search)).
+For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then, if its weight `w_x` is at most `ω`, the Z part with the floor `w_x`, where any word within `w_x` ends the search ([problems.md](problems.md#sec-coset-leader-search)).
 
 <a name="sec-counting"></a>
 ### Counting logical operators
@@ -590,7 +590,7 @@ Bouyuklieva and Bouyukliev (page 6) likewise list the words of a given weight wi
 A count uses no automorphisms, since it counts each word individually and does not track orbit sizes.
 The X and Z sectors of a self-dual code, whose X and Z checks span the same space, are equal.
 So a counter scans only one of them if it knows the code to be self-dual: if it was built from such checks, or deformed from such a counter by a gate that acts alike on X and Z.
-[problems.md](problems.md#the-macwilliams-method) explains the MacWilliams method, which counts from the weight distributions of the checks.
+[problems.md](problems.md#sec-macwilliams) explains the MacWilliams method, which counts from the weight distributions of the checks.
 
 <a name="sec-pauli-counts"></a>
 #### Full Pauli counts
@@ -632,4 +632,4 @@ It can also change the distance and the weights of check words, so the counter s
 - G. Lee, "Bicycle race: small two-block codes on the Pareto frontier" ([arXiv:2610.13880v2](https://arxiv.org/abs/2610.13880v2)): Appendix C.4 takes the roots of a connected-cluster search from the automorphisms of the Tanner graph, which pynauty finds ([Images of an information set under automorphisms](#sec-automorphisms)).
 - R. E. Korf and A. Felner, "Disjoint pattern database heuristics," *Artificial Intelligence* 134, 9-22, 2002 ([doi:10.1016/S0004-3702(01)00092-3](https://doi.org/10.1016/S0004-3702%2801%2900092-3)), and A. Felner, R. E. Korf, and S. Hanan, "Additive pattern database heuristics," *Journal of Artificial Intelligence Research* 22, 279-318, 2004 ([doi:10.1613/jair.1480](https://doi.org/10.1613/jair.1480)): disjoint and additive pattern databases ([Skipping completions by completion tables](#sec-completion-tables)).
 - S. Bouyuklieva and I. Bouyukliev, "An extension of the Brouwer-Zimmermann algorithm for calculating the minimum weight of a linear code," *Mathematics* 9(19), 2354, 2021 ([doi:10.3390/math9192354](https://doi.org/10.3390/math9192354)): page 6 lists the codewords of a given weight without repetition ([Counting logical operators](#sec-counting)).
-- The implementation and its tests: "[Where to look](README.md#where-to-look)" in README.md says where to start for each part, and the tests of the [correctness requirements](brouwer_zimmermann_code.md#sec-requirements) cite that section in their docstrings.
+- The implementation and its tests: "[Where to look](README.md#sec-where-to-look)" in README.md says where to start for common kinds of change, and the tests of the [correctness requirements](brouwer_zimmermann_code.md#sec-requirements) cite that section in their docstrings.

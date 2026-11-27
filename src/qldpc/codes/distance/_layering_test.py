@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from qldpc.conftest import check_import_layering
 
-# Layers from shared foundations (first) to public interfaces (last).  Add each new top-level module
+# These layers, from lowest to highest, are the complete order of the top-level modules and
+# subpackages; ``README.md#sec-layers`` gives only the main levels.  Add each new top-level module
 # or subpackage to one.
 _LAYERS = (
     ("_code_matrices", "_threads"),

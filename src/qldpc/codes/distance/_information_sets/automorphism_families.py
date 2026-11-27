@@ -6,7 +6,7 @@ A BZ search can scan the search basis of one information set ``I`` and certify w
 images of ``I`` under a group ``Γ`` of automorphisms.  ``brouwer_zimmermann.md#sec-automorphisms``
 derives the certificate and the choice of ``I``.  The connected-cluster search also uses
 ``verify_automorphisms`` and ``get_orbits``, and ranks its variables by the orbit numbers of
-``get_orbits`` (Section 3.5 of ``connected_cluster.md``).  Here ``num_columns`` counts every column
+``get_orbits`` (``connected_cluster.md#sec-symmetries``).  Here ``num_columns`` counts every column
 of a basis, all-zero ones too, as ``N_stored`` of ``brouwer_zimmermann.md#sec-packed-enumeration``
 does.
 """

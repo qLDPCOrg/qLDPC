@@ -26,7 +26,8 @@ derive the bounds of their queries.
 The batch loops run on several threads at once, through ``_threads.run_blocks``, and so can the
 queries of callers that share a search.  A change here must keep the requirements on threads under
 "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``, and the
-docstrings of the loops say which buffers each call writes.
+docstrings of the loops say which buffers each call writes.  ``problems.md#sec-coset-leader-search``
+says how ``CosetLeaderSearch`` answers its queries with these searches.
 """
 
 from __future__ import annotations
@@ -188,8 +189,7 @@ class BrouwerZimmermannCosetSearch:
         ``split_work`` work, about one unit for each query and each word that it weighs, and
         ``num_threads`` threads then search the rest of it (``_threads.run_blocks``;
         ``brouwer_zimmermann_code.md#sec-cross-file-behavior``).  The result is the same on any
-        number of threads.  ``CosetLeaderSearch`` passes the thread options of its tuning.  The
-        defaults search on the calling thread alone.
+        number of threads.  The defaults search on the calling thread alone.
 
         Returns:
             The index of the first such syndrome and a ``MinWeightBound`` whose representative is
@@ -283,9 +283,10 @@ class BrouwerZimmermannCosetSearch:
             return self._singles[syndrome]
         if not (self._symplectic and self.css_weight):
             return None
-        # CSS weight one also allows X_i Z_j on distinct qubits.  Callers such as the certification
-        # of fault propagation query many syndromes, so a table of these errors, built on the first
-        # query that needs it, saves a scan of the qubits for each query.
+        # CSS weight one also allows X_i Z_j on distinct qubits
+        # (``problems.md#sec-coset-leader-search``).  Callers such as the certification of fault
+        # propagation query many syndromes, so a table of these errors, built on the first query
+        # that needs it, saves a scan of the qubits for each query.
         if self._css_singles is not None:
             return self._css_singles.get(syndrome)
         # If that table would be too large, match the syndrome of each single-qubit X error against
@@ -360,8 +361,9 @@ class _MatrixKey:
 class _CosetTuning(NamedTuple):
     """The fields of the tuning that the setup of a BZ coset search reads, which key its cache.
 
-    The search builds its other families, its tails, and its completion tables after the cache
-    stores it, so the fields that configure them key the cache too
+    A cache that outlives a search is keyed by the values that it depends on
+    (``README.md#sec-tuning``).  The search builds its other families, its tails, and its completion
+    tables after the cache stores it, so the fields that configure them key the cache too
     (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
 
