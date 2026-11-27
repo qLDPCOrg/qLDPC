@@ -59,7 +59,7 @@ Where documentation belongs
   In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
   Code and documents cite a guide section by the label that the guide gives that section, an anchor ``<a name="sec-…"></a>`` on the line above its heading, as in ``brouwer_zimmermann.md#sec-completion-tables``; a change that cites a section without a label adds one.
   Each function, class, or module that relies on a guide section cites it once, in its docstring or in the comment on the code that relies on it, and may state in a clause what the section proves; rendered text, such as a public docstring, links to the section.
-  Guides name code no more finely than its modules, public names, and settings, such as the fields of ``SearchTuning`` and environment variables.
+  Guides name code no more finely than its modules, its public API, as the :doc:`code standard <code>` defines it, and settings, such as the fields of ``SearchTuning`` and environment variables; code that a guide explains is found by searching for the labels that it cites.
   When a rule or check ties code to a document, it requires the code to point to the document, rather than the document to list the code.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
   Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
