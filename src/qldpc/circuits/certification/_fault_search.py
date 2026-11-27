@@ -853,7 +853,7 @@ def _list_by_shared_flags(
     pause, or once the array is full and holds rows of earlier passes.  It returns the rows of the
     passes that it has finished, and its next call moves the rows of an unfinished pass to the
     start of the array.  Threads run this without the global interpreter lock, each with its own
-    state and arrays (see "Threads" in ``fault_propagation.md``).
+    state and arrays, so it keeps the rules of ``fault_propagation.md#sec-thread-requirements``.
     """
     # Column 0 of the class rows holds the hash of the flags, and the other columns the flags.  The
     # keys of the map of classes serve as rows of one column, a hash and no syndrome words, so that
@@ -1104,8 +1104,8 @@ def _expand_class_tuples(
     next class tuple.  The expansion returns once the batch has ``batch_size`` faults, once the
     table should grow (see ``_table_should_grow``), or once every class tuple is expanded.  A full
     table takes no more syndromes.  The calling thread runs this without the global interpreter
-    lock, so that threads that list class codewords meanwhile can take it (see "Threads" in
-    ``fault_propagation.md``).
+    lock, so that threads that list class codewords meanwhile can take it, and it keeps the rules
+    of ``fault_propagation.md#sec-thread-requirements``.
     """
     # Column 0 of the primitive rows holds the hash of the syndrome, the next columns hold the
     # syndrome, and the rest hold the X and then the Z part of the representative.

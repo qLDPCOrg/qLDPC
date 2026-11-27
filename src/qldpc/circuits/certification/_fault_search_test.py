@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import importlib
+import inspect
 import itertools
 import math
 import operator
@@ -890,18 +892,18 @@ def test_a_thread_of_a_listing_hands_on_no_empty_batch_and_stops_when_asked(
     assert len(calls) == 1
 
 
-def test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads() -> None:
-    """The requirements on threads of ``fault_propagation.md`` name each entry point without lock.
+def test_entry_points_without_the_lock_cite_the_requirements_on_threads() -> None:
+    """Each entry point without lock cites the requirements on threads of ``fault_propagation.md``.
 
     The entry points are the functions of this package compiled with ``nogil=True``, which threads
     run, and whose rules those requirements state.
     """
-    guide = pathlib.Path(__file__).with_name("fault_propagation.md").read_text(encoding="utf-8")
-    requirements = guide.split("\n### Requirements on threads\n", 1)[1].split("\n## ", 1)[0]
     entry_points = conftest.get_entry_points_without_the_lock(pathlib.Path(__file__).parent)
     assert entry_points
     for module, name in entry_points:
-        assert f"`{name}`" in requirements, f"The requirements on threads omit {module}.{name}"
+        function = getattr(importlib.import_module(module), name)
+        docstring = inspect.getdoc(getattr(function, "py_func", function)) or ""
+        assert "fault_propagation.md#sec-thread-requirements" in docstring, f"{module}.{name}"
 
 
 def test_listing_on_threads_keeps_the_order_whichever_range_ends_first(

@@ -196,7 +196,7 @@ Routes and the names that control them
    * - Certifications of bounded fault propagation: when a costly fault listing moves to threads, and how many
      - :attr:`SearchTuning.num_threads`
      -
-     - `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md#threads>`__ of ``fault_propagation.md``
+     - :guide:`Threads <circuits/certification/fault_propagation.md#sec-threads>` of ``fault_propagation.md``
    * - Counts by the Brouwer-Zimmermann or brute-force method: time before a keyboard interrupt takes effect
      - :attr:`SearchTuning.scan_chunk_size`, :attr:`SearchTuning.scan_chunks_per_call`
      -
