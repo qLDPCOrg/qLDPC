@@ -13,7 +13,7 @@ These scripts check the tuning, and none of them sets or justifies a default:
 
 [`benchmark.py`](benchmark.py) compares the exact distance methods on known codes, and plays no part in tuning.
 Every script except `workloads.py` describes its outputs and options under `--help`.
-Report the outputs of the checks in the description of the pull request that they support ([Where documentation belongs](../../docs/source/contributing/standards/writing.rst#where-documentation-belongs)).
+Report the outputs of the checks in the description of the pull request that they support ([Where documentation belongs](../../docs/source/contributing/standards/writing.rst#writing-documentation)).
 [`workloads_test.py`](workloads_test.py) checks that the `qt7` workload keeps the parity checks of earlier releases, so that timings of it stay comparable; CI does not run it, so run `python -m pytest experiments/distance_tuning` after changing `QTCode` or `workloads.py`.
 
 ## Checking the orders of magnitude
