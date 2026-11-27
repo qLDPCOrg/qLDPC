@@ -4,7 +4,8 @@
 
 A guide labels a section with an anchor on the line above the section's heading, and code and
 documents cite the section by that label, as the writing standard describes.  A guide is labeled
-once it has a label, and only citations of labeled guides are checked.
+once it has a label, and only citations of labeled guides are checked, apart from links by the
+``:guide:`` role of the documentation or by GitHub URL, whose files must exist.
 """
 
 from __future__ import annotations
@@ -25,9 +26,9 @@ _SKIPPED = {"__pycache__", "autoapi", "build"}
 _ANCHOR = re.compile(r'<a name="([^"]*)"></a>')
 _LABEL = re.compile(r"sec-[a-z0-9]+(?:-[a-z0-9]+)*")
 # a link to a file on GitHub's main branch, with its path from the root of the repository
-_URL = re.compile(r"github\.com/qLDPCOrg/qLDPC/blob/main/([\w./-]+\.md)#([\w-]+)")
+_URL = re.compile(r"github\.com/qLDPCOrg/qLDPC/blob/main/([\w./-]+\.md)(?:#([\w-]+))?")
 # a :guide: role, with or without an explicit title, with its path from src/qldpc/
-_ROLE = re.compile(r":guide:`(?:[^`<]*<)?([\w./-]+\.md)#([\w-]+)>?`")
+_ROLE = re.compile(r":guide:`(?:[^`<]*<)?([\w./-]+\.md)(?:#([\w-]+))?>?`")
 # a relative path or a bare file name, as in a Markdown link or a comment
 _PATH = re.compile(r"(?<![\w./:-])([\w./-]*\.md)#([\w-]+)")
 # a link from a guide to one of its own sections
@@ -53,7 +54,10 @@ def test_labels_sit_above_headings() -> None:
 
 
 def test_citations_of_labeled_guides_name_their_labels() -> None:
-    """Each citation of a section of a labeled guide names a label of that guide."""
+    """Each citation of a section of a labeled guide names a label of that guide.
+
+    Each link to a guide by role or URL names a file.
+    """
     assert _labels(), "no guide has labels"
     assert not _get_broken_citations()
 
@@ -75,6 +79,7 @@ def test_broken_citations_are_found(
     (source / "codes" / "module.py").write_text(
         "# guide.md#sec-kept, guide.md#kept, codes/guide.md#sec-gone, other.md#a-heading\n"
         "# :guide:`Kept <codes/guide.md#sec-gone>`, missing.md#sec-lost, :guide:`<guide.md#sec-kept>`\n"
+        "# :guide:`Moved <codes/moved.md>`, :guide:`Moved <codes/moved.md#a-heading>`\n"
     )
     (tmp_path / "labels.rst").write_text('Labels look like ``<a name="sec-…"></a>``.\n')
     (tmp_path / "notes.rst").write_text(
@@ -88,11 +93,13 @@ def test_broken_citations_are_found(
     try:
         test_labels_sit_above_headings()
         assert _get_broken_citations() == [
-            ("notes.rst", "?#sec-kept"),
+            ("notes.rst", "github.com/qLDPCOrg/qLDPC/blob/main/guide.md#sec-kept"),
             ("notes.rst", "src/qldpc/codes/guide.md#kept"),
             ("src/qldpc/codes/guide.md", "src/qldpc/codes/guide.md#sec-gone"),
-            ("src/qldpc/codes/module.py", "?#sec-kept"),
-            ("src/qldpc/codes/module.py", "?#sec-lost"),
+            ("src/qldpc/codes/module.py", ":guide:`<guide.md#sec-kept>`"),
+            ("src/qldpc/codes/module.py", ":guide:`Moved <codes/moved.md#a-heading>`"),
+            ("src/qldpc/codes/module.py", ":guide:`Moved <codes/moved.md>`"),
+            ("src/qldpc/codes/module.py", "missing.md#sec-lost"),
             ("src/qldpc/codes/module.py", "src/qldpc/codes/guide.md#kept"),
             ("src/qldpc/codes/module.py", "src/qldpc/codes/guide.md#sec-gone"),
         ]
@@ -102,35 +109,51 @@ def test_broken_citations_are_found(
 
 
 def _get_broken_citations() -> list[tuple[str, str]]:
-    """List each citation of a labeled guide that names no label of it, with the citing file."""
+    """List the broken citations of guide sections, each with the citing file.
+
+    A citation is broken if it names a labeled guide but no label of it, if it is a role or URL
+    whose path names no file, or if it names a label but no guide.  A broken citation that names a
+    guide is given by the guide's path from the root of the repository, and any other as written.
+    """
     broken = set()
     for path in _files():
-        for guide, fragment in _citations(path):
-            if guide in _labels() and fragment not in _labels()[guide]:
-                broken.add((path.relative_to(_ROOT).as_posix(), f"{guide}#{fragment}"))
-            elif guide is None and _LABEL.fullmatch(fragment):
-                broken.add((path.relative_to(_ROOT).as_posix(), f"?#{fragment}"))
+        for guide, fragment, cited in _citations(path):
+            if guide is None or (guide in _labels() and fragment not in _labels()[guide]):
+                broken.add(
+                    (
+                        path.relative_to(_ROOT).as_posix(),
+                        cited if guide is None else f"{guide}#{fragment}",
+                    )
+                )
     return sorted(broken)
 
 
-def _citations(path: pathlib.Path) -> list[tuple[str | None, str]]:
-    """List the guide sections that a file cites, each as the guide's path and a fragment.
+def _citations(path: pathlib.Path) -> list[tuple[str | None, str, str]]:
+    """List the guide sections that a file cites, each as a guide, a fragment, and the text cited.
 
-    The path is relative to the root of the repository, or None if no guide resolves it.
+    The guide is a path from the root of the repository, or None if the citation is broken without
+    one: a role or URL whose path names no file, or a path that resolves to no guide but has a
+    label for its fragment.  Other paths that resolve to no file, and roles and URLs to a file
+    without a fragment, are not citations of sections and are left out.
     """
     text = path.read_text(encoding="utf-8")
-    citations: list[tuple[str | None, str]] = []
-    for target, fragment in _URL.findall(text):
-        citations.append((_get_file(_ROOT / target), fragment))
-    for target, fragment in _ROLE.findall(text):
-        citations.append((_get_file(_SOURCE / target), fragment))
+    citations: list[tuple[str | None, str, str]] = []
+    for directory, pattern in ((_ROOT, _URL), (_SOURCE, _ROLE)):
+        for match in pattern.finditer(text):
+            target, fragment = match.groups()
+            guide = _get_file(directory / target)
+            if guide is None or fragment is not None:
+                citations.append((guide, fragment or "", match.group()))
     # paths in URLs and roles start from fixed directories, so they are not read again as paths
     text = _ROLE.sub("", _URL.sub("", text))
-    for target, fragment in _PATH.findall(text):
-        citations.append((_resolve(path, target), fragment))
+    for match in _PATH.finditer(text):
+        target, fragment = match.groups()
+        guide = _resolve(path, target)
+        if guide is not None or _LABEL.fullmatch(fragment):
+            citations.append((guide, fragment, match.group()))
     own = path.relative_to(_ROOT).as_posix()
     if own in _labels():
-        citations.extend((own, fragment) for fragment in _LOCAL.findall(text))
+        citations.extend((own, fragment, f"#{fragment}") for fragment in _LOCAL.findall(text))
     return citations
 
 

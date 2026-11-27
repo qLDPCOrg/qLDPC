@@ -9,8 +9,7 @@ constant flags, so that no flag costs a branch for each word.
 - ``scan_set`` scans one set of a distance search, with or without completion tables.
 - ``scan_set_items`` scans a range of work items of a layer of such a set, as ``scan_set`` does, on
   one of several threads, from the first support that ``start_set_items`` sets
-  (``brouwer_zimmermann_code.md#sec-cross-file-behavior``).  The distance search runs the ranges
-  through ``_threads.run_work_items``.
+  (``brouwer_zimmermann_code.md#sec-cross-file-behavior``).
 - ``scan_coset_layer`` and ``scan_coset_layer_by_css_weight`` scan one layer of one set in a coset
   search, and keep its lightest word.
 - ``scan_coset_layer_by_tails`` does so by the tails of the words, and keeps the support of the

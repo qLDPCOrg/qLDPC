@@ -8,15 +8,7 @@ Like code comments, this file calls a search basis a **set** for short.
 
 [README.md](README.md) says what each module of this directory holds, in "[Where to look](README.md#where-to-look)", and in which levels the modules import each other, in "[How the modules depend on each other](README.md#how-the-modules-depend-on-each-other)".
 The docstrings of the modules and of their functions say which code does what, and cite the sections of this guide that explain it.
-A flow that spans modules is described in the docstring of the module that coordinates it:
-
-- [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py): how a BZ distance search prepares the search of each sector, where it exits, and how it advances by layers;
-- [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py): the compiled scans of layers that distance and coset searches share;
-- [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py): how a query of `CosetLeaderSearch` runs a BZ coset search, alone or in a batch on threads;
-- [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py): how coset searches choose and build their routes;
-- [_information_sets/basis_families.py](_information_sets/basis_families.py): the stages that build the families of search bases of distance searches and counts;
-- [_counting/scan.py](_counting/scan.py): how a count by the BZ method builds its family and scans its steps;
-- [_threads.py](_threads.py): how the work items of a layer, and the blocks of a batch of coset queries, run on threads.
+A flow that spans modules is described in the docstring of the module that coordinates it, such as the preparation, exits, and layers of a BZ distance search in [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py).
 
 The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py): [Heuristics and cost models](#sec-heuristics) gives the reasons for those of BZ searches.
 
@@ -28,7 +20,7 @@ A query of `CosetLeaderSearch`, whether the coset of a syndrome has a word withi
 They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches of the X and Z parts of the errors, each in a coset of a classical code ([problems.md](problems.md#the-coset-leader-search)).
 
 Each family of search bases of a coset search is packed with its full rows, and with the certificate of its ranks and maximum coverage ([Families for coset searches](brouwer_zimmermann.md#sec-coset-families)).
-That certificate takes no weight divisor, even when the disjoint family infers one for `V`, since the words of a coset need not share it ([Rounding the certificate to a proven weight multiple](brouwer_zimmermann.md#sec-weight-multiples)).
+That certificate takes no weight divisor, even when the disjoint packing of [Heuristics and cost models](#sec-heuristics) infers one for `V`, since the words of a coset need not share it ([Rounding the certificate to a proven weight multiple](brouwer_zimmermann.md#sec-weight-multiples)).
 If `V` is even, a search can round its bounds up to the parity of a coset.
 It does so when some coset is odd, which holds exactly when some word whose syndrome has one set bit is odd.
 In a search of Pauli errors, an error weighs at least half the Hamming weight of its binary word, so the search has the **weight factor** `η = 2`, by which it divides its bounds, rounding up, after any rounding to parity; a search of X or Z parts has `η = 1`.
@@ -52,8 +44,8 @@ A cached step is written as two entries, so an interleaved read can pair the lay
 Every step that the binary search of steps returns, like the initial `(0, 1)`, has a layer of the table and from one to all of its sets completed, so any such pair `(w, j)` is a valid entry of the bounds, which never change, and so is `[w, j - 1]`.
 A query reads each entry once and reuses the pair only if those bounds show that it is the stopping step, which is unique since the bounds never decrease; otherwise it finds the step itself.
 
-A query first looks up the words of weight at most one.
-If that does not settle it, the query takes the **route** of its maximum weight: a family of search bases, with its packed rows and planning buffer, which [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) chooses once for each maximum weight ([Heuristics and cost models](#sec-heuristics)).
+A single query first looks up the words of weight at most one, and below a maximum weight of two answers without a search.
+Otherwise, and for every batch query, the query takes the **route** of its maximum weight: a family of search bases, with its packed rows and planning buffer, which [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) chooses once for each maximum weight ([Heuristics and cost models](#sec-heuristics)).
 A batch query takes the route once for the whole batch, and only then splits the batch across threads ([Behavior spanning files](#sec-cross-file-behavior)).
 For the CSS weight on a CSS state, `CosetLeaderSearch` gives the X parts and the Z parts of a batch to their own searches and routes.
 

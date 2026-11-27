@@ -1138,7 +1138,8 @@ class ClassicalCode(AbstractCode):
         of the parity check matrix onto itself.  Together with the permutations that bliss finds
         (see ``_known_permutation_automorphisms``), these generators generate the group of
         :meth:`get_known_permutation_automorphism_group`.  Exact distance searches of binary codes
-        can use the same permutations to search less.
+        can use the same permutations to search less
+        (``distance/brouwer_zimmermann.md#sec-automorphism-sources``).
         """
         return None
 
@@ -2889,12 +2890,16 @@ class QuditCode(AbstractCode):
         maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  Together with
         the permutations that bliss finds (see ``_known_permutation_automorphisms``), these
         generators generate the group of :meth:`get_known_permutation_automorphism_group`.  Exact
-        distance searches of binary codes can use the same permutations to search less.
+        distance searches of binary codes can use the same permutations to search less
+        (``distance/brouwer_zimmermann.md#sec-automorphism-sources``).
         """
         return None
 
     def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
         """Sets of checks, whose Tanner graphs bliss searches for permutation automorphisms.
+
+        ``distance/brouwer_zimmermann.md#sec-automorphism-sources`` says how exact distance searches
+        use the automorphisms.
 
         By default, the only matrix is the parity check matrix.  Bliss finds only qudit permutations
         that map the rows of a matrix onto themselves.  A permutation automorphism of this code maps

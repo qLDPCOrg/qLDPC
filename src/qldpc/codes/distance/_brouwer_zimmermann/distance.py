@@ -581,8 +581,8 @@ class _SectorSearch:
 
         The first call gets the automorphism family, which the search keeps while it declines.  The
         search switches to scan one set and certify with its images, if that predicts less work.
-        After a switch, the search scans the new set from layer two, and keeps its lower bound
-        (``brouwer_zimmermann.md#sec-automorphism-gate``).
+        After a switch, the search packs the new family in another instance, scans the new set from
+        layer two, and keeps its lower bound (``brouwer_zimmermann.md#sec-automorphism-gate``).
         """
         if self.get_automorphism_family is not None:
             weight_divisor = self.instance.certificate.weight_divisor

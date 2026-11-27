@@ -636,7 +636,7 @@ class _PartitionPlan(NamedTuple):
 
         ``coverage`` is two or more.  The bound is over families of at most
         ``min(max_sets, coverage * num_columns // dimension)`` sets, a cap that counts pivots as
-        ``_get_partition_plan`` does.
+        ``_get_partition_plan`` does (``brouwer_zimmermann_code.md#sec-heuristics``).
         """
         most_sets = min(self.max_sets, coverage * self.num_columns // self.dimension)
         return _estimate_optimistic_work(

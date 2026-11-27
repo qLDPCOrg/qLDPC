@@ -6,10 +6,9 @@ The distance search (``distance.py``) and the coset searches (``coset.py``) scan
 affine space: an offset plus sums of rows of a set.  Each search packs its problem once for each
 family, before it scans, in an :class:`AffineInstance`: the packed rows, labels, pivots, and ranks
 of its sets, and the certificate of their steps, whose weight divisor rounds its bounds.  A distance
-search packs a basis family without its pivot columns (``get_distance_instance``), and builds
-another instance when it switches to an automorphism family.  Each family of a coset search has a
-coset instance with full rows (``get_coset_instance`` and ``get_coset_family_instance``;
-``brouwer_zimmermann_code.md#sec-coset-searches``).
+search packs a basis family without its pivot columns (``get_distance_instance``).  Each family of
+a coset search has a coset instance with full rows (``get_coset_instance`` and
+``get_coset_family_instance``; ``brouwer_zimmermann_code.md#sec-coset-searches``).
 """
 
 from __future__ import annotations

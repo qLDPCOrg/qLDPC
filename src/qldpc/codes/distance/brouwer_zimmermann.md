@@ -10,7 +10,7 @@ It explains how qLDPC computes exact distances of binary codes with BZ, how it c
 
 - [The Brouwer-Zimmermann algorithm](#sec-algorithm) explains BZ as published, including its adaptation to quantum codes.
 - [Extensions and optimizations](#sec-extensions) explains the extensions and optimizations of qLDPC, and where each comes from.
-- [Guide to the source code](brouwer_zimmermann_code.md#sec-source-code), in [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), says which modules hold these concepts, and explains the coset searches, the heuristics and their cost models, and the behavior that spans files.
+- [Guide to the source code](brouwer_zimmermann_code.md#sec-source-code), in [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), points to the modules and docstrings that implement these concepts, and explains the coset searches, the heuristics and their cost models, and the behavior that spans files.
 - [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements), in the same file, lists the requirements that a change must preserve.
 
 <a name="sec-algorithm"></a>
@@ -227,7 +227,7 @@ Over GF(2), applied to a parity-check matrix, his program computes the distance 
 <a name="sec-coset-families"></a>
 #### Families for coset searches
 
-The coset searches of `CosetLeaderSearch` ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
+The coset searches of `CosetLeaderSearch` ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
 For each search basis `G_i`, fix an **offset**, a word of the coset that is zero on the pivot columns of `B_i`.
 Every word of the coset is the offset plus a unique sum of rows of `G_i`, so once `G_i` has completed layer `t`, an unexamined word has at least `b_i(t)` ones on `B_i`, as a word of `V` does.
 So every certificate of this section holds for cosets, and any family of search bases of `V` serves every coset of `V`.
@@ -249,7 +249,7 @@ That stronger test mainly helps doubly even classical codes, since a CSS sector 
 
 By the same identity, a divisor of the weights of `V` need not divide those of a coset `u + V`: every word of `V = {0000, 1111}` has a weight divisible by four, but `1000 + V` has the weights one and three.
 Parity does carry over: if `V` is even, every word of `u + V` has the parity of `wt(u)`.
-So a coset search of an even code rounds each bound up to that parity, which it reads from the word of the coset's syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)), and uses no other rounding:
+So a coset search of an even code rounds each bound up to that parity, which it reads from the word of the coset's syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`), and uses no other rounding:
 
 - A search of the X or Z parts of errors, which searches the cosets of a classical code, rounds when that code is even.
 - A search of Pauli errors by their CSS weight `max(|x|, |z|)` rounds when the words `[x | z]` of its code are even.
@@ -315,7 +315,7 @@ $$
 
 It is pessimistic, since it assumes that no lighter witness turns up, and it is not a runtime guarantee, since runtime also depends on building the bases and on the width of packed words.
 The estimate of a coset query at maximum weight `ω` sums from layer zero, the offset, to the first step whose bound exceeds `ω`, and, like the query, omits the rank-deficient bases that add nothing to that bound.
-If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)), and otherwise at most that many.
+If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`), and otherwise at most that many.
 A distance search on threads computes its estimates from `U` after whole layers, never from the measured counts of a layer split across threads ([Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior)).
 This keeps the requirement "Decide only from what a layer leaves the same on any number of threads" of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements).
 
@@ -523,7 +523,7 @@ The pair of rows that completes the prefix adds at least `max(0, 2 - (r - r_i))`
 The bound adds the sum of these two counts to `B` in place of `w`; for an information set, that sum is `w`.
 
 A query of maximum weight `ω` skips the completions whose bound reaches `h(ω)`, the least bound that proves a word of the coset heavier than `ω`.
-With the **weight factor** `η` of [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches), two in a search of Pauli errors and one in a search of X or Z parts, `h(ω)` is `η ω + 1`, or `η ω` if the search rounds to the parity of the coset and `η ω` has the other parity.
+With the **weight factor** `η` of [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`, two in a search of Pauli errors and one in a search of X or Z parts, `h(ω)` is `η ω + 1`, or `η ω` if the search rounds to the parity of the coset and `η ω` has the other parity.
 No skipped word lies within `ω`, and the query visits the other words in the order of a scan without tables, so it finds the same first word within `ω`, if there is one.
 Otherwise, it returns the lightest word that it weighed, possibly heavier than without tables.
 If it skipped any word, it also returns the lower bound `R`: `h(ω)`, rounded up to the coset's parity where the search rounds, then divided by `η` and rounded up ([Rounding the certificate to a proven weight multiple](#sec-weight-multiples)).
@@ -563,14 +563,14 @@ Within `completion_bound_max_table_bytes`, a count keeps the tables of the searc
 
 The residual-weight estimator of `qldpc.experimental` needs the minimum weight of each coset that it meets, up to a maximum weight `ω`, or `ω + 1` for a coset without a word within `ω`.
 Queries at increasing maximum weights would each repeat the scan of the one before, so the coset searches find this weight with one search.
-The search keeps `U`, the lesser of `ω + 1` and the weight of the lightest word found so far, starting from the word of its syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)).
+The search keeps `U`, the lesser of `ω + 1` and the weight of the lightest word found so far, starting from the word of its syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`).
 It stops after the first step whose bound reaches `U`.
 It also stops within a step once `U` is at most the bound of the step before, since every unvisited word then weighs at least `U`.
 `U` is then the minimum weight, if it is at most `ω`.
 The search finds its stopping step, the first step whose bound reaches `U`, by a binary search of the steps, and moves that step earlier whenever `U` falls.
 It skips the search bases that add nothing to its bound, and these add nothing to any earlier bound either.
 It uses the family and the completion tables of a query at `min(ω, n)`, for `n` qubits ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics)), and since it stops no later than that query, those tables cover every layer that it scans.
-Batches run these searches on several threads at once, so they cache no stopping step in the planning buffer that queries share ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)), as "Keep coset queries reproducible" of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) requires.
+Batches run these searches on several threads at once, so they cache no stopping step in the planning buffer that queries share ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`), as "Keep coset queries reproducible" of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) requires.
 
 In a search by Hamming weight, the scans keep only the words lighter than an **incumbent**: `h(ω)` of [Skipping completions by completion tables](#sec-completion-tables) until the search finds a word within `ω`, and then `η U`, the Hamming weight of the lightest word.
 In a search of Pauli errors by physical weight, whose words `T(x, z)` are all even, and of X or Z parts of an even code, every word of the coset has the parity of `η U`, so scans then lower the incumbent to `η U - 1`, keeping the same words and letting tables skip more.

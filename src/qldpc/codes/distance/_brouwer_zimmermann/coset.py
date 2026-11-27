@@ -126,7 +126,7 @@ class BrouwerZimmermannCosetSearch:
         self._num_syndrome_bits = len(inverse_rows)
         # Below maximum weight two, a query bounds a coset without words of weight at most one by
         # two, or by three if the coset is odd in a search of X or Z parts that rounds to parity
-        # (``brouwer_zimmermann_code.md#sec-coset-searches``).  An odd coset of Pauli errors can
+        # (``brouwer_zimmermann.md#sec-weight-multiples``).  An odd coset of Pauli errors can
         # hold one of CSS weight two, such as ``YX``.
         num_tables = len(routes.disjoint_tables.planning)
         self._odd_coset_lookup_bound = 3 if not symplectic and num_tables == 2 else 2
@@ -644,10 +644,8 @@ def _find_first_not_within_max_weight(
     once the work of this call reaches ``max_work``, or after the last syndrome.  Threads run it at
     once, so no two calls that run at once may share ``best`` or ``planning``, whose cached stopping
     steps it writes (``brouwer_zimmermann_code.md#sec-coset-searches``).  A call writes only
-    ``best`` and the cached steps of ``planning``, which are those of its worker's copy of the
-    planning buffer, reset to the first step by ``_get_own_planning``, never those of the shared
-    buffer.  It runs without the global interpreter lock, and keeps the rules on threads of
-    ``brouwer_zimmermann_code.md#sec-requirements``.
+    ``best`` and the cached steps of ``planning``.  It runs without the global interpreter lock,
+    and keeps the rules on threads of ``brouwer_zimmermann_code.md#sec-requirements``.
 
     Returns:
         If the search found a syndrome whose coset has no word within ``max_weight``, the index of
@@ -874,8 +872,8 @@ def _find_min_weights(
     The arguments are those of ``_find_first_not_within_max_weight``, without ``best``, with the
     floor of each syndrome in ``floors``, and with ``weights``, into whose entry ``i`` the search
     writes the weight of syndrome ``i``.  Each call has its own ``best``, writes only that buffer
-    and ``weights``, which are its own rows of the weights of a batch, and caches no stopping steps,
-    so calls that run at once may share every argument but ``weights``.  It runs without the global
+    and ``weights``, and caches no stopping steps, so calls that run at once may share every
+    argument but ``weights``.  It runs without the global
     interpreter lock, and keeps the rules on threads of
     ``brouwer_zimmermann_code.md#sec-requirements``.
 
