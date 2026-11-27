@@ -63,9 +63,9 @@ package with such entry points states its requirements on threads, as
 ``qldpc/codes/distance/brouwer_zimmermann_code.md#sec-requirements`` does for the
 Brouwer-Zimmermann method.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC
 asks numba for parallel code, that no module of the library other than this one and tests calls
-numba's ``njit`` or ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the only form that the
-tests read.  A compiled function without ``nogil=True`` keeps the lock when Python calls it while it
-is compiled, so threads that call it at once from Python take turns.
+numba's ``njit`` or ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the
+only form that the tests read.  A compiled function without ``nogil=True`` keeps the lock when
+Python calls it while it is compiled, so threads that call it at once from Python take turns.
 
 A subpackage may compile entry points with ``nogil=True`` only if it meets these conditions:
 
