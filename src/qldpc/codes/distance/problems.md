@@ -52,8 +52,8 @@ Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qu
 
 Each problem's method type has its own `"auto"`, which chooses among that problem's methods.
 For the coset searches of `CosetLeaderSearch` and for counts, `"auto"` takes the Brouwer-Zimmermann (BZ) method (`coset_leaders.py` and `logical_counts.py`).
-For distances, `method="auto"` is the default of the distance functions, and of the code elsewhere in qLDPC that calls them, such as `get_distance` and `get_distance_exact` of the code classes.
-It chooses a method for each search that a distance function runs, in `distances.py`.
+For distances, `method="auto"` is the default of the distance functions, and of the public methods elsewhere in qLDPC that take a `method`, such as `get_distance` and `get_distance_exact` of the code classes.
+`distances.py` chooses a method for each search that a distance function runs.
 A code class that searches other codes, as `HGPCode` searches its seed codes, passes the method down, so each of those searches chooses too.
 The rule aims to avoid a method that is very slow on a search, not to find the fastest one, and it decides from the shapes of the sectors and from the progress of the searches, without fitted thresholds.
 
@@ -67,7 +67,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
    The expected work of a limit is the work that the search has spent plus the predicted work of that limit.
    - In its free phase, the search runs on until the expected work of its next limit exceeds `auto_free_work`, and its result is the answer if it finishes first.
      Below that, fixed costs that the estimates leave out, such as setup, dominate the costs that a switch would compare.
-     A first limit that `cutoff` raises has no prediction, which counts as one state fewer than the largest value of an integer field of `SearchTuning` ([Symmetries](connected_cluster.md#sec-symmetries) in `connected_cluster.md`), so such a limit ends the free phase at once.
+     A first limit that `cutoff` raises has no prediction, which counts as `2**62 - 1` states ([Symmetries](connected_cluster.md#sec-symmetries) and [Threads](connected_cluster.md#sec-threads) in `connected_cluster.md`), so such a limit ends the free phase at once.
    - A probe then runs a BZ search by whole layers within `auto_probe_work`.
      It skips the costliest stages of setup, which build overlapping and partitioned families.
      If the probe finishes, its result is the answer.

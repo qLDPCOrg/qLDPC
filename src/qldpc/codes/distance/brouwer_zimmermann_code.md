@@ -6,7 +6,7 @@ Like code comments, this file calls a search basis a **set** for short.
 <a name="sec-source-code"></a>
 ## Guide to the source code
 
-[README.md](README.md) says which modules to start from for each kind of change, in "[Where to look](README.md#sec-where-to-look)", and in which levels the modules import each other, in "[How the modules depend on each other](README.md#sec-layers)".
+[README.md](README.md) says which modules to start from for common kinds of change, in "[Where to look](README.md#sec-where-to-look)", and in which levels the modules import each other, in "[How the modules depend on each other](README.md#sec-layers)".
 The docstrings of the modules and of their functions say which code does what, and cite the sections of this guide that explain it.
 A flow that spans modules is described in the docstring of the module that coordinates it.
 For example, [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) says how a BZ distance search prepares, exits, and advances by layers.

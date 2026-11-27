@@ -248,6 +248,9 @@ def test_connected_cluster_batch_loop_matches_the_minima_of_random_cosets(
     which selects the version of ``_search_supports`` for any number of words.  A loop that stops at
     the first syndrome without a word within ``max_weight``, which gets the bound of a single query,
     writes the weights up to it.
+
+    It checks "Give coset queries only proven lower bounds" of
+    ``connected_cluster.md#sec-requirements``.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
 
@@ -328,6 +331,11 @@ def test_connected_cluster_answers_match_exhaustive_minima(
     A single query searches only ``max_weight``.  Batch queries find the weight of the lightest
     words of each coset up to ``max_weight + 1``, or a weight within its floor if it has a word
     within the floor.
+
+    It checks "Give the same exact distances, and the same answers and lower bounds of coset
+    queries, with ``restrict_viable_symbols`` and ``stabilizer_overlap_cuts`` on and off", "Give
+    coset queries only proven lower bounds", and "Keep the span of the checks of a coset query" of
+    ``connected_cluster.md#sec-requirements``.
     """
     # The searches of Paulis check with the stabilizers of graph states with phases, which are not
     # CSS, and of CSS states, with no pure-X stabilizer, only pure-X stabilizers, or both.  The
@@ -412,6 +420,9 @@ def test_connected_cluster_batches_match_exhaustive_minima() -> None:
 
     Each batch holds every syndrome.  With chunks of one state, a batch on two threads moves to them
     once its queries have visited two states.
+
+    It checks "Give coset queries only proven lower bounds" of
+    ``connected_cluster.md#sec-requirements``.
     """
     rng = np.random.default_rng(0)
     graph_state = get_graph_state(4, [(0, 1), (1, 2), (2, 3)], phase=True)

@@ -206,8 +206,7 @@ class ConnectedClusterCosetSearch:
         alone until its queries have done ``split_work`` work, one unit for each state that their
         searches visit, and ``num_threads`` threads then search the rest of it
         (``_threads.run_blocks``; ``connected_cluster.md#sec-threads``).  The result is the same on
-        any number of threads.  ``CosetLeaderSearch`` passes the thread options of its tuning.  The
-        defaults search on the calling thread alone.
+        any number of threads.  The defaults search on the calling thread alone.
 
         Returns:
             The index of the first such syndrome and the ``MinWeightBound`` that

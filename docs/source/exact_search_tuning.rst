@@ -28,7 +28,7 @@ Start from a symptom
      - Time the search with ``method="brouwer_zimmermann"`` and with ``method="connected_cluster"``, and pass the faster method.
        With a large ``cutoff``, ``"auto"`` cannot switch to the Brouwer-Zimmermann method before it has searched past the cutoff, and with one near the distance it may never switch, so pass ``method="brouwer_zimmermann"``.
        To make ``"auto"`` stay longer with a connected-cluster search, lower :attr:`~SearchTuning.connected_cluster_state_evaluations`, and to make it switch to the Brouwer-Zimmermann method sooner, raise that field.
-       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#sec-choosing-a-method>`__ in ``problems.md`` of the distance package).
+       Raise :attr:`~SearchTuning.auto_free_work` to decide later, with better estimates of growth, or lower it to decide sooner (:guide:`Choosing a method <codes/distance/problems.md#sec-choosing-a-method>` in ``problems.md`` of the distance package).
        Before it decides, ``"auto"`` runs a short Brouwer-Zimmermann search, its probe.
        Raise :attr:`~SearchTuning.auto_probe_work` so that the probe finishes more often, which gives the answer.
        A probe that does not finish still caps the connected-cluster search at the probe's upper bound on the distance.
@@ -68,7 +68,7 @@ Start from a symptom
        Without that variable, enter ``use_tuning(num_threads=1)`` in the function that each worker runs, since new threads and spawned processes normally start with the default tuning.
        A ``CosetLeaderSearch`` keeps the thread count of the tuning that was active when it was built, so build one that the workers share within ``use_tuning(num_threads=1)`` as well.
        Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota rounded down, or to 1 if the quota is below 1.
-       The section `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#sec-threads>`__ of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count, and which other variables limit BLAS threads.
+       The section :guide:`Threads <codes/distance/README.md#sec-threads>` of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count, and which other variables limit BLAS threads.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.search_chunk_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        Lowering :attr:`~SearchTuning.search_chunk_exponent` also lowers the amounts of work at which searches and batch queries move to threads (see its description below).
@@ -114,11 +114,11 @@ Routes and the names that control them
    * - Searching one sector of a CSS code whose sectors a qubit permutation maps onto each other
      - :attr:`SearchTuning.sector_maps`
      -
-     - `Searching one sector of a CSS code <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#sec-one-sector>`__ in ``problems.md`` of the distance package
+     - :guide:`Searching one sector of a CSS code <codes/distance/problems.md#sec-one-sector>` in ``problems.md`` of the distance package
    * - Choosing a method, which ``method="auto"`` does for each distance search
      - :attr:`SearchTuning.auto_brute_force_max_words`, :attr:`SearchTuning.auto_free_work`, :attr:`SearchTuning.auto_probe_work`, :attr:`SearchTuning.connected_cluster_state_evaluations`
      -
-     - `Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#sec-choosing-a-method>`__ in ``problems.md`` of the distance package
+     - :guide:`Choosing a method <codes/distance/problems.md#sec-choosing-a-method>` in ``problems.md`` of the distance package
    * - Estimating the work of searches of information sets, which chooses between their routes
      -
      - :data:`BINOMIAL_CACHE_SIZE`
@@ -206,7 +206,7 @@ Routes and the names that control them
    * - Counts by the MacWilliams method
      - :attr:`SearchTuning.macwilliams_shared_walk_rank`, :attr:`SearchTuning.macwilliams_chunk_size`
      - :data:`KRAWTCHOUK_CACHE_SIZE`
-     - `The MacWilliams method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#sec-macwilliams>`__ in ``problems.md`` of the distance package
+     - :guide:`The MacWilliams method <codes/distance/problems.md#sec-macwilliams>` in ``problems.md`` of the distance package
    * - Searches of the lightest Pauli errors by CSS weight on a CSS state, by the Brouwer-Zimmermann method
      - :attr:`SearchTuning.disjoint_random_column_orders`, and for costly queries :attr:`SearchTuning.coset_route_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, :attr:`SearchTuning.coset_completion_block_bits`, and :attr:`SearchTuning.coset_completion_max_table_bytes`
      - :data:`CSS_SEARCH_CACHE_SIZE`

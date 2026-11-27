@@ -1,13 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Sparser checks with the span of given checks, and light sums of checks to add to them.
+"""Sparser checks with the span of given checks, and light sums of pairs of checks.
 
-``get_sparser_rows`` makes checks sparser for the coset searches of ``coset.py`` and for the
-distance searches of subsystem codes in ``qldpc.codes.distance.distances``
+``get_sparser_rows`` makes checks sparser without changing their span
 (``connected_cluster.md#sec-syndromes`` and ``connected_cluster.md#sec-sparser-stabilizers``).
-``get_light_pair_sums`` finds light sums of pairs of rows, which ``SupportSearch`` of ``search.py``
-adds as redundant checks, and, in distance searches, as known words
-(``connected_cluster.md#sec-pruning``).
+``get_light_pair_sums`` finds light sums of pairs of rows, which a search can add as redundant
+checks, or as known words (``connected_cluster.md#sec-pruning``).
 """
 
 from __future__ import annotations

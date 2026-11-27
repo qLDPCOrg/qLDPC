@@ -10,7 +10,7 @@ Pryadko, with the branch and bound of Okada and Kasai.  ``connected_cluster.md``
 requirements.
 
 ``get_distance_connected_cluster`` advances a ``ConnectedClusterSearch`` one weight limit at a time
-until it finishes.  Each advance searches one sector, a ``SupportSearch``, through a limit with
+until it finishes.  Each advance searches the ``SupportSearch`` of one sector through a limit with
 ``SupportSearch.find_witness`` (``connected_cluster.md#sec-search-to-distance``).  ``find_witness``
 runs the limit in chunks on the calling thread with ``_search_in_chunks``, or splits it into work
 items on threads with ``_search_on_threads`` (``connected_cluster.md#sec-threads``).  Each chunk,
@@ -630,7 +630,7 @@ class SupportSearch:
         of the words that ``use_query_overlap_words`` adds can change which vector the search
         returns, but not whether it finds one within ``max_weight``.
 
-        Coset searches call ``find_vector_with_packed_syndrome`` instead, which skips validation.
+        ``find_vector_with_packed_syndrome`` searches from a packed syndrome without validation.
         The first call may tabulate the cuts of queries, which writes to the search (see the class
         docstring).
 

@@ -105,7 +105,12 @@ def test_distances_from_checks(method: distances.DistanceMethod) -> None:
 
 @pytest.mark.parametrize("method", METHODS)
 def test_distances_of_stabilizer_and_subsystem_codes(method: distances.DistanceMethod) -> None:
-    """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes."""
+    """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes.
+
+    It checks "Prune only by bounds that hold for every witness that extends the state" and "Keep
+    the span of the stabilizers of a subsystem code exactly" of
+    ``connected_cluster.md#sec-requirements``.
+    """
     five_qubit_code = qldpc.codes.FiveQubitCode()
     assert distances.get_distance_pauli(np.vstack([five_qubit_code.matrix] * 2), method=method) == 3
     assert distances.get_distance_pauli(five_qubit_code.matrix, method=method, max_weight=1) == 2
@@ -516,6 +521,9 @@ def test_connected_cluster_searches_sparse_stabilizers(
     """A connected-cluster search of a subsystem code searches sparse checks of its stabilizers.
 
     So does a search by cost, which "auto" runs when enumeration is not cheap.
+
+    It checks "Keep the span of the stabilizers of a subsystem code exactly" of
+    ``connected_cluster.md#sec-requirements``.
     """
     tune(auto_brute_force_max_words=0)
     # With X and Z on a bulk qubit of the [[16, 1, 4]] surface code as gauge generators, the two

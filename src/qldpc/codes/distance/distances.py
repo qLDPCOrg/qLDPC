@@ -43,12 +43,12 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   excludes no nonzero word, as for a classical code, takes ``"brouwer_zimmermann"``.  Any other
   search, as for a quantum code or a circuit, runs ``"connected_cluster"``, and switches to
   ``"brouwer_zimmermann"`` if that is predicted to cost less.  A short ``"brouwer_zimmermann"``
-  probe may give the result first, or cap the connected-cluster search (`Choosing a method
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#sec-choosing-a-method>`_
-  in ``problems.md`` of the distance package).  Functions that take generators choose between
-  ``"brute_force"`` and ``"brouwer_zimmermann"``.  Which method ``"auto"`` takes can depend on the
-  tuning (see :doc:`/exact_search_tuning`) and on the version of qLDPC.  Every method gives the same
-  result, unless the search exits early at a ``cutoff`` (see :func:`get_distance_from_generators`).
+  probe may give the result first, or cap the connected-cluster search (:guide:`Choosing a method
+  <codes/distance/problems.md#sec-choosing-a-method>` in ``problems.md`` of the distance
+  package).  Functions that take generators choose between ``"brute_force"`` and
+  ``"brouwer_zimmermann"``.  Which method ``"auto"`` takes can depend on the tuning (see
+  :doc:`/exact_search_tuning`) and on the version of qLDPC.  Every method gives the same result,
+  unless the search exits early at a ``cutoff`` (see :func:`get_distance_from_generators`).
 - ``"brouwer_zimmermann"``: the :guide:`Brouwer-Zimmermann algorithm
   <codes/distance/brouwer_zimmermann.md>`,
   which enumerates words of increasing weight in several information sets, and stops once a lower
@@ -563,8 +563,8 @@ def _search(
     onto the second.  Then only the first is searched.
 
     ``symplectic`` is as for ``get_distance_from_checks``, and the other arguments are as for
-    ``_search_css``.  Every distance function searches through this function, which chooses the
-    method of each search for ``method="auto"`` (``problems.md#sec-choosing-a-method``).
+    ``_search_css``.  For ``method="auto"``, this chooses the method of each search
+    (``problems.md#sec-choosing-a-method``).
     """
     width = sectors[0][1].shape[1]
     nested_bases: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []

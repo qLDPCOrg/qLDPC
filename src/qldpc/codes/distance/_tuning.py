@@ -134,9 +134,9 @@ class SearchTuning:
     """Settings of exact searches and counts, such as thresholds, limits, batch sizes, and switches.
 
     The descriptions of the fields use the following terms.  The section
-    `Terms <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#sec-terms>`__
-    of the README of the distance package defines sectors, search bases, and searches by Hamming
-    weight more fully, and also defines other terms, such as information set and automorphism.
+    :guide:`Terms <codes/distance/README.md#sec-terms>` of the README of the distance package
+    defines sectors, search bases, and searches by Hamming weight more fully, and also defines
+    other terms, such as information set and automorphism.
 
     - Sector: a space of words that a search or count examines separately for nontrivial words,
       such as the X sector of a CSS stabilizer code: the X-type operators that commute with the Z

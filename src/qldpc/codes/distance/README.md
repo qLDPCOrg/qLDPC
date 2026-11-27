@@ -28,7 +28,7 @@ Each cell of the table below says whether a problem takes a method, and how it r
 | Coset leaders | not by design | threads | threads | not by design | threads |
 | Logical counts | one thread | one thread | not by design | one thread | one thread |
 
-- **Distance** is the minimum weight of a nontrivial word: the functions of `distances.py`, and the code that calls them elsewhere in qLDPC, such as the `get_distance_exact` methods of the code classes.
+- **Distance** is the minimum weight of a nontrivial word: the functions of `distances.py`, and the public methods elsewhere in qLDPC that take a `method`, such as `get_distance` and `get_distance_exact` of the code classes.
   `connected_cluster` needs parity checks, so `get_distance_from_generators` does not take it.
 - **Coset weight of a vector** is the minimum distance between a vector and a word of a binary classical code, which `ClassicalCode.get_distance_exact(vector=...)` finds by a distance search of `distances.py`.
 - **Coset leaders** are the lightest Pauli errors with a given syndrome on a stabilizer state: `CosetLeaderSearch` in `coset_leaders.py`.
@@ -118,9 +118,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
   `_brute_force.py` holds exhaustive enumeration.
 - `_counting/` holds the word scan of the counts, the local Clifford gates of deformed counters, and the MacWilliams method.
 - `_information_sets/` holds what the scans of search bases share: basis families and their certificates, automorphism families, completion tables, and the step from one support of a layer to the next.
-  The Brouwer-Zimmermann searches and the counts use it, and the connected-cluster search a few of its functions, on weight divisors and automorphisms.
 - `_cosets.py` holds the parts that the coset searches of both methods share.
-  `coset_leaders.py` and `_connected_cluster/sparse_checks.py` also use them.
 - `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see [Searching one sector of a CSS code](problems.md#sec-one-sector) in `problems.md`).
 - `_tuning.py` holds the settings of the searches.
 - `_threads.py` runs the work items of a search, or the blocks of a batch of queries, on several threads.
@@ -134,21 +132,16 @@ It is not a list of every module: the docstring of each module says what it hold
 
 | To change… | Start in (this directory) |
 | --- | --- |
-| The methods that a problem takes, or how their names are validated | `distances.py`, `coset_leaders.py`, and `logical_counts.py`, which define the method type of each problem |
-| The automatic choice of a method (`method="auto"`) | `distances.py` and `_auto.py`, after [Choosing a method](problems.md#sec-choosing-a-method) in `problems.md` |
+| The methods that a problem takes, or how their names are validated | `distances.py`, `coset_leaders.py`, and `logical_counts.py`, which define the method type of each problem.  Code elsewhere in qLDPC branches on or validates the method names too; before you add a method or change how names are validated, grep `src/qldpc` for the method types and for the method's name |
+| The automatic choice of a method (`method="auto"`) | `distances.py` and `_auto.py`, and `coset_leaders.py` and `logical_counts.py` for coset searches and counts, after [Choosing a method](problems.md#sec-choosing-a-method) in `problems.md` |
 | Which sectors a distance search of a CSS code searches | `distances.py` and `_sector_maps.py`, after [Searching one sector of a CSS code](problems.md#sec-one-sector) in `problems.md` |
 | The counts, the deformed counters, or `compile_search_setup` | `logical_counts.py`, and `_counting/` for the scan of a count, the local Clifford gates of deformed counters, and the MacWilliams method |
 | The coset-leader search, and how its queries split into coset searches | `coset_leaders.py`, after [The coset-leader search](problems.md#sec-coset-leader-search) in `problems.md` |
 | The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py`, and `_brouwer_zimmermann/affine_search.py` and `_brouwer_zimmermann/affine_instance.py` for the compiled scans and the instances that it shares with the BZ coset searches |
 | The BZ coset searches | `_brouwer_zimmermann/coset.py`, which runs their queries, `_brouwer_zimmermann/coset_routes.py`, which chooses their routes, and `_brouwer_zimmermann/coset_tables.py`, which builds their tables |
 | The connected-cluster searches | `_connected_cluster/search.py` for distances and vectors with a given syndrome, `_connected_cluster/coset.py` for coset searches, and `_connected_cluster/sparse_checks.py` for sparser checks |
-| Exhaustive enumeration, which the `brute_force` method runs | `_brute_force.py` |
-| Basis families, certificates, automorphism families, completion tables, or the step from one support of a layer to the next | `_information_sets/` |
-| The parts that the coset searches of both methods share | `_cosets.py` |
-| The bound for one syndrome that the coset-leader search and its coset searches give (`MinWeightBound`) | `min_weight_bounds.py` |
 | The settings of the searches | `_tuning.py`, and [Tuning](#sec-tuning) below |
 | How searches run on threads | `_threads.py`, and the module of each search for how that search splits its work |
-| Binary input checks, nested bases, the stabilizers of subsystem codes, or the map of symplectic vectors to binary vectors | `_code_matrices.py` |
 | Bit-packed linear algebra over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py`, and [Compiled code](#sec-compiled-code) below |
 
@@ -167,7 +160,7 @@ The main levels of the package, from the top:
 
 A top-level module or subpackage imports only from lower levels.
 A module in a subpackage may also import from lower layers of that subpackage.
-The `_layering_test.py` of the package, and that of each subpackage, holds the complete order of the modules and subpackages that it checks in its `_LAYERS`, and checks the imports against it through a helper of `src/qldpc/conftest.py`.
+The `_layering_test.py` of the package, and that of each subpackage, lists the complete order of the modules that it checks, and checks the imports against that order through a helper of `src/qldpc/conftest.py`.
 The docstring of that helper gives further rules, such as that no module imports the root of the package.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `qldpc.codes` inside the functions that use them.
