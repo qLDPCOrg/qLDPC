@@ -1138,8 +1138,7 @@ class ClassicalCode(AbstractCode):
         of the parity check matrix onto itself.  Together with the permutations that bliss finds
         (see ``_known_permutation_automorphisms``), these generators generate the group of
         :meth:`get_known_permutation_automorphism_group`.  Exact distance searches of binary codes
-        can use the same permutations to search less
-        (``distance/brouwer_zimmermann.md#sec-automorphism-sources``).
+        can use the same permutations to search less.
         """
         return None
 
@@ -1154,9 +1153,6 @@ class ClassicalCode(AbstractCode):
         The result holds these bit permutations, followed by the generators from
         ``_get_permutation_automorphisms``, without repeats or the identity, in an array whose row
         ``i`` maps bit ``j`` to bit ``row[j]``.  The result is None if there are no generators.
-
-        ``distance/brouwer_zimmermann.md#sec-automorphism-sources`` explains how exact distance
-        searches find and use these generators.
 
         Raises:
             ValueError: If a generator from ``_get_permutation_automorphisms`` does not map the row
@@ -2893,8 +2889,7 @@ class QuditCode(AbstractCode):
         maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  Together with
         the permutations that bliss finds (see ``_known_permutation_automorphisms``), these
         generators generate the group of :meth:`get_known_permutation_automorphism_group`.  Exact
-        distance searches of binary codes can use the same permutations to search less
-        (``distance/brouwer_zimmermann.md#sec-automorphism-sources``).
+        distance searches of binary codes can use the same permutations to search less.
         """
         return None
 
@@ -2907,7 +2902,7 @@ class QuditCode(AbstractCode):
         words of that space, and then bliss cannot find it among the parity checks.  A subclass can
         let bliss find such permutation automorphisms by adding a set of checks that the structure
         of the code determines, rather than a choice of basis, such as the canonical local checks of
-        a QTCode (``distance/brouwer_zimmermann.md#sec-automorphism-sources``).
+        a QTCode.
 
         Each matrix must meet two requirements:
 
@@ -2940,9 +2935,6 @@ class QuditCode(AbstractCode):
         The result holds these qudit permutations, followed by the generators from
         ``_get_permutation_automorphisms``, without repeats or the identity, in an array whose row
         ``i`` maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no generators.
-
-        ``distance/brouwer_zimmermann.md#sec-automorphism-sources`` explains how exact distance
-        searches find and use these generators.
 
         Raises:
             ValueError: If a generator from ``_get_permutation_automorphisms``, or a permutation

@@ -58,19 +58,16 @@ compiled function that it calls.  Such an entry point, and every compiled functi
 may write only to arrays that it allocates, or to arrays or entries that nothing else reads or
 writes while it runs, such as buffers that its caller gives to one thread.  It must read nothing
 that anything else writes while it runs, and call no numba code compiled with ``parallel=True`` or
-``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  Guides state the
-requirements on threads.  For the distance package,
-``qldpc/codes/distance/brouwer_zimmermann_code.md#sec-requirements`` and Section 5 of
-``qldpc/codes/distance/connected_cluster.md`` state them, each for its method.  For the certifier's
-fault lister, ``qldpc/circuits/certification/fault_propagation.md#sec-thread-requirements`` states
-them.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC asks numba for
-parallel code, that no module of the library other than this one and tests calls numba's ``njit`` or
-``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the only form that the
+``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  The guide of each
+package with such entry points states its requirements on threads, as
+``qldpc/codes/distance/brouwer_zimmermann_code.md#sec-requirements`` does for the
+Brouwer-Zimmermann method.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC
+asks numba for parallel code, that no module of the library other than this one and tests calls
+numba's ``njit`` or ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the only form that the
 tests read.  A compiled function without ``nogil=True`` keeps the lock when Python calls it while it
 is compiled, so threads that call it at once from Python take turns.
 
-A subpackage other than the distance and certification packages may compile entry points with
-``nogil=True`` only if it meets these conditions:
+A subpackage may compile entry points with ``nogil=True`` only if it meets these conditions:
 
 - It has a guide that states the requirements on threads of its entry points, and the tests that
   check them cite that guide's section.
