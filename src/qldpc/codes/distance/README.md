@@ -217,8 +217,9 @@ They are not arguments of public functions, whose arguments say what to compute 
   A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
   Comments, docstrings, and guides in this package follow the [writing standard's rule on measurements](../../../../docs/source/contributing/standards/writing.rst#where-documentation-belongs).
 - Change a default only as the "Retuning" section allows; [experiments/distance_tuning](../../../../experiments/distance_tuning/README.md) says how to check one.
-- [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders these comments after hand-written tables that lead from symptoms and routes to the values; update the tables, and for a constant the list of constants, when you add, rename, or remove a value.
-  `_tuning_test.py` checks that the table of routes names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each value has its own comment.
+- [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the module's values from these comments, after hand-written tables that lead from symptoms and routes to the values.
+  The tables are selective; add a value to them when it is how a reader would fix a symptom or control a route.
+  `_tuning_test.py` checks that each value has its own comment.
   The documentation build fails on a broken reference into `_tuning`.
 - The module docstring of `_tuning.py` says which results a tuning can change.
 - To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.

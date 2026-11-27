@@ -224,25 +224,5 @@ The tuning module
 -----------------
 
 .. automodule:: qldpc.codes.distance._tuning
-
-Settings
---------
-
-.. autoclass:: SearchTuning
    :members:
-   :undoc-members:
    :member-order: bysource
-
-.. autofunction:: get_tuning
-
-.. autofunction:: use_tuning
-
-Constants
----------
-
-.. autodata:: MAX_VALUE
-.. autodata:: BINOMIAL_CACHE_SIZE
-.. autodata:: CSS_SEARCH_CACHE_SIZE
-.. autodata:: KRAWTCHOUK_CACHE_SIZE
-.. autodata:: LOCAL_CLIFFORD_CACHE_SIZE
-.. autodata:: PAULI_SEARCH_CACHE_SIZE
