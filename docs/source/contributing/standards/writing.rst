@@ -23,7 +23,7 @@ Prose style
   Give readers a sense of what happens, and point to where details live rather than repeating or counting them.
   Check that comments and docstrings match what the code does, and update them when the code changes.
 * In substantial scientific exposition, introduce a problem and explain why it matters before describing implementation details, and include background only where it helps intended readers.
-* Introduce or explicitly identify an object, quantity, or concept before using a definite reference or pronoun.
+* Introduce or explicitly identify an object, quantity, or concept before using a definite reference or pronoun, and check that each such reference can mean only the one intended.
   A clear name or defining description is sufficient; identical wording need not appear earlier.
 
   * **Unclear without prior context:** ``Run a simulation and check the estimate.``
