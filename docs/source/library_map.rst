@@ -266,7 +266,7 @@ Other limitations:
 
 * Circuit and tableau tools work only with qubit codes, and memory experiments for non-CSS codes need ``basis=None``.
 * :func:`~qldpc.circuits.encoding.get_encoding_circuit` builds a valid encoder that is not fault-tolerant.
-* Transversal-gate searches enumerate code automorphisms, can take exponential time, and may run GAP or prompt on standard input.
+* Transversal-gate searches enumerate code automorphisms, can take exponential time, and may run GAP or MAGMA, or prompt on standard input.
 * Windowed decoders such as :class:`~qldpc.decoders.sinter.window.SlidingWindowDecoder` infer each detector's time from its coordinates by a heuristic; pass ``detector_to_time`` when a detector error model uses another convention.
 
 What qLDPC computes exactly, bounds, and trusts
@@ -297,6 +297,18 @@ When qLDPC uses libgap, it installs the package with GAP's PackageManager.
 When qLDPC runs GAP as a separate program, it clones the package with Git into qLDPC's user cache directory.
 
 Functions that can use GAP include :meth:`ClassicalCode.from_name <qldpc.codes.common.ClassicalCode.from_name>`, :meth:`ClassicalCode.get_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_permutation_automorphism_group>`, :meth:`abstract.Group.from_name <qldpc.abstract.groups.Group.from_name>`, distance bounds with the GAP backend, and transversal-gate searches such as :func:`~qldpc.circuits.transversal.get_transversal_ops`.
+
+MAGMA
+~~~~~
+
+Permutation automorphism groups and transversal-gate searches use MAGMA instead of GAP when called with ``with_magma=True``, as does ``Group.from_name`` with ``from_magma=True``.
+These calls never fall back to GAP, and calls without these arguments never run MAGMA, so the result of a call does not depend on which of GAP and MAGMA is installed.
+If a ``magma`` executable is on ``PATH`` and a test run of it succeeds, qLDPC runs it in a subprocess, without the user's startup file.
+If the test run fails, qLDPC warns.
+Without a working ``magma``, qLDPC prints the MAGMA command, copies it to the system clipboard, and reads MAGMA's output from standard input.
+The generators that MAGMA returns can depend on its random seed, so both the subprocess and the manual workflow start the command by fixing the seed.
+An error that MAGMA reports raises a ``ValueError``; if MAGMA stops for another reason, such as a crash, qLDPC warns and falls back to the manual workflow.
+qLDPC caches MAGMA's results on disk.
 
 Code and group lookups
 ~~~~~~~~~~~~~~~~~~~~~~

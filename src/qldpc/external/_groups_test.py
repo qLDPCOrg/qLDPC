@@ -10,7 +10,7 @@ import urllib
 import pytest
 
 from qldpc import external
-from qldpc.external import _groups
+from qldpc.external import _groups, _magma
 
 # define global testing variables
 ORDER, INDEX = 2, 1
@@ -231,7 +231,6 @@ def test_get_generators_from_magma(
         assert _groups.get_generators_from_magma(group) == generators
         terminal_output, error_message = capsys.readouterr()
         assert not error_message
-        assert terminal_output.startswith("Run the following command in MAGMA:")
         assert "NOTICE: group found in the local MAGMA group cache" in terminal_output
 
     # MAGMA lists no generators of a trivial group, for which this function returns the identity
@@ -246,6 +245,59 @@ def test_get_generators_from_magma(
     with pytest.raises(ValueError, match="Invalid MAGMA output"):
         _groups.get_generators_from_magma(group)
     capsys.readouterr()  # intercept print statements
+
+    # parentheses that hold numbers in output that describes no permutation group are not cycles,
+    # as in this output of the command GL(2,3), recorded from MAGMA V2.29-10
+    with pytest.raises(ValueError, match="Invalid MAGMA output"):
+        _groups._parse_magma_generators("GL(2, GF(3))\n")
+
+    # MAGMA may wrap lines after the commas of a cycle
+    output = "Order = 80 = 2^4 * 5\n    (1, 40)(2, 39)(3,\n        38)\n    (1, 2)\n"
+    assert _groups._parse_magma_generators(output) == [[(0, 39), (1, 38), (2, 37)], [(0, 1)]]
+
+
+def test_get_generators_from_local_magma(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Retrieve generators for a MAGMA group from a MAGMA executable."""
+    group = "PermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));"
+    # MAGMA's description of the group, recorded from MAGMA V2.29-10
+    output = "Permutation group acting on a set of cardinality 2\nOrder = 2\n(1, 2)\n"
+    monkeypatch.setattr(_magma, "is_callable", lambda: True)
+
+    # MAGMA runs without prompting, with a fixed random seed, and the result is cached
+    cache: dict[str, str] = {}
+    monkeypatch.setattr("builtins.input", unittest.mock.Mock(side_effect=AssertionError))
+    with (
+        unittest.mock.patch("qldpc.cache.get_disk_cache", return_value=cache),
+        unittest.mock.patch.object(_magma, "get_output", return_value=output) as get_output,
+    ):
+        assert _groups.get_generators_from_magma(group) == [[(0, 1)]]
+        get_output.assert_called_once_with(f"SetSeed(1); {group}")
+        assert _groups.get_generators_from_magma(group) == [[(0, 1)]]
+        get_output.assert_called_once()
+    assert "Run the following command in MAGMA" not in capsys.readouterr().out
+
+    # an error that MAGMA reports is raised
+    with (
+        unittest.mock.patch.object(_magma, "get_output", side_effect=_magma.MAGMAError("_TEST_")),
+        pytest.raises(ValueError, match="_TEST_"),
+    ):
+        _groups.get_generators_from_magma(group)
+
+    # if MAGMA fails to finish the command for another reason, fall back to the manual workflow
+    inputs = iter(output.splitlines() + [""])
+    monkeypatch.setattr("builtins.input", lambda: next(inputs))
+    with (
+        unittest.mock.patch.object(
+            _magma, "get_output", side_effect=_magma.MAGMARunError("_TEST_")
+        ),
+        pytest.warns(UserWarning, match="_TEST_"),
+    ):
+        assert _groups.get_generators_from_magma(group) == [[(0, 1)]]
+    assert (
+        f"Run the following command in MAGMA:\n\nSetSeed(1); {group}\n" in capsys.readouterr().out
+    )
 
 
 def test_get_small_group_number() -> None:

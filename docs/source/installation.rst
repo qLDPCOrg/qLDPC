@@ -38,6 +38,8 @@ Choose tools for the task
      - :ref:`Additional decoders <installation-decoders>`.
    * - Use algebra tools, named-code lookups, or distance estimates that require GAP
      - :ref:`GAP integration <installation-gap>`.
+   * - Compute permutation automorphism groups or transversal gates with MAGMA
+     - :ref:`MAGMA integration <installation-magma>`.
    * - Find symmetries of parity check matrices, as for some balanced product codes, or to speed up exact distances of symmetric codes
      - :ref:`Matrix automorphisms <installation-bliss>`.
    * - Estimate binary CSS code distances with the GPU-based ``sqetch`` backend
@@ -105,6 +107,15 @@ Set this launch command with ``QLDPC_GAP_COMMAND``.
 The installer's ``gap.bat`` does not meet these requirements, since it ignores its arguments.
 Without such a command, use the manual fallback with the GAP console that the installer provides.
 See `issue #294 <https://github.com/qLDPCOrg/qLDPC/issues/294>`_ for the status of Windows support.
+
+.. _installation-magma:
+
+MAGMA integration
+-----------------
+
+Permutation automorphism groups and transversal-gate searches can use `MAGMA <https://magma.maths.usyd.edu.au>`_, a commercial computer algebra system, instead of GAP when called with ``with_magma=True``.
+qLDPC runs a licensed ``magma`` executable on ``PATH`` if it finds one, and otherwise offers a manual copy/paste workflow.
+See the :doc:`library map <library_map>` for MAGMA calls, prompts, and caching.
 
 .. _installation-bliss:
 

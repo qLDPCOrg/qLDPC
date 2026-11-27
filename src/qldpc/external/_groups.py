@@ -20,11 +20,16 @@ import qldpc.cache
 import qldpc.external.gap
 from qldpc import _deprecations
 from qldpc._utils import get_external_caller_stacklevel
+from qldpc.external import _magma
 
 _GeneratorsList = list[list[tuple[int, ...]]]
 _Idempotents = tuple[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...], ...]
 
 _GROUPNAMES_URL = "https://people.maths.bris.ac.uk/~matyd/GroupNames/"
+
+# MAGMA's generators of a group can depend on its random seed, so both the MAGMA subprocess and the
+# manual workflow fix the seed
+_MAGMA_SEED = 1
 
 
 ####################################################################################################
@@ -80,20 +85,28 @@ def get_generators(
 def get_generators_from_magma(group: str) -> _GeneratorsList:
     """Retrieve group generators from MAGMA.
 
-    This function uses a manual copy/paste workflow that prints the command, copies it to the system
-    clipboard, and reads the pasted output from standard input (blocking, and raising ``EOFError``
-    if standard input is closed).
-    """
-    print("Run the following command in MAGMA:")
-    print()
-    print(group)
-    print()
+    This function tries a local disk cache, then MAGMA if it can be called from the command line,
+    and finally a manual copy/paste workflow.  The manual workflow prints the command, copies it to
+    the system clipboard, and reads the pasted output from standard input (blocking, and raising
+    ``EOFError`` if standard input is closed).  The generators that MAGMA returns can depend on its
+    random seed, so both the MAGMA subprocess and the manual workflow start the command by fixing
+    the seed.  If MAGMA reports an error, this function raises it.  If MAGMA stops for another
+    reason, such as a crash, this function warns and falls back to the manual workflow.
 
+    Raises:
+        ValueError: If MAGMA reports an error, such as an error in the command, or its output does
+            not describe a permutation group.
+    """
+    command = f"SetSeed({_MAGMA_SEED}); {group}"
     cache_name = "magma_groups"
     cache = qldpc.cache.get_disk_cache(cache_name)
-    key = "".join(group.split())  # strip whitespace
+    key = "".join(command.split())  # strip whitespace
 
     if generators := cache.get(key, None):
+        print("MAGMA command:")
+        print()
+        print(command)
+        print()
         print(
             "NOTICE: group found in the local MAGMA group cache."
             "  Retrieved group generators (in cycle notation):"
@@ -110,10 +123,28 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
         )
         return generators
 
+    # run MAGMA, if it can be called from the command line
+    if _magma.is_callable():
+        try:
+            output = _magma.get_output(command)
+        except _magma.MAGMARunError as error:
+            warnings.warn(
+                f"{error}\n\nFalling back to copying commands into MAGMA by hand.",
+                stacklevel=get_external_caller_stacklevel(),
+            )
+        else:
+            generators = _parse_magma_generators(output)
+            cache[key] = generators
+            return generators
+
+    print("Run the following command in MAGMA:")
+    print()
+    print(command)
+    print()
     print("===============================================================================")
     print("NOTE:")
     try:
-        pyperclip.copy(group)
+        pyperclip.copy(command)
         print("The above command has been copied to your system clipboard.")
         print("You can paste the command into MAGMA with ctrl+v or cmd+v.")
     except pyperclip.PyperclipException:  # pragma: no cover
@@ -131,21 +162,7 @@ def get_generators_from_magma(group: str) -> _GeneratorsList:
     while line := input():
         lines.append(line)
 
-    # identify permutations in the output; MAGMA lists no generators of a trivial group
-    output = "\n".join(lines)
-    one_cycle_pattern = r"\((?:\d|,\s+)+\)"
-    permutation_pattern = rf"(?:{one_cycle_pattern})+"
-    permutations = re.findall(permutation_pattern, output, re.DOTALL)
-    if not permutations and re.search(r"^\s*Order = 1\s*$", output, re.MULTILINE):
-        permutations = ["()"]
-    if not permutations:
-        raise ValueError("Invalid MAGMA output")
-
-    # remove whitespace (and, in particular, newlines) from every permutation
-    permutations = [re.sub(r"\s+", "", permutation) for permutation in permutations]
-
-    # compute generators
-    generators = _parse_gap_permutations("\n".join(permutations))
+    generators = _parse_magma_generators("\n".join(lines))
     cache[key] = generators
     return generators
 
@@ -156,15 +173,16 @@ def _maybe_get_generators_from_gap(
     """Retrieve group generators from GAP, or return None if GAP is not available.
 
     Checking whether GAP is available may prompt on standard input; see
-    help(qldpc.external.gap.is_installed).
+    help(qldpc.external.gap.is_installed).  The given warning, if any, is raised before that check,
+    so that a user sees it before answering a prompt.
     """
-    if not qldpc.external.gap.is_installed():
-        return None
-    qldpc.external.gap.require_package("GUAVA")
-
     # if provided a warning to raise before calling GAP, raise it now
     if warning is not None:
         warnings.warn(warning, stacklevel=get_external_caller_stacklevel())
+
+    if not qldpc.external.gap.is_installed():
+        return None
+    qldpc.external.gap.require_package("GUAVA")
 
     # run GAP commands
     commands = [
@@ -214,6 +232,25 @@ def _maybe_get_generators_from_groupnames(group: str) -> _GeneratorsList | None:
         return None
     permutations = match.group(1).replace("<br>", "")
     return _parse_gap_permutations(permutations, cycle_sep=" ")
+
+
+def _parse_magma_generators(output: str) -> _GeneratorsList:
+    """Parse the generators of a permutation group from MAGMA's description of the group.
+
+    MAGMA prints each generator in cycle notation, starting on a new line, and lists no generators
+    of a trivial group, for which this function returns the identity.
+    """
+    # identify the lines that hold only cycles, allowing pasted output to wrap lines after commas
+    cycle_pattern = r"\(\d+(?:,\s+\d+)*\)"
+    permutations = re.findall(rf"^[ \t]*((?:{cycle_pattern})+)[ \t]*$", output, re.MULTILINE)
+    if not permutations and re.search(r"^\s*Order = 1\s*$", output, re.MULTILINE):
+        permutations = ["()"]
+    if not permutations:
+        raise ValueError(f"Invalid MAGMA output:\n{output}")
+
+    # remove whitespace (and, in particular, newlines) from every permutation
+    permutations = [re.sub(r"\s+", "", permutation) for permutation in permutations]
+    return _parse_gap_permutations("\n".join(permutations))
 
 
 def _parse_gap_permutations(permutations: str, cycle_sep: str = ",") -> _GeneratorsList:

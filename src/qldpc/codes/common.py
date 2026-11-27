@@ -34,7 +34,7 @@ from qldpc._deprecations.decoders import (
 from qldpc._utils import format_docstring, get_external_caller_stacklevel
 from qldpc.decoders._capabilities import is_prebuilt_decoder, is_prebuilt_observable_decoder
 from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
-from qldpc.external import _bliss, _codes
+from qldpc.external import _bliss, _codes, _magma
 from qldpc.math import IntegerArray, resolve_field
 from qldpc.objects import (
     PAULIS_XZ,
@@ -847,8 +847,9 @@ class ClassicalCode(AbstractCode):
         contains maps that multiply bits by nonzero field elements.
 
         This computation may run GAP, install GAP packages, access GroupNames.org, or prompt on
-        standard input, or with ``with_magma=True`` prompt for MAGMA output on standard input; see
-        help(qldpc.abstract.Group.from_name).
+        standard input.  With ``with_magma=True``, it uses only MAGMA: it runs MAGMA if MAGMA can be
+        called from the command line, and otherwise prompts for MAGMA output on standard input.  An
+        error that MAGMA reports raises a ValueError.  See help(qldpc.abstract.Group.from_name).
         """
         matrix = self.canonicalized.matrix.view(np.ndarray)
 
@@ -873,6 +874,11 @@ class ClassicalCode(AbstractCode):
             " time.  If this calculation takes too long, try computing the group with MAGMA by"
             ' passing the argument "with_magma=True" to the method that needs to compute the group.'
         )
+        if _magma.is_on_path() and not external.gap.is_callable():
+            warning += (
+                "  GAP cannot be called from the command line here, but a MAGMA executable is on"
+                " PATH, so MAGMA may compute the group without copying commands by hand."
+            )
 
         gap_elements = (
             [str(value) for value in range(self.field.order)]

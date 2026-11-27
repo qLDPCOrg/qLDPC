@@ -359,15 +359,22 @@ def test_permutation_automorphism_group(
     code: codes.ClassicalCode = codes.HammingCode(2, field=2)
     automorphisms = "\n(1,2)\n(2,3)\n"
 
-    # raise an error when GAP is not installed
+    # when GAP cannot be called but a magma executable is on PATH, warn with a hint to use MAGMA
+    # before asking whether GAP is available, and raise an error when the user declines
+    def decline_gap() -> bool:
+        assert any("MAGMA executable is on PATH" in str(record.message) for record in records)
+        return False
+
     external.gap.require_package.cache_clear()
     with (
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_installed", side_effect=decline_gap),
         unittest.mock.patch(
             "qldpc.external.gap.subprocess.run",
             side_effect=AssertionError("GAP executable must not be called by this test"),
         ),
+        unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=True),
+        pytest.warns(UserWarning, match="MAGMA executable is on PATH") as records,
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
         codes.RepetitionCode(2).get_permutation_automorphism_group()
@@ -380,7 +387,8 @@ def test_permutation_automorphism_group(
             "qldpc.external.gap.subprocess.run",
             side_effect=AssertionError("GAP executable must not be called by this test"),
         ),
-        pytest.warns(UserWarning, match="with_magma=True"),
+        unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=True),
+        pytest.warns(UserWarning, match="with_magma=True") as records,
     ):
         for code, automorphisms in [
             (codes.HammingCode(2, field=2), "\n(1,2)\n(2,3)\n"),
@@ -410,6 +418,28 @@ def test_permutation_automorphism_group(
         query = "".join("".join(get_output.call_args.args).split())
         rows = "[Z(4)^0,0*Z(4),Z(4)^0,Z(4)^1,Z(4)^2],[0*Z(4),Z(4)^0,Z(4)^0,Z(4)^0,Z(4)^0]"
         assert f"PermutationAutomorphismGroup(CheckMatCode([{rows}],GF(4)))" in query
+    # when GAP can be called from the command line, the warning does not say that it cannot
+    assert not any("MAGMA executable is on PATH" in str(record.message) for record in records)
+
+    # if GAP needs copying commands by hand, the warning says whether MAGMA is on PATH, and the
+    # default path still computes with GAP and never runs MAGMA
+    for magma_on_path in [True, False]:
+        with (
+            unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
+            unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+            unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
+            unittest.mock.patch("qldpc.external.gap.get_output", return_value="\n(1,2)\n"),
+            unittest.mock.patch("qldpc.external._magma.is_on_path", return_value=magma_on_path),
+            unittest.mock.patch(
+                "qldpc.external._magma.get_output", side_effect=AssertionError("must not run MAGMA")
+            ),
+            pytest.warns(UserWarning, match="with_magma=True") as records,
+        ):
+            assert codes.RepetitionCode(2).get_permutation_automorphism_group().order == 2
+        messages = [str(record.message) for record in records]
+        assert (
+            any("MAGMA executable is on PATH" in message for message in messages) == magma_on_path
+        )
 
     # compute a permutation automorphism group with MAGMA, asking it for the PermutationGroup of the
     # code rather than its AutomorphismGroup, whose members also scale nonbinary coordinates
@@ -420,7 +450,8 @@ def test_permutation_automorphism_group(
     code = codes.RepetitionCode(2)
     group = abstract.CyclicGroup(2)
     assert code.get_permutation_automorphism_group(with_magma=True).equiv(group)
-    assert "\nPermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));\n" in capsys.readouterr().out
+    query = "\nSetSeed(1); PermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));\n"
+    assert query in capsys.readouterr().out
 
     # MAGMA maps integers into GF(8) through the prime field, so the query defines GF(8) by the
     # irreducible polynomial x^3 + x^2 + 1 of the galois field, listing its coefficients constant
@@ -431,7 +462,9 @@ def test_permutation_automorphism_group(
     assert code.get_permutation_automorphism_group(with_magma=True).order == 1
     field = "F<w>:=ext<GF(2)|Polynomial(GF(2),[1,0,1,1])>;"
     matrix = "Matrix(F,1,3,[[1,w,w+w^2]])"
-    assert f"\n{field}PermutationGroup(LinearCode({matrix}));\n" in capsys.readouterr().out
+    assert (
+        f"\nSetSeed(1); {field}PermutationGroup(LinearCode({matrix}));\n" in capsys.readouterr().out
+    )
 
 
 def test_matrix_automorphism_group() -> None:
