@@ -498,6 +498,13 @@ def test_a_later_process_loads_compiled_code_until_a_callee_changes(tmp_path: Pa
     """A later process loads a compiled caller, and compiles it again after its callee changes.
 
     Numba's own cache would serve the outdated caller, since it checks only the caller's own file.
+
+    If qLDPC cannot cache, the first process fails with qLDPC's warning, which gives the reason,
+    since the processes turn that warning into an error.  If the second process compiles the caller
+    again, numba did not save the caller or did not find it.  For example, numba's cache key may now
+    include something that differs between processes, such as numba's count of compiled functions,
+    which qLDPC starts at random in each process.  If the last process loads the caller, the hash
+    that names the cache directory has missed the change to the callee.
     """
     package = tmp_path / "package"
     (package / "other").mkdir(parents=True)
@@ -515,9 +522,11 @@ stats = caller.add_to.stats
 print(value, sum(stats.cache_hits.values()), sum(stats.cache_misses.values()))
 """
     results = []
+    environment = {"NUMBA_CACHE_DIR": str(tmp_path / "cache")}
     for increment in (1, 1, 10):
         (package / "other" / "callee.py").write_text(_CALLEE.format(increment=increment))
-        results.append(run_python(code, env={"NUMBA_CACHE_DIR": str(tmp_path / "cache")}).split())
+        output = run_python(code, "-W", "error:qLDPC cannot cache:RuntimeWarning", env=environment)
+        results.append(output.split())
     assert results == [["2", "0", "1"], ["2", "1", "0"], ["11", "0", "1"]]
 
 
