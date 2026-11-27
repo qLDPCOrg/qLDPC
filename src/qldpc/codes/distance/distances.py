@@ -916,12 +916,11 @@ def _get_coset_weight(
 ) -> int:
     """The minimum weight of the coset of a vector that is not a word of a binary classical code.
 
-    The code has the parity checks ``checks`` and the generators ``generators``.  Callers pass both
-    because they already have them.  The syndrome of ``vector`` must be nonzero.  A search of the
-    coset stops at the first vector that weighs at most ``cutoff``, and returns that weight, an
-    upper bound.  An automorphism of the code need not map the coset of the vector onto itself, so
-    the searches of the coset use no automorphisms.  ``README.md#sec-grid`` says which methods find
-    the weight, and how.
+    The code has the parity checks ``checks`` and the generators ``generators``.  The syndrome of
+    ``vector`` must be nonzero.  A search of the coset stops at the first vector that weighs at most
+    ``cutoff``, and returns that weight, an upper bound.  An automorphism of the code need not map
+    the coset of the vector onto itself, so the searches of the coset use no automorphisms.
+    ``README.md#sec-grid`` says which methods find the weight, and how.
     """
     if method == "connected_cluster":
         # The vector itself is within the cutoff, or bounds the weight of its coset.

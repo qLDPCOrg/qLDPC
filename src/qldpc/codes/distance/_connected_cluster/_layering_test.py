@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from qldpc.conftest import check_import_layering
 
-# The layers of the modules, from the lowest to the highest, which hold their complete order
-# (``README.md#sec-layers`` of qldpc.codes.distance).  Add each new module to one.
+# These layers, from lowest to highest, are the complete order of the modules;
+# ``README.md#sec-layers`` of qldpc.codes.distance gives only the main levels.  Add each new module
+# to one.
 _LAYERS = (("sparse_checks",), ("search",), ("coset",))
 
 

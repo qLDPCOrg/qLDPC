@@ -194,7 +194,7 @@ Routes and the names that control them
    * - Distance searches by the connected-cluster method: the threads that search a costly weight limit
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.search_chunk_exponent`, :attr:`SearchTuning.connected_cluster_split_shift`
      -
-     - :guide:`Threads <codes/distance/connected_cluster.md#sec-threads>`
+     - :guide:`Threads <codes/distance/connected_cluster.md#sec-threads>` of ``connected_cluster.md``
    * - Certifications of bounded fault propagation: when a costly fault listing moves to threads, and how many
      - :attr:`SearchTuning.num_threads`
      -

@@ -113,7 +113,7 @@ Take a state of the search from `r` with `S ⊊ supp(x)` and `F ∩ supp(x) = �
 By the lemma, the syndrome of `S` is not empty, and every check holds an even number of the variables of `supp(x)`, so each unsatisfied check, such as the check `c` on which the search branches, holds an available variable of `supp(x) \ S`.
 The child of the first such variable of `c` is another state of this kind, since the variables of its earlier siblings lie outside `supp(x)`.
 So the search reaches `supp(x)`, unless it reports another witness first.
-The pruning of [Pruning](#sec-pruning) keeps these states, since its bounds hold for any state that a witness of weight at most `W` extends, and it forbids only variables that no such witness holds, except for the overlap cuts, which [Pruning](#sec-pruning) shows keep the states of one witness of minimum weight.
+The pruning ([Pruning](#sec-pruning)) keeps these states, since its bounds hold for any state that a witness of weight at most `W` extends, and it forbids only variables that no such witness holds, except for the overlap cuts, which [Pruning](#sec-pruning) shows keep the states of one witness of minimum weight.
 
 <a name="sec-pruning"></a>
 ### Pruning
@@ -228,7 +228,7 @@ For a ranking of the variables, the **root** of an orbit of `Γ` is its variable
 Among the witnesses of minimum weight, take one, `x`, whose lowest-ranked variable `m` ranks lowest.
 If a variable `u` of the orbit of `m` ranked lower, an element of `Γ` that maps `m` to `u` would map `x` to a witness of minimum weight that holds `u`, against the choice of `x`, so `m` is a root.
 By the lemma, the completeness argument of [The depth-first search](#sec-depth-first-search) applies to `x` from `m`, so it suffices to search from the roots.
-Since the lemma holds for every witness of minimum weight, the images of `x` included, `Γ` need not permute the rows of `H`: qLDPC checks only that each generator maps `ker(H)` and `rowspan(G)` onto themselves, which `_information_sets/automorphism_families.py` verifies, as BZ does.
+Since the lemma holds for every witness of minimum weight, the images of `x` included, `Γ` need not permute the rows of `H`: qLDPC checks, with `_information_sets/automorphism_families.py` as BZ does, only that each generator maps `ker(H)` and `rowspan(G)` onto themselves.
 
 qLDPC ranks the variables orbit by orbit, with the orbits in the order of their lowest indices, so that the search from each root forbids every earlier orbit.
 A root forbids only variables of orbits whose roots rank lower, so for a given order of the orbits, no ranking forbids more.
@@ -236,7 +236,8 @@ Without symmetries, every variable is a root, ranked by its index.
 Okada and Kasai write the variables of a pair-partition code as `(ℓ, a)`, for a block column `ℓ` and a position `a` modulo the lift size `P`, search from the roots `(ℓ, 0)` of the orbits under cyclic translations of `a`, and rank `(ℓ, a)` by `ℓP + a`; their implementation uses these roots only if `P` is prime and `W < P`.
 qLDPC takes the orbits of any group of automorphisms that it verifies.
 
-The generators of `Γ` are automorphisms that the caller of a distance function supplies on request, such as the permutation automorphisms that binary classical and quantum codes know, which the docstrings in `src/qldpc/codes/common.py` describe.
+The generators of `Γ` are automorphisms that the caller of a distance function supplies on request.
+The code classes supply the permutation automorphisms that they know, and the docstrings in `src/qldpc/codes/common.py` describe them.
 For a large code, finding the automorphisms, verifying them, and ordering their orbits can cost as much as visiting many states.
 So the search of each sector asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
@@ -293,7 +294,7 @@ For a qubit code, `H` holds the stabilizers, the words are the operators that co
 Each qubit is a variable whose nonzero **values** are `X`, `Z`, and `Y`, and a **symbol** is a variable with one of its values.
 A set of symbols on distinct variables stands for the operator with those values there, and a symbol **flips** a check that anticommutes with it on its qubit.
 The Tanner graph joins each check to the symbols that flip it.
-In the binary problems of [The problem](#sec-problem), symbols are variables, each with one value.
+In the binary problems ([The problem](#sec-problem)), symbols are variables, each with one value.
 The sections from [Light words are connected](#sec-connectivity) through [From a search to the distance](#sec-search-to-distance) carry over with symbols for variables:
 
 - **Lemma.**
@@ -333,7 +334,7 @@ The query searches as [The depth-first search](#sec-depth-first-search) does, bu
 **Completeness.**
 Let `x` be a lightest solution, and take a state with `S ⊊ supp(x)` and `F ∩ supp(x) = ∅`, such as the empty state.
 The syndrome of the state is that of the restriction of `x` to `supp(x) \ S`, which is not empty, or else `x_S` would be a lighter solution, so the argument of [The depth-first search](#sec-depth-first-search) carries over.
-So do the pruning of [Pruning](#sec-pruning), with completions that empty the syndrome, and the values of [Qubit codes that are not CSS](#sec-non-css).
+So do the pruning ([Pruning](#sec-pruning)), with completions that empty the syndrome, and the values `X`, `Z`, and `Y` ([Qubit codes that are not CSS](#sec-non-css)).
 The support of `x` need not be connected, but the restriction of `x` to each component flips a check of `σ`, through which the search can enter that component.
 
 **Overlaps with known words.**
@@ -386,7 +387,8 @@ A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` direct
 The queries of these batches mostly visit a few states each, so Python code around each query would take most of the time of a batch.
 So the batch queries of a coset search answer each block of a batch in one call of a compiled loop of `_connected_cluster/coset.py`, which maps, looks up, and searches each syndrome of the block, and calls the compiled search of `_connected_cluster/search.py` from compiled code.
 This makes the batches of `certify_bounded_fault_propagation` about 4 to 8 times faster than answering their queries one at a time from Python.
-For the first syndrome of a batch without a solution within `W`, `CosetLeaderSearch.find_first_not_within_max_weight`, like the batch query of a coset search that it runs, returns the bound of a single query.
+For the first syndrome of a batch without a solution within `W`, `CosetLeaderSearch.find_first_not_within_max_weight` returns the bound of a single query.
+So does the batch query of a coset search, which it runs.
 
 Unless it takes the overlaps of all symbols in one pass ([What the cost of the search depends on](#sec-cost)), a state computes the overlap ([Pruning](#sec-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
 The checks of a syndrome query can stay dense after the rounds, so a symbol can flip many unsatisfied checks, and the query then memoizes the overlap of each symbol within the state.
@@ -509,13 +511,13 @@ With `h_v` the column of `v` in `H`, it forbids `b` and `c` in the subtree of `a
 Then `{a, b, c}` is the support of a word of `rowspan(G)` of weight 3.
 The sum of this word with a witness that holds two of `a`, `b`, and `c` is a lighter witness, so no witness of minimum weight holds two of them.
 A syndrome query could use any word of `ker(H)` of weight 3.
-A search with the values of [Qubit codes that are not CSS](#sec-non-css) could also use a word of weight 2, whose qubits replace a symbol on each by one symbol on one of them.
+A search with the values `X`, `Z`, and `Y` ([Qubit codes that are not CSS](#sec-non-css)) could also use a word of weight 2, whose qubits replace a symbol on each by one symbol on one of them.
 In binary problems, the rule is the overlap cut of [Pruning](#sec-pruning) by a known word of weight 3 that is not a row of `G`.
 The distance search of a classical code has no such words, since its `G` is empty.
 A count found none of weight 3 in the surface, toric, color, bivariate bicycle, generalized bicycle, pair-partition, quantum Tanner, and quantum Golay codes tried, in their sectors, their searches with Hadamards on some qubits, and their queries on the encoded state `|0…0⟩`.
 A CSS code whose stabilizers all have even weights, as these do, has none in `rowspan(G)` in any case.
 Only the surface codes have words of weight 2, their boundary stabilizers, which are rows of `G` and so already cut in binary problems.
-So the rule would change none of these searches except the searches and queries of surface codes with the values of [Qubit codes that are not CSS](#sec-non-css), and qLDPC does not use it.
+So the rule would change none of these searches except the searches and queries of surface codes with the values `X`, `Z`, and `Y` ([Qubit codes that are not CSS](#sec-non-css)), and qLDPC does not use it.
 
 **Lookups of the last variables.**
 dist-m4ri and Qubitserf look up the last one or two variables of a support in a table of syndromes ([references](#sec-references)).
@@ -624,7 +626,10 @@ Changes to the search can use other bounds and orders, but must keep these requi
   A bound must be a lower bound on the number of variables that such a witness adds, all of which are available ([The depth-first search](#sec-depth-first-search)).
   A bound that is too strong can still give the right distance, so the tests need cases where the bound is tight at the distance, such as the tests of known distances.
 - **Forbid a variable for a subtree as not viable only if no completion of the state within the weight limit holds it**, and make it available again when the search leaves the state.
-- **Forbid a symbol by an overlap cut at a state only if the canonical witness, or canonical solution, does not extend the state or lacks the symbol** ([Pruning](#sec-pruning)), with the lowest-ranked variable of each word under the current ranks of the search, which a syndrome query uses too, and loads that are undone when a symbol leaves the support.
+- **Forbid a symbol by an overlap cut at a state only if the canonical witness, or canonical solution, does not extend the state or lacks the symbol** ([Pruning](#sec-pruning)).
+  The cut of each known word leaves out its lowest-ranked variable under the search's current ranks.
+  Syndrome queries use the same ranks.
+  The loads of the overlap cuts are undone when a symbol leaves the support.
   The canonical witness has a support that comes first in the order of these ranks, with ties in values broken arbitrarily.
   A distance search may use only words of `rowspan(G)` as known words, while a syndrome query may use any word of `ker(H)` ([Vectors with a given syndrome](#sec-syndromes)).
   A cut that ignored the ranks that symmetries set could forbid the only witness that the roots reach, so the tests check that each root finds exactly the lightest witnesses that pass every cut, with and without symmetries.
@@ -650,7 +655,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers of one thread, including the first index of a syndrome without an error within `max_weight`** ([Threads](#sec-threads)): replay the path of each work item and of each chunk exactly, count no state that a replay enters, run every item before the first with a witness in full, and count the states above the frontier once.
   The decisions that depend on these counts would otherwise depend on the number of threads.
   So of what a limit leaves, decisions must read only its witness and count of states, since on threads the items after the first witness may or may not have run.
-  The tests of the rules on threads in this bullet and its sub-bullets cite this section.
+  The tests of the rules on threads in this bullet and its sub-bullets cite [`connected_cluster.md#sec-requirements`](#sec-requirements).
   - **Keep what the search has forbidden, blocked, and loaded at a state a function of the state's path and earlier siblings, so that replay rebuilds it** ([Threads](#sec-threads)).
     A pruning rule may keep per-state data only if leaving the state undoes it, as the forbidding and blocking of symbols and the loads of the overlap cuts are undone, and may add checks and known words only as tables built before the search, as the light sums of pairs of checks are ([Pruning](#sec-pruning)).
     It must not carry memos, learned constraints, or sets of states already seen from one state or root to another, and must keep the depth-first order of the search.

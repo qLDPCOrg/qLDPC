@@ -28,7 +28,7 @@ Each cell of the table below says whether a problem takes a method, and how it r
 | Coset leaders | not by design | threads | threads | not by design | threads |
 | Logical counts | one thread | one thread | not by design | one thread | one thread |
 
-- **Distance** is the minimum weight of a nontrivial word: the functions of `distances.py`, and the public methods elsewhere in qLDPC that take a `method`, such as `get_distance` and `get_distance_exact` of the code classes.
+- **Distance** is the minimum weight of a nontrivial word: the functions of `distances.py`, and the public functions and methods elsewhere in qLDPC that take a `DistanceMethod`, such as `get_distance` and `get_distance_exact` of the code classes.
   `connected_cluster` needs parity checks, so `get_distance_from_generators` does not take it.
 - **Coset weight of a vector** is the minimum distance between a vector and a word of a binary classical code, which `ClassicalCode.get_distance_exact(vector=...)` finds by a distance search of `distances.py`.
 - **Coset leaders** are the lightest Pauli errors with a given syndrome on a stabilizer state: `CosetLeaderSearch` in `coset_leaders.py`.
@@ -134,8 +134,8 @@ It is not a list of every module: the docstring of each module says what it hold
 | --- | --- |
 | The methods that a problem takes, or how their names are validated | `distances.py`, `coset_leaders.py`, and `logical_counts.py`, which define the method type of each problem.  Code elsewhere in qLDPC branches on or validates the method names too; before you add a method or change how names are validated, grep `src/qldpc` for the method types and for the method's name |
 | The automatic choice of a method (`method="auto"`) | `distances.py` and `_auto.py`, and `coset_leaders.py` and `logical_counts.py` for coset searches and counts, after [Choosing a method](problems.md#sec-choosing-a-method) in `problems.md` |
-| Which sectors a distance search of a CSS code searches | `distances.py` and `_sector_maps.py`, after [Searching one sector of a CSS code](problems.md#sec-one-sector) in `problems.md` |
-| The counts, the deformed counters, or `compile_search_setup` | `logical_counts.py`, and `_counting/` for the scan of a count, the local Clifford gates of deformed counters, and the MacWilliams method |
+| Which sectors a distance search of a CSS code searches | `distances.py`, after [Searching one sector of a CSS code](problems.md#sec-one-sector) in `problems.md` |
+| The counts, the deformed counters, or `compile_search_setup` | `logical_counts.py`, and `_counting/` |
 | The coset-leader search, and how its queries split into coset searches | `coset_leaders.py`, after [The coset-leader search](problems.md#sec-coset-leader-search) in `problems.md` |
 | The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py`, and `_brouwer_zimmermann/affine_search.py` and `_brouwer_zimmermann/affine_instance.py` for the compiled scans and the instances that it shares with the BZ coset searches |
 | The BZ coset searches | `_brouwer_zimmermann/coset.py`, which runs their queries, `_brouwer_zimmermann/coset_routes.py`, which chooses their routes, and `_brouwer_zimmermann/coset_tables.py`, which builds their tables |
@@ -159,7 +159,7 @@ The main levels of the package, from the top:
 7. `_code_matrices.py` and `_threads.py`.
 
 A top-level module or subpackage imports only from lower levels.
-A module in a subpackage may also import from lower layers of that subpackage.
+A module in a subpackage may also import modules below it in the order that the subpackage's `_layering_test.py` lists.
 The `_layering_test.py` of the package, and that of each subpackage, lists the complete order of the modules that it checks, and checks the imports against that order through a helper of `src/qldpc/conftest.py`.
 The docstring of that helper gives further rules, such as that no module imports the root of the package.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.

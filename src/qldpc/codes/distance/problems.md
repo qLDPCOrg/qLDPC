@@ -52,7 +52,7 @@ Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qu
 
 Each problem's method type has its own `"auto"`, which chooses among that problem's methods.
 For the coset searches of `CosetLeaderSearch` and for counts, `"auto"` takes the Brouwer-Zimmermann (BZ) method (`coset_leaders.py` and `logical_counts.py`).
-For distances, `method="auto"` is the default of the distance functions, and of the public methods elsewhere in qLDPC that take a `method`, such as `get_distance` and `get_distance_exact` of the code classes.
+For distances, `method="auto"` is the default of the distance functions, and of the public functions and methods elsewhere in qLDPC that take a `DistanceMethod`, such as `get_distance` and `get_distance_exact` of the code classes.
 `distances.py` chooses a method for each search that a distance function runs.
 A code class that searches other codes, as `HGPCode` searches its seed codes, passes the method down, so each of those searches chooses too.
 The rule aims to avoid a method that is very slow on a search, not to find the fastest one, and it decides from the shapes of the sectors and from the progress of the searches, without fitted thresholds.
@@ -80,7 +80,8 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
      The projection to `U` extrapolates that growth over every limit below `U`, so it calls for a switch only while the growth test agrees.
      The comparison at the level projects only up to the level of the next limit, and needs no growth test.
      The search can switch only once the search of its next limit has a growth, which takes at least two limits without a witness.
-     Before that, a first limit that `cutoff` raises has no prediction, which says nothing about its cost, and after one limit the prediction assumes no growth.
+     Before that, a first limit that `cutoff` raises has no prediction, and the stand-in of `2**62 - 1` states says nothing about its cost.
+     After one limit, the prediction assumes no growth.
      So a search with a cutoff, whose first limit is the cutoff, runs through it and one more limit before it can switch.
      With a cutoff within about two weight divisors of the distance, it may never switch.
 

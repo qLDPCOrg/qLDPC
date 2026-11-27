@@ -189,8 +189,7 @@ class BrouwerZimmermannCosetSearch:
         ``split_work`` work, about one unit for each query and each word that it weighs, and
         ``num_threads`` threads then search the rest of it (``_threads.run_blocks``;
         ``brouwer_zimmermann_code.md#sec-cross-file-behavior``).  The result is the same on any
-        number of threads.  ``CosetLeaderSearch`` passes the thread options of its tuning.  The
-        defaults search on the calling thread alone.
+        number of threads.  The defaults search on the calling thread alone.
 
         Returns:
             The index of the first such syndrome and a ``MinWeightBound`` whose representative is

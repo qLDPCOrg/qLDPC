@@ -496,8 +496,10 @@ def test_overlap_cuts_keep_the_distances_of_random_codes(pytestconfig: pytest.Co
     distance 3 or 4 and stabilizers of weight at most 5, some of them odd, whose cuts are tight on
     lightest witnesses.  BZ gives an independent answer.
 
-    It checks "Give the same exact distances, and the same answers and lower bounds of coset
-    queries, with ``restrict_viable_symbols`` and ``stabilizer_overlap_cuts`` on and off" of
+    It checks the ``stabilizer_overlap_cuts`` part of "Give the same exact distances, and the same
+    answers and lower bounds of coset queries, with ``restrict_viable_symbols`` and
+    ``stabilizer_overlap_cuts`` on and off", and "Give the same exact distances, and answers of the
+    syndrome queries of ``_connected_cluster/search.py``, with ``pair_sum_checks`` on and off" of
     ``connected_cluster.md#sec-requirements``.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -1046,10 +1048,6 @@ def test_syndrome_queries_cut_by_no_sums_of_known_words() -> None:
     Its cut would forbid variable 5 from the start, and the query at limit 3 would return {0, 2, 3}
     rather than {0, 4} (``connected_cluster.md#sec-pruning`` and
     ``connected_cluster.md#sec-syndromes``).
-
-    It checks "Add only checks in the span of the checks, and only known words in ``rowspan(G)`` for
-    a distance search or in ``ker(H)`` for a syndrome query" of
-    ``connected_cluster.md#sec-requirements``.
     """
     checks = np.array([[0, 1, 1, 1, 0, 0], [0, 0, 1, 0, 1, 1], [1, 1, 1, 0, 1, 1]], dtype=np.uint8)
     excluded = np.array([[1, 1, 1, 0, 1, 0], [1, 1, 1, 0, 0, 1]], dtype=np.uint8)
@@ -1221,8 +1219,8 @@ def test_random_qubit_problems_match_enumeration(
     distances, and the same answers and lower bounds of coset queries, with
     ``restrict_viable_symbols`` and ``stabilizer_overlap_cuts`` on and off", "Give the same exact
     distances, and answers of the syndrome queries of ``_connected_cluster/search.py``, with
-    ``pair_sum_checks`` on and off", "Give each variable at most one value", and "Use a proven
-    weight divisor" of ``connected_cluster.md#sec-requirements``.
+    ``pair_sum_checks`` on and off", and "Give each variable at most one value" of
+    ``connected_cluster.md#sec-requirements``.
     """
     # The five-qubit code in two frames: in the first, a state needs Y on a qubit after an earlier
     # sibling of the state tried X there, and in the second, a state needs the other values of the

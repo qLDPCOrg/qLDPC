@@ -59,8 +59,8 @@ cost models, and how they bound their batches, memory, and caches.  For very cos
 :doc:`/exact_search_tuning` leads from symptoms and routes to these private settings, and says how
 to change them and what that can and cannot affect.
 
-Contributors can find a map of the modules in the `README of the package
-<https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md>`_.
+Contributors can find a selective map of the modules in the :guide:`README
+<codes/distance/README.md>` of the package.
 """
 
 from typing import TYPE_CHECKING
