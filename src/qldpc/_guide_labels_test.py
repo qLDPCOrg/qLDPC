@@ -13,6 +13,9 @@ import functools
 import os
 import pathlib
 import re
+import sys
+
+import pytest
 
 _ROOT = pathlib.Path(__file__).parents[2]
 _SOURCE = _ROOT / "src" / "qldpc"
@@ -50,14 +53,54 @@ def test_labels_sit_above_headings() -> None:
 def test_citations_of_labeled_guides_name_their_labels() -> None:
     """Each citation of a section of a labeled guide names a label of that guide."""
     assert _labels(), "no guide has labels"
-    broken = []
+    assert not _get_broken_citations()
+
+
+def test_broken_citations_are_found(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Citations of missing labels, and of labeled guides by their headings, are broken."""
+    source = tmp_path / "src" / "qldpc"
+    (source / "codes").mkdir(parents=True)
+    (source / "codes" / "guide.md").write_text(
+        '<a name="sec-kept"></a>\n## Kept\n\nSee [Kept](#sec-kept) and [Gone](#sec-gone).\n'
+    )
+    (source / "other.md").write_text("# Other\n\n## A heading\n")
+    (source / "codes" / "module.py").write_text(
+        "# guide.md#sec-kept, guide.md#kept, codes/guide.md#sec-gone, other.md#a-heading\n"
+        "# :guide:`Kept <codes/guide.md#sec-gone>`, missing.md#sec-kept\n"
+    )
+    (tmp_path / "notes.rst").write_text(
+        "guide.md#sec-kept and https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/"
+        "codes/guide.md#kept\n"
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "_SOURCE", source)
+    _files.cache_clear()
+    _labels.cache_clear()
+    try:
+        assert _get_broken_citations() == [
+            ("notes.rst", "src/qldpc/codes/guide.md#kept"),
+            ("src/qldpc/codes/guide.md", "src/qldpc/codes/guide.md#sec-gone"),
+            ("src/qldpc/codes/module.py", "?#sec-kept"),
+            ("src/qldpc/codes/module.py", "src/qldpc/codes/guide.md#kept"),
+            ("src/qldpc/codes/module.py", "src/qldpc/codes/guide.md#sec-gone"),
+        ]
+    finally:
+        _files.cache_clear()
+        _labels.cache_clear()
+
+
+def _get_broken_citations() -> list[tuple[str, str]]:
+    """List each citation of a labeled guide that names no label of it, with the citing file."""
+    broken = set()
     for path in _files():
         for guide, fragment in _citations(path):
             if guide in _labels() and fragment not in _labels()[guide]:
-                broken.append((path.relative_to(_ROOT).as_posix(), f"{guide}#{fragment}"))
+                broken.add((path.relative_to(_ROOT).as_posix(), f"{guide}#{fragment}"))
             elif guide is None and _LABEL.fullmatch(fragment):
-                broken.append((path.relative_to(_ROOT).as_posix(), f"?#{fragment}"))
-    assert not broken, broken
+                broken.add((path.relative_to(_ROOT).as_posix(), f"?#{fragment}"))
+    return sorted(broken)
 
 
 def _citations(path: pathlib.Path) -> list[tuple[str | None, str]]:
