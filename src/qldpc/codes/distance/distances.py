@@ -512,7 +512,7 @@ def _search_css(
     sectors = [sector_of_type[sector_pauli] for sector_pauli in paulis]
 
     # A qubit permutation that maps the X sector onto the Z sector leaves only the X sector to
-    # search (section "Searching one sector of a CSS code" of problems.md).
+    # search (``problems.md#sec-one-sector``).
     def has_sector_map() -> bool:
         basis_x = get_independent_rows(gauge_x)
         return get_sector_map(gauge_x, gauge_z, basis_x) is not None
@@ -563,7 +563,8 @@ def _search(
     onto the second.  Then only the first is searched.
 
     ``symplectic`` is as for ``get_distance_from_checks``, and the other arguments are as for
-    ``_search_css``.
+    ``_search_css``.  Every distance function searches through this function, which chooses the
+    method of each search for ``method="auto"`` (``problems.md#sec-choosing-a-method``).
     """
     width = sectors[0][1].shape[1]
     nested_bases: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]] = []
@@ -610,8 +611,8 @@ def _search(
             method = "brute_force"
 
     # Search only the first sector if a qubit permutation maps it onto the second, except by brute
-    # force (section "Searching one sector of a CSS code" of problems.md).  The later steps build
-    # bases and checks only for the sectors left here.
+    # force (``problems.md#sec-one-sector``).  The later steps build bases and checks only for the
+    # sectors left here.
     if method != "brute_force" and has_sector_map is not None and has_sector_map():
         sectors = sectors[:1]
 
@@ -919,7 +920,8 @@ def _get_coset_weight(
     because they already have them.  The syndrome of ``vector`` must be nonzero.  A search of the
     coset stops at the first vector that weighs at most ``cutoff``, and returns that weight, an
     upper bound.  An automorphism of the code need not map the coset of the vector onto itself, so
-    the searches of the coset use no automorphisms.
+    the searches of the coset use no automorphisms.  ``README.md#sec-grid`` says which methods find
+    the weight, and how.
     """
     if method == "connected_cluster":
         # The vector itself is within the cutoff, or bounds the weight of its coset.

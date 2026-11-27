@@ -199,7 +199,7 @@ class CosetLeaderSearch:
 
         # Row ``j`` of ``x_syndrome_map`` selects the given stabilizers whose product is the pure-Z
         # stabilizer with Z part ``z_rows[j]``, so the map takes the syndrome of an error to that of
-        # its X part (problems.md, "The coset-leader search"), and likewise for Z.
+        # its X part (``problems.md#sec-coset-leader-search``), and likewise for Z.
         x_syndrome_map = multiply_binary(z_transform, z_combinations)
         z_syndrome_map = multiply_binary(x_transform, x_combinations)
         # The batch queries read the packed columns of the maps.
@@ -292,9 +292,9 @@ class CosetLeaderSearch:
             )
 
         # With two searches, a class has no error within ``max_weight`` exactly if its X part or its
-        # Z part has none (problems.md, "The coset-leader search").  So the Z search covers only the
-        # syndromes before the first whose X part has none, and ``get_min_weight_bound`` joins the
-        # bounds of both parts.
+        # Z part has none (``problems.md#sec-coset-leader-search``).  So the Z search covers only
+        # the syndromes before the first whose X part has none, and ``get_min_weight_bound`` joins
+        # the bounds of both parts.
         index = len(syndromes)
         for search, map_columns in zip(searches, self._map_columns):
             part_syndromes = _map_syndromes(syndromes[:index], map_columns)
@@ -339,8 +339,8 @@ class CosetLeaderSearch:
             )
 
         # With two searches, search the Z parts only of the classes whose X parts are within
-        # ``max_weight``, with the weight of the X part as the floor (problems.md, "The coset-leader
-        # search").
+        # ``max_weight``, with the weight of the X part as the floor
+        # (``problems.md#sec-coset-leader-search``).
         x_search, z_search = searches
         x_syndromes = _map_syndromes(syndromes, self._map_columns[0])
         weights = x_search.get_min_weights(x_syndromes, max_weight, floors, **self._thread_options)
@@ -450,7 +450,7 @@ class CosetLeaderSearch:
         """Join the bounds of the cosets of X parts and of Z parts into a bound of a syndrome class.
 
         The smallest CSS weight of a class is the larger of the smallest weights of its X and Z
-        parts (problems.md, "The coset-leader search").
+        parts (``problems.md#sec-coset-leader-search``).
         """
         return MinWeightBound(
             x_bound.within_max_weight and z_bound.within_max_weight,
@@ -462,7 +462,10 @@ class CosetLeaderSearch:
 def _get_coset_search_method(
     method: CosetMethod,
 ) -> Literal["brouwer_zimmermann", "connected_cluster"]:
-    """Validate a coset method, and return the method that the coset searches use."""
+    """Validate a coset method, and return the method that the coset searches use.
+
+    ``"auto"`` takes the Brouwer-Zimmermann method (``problems.md#sec-choosing-a-method``).
+    """
     if not isinstance(method, str) or method not in get_args(CosetMethod):
         raise ValueError(
             f"Unknown coset method {method!r}; choose from"
@@ -511,7 +514,7 @@ def _get_css_combinations(
     """Combine stabilizers into pure-X and pure-Z generators, or return None if they are not CSS.
 
     The stabilizers must be independent.  The state is CSS exactly if the dimensions of its pure-X
-    and pure-Z stabilizers add up to ``n`` (problems.md, "The coset-leader search").
+    and pure-Z stabilizers add up to ``n`` (``problems.md#sec-coset-leader-search``).
 
     Returns:
         Matrices ``(x_combinations, z_combinations)``, whose products with ``stabilizers`` modulo 2

@@ -3,12 +3,12 @@
 """The parts of ``method="auto"`` that compare the costs of exact distance searches.
 
 ``DistanceMethod`` in ``distances.py`` states the rule by which ``"auto"`` chooses the method of
-each search.  The section "Choosing a method" of ``problems.md`` in ``src/qldpc/codes/distance/``
-explains the rule, why it keeps results exact, and its estimates.  This module holds the test of
-whether brute force is cheap, ``is_cheap_to_enumerate``, and the search by cost, ``search_by_cost``:
-a connected-cluster search that switches to a Brouwer-Zimmermann (BZ) search once that is predicted
-to cost less.  The rule decides only from results that are the same on any number of threads, since
-both searches can run on several threads (``brouwer_zimmermann_code.md#sec-requirements`` and
+each search.  ``problems.md#sec-choosing-a-method`` explains the rule, why it keeps results exact,
+and its estimates.  This module holds the test of whether brute force is cheap,
+``is_cheap_to_enumerate``, and the search by cost, ``search_by_cost``: a connected-cluster search
+that switches to a Brouwer-Zimmermann (BZ) search once that is predicted to cost less.  The rule
+decides only from results that are the same on any number of threads, since both searches can run
+on several threads (``brouwer_zimmermann_code.md#sec-requirements`` and
 ``connected_cluster.md#sec-requirements``).
 """
 
@@ -84,9 +84,9 @@ def search_by_cost(
     """The minimum distance across sectors, by a connected-cluster search that may switch to BZ.
 
     The function runs a connected-cluster search, probes with a BZ search, and may switch to one, as
-    the section "Choosing a method" of ``problems.md`` describes.  The sectors and other arguments,
-    and the result, are those of ``get_distance_connected_cluster``.  ``brouwer_zimmermann_problem``
-    holds the same sectors, in the same order, for a BZ search.
+    ``problems.md#sec-choosing-a-method`` describes.  The sectors and other arguments, and the
+    result, are those of ``get_distance_connected_cluster``.  ``brouwer_zimmermann_problem`` holds
+    the same sectors, in the same order, for a BZ search.
 
     Every sector must have a witness, a nontrivial word, so that the searches of
     ``ConnectedClusterSearch`` line up one to one with the sectors of
@@ -146,9 +146,9 @@ class _BrouwerZimmermannCosts:
     evenly certifies the weight ``ceil((t + 1) n / r)`` after layer ``t``, rounded up to the weight
     divisor (``brouwer_zimmermann.md#sec-automorphism-certificate`` and
     ``brouwer_zimmermann.md#sec-weight-multiples``), and each of its search bases scans ``C(r, t)``
-    supports in layer ``t``.  The estimates count the supports of one search basis per
-    layer, as for an automorphism family, and leave out completion tables.  The section "Choosing a
-    method" of ``problems.md`` discusses the errors of these estimates.
+    supports in layer ``t``.  The estimates count the supports of one search basis per layer, as for
+    an automorphism family, and leave out completion tables.  ``problems.md#sec-choosing-a-method``
+    discusses the errors of these estimates.
     """
 
     def __init__(self, problem: BrouwerZimmermannProblem) -> None:
@@ -235,10 +235,10 @@ def _should_switch(
 ) -> bool:
     """Whether the connected-cluster search is predicted to cost more than a BZ search.
 
-    The section "Choosing a method" of ``problems.md`` explains the rule.  ``probe_bound`` must
-    exceed the weight limit of the next advance (``clusters.next_limit``).  ``search_by_cost``
-    ensures this: it lowers the best weight of ``clusters`` to at most ``probe_bound``, and
-    ``clusters`` finishes before its next limit reaches its best weight.
+    ``problems.md#sec-choosing-a-method`` explains the rule.  ``probe_bound`` must exceed the weight
+    limit of the next advance (``clusters.next_limit``).  ``search_by_cost`` ensures this: it lowers
+    the best weight of ``clusters`` to at most ``probe_bound``, and ``clusters`` finishes before its
+    next limit reaches its best weight.
     """
     index, max_weight = clusters.next_limit
     assert probe_bound > max_weight

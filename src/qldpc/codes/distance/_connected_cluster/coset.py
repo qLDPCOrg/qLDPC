@@ -13,7 +13,8 @@ syndrome in the table, and otherwise searches the weight limit ``max_weight`` wi
 maps the syndrome to the sparser checks, compares it with the checks of single symbols, and tries
 increasing weight limits with ``_search_supports``.  Several threads can run these calls at once
 (``connected_cluster.md#sec-threads``), so a change must keep the requirements on threads of
-``connected_cluster.md#sec-requirements``.
+``connected_cluster.md#sec-requirements``.  ``problems.md#sec-coset-leader-search`` says how
+``CosetLeaderSearch`` answers its queries with these searches.
 """
 
 from __future__ import annotations

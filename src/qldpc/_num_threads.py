@@ -13,9 +13,8 @@ if it can:
   keeps that count.  ``numba.set_num_threads`` would change the count of numba's parallel code only
   for the calling thread, so qLDPC does not call it.
 
-If the variable is not set, qLDPC changes nothing.  The section "Threads" of
-``qldpc/codes/distance/README.md`` says how searches choose their number of threads, and when the
-variable also sets numba's count.
+If the variable is not set, qLDPC changes nothing.  ``qldpc/codes/distance/README.md#sec-threads``
+says how searches choose their number of threads, and when the variable also sets numba's count.
 """
 
 from __future__ import annotations

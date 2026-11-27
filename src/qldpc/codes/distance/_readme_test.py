@@ -9,7 +9,8 @@ from pathlib import Path
 def test_the_guides_name_no_missing_file() -> None:
     """Neither the README nor problems.md names a file of this package that is missing.
 
-    The README's maps of the modules are selective, so nothing checks that they name every module.
+    The README's maps of the modules are selective, so nothing checks that they name every module
+    (``README.md#sec-working-here``).
     """
     package = Path(__file__).parent
     files = {path.relative_to(package).as_posix() for path in package.rglob("*.py")}
