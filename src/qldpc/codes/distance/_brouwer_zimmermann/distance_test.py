@@ -180,6 +180,8 @@ def test_brouwer_zimmermann_setup_exits(
     """Each case settles in setup exactly when an overlapping family replaces its disjoint one.
 
     Each case also agrees with a brute-force oracle.
+
+    The module docstring of ``distance.py`` lists the exits of setup.
     """
     expected = qldpc.codes.distance.get_distance_from_generators(
         logicals, stabilizers, cutoff=0, method="brute_force"
@@ -213,7 +215,10 @@ def test_brouwer_zimmermann_setup_exits(
 
 
 def test_brouwer_zimmermann_setup_cutoffs() -> None:
-    """Setup can reach the cutoff from initial rows or a newly systematic row."""
+    """Setup can reach the cutoff from initial rows or a newly systematic row.
+
+    The module docstring of ``distance.py`` lists the exits of setup.
+    """
     # Each row weighs three, which bounds the distance, and their sum weighs two.
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
     assert (
@@ -324,7 +329,10 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
 
 
 def test_brouwer_zimmermann_sector_certificates() -> None:
-    """A completed sector's certificate must not finish a different sector's search."""
+    """A completed sector's certificate must not finish a different sector's search.
+
+    It checks "Use only justified certificates" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     generators = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
     basis_a = get_independent_rows(
         np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
@@ -596,7 +604,10 @@ def completion_tables(
 def test_automorphism_family_searches_scan_every_layer_they_certify(
     completion_tables: CompletionRecord,
 ) -> None:
-    """A search of an automorphism family finds a distance that only its last layer reaches."""
+    """A search of an automorphism family finds a distance that only its last layer reaches.
+
+    It checks "Use only justified certificates" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     # The lightest rows of the scanned set weigh ten, and the first word of weight eight that the
     # search finds sums four rows of that set.  Completing layer four certifies weight ten, so a
     # search that certified that layer before scanning it would return ten.
@@ -690,6 +701,8 @@ def test_searches_that_setup_settles_are_finished_at_once(
 
     Setup settles the sector of the Hamming code directly.  In the random code, it settles one
     sector, whose witness finishes the search of the other.
+
+    The module docstring of ``distance.py`` lists the exits of setup.
     """
     hamming_code = qldpc.codes.HammingCode(3)
     sector = (np.asarray(hamming_code.generator, dtype=np.uint8), np.zeros((4, 0), np.uint8))
@@ -854,7 +867,10 @@ def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
 def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
     tune: Tune, completion_tables: CompletionRecord
 ) -> None:
-    """A search that switches to automorphism images before layer three rescans from layer two."""
+    """A search that switches to automorphism images before layer three rescans from layer two.
+
+    It checks "Use only justified certificates" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     size, word = 8, [1, 1, 0, 1, 1, 0, 0, 0]
     basis = np.hstack(
         [np.eye(size, dtype=np.uint8), np.array([np.roll(word, i) for i in range(size)], np.uint8)]
@@ -896,6 +912,8 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
     """The search of a sector asks for automorphisms at most once.
 
     It asks only before a costly layer or partitioning.
+
+    It checks the correctness requirements of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     sector = get_sector(code, Pauli.X)
@@ -1104,7 +1122,10 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
 def test_a_switch_at_the_end_of_setup_can_certify_the_distance(
     tune: Tune, prepared: list[bz._SectorSearch], switch_decisions: list[tuple[int, bool]]
 ) -> None:
-    """A switch at the end of setup can certify the distance, so that the search ends in setup."""
+    """A switch at the end of setup can certify the distance, so that the search ends in setup.
+
+    The module docstring of ``distance.py`` lists the exits of setup.
+    """
     tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=0)
     code = qldpc.codes.BBCode({x: 6, y: 2}, x**3 * y + x**2 * y + x, x**5 + x**3 * y + x)
     expected = qldpc.codes.distance.get_distance_from_generators(
@@ -1124,7 +1145,10 @@ def test_a_switch_at_the_end_of_setup_can_certify_the_distance(
 def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
     tune: Tune, partition_work_ratio: int
 ) -> None:
-    """The rows of a scanned set with images can end a search at the cutoff."""
+    """The rows of a scanned set with images can end a search at the cutoff.
+
+    The module docstring of ``distance.py`` lists the exits of setup.
+    """
     # The rows of the disjoint family weigh more than six, and a row of the scanned set weighs six.
     # If partitioning may try some coverage and passes its gate, and some partitioned family could
     # do less work, the search asks for automorphisms to decide whether to partition, and switches
@@ -1169,7 +1193,11 @@ def test_searches_reject_wrong_automorphisms(tune: Tune, partitions: bool) -> No
 @pytest.mark.usefixtures("switch_before_any_layer")
 @pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
 def test_completion_tables_keep_distances_exact(completion_tables: CompletionRecord) -> None:
-    """Searches that skip completions by tables agree with independent oracles."""
+    """Searches that skip completions by tables agree with independent oracles.
+
+    It checks "Skip only words that a bound proves heavy enough" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
 
     def assert_skips(distance: int) -> int:
         assert completion_tables.skipped > skipped
@@ -1539,6 +1567,9 @@ def test_searches_on_threads_find_the_distances_that_one_thread_finds(
       https://arxiv.org/abs/quant-ph/0506023).
 
     On one thread they call no ``scan_set_items``, and on more threads they do.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     surface = qldpc.codes.SurfaceCode(5)
     small_surface = qldpc.codes.SurfaceCode(4)
@@ -1595,6 +1626,9 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
     bivariate bicycle code, whose X distance is eight.  Each finds the distance that a search on one
     thread finds.  The stabilizers of the bivariate bicycle code weigh six, so only its search tests
     on threads the labels that tell its logical operators from its stabilizers.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     random_code = get_random_full_rank_matrix(np.random.default_rng(1), 30, 50)
     bicycle = qldpc.codes.BBCode({x: 9, y: 3}, 1 + x + x**6 * y, 1 + y + x**2 * y)
@@ -1632,6 +1666,9 @@ def test_work_items_fix_the_first_rows_of_supports_in_lexicographic_order(
 
     Their fixed rows are the first rows of the supports of the layer, in lexicographic order.  Their
     weights count their supports.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     items = bz._WorkItems(num_rows, weight, num_threads)
     supports = collections.Counter(
@@ -1659,6 +1696,8 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     So the decisions that follow, such as the choice of completion tables and the switch to an
     automorphism family, are those of one thread.  The search uses both.  The threads run with
     every array of the search, such as its completion tables, read-only.
+
+    It checks the correctness requirements of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     sector = get_sector(code, Pauli.X)
@@ -1711,6 +1750,9 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     stop before they claim the last item, and they scan no chunk of those ranges.  The range of
     that item waits until another thread holds such a range.  The ranges are sized by the weights
     of the items of the layer.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     sector = get_sector(code, Pauli.X)
@@ -1805,6 +1847,9 @@ def test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does(
     The search, of the X sector of the [[25, 1, 5]] rotated surface code, starts at its distance,
     five, which it never lowers, so every chunk on any thread starts from the same best weight.
     With tables in every layer, the scans skip completions.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     if tables:
         tune(**FORCED_TABLES)
@@ -1873,6 +1918,9 @@ def test_layers_of_a_set_of_deficient_rank_are_exact_on_threads(
     layer and finds the lightest word.  Its words weigh their packed rows plus a pivot one for
     each of their rows below the rank, which a scan that took every row for a pivot row would
     overcount.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     generators = get_random_full_rank_matrix(np.random.default_rng(0), 8, 20)
     family, certificate = _get_family(generators, [[0, 1, 2]])

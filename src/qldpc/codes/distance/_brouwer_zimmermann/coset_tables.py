@@ -83,7 +83,8 @@ class CosetTails(NamedTuple):
             set, without gathering columns or reading pivots.
         ranks: The rank of each set.
         completion_tables: The completion tables of the tails of the sets that have them, one after
-            another (see ``completion_bounds.CompletionTables``).
+            another (see ``completion_bounds.CompletionTables`` and
+            ``brouwer_zimmermann.md#sec-completion-cosets``).
         layout: A row for each set: the start of its tables in ``completion_tables``, their number
             of blocks ``b``, zero for a set without tables, and their ``b + 1`` block offsets,
             padded with zeros.  One array holds every set, since each argument of a compiled call

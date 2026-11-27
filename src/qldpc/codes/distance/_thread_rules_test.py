@@ -43,6 +43,8 @@ def test_entry_points_without_the_lock_cite_the_requirements_of_their_guides() -
     The entry points are those of this package, whose guides state the rules on threads.  An entry
     point in ``_brouwer_zimmermann/`` or ``_connected_cluster/`` cites its method's guide, and any
     other either guide.
+
+    It checks the correctness requirements of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     citations = {
         "brouwer_zimmermann": "brouwer_zimmermann_code.md#sec-requirements",
@@ -67,6 +69,9 @@ def test_workers_that_call_numba_parallel_code_or_read_the_tuning_fail() -> None
 
     Workers run on the calling thread and on a new one.  The calling thread reads the tuning before
     and after them, and the check of numba's dispatchers is removed once the workers return.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     # If the check of dispatchers broke, numba would compile and run this function on the workers,
     # and the test would fail.

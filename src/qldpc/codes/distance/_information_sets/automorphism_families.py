@@ -7,6 +7,8 @@ images of ``I`` under a group ``Γ`` of automorphisms.  Sections cited in this m
 ``brouwer_zimmermann.md``, whose Section 3.7 derives the certificate and the choice of ``I``.  The
 connected-cluster search also uses ``verify_automorphisms`` and ``get_orbits``, and ranks its
 variables by the orbit numbers of ``get_orbits`` (Section 3.5 of ``connected_cluster.md``).
+Here ``num_columns`` counts every column of a basis, all-zero ones too, as ``N_stored`` of
+``brouwer_zimmermann.md#sec-packed-enumeration`` does.
 """
 
 from __future__ import annotations

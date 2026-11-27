@@ -321,7 +321,10 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
 
 
 def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
-    """A step with tables stops at a nontrivial word lighter than the target, if asked to."""
+    """A step with tables stops at a nontrivial word lighter than the target, if asked to.
+
+    It checks "Keep the strict stop of counting" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     # Three systematic rows [I | P], each followed by a distinct label and by its tail P.
     tails = np.array([[1, 0, 1, 0], [0, 1, 1, 0], [1, 1, 0, 1]], dtype=np.uint8)
     words = np.hstack([np.eye(3, dtype=np.uint8), tails])

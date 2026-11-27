@@ -106,7 +106,10 @@ def test_counts_match_enumeration(method: lc.LogicalCountMethod) -> None:
 
 
 def test_counting_continues_at_an_equal_lower_bound() -> None:
-    """A count continues after a step whose bound equals the counted weight."""
+    """A count continues after a step whose bound equals the counted weight.
+
+    It checks "Keep the strict stop of counting" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     # With no checks, each of the three words of weight two is a logical of each type, and the
     # bound after the first layer is two.
     counter = lc.CSSLogicalCounter(np.zeros((0, 3)), np.zeros((0, 3)))

@@ -6,6 +6,12 @@ A sector is a basis whose quotient labels mark its nontrivial words.  ``count_wo
 nontrivial words of one weight in a sector, and ``transport_basis_family`` moves a basis family of a
 sector through a local gate.  Sections cited in this module are those of ``brouwer_zimmermann.md``,
 whose Section 3.11 explains counts, and ``brouwer_zimmermann_code.md``.
+
+``count_words`` builds its basis family from the disjoint family that its counter keeps, with the
+stages of ``_information_sets/basis_families.py`` that distance searches use: pruning and an
+overlapping replacement in ``_select_basis_family``, which can be compiled, and then matroid
+partitioning.  It stops and skips only as the strict stop of counting of
+``brouwer_zimmermann_code.md#sec-requirements`` allows.
 """
 
 from __future__ import annotations

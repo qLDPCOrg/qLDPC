@@ -7,9 +7,47 @@ The search follows `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_ and its
 search, takes its early exits, and scans its layers in resumable chunks with ``affine_search.py``.
 Sections cited in this module are those of ``brouwer_zimmermann.md`` and
 ``brouwer_zimmermann_code.md``, which derive the certificates and invariants of the search.  A
-costly layer runs on several threads (Section 4.5), so a change here must keep the requirements on
-threads in Section 5, such as "Decide only from what a layer leaves the same on any number of
-threads".
+costly layer runs on several threads (``brouwer_zimmermann_code.md#sec-cross-file-behavior``), so a
+change here must keep the requirements on threads of
+``brouwer_zimmermann_code.md#sec-requirements``, such as "Decide only from what a layer leaves the
+same on any number of threads".
+
+``get_distance_brouwer_zimmermann`` builds a ``BrouwerZimmermannSearch``, which prepares a search of
+each sector with ``_prepare_sector_search``.  Each call of its ``advance`` method advances the
+search of one remaining sector by one layer, in round-robin order for a joint CSS search
+(``brouwer_zimmermann.md#sec-shared-witnesses``).  Preparation returns a result, or a
+``_SectorSearch`` whose ``advance`` method searches one layer ``t``, or only its first ``j`` sets if
+step ``(t, j)`` certifies ``U`` (``brouwer_zimmermann.md#sec-stopping-certificate``).  A result of
+preparation can include a witness from another sector or the bound of a weight limit, so it need not
+be the distance of its sector.
+
+``_prepare_sector_search`` considers the following exits in order.  The disjoint family, its
+pruning, and any overlapping or partitioned replacement come from the stages of
+``_information_sets/basis_families.py``; the exits between those stages belong to this module.
+
+- Initial row witness: returns if ``U <= cutoff``, where ``U`` includes the lightest eligible row
+  and any supplied bound (from another sector or a weight limit).
+- Rows of the disjoint family: returns if checking the rows of every set gives ``U <= cutoff``.
+- Certificate of the disjoint family: returns if ``L(1) >= U``.
+- Rows of each replacement family, overlapping and then partitioned, if selected: returns if
+  ``U <= cutoff``.
+- Certificate of each replacement family: returns if ``L(1) >= U``.
+- Switch at the end of setup: if setup asked for automorphisms before partitioning and got a family
+  from them, the search weighs the rows of that family's one set and considers switching to the
+  family (``brouwer_zimmermann.md#sec-automorphisms``); returns if the search is then finished (see
+  ``_SectorSearch.finished``).
+- Ready search: returns a ``_SectorSearch`` that scans from layer two.
+
+Once prepared, the searches exit as follows:
+
+- ``_SectorSearch.advance`` returns after one layer, or after the leading sets of a layer that
+  certify ``U``, or earlier if ``U <= cutoff``.  Before a costly layer, a search may first get
+  automorphisms and consider switching to an automorphism family, whose rows may lower ``U`` and
+  whose certificate may finish the search.  A finished search does no further work.
+- ``_SectorSearch.finished`` marks a search finished if ``U <= cutoff``, ``L >= U``, or every layer
+  has been enumerated (``next_weight > dimension``).
+- ``BrouwerZimmermannSearch.finished`` marks the search finished once the shared ``U <= cutoff``, or
+  the search of every sector has finished; ``get_distance_brouwer_zimmermann`` then returns ``U``.
 """
 
 from __future__ import annotations
@@ -232,9 +270,12 @@ class _SectorSearch:
 
     ``instance`` holds the packed sets that the search scans, and the certificate of its family:
     those sets, or, if ``uses_automorphism_family``, every image of the one packed set under
-    automorphisms.  No eligible word weighs less than ``min(lower_bound, best)``, and the search has
-    finished once ``lower_bound`` reaches ``best``.  ``lower_bound`` bounds only the eligible words
-    lighter than ``best`` (Section 3.9, "Certificates and contracts").
+    automorphisms.  ``best`` and ``lower_bound`` are the upper bound ``U`` and the lower certificate
+    ``L`` of ``brouwer_zimmermann.md#sec-bounds-and-certificates``, and ``next_weight`` is the layer
+    after the last that every set has completed.  No eligible word weighs less than
+    ``min(lower_bound, best)``, and the search has finished once ``lower_bound`` reaches ``best``.
+    ``lower_bound`` bounds only the eligible words lighter than ``best`` (Section 3.9, "Certificates
+    and contracts").
 
     ``get_automorphism_family``, if given, returns an automorphism family of the sector, or None.
     The search calls it at most once, and then sets it to None.  A search that declines to switch
@@ -271,7 +312,8 @@ class _SectorSearch:
         """The most supports and lookups that one call of a compiled scan does on one thread.
 
         When the search scans on threads, each call does ``num_threads`` times as many, up to
-        ``MAX_VALUE``.
+        ``MAX_VALUE``, as the resumable layers of
+        ``brouwer_zimmermann_code.md#sec-cross-file-behavior`` describe.
         """
         return 1 << self.tuning.search_chunk_exponent
 
@@ -300,7 +342,9 @@ class _SectorSearch:
 
         The search scans the sets in order, and stops after the first set whose step certifies the
         best weight, as lowered by any lighter word that the scan finds (Section 2.5).  A search of
-        an automorphism family scans its one set, which completes the layer for every image.
+        an automorphism family scans its one set, which completes the layer for every image.  A scan
+        that stops at the cutoff or raises leaves ``lower_bound`` and ``next_weight`` unchanged, as
+        the resumable layers of ``brouwer_zimmermann_code.md#sec-cross-file-behavior`` require.
         """
         if self.finished:
             return self.best
@@ -565,6 +609,8 @@ class _WorkItems:
     items are numbered in lexicographic order.  Their numbers of supports vary widely, and earlier
     items tend to hold more.  ``cumulative_weights`` holds, for each item, the number of supports of
     the items up to it, as floats, which overflow only for layers far too large to scan.
+    ``brouwer_zimmermann_code.md#sec-cross-file-behavior`` ("Threads") says why the items partition
+    the supports that a scan of the layer weighs or skips.
     """
 
     def __init__(self, num_rows: int, weight: int, num_threads: int) -> None:

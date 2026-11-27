@@ -8,6 +8,9 @@ of ``P``, the weight of the words that complete those rows with two rows from ``
 the least number of their pivot ones to this bound, and skips the words if the sum reaches the limit
 of the scan, such as the best weight ``U`` of a distance search.  Sections 3.9 and 3.10 of
 ``brouwer_zimmermann.md`` derive the bound, and the limit of each kind of scan.
+``select_completion_tables`` chooses and builds the tables of distance searches and counts.  The
+routes by tails of coset searches size their tables with ``get_table_bytes_within``, and build them
+with ``CompletionTables.build``.
 
 Threads read shared tables at once (Section 3.9 of ``brouwer_zimmermann.md``, "Tables and lookups",
 and Section 5 of ``brouwer_zimmermann_code.md``).  ``get_completion_bound`` and its helper
@@ -136,7 +139,8 @@ def predict_completion_cost(
     """Predict the cost of a scan of a layer with completion tables, and the width of their blocks.
 
     The arguments are those of ``select_completion_tables``, and ``reuse`` means that the tables
-    exist already, so that the prediction leaves out their build.
+    exist already, so that the prediction leaves out their build.  The cost model and its rough
+    coefficients are those of ``brouwer_zimmermann_code.md#sec-heuristics``.
 
     Returns:
         The predicted cost of the layer with tables, as a share of its cost without them, and the
@@ -192,7 +196,8 @@ def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
     The layer must have two to ``num_rows`` rows (tables bound completions by two rows) and at least
     ``tuning.completion_bound_minimum_layer_work`` supports.  That count saturates at ``WORK_CAP``,
     so a threshold above it, such as ``MAX_VALUE``, considers no layer.  A tuning that allows no
-    cost or no bytes of tables considers none.
+    cost or no bytes of tables considers none.  This is the gate of the choice of tables in
+    ``brouwer_zimmermann_code.md#sec-heuristics``.
     """
     return (
         2 <= weight <= num_rows

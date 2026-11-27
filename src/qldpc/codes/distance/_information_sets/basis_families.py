@@ -7,8 +7,14 @@ and counts build families in stages, with their own exits between them: ``get_di
 ``prune_family``, ``get_overlapping_family``, and ``get_partitioned_family``.  Stages two to four
 aim at a target ``upper_bound``: the best weight ``U`` of a distance search, or ``t + 1`` for a
 count of the words of weight ``t``.  Sections cited in this module are those of
-``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.  Section 4.4 gives the rules of the
-stages and of the families of the coset searches.
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.
+``brouwer_zimmermann_code.md#sec-heuristics`` gives the rules of the stages and of the families of
+the coset searches.
+
+In the functions here, ``num_columns`` counts the nonzero columns of a basis, the coordinates ``N``
+of ``brouwer_zimmermann.md#sec-bounds-and-certificates``.  In the shape of ``BasisFamily``, it
+counts every column of the basis, all-zero ones too, as ``N_stored`` of
+``brouwer_zimmermann.md#sec-packed-enumeration`` does.
 """
 
 from __future__ import annotations
@@ -54,7 +60,9 @@ class BasisFamily(NamedTuple):
     shape ``(num_sets, dimension, num_columns)``.  ``labels`` holds the quotient labels of the rows
     (see ``_code_matrices.get_nested_code_basis``), reduced by the same row operations.  ``labels``
     has the same first two axes as ``generators``, and no columns for a basis without labels.
-    ``pivots`` has shape ``(num_sets, dimension)``, padded with -1 beyond each set's rank.
+    ``pivots`` has shape ``(num_sets, dimension)``, padded with -1 beyond each set's rank: a
+    rank-deficient set records only its independent pivot columns as its block
+    (``brouwer_zimmermann.md#sec-search-bases``).
     ``ranks``, ``weight_divisor``, and ``max_coverage`` are the parameters of the family's
     :attr:`certificate`.  Compiled code can take the family, since it holds only arrays and
     integers.
@@ -278,7 +286,9 @@ def build_overlapping_family_policy(
     """The policy of stage three with given settings, for a basis of ``dimension`` rows.
 
     Its generator is new, with a fixed seed, so that every search chooses the same replacement for
-    the same basis family and settings (Section 4.4).
+    the same basis family and settings (Section 4.4).  Every caller of ``get_overlapping_family``
+    gets its policy here: distance searches and counts through ``get_overlapping_family_policy``,
+    which reads the tuning, and the routes of coset searches directly.
     """
     return OverlappingFamilyPolicy(
         max_sets,

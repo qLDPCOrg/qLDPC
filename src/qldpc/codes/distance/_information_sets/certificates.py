@@ -265,6 +265,8 @@ def find_stopping_step(
 ) -> tuple[int, int]:
     """Find the stopping step of ``plan_steps`` by a binary search, since the bounds never decrease.
 
+    The steps are those of ``brouwer_zimmermann.md#sec-stopping-certificate``.
+
     Returns:
         The stopping step ``(w*, j*)``.
     """

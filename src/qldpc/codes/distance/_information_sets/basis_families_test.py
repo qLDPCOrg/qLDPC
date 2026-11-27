@@ -103,7 +103,10 @@ def test_a_dependent_set_of_columns_is_an_error() -> None:
 
 @pytest.mark.parametrize("basis", [PARTIAL_BASIS, EVEN_BASIS])
 def test_family_certificates(basis: npt.NDArray[np.uint8]) -> None:
-    """Rank-deficient blocks and inferred parity give certificates valid for every word."""
+    """Rank-deficient blocks and inferred parity give certificates valid for every word.
+
+    It checks "Use only justified certificates" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     # A target above every weight keeps the rank-deficient block.
     basis_family = basis_families.get_disjoint_family(basis, None, random_column_orders=ORDERS)
     basis_family = basis_families.prune_family(basis_family, basis.shape[1] + 1)
@@ -138,7 +141,10 @@ def test_prune_family(ranks: list[int], upper_bound: int, retained: list[int]) -
 
 
 def test_overlapping_family_certificates() -> None:
-    """Pivot coverage and label transformations agree with exhaustive codeword weights."""
+    """Pivot coverage and label transformations agree with exhaustive codeword weights.
+
+    It checks "Use only justified certificates" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
 
     # Label each row separately so its row operations can be checked.
     basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)

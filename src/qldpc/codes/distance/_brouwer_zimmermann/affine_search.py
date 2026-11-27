@@ -3,15 +3,28 @@
 """Compiled scans of the layers of Brouwer-Zimmermann searches of binary spaces and their cosets.
 
 Each scan covers one layer ``w`` of one search basis: the sums of the basis's offset and ``w`` of
-its rows.  The distance search scans a whole layer with ``scan_set``, and part of a layer on one of
-several threads with ``scan_set_items``.  The other scans serve the coset searches of
-``CosetLeaderSearch``.  Every scan runs one body, ``_scan``.  Sections cited in this module are
-those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.  Section 4.1 lists the scans.
+its rows.  Every scan runs one body, ``_scan``, which Numba compiles separately for each set of
+constant flags, so that no flag costs a branch for each word.  Sections cited in this module are
+those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.
+
+- ``scan_set`` scans one set of a distance search, with or without completion tables.
+- ``scan_set_items`` scans a range of work items of a layer of such a set, as ``scan_set`` does, on
+  one of several threads, from the first support that ``start_set_items`` sets
+  (``brouwer_zimmermann_code.md#sec-cross-file-behavior``).  The distance search runs the ranges
+  through ``_threads.run_work_items``.
+- ``scan_coset_layer`` and ``scan_coset_layer_by_css_weight`` scan one layer of one set in a coset
+  search, and keep its lightest word.
+- ``scan_coset_layer_by_tails`` does so by the tails of the words, and keeps the support of the
+  lightest word.
+- ``scan_coset_layer_by_tails_with_tables`` also skips, in a layer of two or more rows, the
+  completions whose bound reaches the lesser of a skip bound and the best weight so far.  A query
+  skips at ``h(ω)`` (``brouwer_zimmermann.md#sec-completion-cosets``), and a search for minimum
+  weights at its incumbent (``brouwer_zimmermann.md#sec-coset-min-weights``).
 
 Threads run ``_scan`` at once, through ``scan_set_items`` and the batch loops of coset searches in
-``coset.py``.  So a change to it must keep the requirements on threads in Section 5, notably "Keep
-the scans of a layer splittable across threads" and, for the coset scans, "Keep coset queries
-reproducible".
+``coset.py``.  So a change to it must keep the requirements on threads of
+``brouwer_zimmermann_code.md#sec-requirements``, notably "Keep the scans of a layer splittable
+across threads" and, for the coset scans, "Keep coset queries reproducible".
 """
 
 from __future__ import annotations

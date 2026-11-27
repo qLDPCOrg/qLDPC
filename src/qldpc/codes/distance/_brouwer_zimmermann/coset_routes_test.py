@@ -143,6 +143,8 @@ def test_routes_by_tails_take_the_latest_record_of_their_own_family(
 
     They take the latest record of that family.  Queries below the threshold with the family that
     they take, and queries of a search without routes by tails, do not go by tails.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     families = _spy_on_families(monkeypatch)
     builds = _spy_on_tails(monkeypatch)
@@ -191,7 +193,10 @@ def test_routes_by_tails_take_the_latest_record_of_their_own_family(
 def test_routes_by_tails_ask_for_the_tables_of_the_sets_that_queries_scan_with_two_rows(
     code: npt.NDArray[np.uint8], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Routes by tails ask for tables of the sets that queries scan beyond layer one."""
+    """Routes by tails ask for tables of the sets that queries scan beyond layer one.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     builds = _spy_on_tails(monkeypatch)
     num_rows = len(code)
     routes = _build_routes(code, 0, by_tails=True)
@@ -216,6 +221,8 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
 
     The threads start choosing at once, and the first build waits up to a second for another build
     to start, which only threads that do not take turns can do.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     max_weights = range(-1, 9)
     turn = threading.Condition()

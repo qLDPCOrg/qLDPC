@@ -88,7 +88,11 @@ def test_scans_of_sets_of_any_rank() -> None:
 
 
 def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
-    """Chunked scans of one information set's search basis find a layer's lightest eligible word."""
+    """Chunked scans of one information set's search basis find a layer's lightest eligible word.
+
+    It checks "Skip only words that a bound proves heavy enough" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     no_tables = completion_bounds.NO_TABLES
     for dimension, num_label_words in itertools.product(range(2, 7), (0, 2)):
@@ -169,6 +173,9 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
     run with tables, which skip some completions.  Scans of the ranges on three threads at once,
     from the best weight of the layer, which none of them lowers, count what the scan of the layer
     from that weight does.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     rng = np.random.default_rng(7)
     num_rows, weight = 8, 5
@@ -400,7 +407,11 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
 def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound(
     deficiency: int,
 ) -> None:
-    """A tail scan with tables skips completions only if their bound reaches the skip bound."""
+    """A tail scan with tables skips completions only if their bound reaches the skip bound.
+
+    It checks "Skip only words that a bound proves heavy enough" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     # A fixed seed, since whether the tables skip anything depends on the rows.
     rng = np.random.default_rng(0)
     num_rows, num_columns, block_bits = 6, 24, 4

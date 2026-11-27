@@ -7,11 +7,16 @@ weight once: its family of information sets, and whether its queries weigh words
 skip completions by completion tables.  Every route answers within the contract of
 ``MinWeightBound``, and depends only on the code, the maximum weight, and the tuning.  Sections
 cited in this module are those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``:
-Section 4.4 gives the rules of the routes and their reasons, Section 4.1 says how ``CosetRoutes``
-keeps tails and tables, and Sections 3.1, 3.9, and 5 say why every route answers correctly and
-reproducibly.  Threads can ask for routes at once, and read the tables of a route while another
-thread chooses one, so ``CosetRoutes`` chooses routes under ``_ROUTE_LOCK`` and puts new tables in a
-new record of tails, as Section 5 requires under "Keep coset queries reproducible".
+``brouwer_zimmermann_code.md#sec-heuristics`` gives the rules of the routes and their reasons,
+``brouwer_zimmermann_code.md#sec-coset-searches`` says how the routes keep tails and tables, and
+``brouwer_zimmermann.md#sec-coset-families`` and ``brouwer_zimmermann.md#sec-completion-cosets``
+say why every route answers correctly.
+
+``CosetRoutes`` builds the tails of a family, and the tables of each set, once, for the first route
+that needs them, with ``coset_tables.get_coset_tails``.  Threads can ask for routes at once, and
+read the tables of a route while another thread chooses one, so ``CosetRoutes`` chooses routes under
+``_ROUTE_LOCK`` and puts new tables in a new record of tails, as
+``brouwer_zimmermann_code.md#sec-requirements`` requires under "Keep coset queries reproducible".
 """
 
 from __future__ import annotations

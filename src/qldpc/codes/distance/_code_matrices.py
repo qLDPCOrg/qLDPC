@@ -139,6 +139,8 @@ def get_nested_code_basis(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Build an adapted basis for ``span(stabilizers, logical_ops) / span(stabilizers)``.
 
+    The basis and its labels are those of ``brouwer_zimmermann.md#sec-quotient-labels``.
+
     Returns:
         An independent basis whose first rows span the stabilizers, and the quotient labels of its
         rows: row ``i`` of the labels holds the coordinates of row ``i`` of the basis in the
@@ -168,7 +170,8 @@ def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
 
     Row ``i`` of ``labels`` holds the quotient coordinates of row ``i`` of the basis (see
     ``get_nested_code_basis``), so a row is outside the excluded subcode if its labels are nonzero.
-    Labels with no columns mean that nothing is excluded, so that every row is eligible.
+    Labels with no columns mean that nothing is excluded, so that every row is eligible.  The
+    eligible words are those of ``brouwer_zimmermann.md#sec-problem``.
     """
     if labels.shape[1] == 0:
         return np.ones(len(labels), dtype=bool)

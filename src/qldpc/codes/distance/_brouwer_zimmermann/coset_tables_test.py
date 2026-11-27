@@ -26,6 +26,8 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
 
     The extreme maximum weights, a negative one and the largest native integer, give the first and
     the last steps.
+
+    ``brouwer_zimmermann_code.md#sec-coset-searches`` says why a cached step is valid.
     """
     plans: list[int] = []
     find_stopping_step = certificates.find_stopping_step

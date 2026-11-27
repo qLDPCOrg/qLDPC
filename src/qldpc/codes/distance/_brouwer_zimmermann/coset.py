@@ -3,10 +3,30 @@
 """Brouwer-Zimmermann coset searches of ``CosetLeaderSearch``: the cosets of one binary code.
 
 Sections cited in this module are those of ``brouwer_zimmermann.md`` and
-``brouwer_zimmermann_code.md``.  Sections 3.9, 3.10, and 4.1 explain these searches.  The batch
-loops run on several threads at once, and so can the queries of callers that share a search.  A
-change here must keep the requirements on threads under "Keep coset queries reproducible" in
-Section 5, and Section 4.1 says which buffers each call writes.
+``brouwer_zimmermann_code.md``.  ``brouwer_zimmermann_code.md#sec-coset-searches`` explains these
+searches, and ``brouwer_zimmermann.md#sec-completion-cosets`` and
+``brouwer_zimmermann.md#sec-coset-min-weights`` derive the bounds of their queries.
+
+- ``get_pauli_search`` and ``get_css_searches`` cache the searches, whose planning buffers the
+  callers that share a search share too.
+- ``BrouwerZimmermannCosetSearch.get_min_weight_bound`` answers a single query.  It takes the route
+  of its maximum weight from ``coset_routes.CosetRoutes``, and calls ``_search_coset`` from Python
+  as a compiled entry point without ``nogil``.
+- ``BrouwerZimmermannCosetSearch.find_first_not_within_max_weight`` takes the route once for a
+  batch, and runs the batch loop ``_find_first_not_within_max_weight`` through
+  ``_find_first_on_threads``, which gives each worker its own copy of the planning buffer
+  (``_get_own_planning``).
+- ``BrouwerZimmermannCosetSearch.get_min_weights`` runs the batch loop ``_find_min_weights``
+  through ``_find_min_weights_on_threads``.  The loop searches the coset of each syndrome with
+  ``_search_coset_for_min_weight``, which finds its stopping steps with
+  ``coset_tables.get_first_step_reaching``.
+- ``_search_coset`` finds its stopping step with ``coset_tables.get_stopping_step``, and both
+  searches scan with the scans of ``affine_search`` that fit the route (see ``_scan_step``).
+
+The batch loops run on several threads at once, through ``_threads.run_blocks``, and so can the
+queries of callers that share a search.  A change here must keep the requirements on threads under
+"Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``, and the
+docstrings of the loops say which buffers each call writes.
 """
 
 from __future__ import annotations
@@ -118,6 +138,10 @@ class BrouwerZimmermannCosetSearch:
 
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
+
+        The query first looks up the words of weight at most one.  Below a maximum weight of two, it
+        then returns the lower bound two without a search, or a bound of three for an odd coset in a
+        search of X or Z parts that rounds to parity.
 
         Returns:
             A ``MinWeightBound`` for the coset, whose representative is a word of the coset.
@@ -504,7 +528,8 @@ def _find_first_on_threads(
     Each worker searches its rows with its own buffer for the lightest word and its own copy of the
     planning buffer (see ``_get_own_planning``).  A syndrome whose coset has no word within
     ``max_weight`` ends the batch, so the least such index, which ``_threads.run_blocks`` returns,
-    is that of one thread.
+    is that of one thread (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Coset batches on
+    threads").
 
     Returns:
         The index of the first such syndrome, the lower bound of ``_search_coset`` for it, and the
@@ -552,7 +577,8 @@ def _find_min_weights_on_threads(
     """``_find_min_weights`` on a batch, run by ``_threads.run_blocks``.
 
     Each weight depends only on its syndrome, its floor, and the route, so the weights are those of
-    one thread.  Each call of ``_find_min_weights`` has its own buffer for the lightest word, and
+    one thread (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Coset batches on threads").
+    Each call of ``_find_min_weights`` has its own buffer for the lightest word, and
     writes only its own rows of the weights.
     """
     weights = np.empty(len(syndromes), dtype=np.int64)
@@ -613,8 +639,11 @@ def _find_first_not_within_max_weight(
     and leaves the lightest word that it weighed for that syndrome in ``best``.  Otherwise it stops
     once the work of this call reaches ``max_work``, or after the last syndrome.  Threads run it at
     once, so no two calls that run at once may share ``best`` or ``planning``, whose cached stopping
-    steps it writes (Section 4.1).  It runs without the global interpreter lock, and keeps the rules
-    on threads of ``brouwer_zimmermann_code.md#sec-requirements``.
+    steps it writes (Section 4.1).  A call writes only ``best`` and the cached steps of
+    ``planning``, which are those of its worker's copy of the planning buffer, reset to the first
+    step by ``_get_own_planning``, never those of the shared buffer.  It runs without the global
+    interpreter lock, and keeps the rules on threads of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
 
     Returns:
         If the search found a syndrome whose coset has no word within ``max_weight``, the index of
@@ -837,9 +866,10 @@ def _find_min_weights(
 
     The arguments are those of ``_find_first_not_within_max_weight``, without ``best``, with the
     floor of each syndrome in ``floors``, and with ``weights``, into whose entry ``i`` the search
-    writes the weight of syndrome ``i``.  Each call has its own ``best``, writes only ``weights``,
-    and caches no stopping steps, so calls that run at once may share every argument but
-    ``weights``.  It runs without the global interpreter lock, and keeps the rules on threads of
+    writes the weight of syndrome ``i``.  Each call has its own ``best``, writes only that buffer
+    and ``weights``, which are its own rows of the weights of a batch, and caches no stopping steps,
+    so calls that run at once may share every argument but ``weights``.  It runs without the global
+    interpreter lock, and keeps the rules on threads of
     ``brouwer_zimmermann_code.md#sec-requirements``.
 
     Returns:

@@ -10,7 +10,7 @@ It explains how qLDPC computes exact distances of binary codes with BZ, how it c
 
 - [The Brouwer-Zimmermann algorithm](#sec-algorithm) explains BZ as published, including its adaptation to quantum codes.
 - [Extensions and optimizations](#sec-extensions) explains the extensions and optimizations of qLDPC, and where each comes from.
-- [Guide to the source code](brouwer_zimmermann_code.md#sec-source-code), in [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), maps these concepts to the source code, for contributors who need to locate identifiers.
+- [Guide to the source code](brouwer_zimmermann_code.md#sec-source-code), in [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), says which modules hold these concepts, and explains the coset searches, the heuristics and their cost models, and the behavior that spans files.
 - [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements), in the same file, lists the requirements that a change must preserve.
 
 <a name="sec-algorithm"></a>
@@ -99,6 +99,8 @@ $$
 $$
 
 which is `t + 1` for an information set, as in [Systematic bases and information sets](#sec-information-sets).
+The bound counts only the ones on the `r_i` pivot columns of the block, so it holds as well for the block of just those columns.
+qLDPC records only these pivot columns as the block of a rank-deficient search basis, and computes coverage and deletes pivot columns with them.
 
 <a name="sec-stopping-certificate"></a>
 ### The stopping certificate
@@ -184,7 +186,7 @@ qLDPC goes beyond [The Brouwer-Zimmermann algorithm](#sec-algorithm) as follows;
 
 An information set has `r` columns, so a disjoint family has at most `floor(N / r)` of them, and the other columns form at most one rank-deficient block, which can add little or nothing to `L(t) = Σ_i b_i(t)` ([Worked example](#sec-worked-example) gives an example).
 An **overlapping family of search bases** lets blocks share columns, so it can hold more information sets, but a column in several blocks then counts in several terms `b_i(t)`.
-Distance searches and counts build overlapping families in `get_overlapping_family` and `get_partitioned_family` ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics), which also names the tuning fields that decide whether they are built and how large they grow).
+Distance searches and counts build overlapping families in the overlapping and partitioning stages of [_information_sets/basis_families.py](_information_sets/basis_families.py) ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics), which also names the tuning fields that decide whether they are built and how large they grow).
 
 <a name="sec-overlapping-certificate"></a>
 #### The certificate
@@ -225,7 +227,7 @@ Over GF(2), applied to a parity-check matrix, his program computes the distance 
 <a name="sec-coset-families"></a>
 #### Families for coset searches
 
-The coset searches of [How the searches use the modules](brouwer_zimmermann_code.md#sec-modules) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
+The coset searches of [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
 For each search basis `G_i`, fix an **offset**, a word of the coset that is zero on the pivot columns of `B_i`.
 Every word of the coset is the offset plus a unique sum of rows of `G_i`, so once `G_i` has completed layer `t`, an unexamined word has at least `b_i(t)` ones on `B_i`, as a word of `V` does.
 So every certificate of this section holds for cosets, and any family of search bases of `V` serves every coset of `V`.
@@ -247,7 +249,7 @@ That stronger test mainly helps doubly even classical codes, since a CSS sector 
 
 By the same identity, a divisor of the weights of `V` need not divide those of a coset `u + V`: every word of `V = {0000, 1111}` has a weight divisible by four, but `1000 + V` has the weights one and three.
 Parity does carry over: if `V` is even, every word of `u + V` has the parity of `wt(u)`.
-So a coset search of an even code rounds each bound up to that parity, which it reads from the word of the coset's syndrome ([How the searches use the modules](brouwer_zimmermann_code.md#sec-modules)), and uses no other rounding:
+So a coset search of an even code rounds each bound up to that parity, which it reads from the word of the coset's syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)), and uses no other rounding:
 
 - A search of the X or Z parts of errors, which searches the cosets of a classical code, rounds when that code is even.
 - A search of Pauli errors by their CSS weight `max(|x|, |z|)` rounds when the words `[x | z]` of its code are even.
@@ -261,7 +263,7 @@ So a coset search of an even code rounds each bound up to that parity, which it 
 ### Sharing witnesses between CSS sectors
 
 The distance of a CSS code is `min(d_x, d_z)`, the lesser of the distances of its X and Z sectors.
-qLDPC runs one BZ search for each sector (only of the X sector if a qubit permutation maps each sector onto the other; [How the searches use the modules](brouwer_zimmermann_code.md#sec-modules)), advances them in round-robin order, one layer at a time, and lets a witness of either sector, a nontrivial logical operator, lower the `U` of both.
+qLDPC runs one BZ search for each sector (only of the X sector if a qubit permutation maps each sector onto the other; [problems.md](problems.md#searching-one-sector-of-a-css-code)), advances them in round-robin order, one layer at a time, and lets a witness of either sector, a nontrivial logical operator, lower the `U` of both.
 Each search keeps its own certificate, search bases, coverage, and weight divisor, since its certificate bounds only the unexamined words of its sector.
 For example, if the X sector finds a witness of weight seven and the Z sector has only even words, the Z search stops once its own certificate reaches `U = 7`, having shown only `d_z ≥ 8`.
 A joint search therefore determines `min(d_x, d_z)`, but not always both sector distances.
@@ -313,7 +315,7 @@ $$
 
 It is pessimistic, since it assumes that no lighter witness turns up, and it is not a runtime guarantee, since runtime also depends on building the bases and on the width of packed words.
 The estimate of a coset query at maximum weight `ω` sums from layer zero, the offset, to the first step whose bound exceeds `ω`, and, like the query, omits the rank-deficient bases that add nothing to that bound.
-If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([How the searches use the modules](brouwer_zimmermann_code.md#sec-modules)), and otherwise at most that many.
+If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)), and otherwise at most that many.
 A distance search on threads computes its estimates from `U` after whole layers, never from the measured counts of a layer split across threads ([Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior)).
 This keeps the requirement "Decide only from what a layer leaves the same on any number of threads" of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements).
 
@@ -409,7 +411,7 @@ This guide at commit 0870f6a derives these bounds and compares them with White's
 #### Where automorphisms come from
 
 With the optional `pybliss` package, the graph-automorphism tool bliss of Junttila and Kaski ([References](#sec-references)) searches the parity checks of a binary classical or quantum code for automorphisms.
-For a quantum code, the class of the code can also supply other sets of checks that span the same space, through `QuditCode._get_permutation_automorphism_search_matrices`.
+For a quantum code, the class of the code can also supply other sets of checks that span the same space, through a method of `QuditCode` that its subclasses override.
 Bliss can then find automorphisms that do not map parity checks to parity checks.
 `QTCode`, for example, supplies its canonical local checks where they are few enough.
 Bliss finds the automorphisms of the Tanner graph of each set, whose edges are colored by the Pauli operators of the checks.
@@ -419,7 +421,7 @@ For a classical code, bliss searches only the parity check matrix, whose automor
 G. Lee (Appendix C.4) likewise finds the automorphisms of Tanner graphs automatically, but for the roots of a connected-cluster search ([Section 3.5 of connected_cluster.md](connected_cluster.md#sec-symmetries); [References](#sec-references)).
 
 With or without `pybliss`, the class of the code can supply generators of automorphisms that its construction provides.
-Quantum code classes supply them through `QuditCode._get_permutation_automorphisms`, such as the translations of the group of an `MBCode`, and classical code classes through `ClassicalCode._get_permutation_automorphisms`.
+Quantum code classes supply them through a method of `QuditCode` that they override, such as the translations of the group of an `MBCode`, and classical code classes through a method of `ClassicalCode`.
 Bliss finds only automorphisms of the Tanner graphs of the sets of checks that it searches, so it can miss these generators.
 A cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
 Searches use these generators together with those that bliss finds.
@@ -430,11 +432,11 @@ For a general Pauli problem, a permutation of qubits moves the three thirds of t
 <a name="sec-worked-example"></a>
 ### Worked example
 
-Take the X sector of the 64-qubit `MBCode` of `test_a_search_of_an_mb_code_takes_overlapping_sets` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py).
+Take the X sector of the 64-qubit `MBCode` of a test in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py).
 It has 64 coordinates and dimension `r = 41`.
 Its lightest eligible row has weight eight, so initially `U = 8`, and all its words are even, so `D = 2`.
 
-A disjoint family holds `floor(64/41) = 1` information set, and the rank-deficient block of the other columns adds nothing to `L(t)` for `t ≤ 17`, so `prune_family` drops it ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics)).
+A disjoint family holds `floor(64/41) = 1` information set, and the rank-deficient block of the other columns adds nothing to `L(t)` for `t ≤ 17`, so pruning drops it ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics)).
 Then `L(t) = t + 1`, and the search stops after layer six, when `L(6) = 7` rounds up to eight.
 An overlapping family of `m = 3` information sets with `C = 2`, for example, reaches `L(4) = ceil(3·5/2) = 8` after layer four, even before rounding.
 Within a layer ([The stopping certificate](#sec-stopping-certificate)), qLDPC stops sooner: after the first search basis of layer four, the bound `ceil((5+4+4)/2) = 7` rounds up to eight.
@@ -521,7 +523,7 @@ The pair of rows that completes the prefix adds at least `max(0, 2 - (r - r_i))`
 The bound adds the sum of these two counts to `B` in place of `w`; for an information set, that sum is `w`.
 
 A query of maximum weight `ω` skips the completions whose bound reaches `h(ω)`, the least bound that proves a word of the coset heavier than `ω`.
-With the **weight factor** `η` of [How the searches use the modules](brouwer_zimmermann_code.md#sec-modules), two in a search of Pauli errors and one in a search of X or Z parts, `h(ω)` is `η ω + 1`, or `η ω` if the search rounds to the parity of the coset and `η ω` has the other parity.
+With the **weight factor** `η` of [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches), two in a search of Pauli errors and one in a search of X or Z parts, `h(ω)` is `η ω + 1`, or `η ω` if the search rounds to the parity of the coset and `η ω` has the other parity.
 No skipped word lies within `ω`, and the query visits the other words in the order of a scan without tables, so it finds the same first word within `ω`, if there is one.
 Otherwise, it returns the lightest word that it weighed, possibly heavier than without tables.
 If it skipped any word, it also returns the lower bound `R`: `h(ω)`, rounded up to the coset's parity where the search rounds, then divided by `η` and rounded up ([Rounding the certificate to a proven weight multiple](#sec-weight-multiples)).
@@ -536,8 +538,8 @@ A search for the minimum weight of a coset skips at `h(ω)` too until it finds a
 #### When a search uses the tables
 
 Distance searches and counts use completion tables only on search bases whose blocks are information sets.
-A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), or with `scan_set_items` on several threads ([Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior)).
-A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), and its `_StepTables` choose tables for each of its steps `(t, j)` with `t ≥ 2`, by the same four rules as a distance search (below).
+A distance search scans each search basis of a layer by itself with the compiled scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), on one thread or, for a costly layer, on several ([Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior)).
+A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), and chooses tables for each of its steps `(t, j)` with `t ≥ 2`, by the same four rules as a distance search (below).
 
 Tables cost memory, a build, and lookups, and save only the supports that they skip, so they pay on large layers where they skip many supports, but not on small layers or in easy searches.
 The share that they skip depends on the code, the scanned search basis, and the order of its rows, so tables can pay on one layer and not on a layer of the same size of another code.
@@ -561,14 +563,14 @@ Within `completion_bound_max_table_bytes`, a count keeps the tables of the searc
 
 The residual-weight estimator of `qldpc.experimental` needs the minimum weight of each coset that it meets, up to a maximum weight `ω`, or `ω + 1` for a coset without a word within `ω`.
 Queries at increasing maximum weights would each repeat the scan of the one before, so the coset searches find this weight with one search.
-The search keeps `U`, the lesser of `ω + 1` and the weight of the lightest word found so far, starting from the word of its syndrome ([How the searches use the modules](brouwer_zimmermann_code.md#sec-modules)).
+The search keeps `U`, the lesser of `ω + 1` and the weight of the lightest word found so far, starting from the word of its syndrome ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)).
 It stops after the first step whose bound reaches `U`.
 It also stops within a step once `U` is at most the bound of the step before, since every unvisited word then weighs at least `U`.
 `U` is then the minimum weight, if it is at most `ω`.
 The search finds its stopping step, the first step whose bound reaches `U`, by a binary search of the steps, and moves that step earlier whenever `U` falls.
 It skips the search bases that add nothing to its bound, and these add nothing to any earlier bound either.
 It uses the family and the completion tables of a query at `min(ω, n)`, for `n` qubits ([Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics)), and since it stops no later than that query, those tables cover every layer that it scans.
-Batches run these searches on several threads at once, so they cache no stopping step in the planning buffer that queries share ([How the searches use the modules](brouwer_zimmermann_code.md#sec-modules)), as "Keep coset queries reproducible" of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) requires.
+Batches run these searches on several threads at once, so they cache no stopping step in the planning buffer that queries share ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)), as "Keep coset queries reproducible" of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) requires.
 
 In a search by Hamming weight, the scans keep only the words lighter than an **incumbent**: `h(ω)` of [Skipping completions by completion tables](#sec-completion-tables) until the search finds a word within `ω`, and then `η U`, the Hamming weight of the lightest word.
 In a search of Pauli errors by physical weight, whose words `T(x, z)` are all even, and of X or Z parts of an even code, every word of the coset has the parity of `η U`, so scans then lower the incumbent to `η U - 1`, keeping the same words and letting tables skip more.
@@ -630,4 +632,4 @@ It can also change the distance and the weights of check words, so the counter s
 - G. Lee, "Bicycle race: small two-block codes on the Pareto frontier" ([arXiv:2610.13880v2](https://arxiv.org/abs/2610.13880v2)): Appendix C.4 takes the roots of a connected-cluster search from the automorphisms of the Tanner graph, which pynauty finds ([Images of an information set under automorphisms](#sec-automorphisms)).
 - R. E. Korf and A. Felner, "Disjoint pattern database heuristics," *Artificial Intelligence* 134, 9-22, 2002 ([doi:10.1016/S0004-3702(01)00092-3](https://doi.org/10.1016/S0004-3702%2801%2900092-3)), and A. Felner, R. E. Korf, and S. Hanan, "Additive pattern database heuristics," *Journal of Artificial Intelligence Research* 22, 279-318, 2004 ([doi:10.1613/jair.1480](https://doi.org/10.1613/jair.1480)): disjoint and additive pattern databases ([Skipping completions by completion tables](#sec-completion-tables)).
 - S. Bouyuklieva and I. Bouyukliev, "An extension of the Brouwer-Zimmermann algorithm for calculating the minimum weight of a linear code," *Mathematics* 9(19), 2354, 2021 ([doi:10.3390/math9192354](https://doi.org/10.3390/math9192354)): page 6 lists the codewords of a given weight without repetition ([Counting logical operators](#sec-counting)).
-- The implementation and its tests: "[Where to look](README.md#where-to-look)" in README.md names the module of each part, and the end of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) names the tests that check the requirements.
+- The implementation and its tests: "[Where to look](README.md#where-to-look)" in README.md names the module of each part, and the tests that check the requirements of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) cite that section in their docstrings.
