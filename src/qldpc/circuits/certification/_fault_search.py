@@ -49,13 +49,12 @@ _BATCH_SIZE = 2**12
 _CODEWORD_BATCH_SIZE = 2**10
 
 # The work (see ``_PROBES_PER_REDUCTION``) after which ``_list_by_shared_flags`` also returns on
-# threads, so that a thread checks often whether to stop (see "Threads" in
-# ``fault_propagation.md``).
+# threads, so that a thread checks often whether to stop (see ``fault_propagation.md#sec-threads``).
 _PROBES_PER_CALL = 2**20
 
 # The walk by shared flags counts its work in probes of the map of classes by hash, and counts a
-# reduction of flags as this many probes ("Listing class codewords on threads" in
-# ``fault_propagation.md`` lists what the walk is charged for).
+# reduction of flags as this many probes (``fault_propagation.md#sec-listing-on-threads`` lists what
+# the walk is charged for).
 _PROBES_PER_REDUCTION = 64
 
 # The number of rows of the array into which the walk by shared flags lists the class codewords of
@@ -113,8 +112,8 @@ def find_smallest_violation(
     weight.  ``stabilizers``, ``css_weight``, and ``method`` configure the oracle of the search, a
     ``CosetLeaderSearch``.
     """
-    # Keep the first primitive fault of each distinct nonzero signature (see "Duplicate and zero
-    # signatures can be dropped").
+    # Keep the first primitive fault of each distinct nonzero signature (see
+    # ``fault_propagation.md#sec-dropped-signatures``).
     signatures: dict[tuple[int, int], int] = {}
     for index, signature in enumerate(zip(flags, syndromes, strict=True)):
         if any(signature):
@@ -122,9 +121,9 @@ def find_smallest_violation(
 
     # Repeated flags do not change the rank of the matrix P of the flags, so each value enters it
     # once.  Faults are checked only up to fault weight min(max_weight, rank(P) + 1), so with
-    # ``max_weight`` the rank is computed only up to ``max_weight - 1`` (see "Irreducible accepted
-    # faults have fault weight at most rank(P) + 1").  The limit is also at most ``len(flag_rows)``,
-    # which bounds the rank, so that compiled code receives a 64-bit integer.
+    # ``max_weight`` the rank is computed only up to ``max_weight - 1`` (see
+    # ``fault_propagation.md#sec-fault-weight-bound``).  The limit is also at most
+    # ``len(flag_rows)``, which bounds the rank, so that compiled code receives a 64-bit integer.
     distinct_flags = list(dict.fromkeys(flag for flag, _ in signatures))
     flag_rows = _to_words(distinct_flags, _get_num_words_for_values(distinct_flags))
     if max_weight is None:
@@ -148,8 +147,8 @@ def _search_irreducible_faults(
     ``max_fault_weight`` is the largest fault weight to check.  Return a violating fault of the
     smallest fault weight, or None if there is none.
     """
-    # Check each primitive fault with zero flags alone (see "Listing each irreducible accepted fault
-    # once"), and keep the others for ``FaultLister``.
+    # Check each primitive fault with zero flags alone (see
+    # ``fault_propagation.md#sec-listing-once``), and keep the others for ``FaultLister``.
     flagged: list[tuple[int, int, int]] = []
     for (flag, syndrome), index in signatures.items():
         if flag:
@@ -160,10 +159,11 @@ def _search_irreducible_faults(
             return failure
 
     # Split the other primitive faults into heavy and light ones.  A fault that contains no heavy
-    # primitive fault satisfies the bound (see "A violating fault contains a heavy primitive
-    # fault"), so the search stops if none is heavy.  Heaviness depends only on the syndrome, and
-    # any error with the syndrome serves as a representative (see "Checking one fault"), so the
-    # search queries the oracle once for each distinct syndrome.
+    # primitive fault satisfies the bound (see ``fault_propagation.md#sec-heavy-primitive-fault``),
+    # so the search stops if none is heavy.  Heaviness depends only on the syndrome, and any error
+    # with the syndrome serves as a representative (see
+    # ``fault_propagation.md#sec-checking-one-fault``), so the search queries the oracle once for
+    # each distinct syndrome.
     bounds_by_syndrome = {
         distinct_syndrome: oracle.get_min_weight_bound(distinct_syndrome, 1)
         for distinct_syndrome in dict.fromkeys(syndrome for _, syndrome, _ in flagged)
@@ -178,12 +178,13 @@ def _search_irreducible_faults(
         return None
 
     # Give each primitive fault a representative of low Pauli weight, so that ``FaultLister`` skips
-    # more faults (see "Checking one fault").  A light primitive fault's representative has Pauli
-    # weight at most one.  A heavy primitive fault whose syndrome is the sum of the syndromes of two
-    # light ones gets the product of their representatives.  The pair depends only on the syndrome,
-    # so the search runs once for each distinct heavy syndrome.  Compiled code does it, since its
-    # time is proportional to the number of distinct heavy syndromes times the number of light
-    # ones.  Any other heavy primitive fault keeps the error that the oracle returned for it.
+    # more faults (see ``fault_propagation.md#sec-checking-one-fault``).  A light primitive fault's
+    # representative has Pauli weight at most one.  A heavy primitive fault whose syndrome is the
+    # sum of the syndromes of two light ones gets the product of their representatives.  The pair
+    # depends only on the syndrome, so the search runs once for each distinct heavy syndrome.
+    # Compiled code does it, since its time is proportional to the number of distinct heavy
+    # syndromes times the number of light ones.  Any other heavy primitive fault keeps the error
+    # that the oracle returned for it.
     light_errors = {syndrome: error for _, syndrome, _, error in light}
     light_syndromes = list(light_errors)
     heavy_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _, _ in heavy))
@@ -256,12 +257,12 @@ class FaultLister:
 
     The lister refers to each primitive fault by its position in the arguments.  Every primitive
     fault must have nonzero flags, and the first ``num_starts`` are the start members.  The search
-    passes its heavy primitive faults first, as the start members.  "Listing each irreducible
-    accepted fault once" in ``fault_propagation.md`` defines flag classes, start classes, and class
-    codewords, and proves that each such fault is listed once.
-    The classes are numbered in the order of their first members.  A class tuple is a row of classes
-    from which the lister expands faults: a start class twice for fault weight two, and a class
-    codeword that starts with a start class for larger fault weights.
+    passes its heavy primitive faults first, as the start members.
+    ``fault_propagation.md#sec-listing-once`` defines flag classes, start classes, and class
+    codewords, and proves that each such fault is listed once.  The classes are numbered in the
+    order of their first members.  A class tuple is a row of classes from which the lister expands
+    faults: a start class twice for fault weight two, and a class codeword that starts with a start
+    class for larger fault weights.
 
     Each class is a row of 64-bit words: the hash of its flags, then its flags.  Each primitive
     fault is a row of the hash of its syndrome, its syndrome, and the X and Z parts of its
@@ -273,16 +274,15 @@ class FaultLister:
     The walk adds only classes that share a flag bit with the sum of the flags of the classes chosen
     so far, and finds the class that completes each class codeword in the map of classes by hash:
     the classes sorted stably by the hash of their flags, with a hash map from each hash to its
-    first entry ("Listing class codewords by shared flags" in ``fault_propagation.md``).  It lists
-    the class codewords of each root in lexicographic order, in one or more passes over the root.
-    The table of syndromes of listed faults (see ``find_first``) grows within the memory limit, up
-    to 2**31 syndromes.
+    first entry (``fault_propagation.md#sec-shared-flags``).  It lists the class codewords of each
+    root in lexicographic order, in one or more passes over the root.  The table of syndromes of
+    listed faults (see ``find_first``) grows within the memory limit, up to 2**31 syndromes.
 
     On several threads, a costly listing of class codewords moves to threads, while the calling
     thread expands the class codewords into faults in the serial order, that of a listing on a
-    single thread, so that the lister checks the same faults as on one thread ("Threads" in
-    ``fault_propagation.md``).  Each thread allocates arrays for its listing as large as the calling
-    thread's.
+    single thread, so that the lister checks the same faults as on one thread
+    (``fault_propagation.md#sec-threads``).  Each thread allocates arrays for its listing as large
+    as the calling thread's.
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -313,8 +313,7 @@ class FaultLister:
         # Group the primitive faults into classes by their flags, each with its members in order,
         # and order the classes by their first members, so that the start classes come first.  The
         # walk by shared flags needs the flags of the classes to be nonzero, which is checked here,
-        # and pairwise distinct, which grouping ensures ("Listing class codewords by shared flags"
-        # in ``fault_propagation.md``).
+        # and pairwise distinct, which grouping ensures (``fault_propagation.md#sec-shared-flags``).
         if not all(flags):
             raise ValueError("Every primitive fault of a fault lister must have nonzero flags")
         member_lists_by_flags: dict[int, list[int]] = {}
@@ -378,15 +377,15 @@ class FaultLister:
         ``64 j`` and up.  ``find_violation`` returns the index of the first syndrome that violates
         the bound at this fault weight, or the number of rows if there is none.
 
-        A listed fault is left out if the product of the representatives of its primitive faults
-        has Pauli weight at most its fault weight, or if its syndrome is in the table of syndromes.
-        The table holds the syndromes of faults listed earlier, by this call or by an earlier call
-        that found no violation, as far as it had room.  A call that finds a violation clears the
-        table, since the table can hold syndromes of faults listed after that violation, which were
-        never checked.  Leaving these faults out does not change the result if the fault weight
-        never decreases from one call to the next, every call uses the same ``find_violation``, and
-        a syndrome that satisfies the bound at one fault weight satisfies it at every larger one.
-        "Checking one fault" in ``fault_propagation.md`` shows why.
+        A listed fault is left out if the product of the representatives of its primitive faults has
+        Pauli weight at most its fault weight, or if its syndrome is in the table of syndromes.  The
+        table holds the syndromes of faults listed earlier, by this call or by an earlier call that
+        found no violation, as far as it had room.  A call that finds a violation clears the table,
+        since the table can hold syndromes of faults listed after that violation, which were never
+        checked.  Leaving these faults out does not change the result if the fault weight never
+        decreases from one call to the next, every call uses the same ``find_violation``, and a
+        syndrome that satisfies the bound at one fault weight satisfies it at every larger one.
+        ``fault_propagation.md#sec-checking-one-fault`` shows why.
 
         Returns:
             The positions of the primitive faults of the first violating fault that was passed, in
@@ -502,10 +501,10 @@ class FaultLister:
             return
 
         # On several threads, the work items are the roots.  List the first roots alone, in ranges
-        # of 1, 2, 4, and more roots, until the work shows that the listing is costly (see "Threads"
-        # in ``fault_propagation.md``).  If the work left, estimated in proportion to the weights of
-        # the roots (see ``_get_root_weights``), is less than ``_SPLIT_PROBES_PER_THREAD`` for each
-        # thread, list the rest alone too.
+        # of 1, 2, 4, and more roots, until the work shows that the listing is costly (see
+        # ``fault_propagation.md#sec-threads``).  If the work left, estimated in proportion to the
+        # weights of the roots (see ``_get_root_weights``), is less than
+        # ``_SPLIT_PROBES_PER_THREAD`` for each thread, list the rest alone too.
         cumulative_weights = np.cumsum(
             _get_root_weights(len(self._class_rows), num_roots, fault_weight)
         )
@@ -817,16 +816,15 @@ def _list_by_shared_flags(
     ``map_classes``, and ``map_slots`` are the map of classes by hash from ``_get_class_map``.  The
     classes must have nonzero and pairwise distinct flags, as those of ``FaultLister`` do.  For each
     root in turn, the listing lists the class codewords of ``m = codewords.shape[1]`` classes whose
-    first class is the root, as "Listing class codewords by shared flags" in
-    ``fault_propagation.md`` describes.  Each class codeword is a row of classes in increasing
-    order.  The listing makes one or more passes over each root.  The array, of at least two rows,
-    holds the class codewords that the listing keeps in the pass, which it sorts in lexicographic
-    order once the pass is done, after any rows of earlier passes that it has not yet returned.  If
-    the kept class codewords fill the array when the listing examines another class at the last
-    depth, it keeps the first ``⌊D/2⌋`` of them in lexicographic order, for ``D`` rows, and makes
-    another pass for the others, as "Roots with many class codewords" in ``fault_propagation.md``
-    describes.  The listing counts its work in probes, as "Listing class codewords on threads" in
-    ``fault_propagation.md`` describes, with ``reduction_cost`` probes for each reduction of flags.
+    first class is the root, as ``fault_propagation.md#sec-shared-flags`` describes.  Each class
+    codeword is a row of classes in increasing order.  The listing makes one or more passes over
+    each root.  The array, of at least two rows, holds the class codewords that the listing keeps in
+    the pass, which it sorts in lexicographic order once the pass is done, after any rows of earlier
+    passes that it has not yet returned.  If the kept class codewords fill the array when the
+    listing examines another class at the last depth, it keeps the first ``⌊D/2⌋`` of them in
+    lexicographic order, for ``D`` rows, and makes another pass for the others.  The listing counts
+    its work in probes, as ``fault_propagation.md#sec-listing-on-threads`` describes, with
+    ``reduction_cost`` probes for each reduction of flags.
 
     The listing keeps its position between calls in the other arrays.  The depth is the index, among
     the chosen classes, of the last one chosen, and the chosen classes are the state ``A`` of the
@@ -1086,8 +1084,7 @@ def _expand_class_tuples(
     ``_find_syndrome``).  Each fault that is not left out (see ``FaultLister.find_first``) gets the
     next row of the batch arrays: its primitive faults, in the order of its classes, and its
     syndrome.  The expansion skips, without looking them up, the faults that the table would leave
-    out because an earlier choice of members had the same syndrome (see "Skipping faults whose
-    syndromes are listed" in ``fault_propagation.md``).
+    out because an earlier choice of members had the same syndrome.
 
     The level is the index, in a class tuple, of the class whose member is being chosen.  The
     expansion keeps its state between calls in ``expansion_state`` (the index of the class tuple to
@@ -1155,7 +1152,7 @@ def _expand_class_tuples(
             # Skip this member and the rest of its class if no member chosen so far, this one
             # included, is a start member, and no member chosen later can be one: at the last level,
             # when the next level repeats this class, or when the next class is not a start class
-            # (see "Listing each irreducible accepted fault once").
+            # (see ``fault_propagation.md#sec-listing-once``).
             num_chosen_starts = chosen_start_counts[level] + (member < num_starts)
             if num_chosen_starts == 0 and (
                 is_last
@@ -1176,13 +1173,13 @@ def _expand_class_tuples(
                 # Skip every fault that completes this choice if an earlier choice of members of the
                 # same classes of this class tuple had the same syndrome, and a start member if and
                 # only if this one has, since the table then holds the syndromes of all these faults
-                # (see "Skipping faults whose syndromes are listed").  This needs a table that has
-                # had room for every syndrome so far in this call of ``FaultLister.find_first``, as
-                # that section says.  A table that is not full now has had that room.  A table grows
-                # when half full whenever it can, so a full table never grows.  A table is cleared
-                # only when a violation ends the listing.  This applies only past the first level
-                # whose class has more than one member (see above).  Otherwise remember the choice,
-                # if there is room.
+                # (see ``fault_propagation.md#sec-skipping-listed-syndromes``).  This needs a table
+                # that has had room for every syndrome so far in this call of
+                # ``FaultLister.find_first``, as that section says.  A table that is not full now
+                # has had that room.  A table grows when half full whenever it can, so a full table
+                # never grows.  A table is cleared only when a violation ends the listing.  This
+                # applies only past the first level whose class has more than one member (see
+                # above).  Otherwise remember the choice, if there is room.
                 if num_syndromes < len(syndrome_rows) and level > first_branching_level:
                     choice_key[0, 1] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
                     choice_key[0, 0] = chosen_row_sums[level + 1, 0] ^ (
@@ -1208,7 +1205,7 @@ def _expand_class_tuples(
 
             # Leave out the fault if its syndrome is in the table, and otherwise add the syndrome to
             # the table if there is room, even if the representative test below leaves the fault out
-            # (see "Checking one fault").
+            # (see ``fault_propagation.md#sec-checking-one-fault``).
             slot = _find_row(chosen_row_sums, fault_weight, syndrome_rows, syndrome_slots)
             if slot < 0:
                 continue
@@ -1218,8 +1215,9 @@ def _expand_class_tuples(
                 syndrome_slots[slot] = num_syndromes
                 num_syndromes += 1
 
-            # Leave out the fault if the product of the representatives has Pauli weight at most
-            # the fault weight (see "Checking one fault"), and otherwise add it to the batch.
+            # Leave out the fault if the product of the representatives has Pauli weight at most the
+            # fault weight (see ``fault_propagation.md#sec-checking-one-fault``), and otherwise add
+            # it to the batch.
             weight = _pauli_weight(fault_row[x_start:z_start], fault_row[z_start:], css_weight)
             if weight > fault_weight:
                 batch_syndromes[num_batched] = fault_row[1:x_start]

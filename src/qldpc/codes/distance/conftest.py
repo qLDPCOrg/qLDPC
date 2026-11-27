@@ -483,19 +483,19 @@ def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail workers of ``run_work_items`` on Python calls of ``get_tuning`` or numba-parallel code.
 
     Each method's guide, ``brouwer_zimmermann_code.md#sec-requirements`` or Section 5 of
-    ``connected_cluster.md``, states the rules, and "Threads" in
-    ``qldpc/circuits/certification/fault_propagation.md`` those of the certifier's fault lister,
-    whose tests use this fixture too.  While a worker runs, on a new thread or on the thread that
-    called ``run_work_items``, a call from Python of numba code compiled with ``parallel=True``,
-    such as some of galois's, or of ``_tuning.get_tuning``, raises an ``AssertionError``, which
-    ``run_work_items`` raises again.  The workers include the threads of ``iterate_in_order``, which
-    start through ``run_work_items``.  Two threads that run numba-parallel code at once can abort
-    the process (see ``run_work_items``), and a new thread normally reads the default tuning, not
-    that of its search.  The fixture sees only the calls that tests make on workers.  In compiled
-    code, two tests of ``qldpc/_compiled_code_rules_test.py`` check the rest:
-    ``test_nothing_asks_numba_for_parallel_code`` keeps the functions of qLDPC from being
-    numba-parallel, and ``test_always_compiled_functions_use_nothing_from_outside_qldpc`` keeps out
-    those of galois.
+    ``connected_cluster.md``, states the rules, and
+    ``qldpc/circuits/certification/fault_propagation.md#sec-thread-requirements`` those of the
+    certifier's fault lister, whose tests use this fixture too.  While a worker runs, on a new
+    thread or on the thread that called ``run_work_items``, a call from Python of numba code
+    compiled with ``parallel=True``, such as some of galois's, or of ``_tuning.get_tuning``, raises
+    an ``AssertionError``, which ``run_work_items`` raises again.  The workers include the threads
+    of ``iterate_in_order``, which start through ``run_work_items``.  Two threads that run
+    numba-parallel code at once can abort the process (see ``run_work_items``), and a new thread
+    normally reads the default tuning, not that of its search.  The fixture sees only the calls that
+    tests make on workers.  In compiled code, two tests of ``qldpc/_compiled_code_rules_test.py``
+    check the rest: ``test_nothing_asks_numba_for_parallel_code`` keeps the functions of qLDPC from
+    being numba-parallel, and ``test_always_compiled_functions_use_nothing_from_outside_qldpc``
+    keeps out those of galois.
     """
     run_work_items = _threads.run_work_items
 

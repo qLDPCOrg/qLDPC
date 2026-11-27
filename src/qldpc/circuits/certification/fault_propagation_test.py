@@ -101,9 +101,9 @@ def _assert_matches_brute_force(certificate: circuits.BoundedFaultPropagationCer
     """Check a certificate against brute force over the accepted faults of its DEM.
 
     It checks the faults of fault weight at most the number of post-selection detectors plus one,
-    which suffices by "Irreducible accepted faults suffice" and "Irreducible accepted faults have
-    fault weight at most `rank(P) + 1`" in ``fault_propagation.md``, since ``P`` has one row per
-    post-selection detector.
+    which suffices by ``fault_propagation.md#sec-irreducible-faults`` and
+    ``fault_propagation.md#sec-fault-weight-bound``, since ``P`` has one row per post-selection
+    detector.
     """
     detectors = _primitive_fault_detectors(certificate)
     selected = set(certificate.post_selection_detectors)

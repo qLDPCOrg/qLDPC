@@ -5,5 +5,5 @@
 from __future__ import annotations
 
 # The fault lister lists class codewords on threads, so each test here runs with the check of the
-# rules on threads of the distance package ("Threads" in fault_propagation.md).
+# rules on threads of the distance package (fault_propagation.md#sec-thread-requirements).
 from qldpc.codes.distance.conftest import check_code_on_threads  # noqa: F401

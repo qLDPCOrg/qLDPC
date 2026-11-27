@@ -8,10 +8,10 @@ a search, such as its completion tables, rather than copy them, as processes wou
 ``run_work_items``, ``run_items_until_first``, or ``run_blocks`` must keep the requirements on
 threads in the guide of its method, ``brouwer_zimmermann_code.md#sec-requirements`` or Section 5 of
 ``connected_cluster.md``.  The fault lister of the certifier of bounded fault propagation, which
-calls ``iterate_in_order``, must keep those in "Threads" of
-``qldpc/circuits/certification/fault_propagation.md``.  Workers read the tuning only from their
-search, never through ``get_tuning``, since new threads normally start with the default tuning (see
-the module docstring of ``_tuning.py``).
+calls ``iterate_in_order``, must keep those of
+``qldpc/circuits/certification/fault_propagation.md#sec-thread-requirements``.  Workers read the
+tuning only from their search, never through ``get_tuning``, since new threads normally start with
+the default tuning (see the module docstring of ``_tuning.py``).
 """
 
 from __future__ import annotations

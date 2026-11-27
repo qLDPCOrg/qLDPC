@@ -284,9 +284,9 @@ def test_a_class_codeword_that_two_states_could_find_is_listed_once(
 
     Of the classes 0 to 3 with flags 4, 5, 6, and 7, the walk from root 0 finds the class codeword
     of all four at the state of classes 0 and 1, and could find it again at the state of classes 0
-    and 2, where class 1 is forbidden ("Listing class codewords by shared flags" in
-    ``fault_propagation.md``).  Classes of several members, and zero hashes, which make every class
-    share each probe's hash, change nothing, and with no start class nothing is listed.
+    and 2, where class 1 is forbidden (``fault_propagation.md#sec-shared-flags``).  Classes of
+    several members, and zero hashes, which make every class share each probe's hash, change
+    nothing, and with no start class nothing is listed.
     """
     if collide:
         monkeypatch.setattr(

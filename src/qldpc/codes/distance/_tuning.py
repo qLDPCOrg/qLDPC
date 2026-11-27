@@ -543,9 +543,9 @@ class SearchTuning:
     #: layer of a set on these threads, which share one copy of the set's completion tables.  A
     #: connected-cluster distance search searches a costly weight limit on them, and the batch
     #: queries of ``CosetLeaderSearch`` search the blocks of a batch.  The fault lister of the
-    #: certifier of bounded fault propagation runs each costly listing on them too (section
-    #: "Threads" of ``fault_propagation.md`` in ``qldpc/circuits/certification``).  At least 1, and
-    #: 1 runs on the calling thread alone.  ``None`` takes the value of the environment variable
+    #: certifier of bounded fault propagation runs each costly listing on them too (:guide:`Threads
+    #: <circuits/certification/fault_propagation.md#sec-threads>`).  At least 1, and 1 runs on the
+    #: calling thread alone.  ``None`` takes the value of the environment variable
     #: ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
     #: ``numba.config.NUMBA_NUM_THREADS``.  The row on cores in "Start from a symptom" of
     #: :doc:`/exact_search_tuning` says how to set and cap it, and the section "Threads" of the

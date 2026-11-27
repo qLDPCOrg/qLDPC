@@ -62,7 +62,7 @@ that anything else writes while it runs, and call no numba code compiled with ``
 requirements on threads.  For the distance package,
 ``qldpc/codes/distance/brouwer_zimmermann_code.md#sec-requirements`` and Section 5 of
 ``qldpc/codes/distance/connected_cluster.md`` state them, each for its method.  For the certifier's
-fault lister, the section "Threads" of ``qldpc/circuits/certification/fault_propagation.md`` states
+fault lister, ``qldpc/circuits/certification/fault_propagation.md#sec-thread-requirements`` states
 them.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC asks numba for
 parallel code, that no module of the library other than this one and tests calls numba's ``njit`` or
 ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the only form that the
