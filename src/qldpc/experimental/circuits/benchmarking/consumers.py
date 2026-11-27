@@ -89,8 +89,8 @@ class Consumer:
     The consumer does not post-select.  Every operation must be a Clifford operation or Pauli noise,
     so that a Pauli error on the block flips a fixed set of detectors and observables.  See
     :guide:`Consumers and profiles
-    <experimental/circuits/benchmarking/consumer_calibration.md#sec-consumers>` for how consumers
-    are used.
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-consumers>` for what a consumer
+    models.
 
     Only the first three attributes can be passed by position.
 
@@ -635,13 +635,13 @@ class ConsumerCalibration:
             ``Φ`` and its standard error, propagated to first order as :guide:`Approximations and
             uncertainty
             <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>`
-            describes.  Every sure failure, beyond a table or in a cell with a sample count of zero,
-            depends on the baseline.  So the contributions of the error of each ``f(0, g)`` add
-            linearly before the standard error combines the sampling errors of the histograms, the
-            standard errors of the cells of the tables, and the error of the baseline in
-            quadrature.  The histograms of distinct
-            Pauli types, the cells, and the baseline estimates for distinct ``g`` are treated as
-            independent.  The calculation uses marginal standard errors only.
+            describes.  The standard error combines in quadrature the sampling errors of the
+            histograms, the standard errors of the cells of the tables, and the error of the
+            baseline.  Every certain failure, beyond a table or in a cell with a sample count of
+            zero, depends on the baseline, so the error of each ``f(0, g)`` adds linearly across the
+            residual weights and Pauli types that use it, before the quadrature sum.  The histograms
+            of distinct Pauli types, the cells, and the baseline estimates for distinct ``g`` are
+            treated as independent.  The calculation uses marginal standard errors only.
             ``get_standard_error_parts`` splits this standard error into its histogram and
             calibration parts.
 
@@ -683,12 +683,13 @@ class ConsumerCalibration:
         """The difference ``Φ(a) - Φ(b)`` of the figures of merit of preparation circuits a and b.
 
         Both circuits are scored with this calibration.  An error of a cell or a baseline moves both
-        scores, so it largely cancels from their difference.  The standard error of the difference
-        keeps this cancellation, so it can be much smaller than the standard errors of the two
-        scores added in quadrature when the circuits have similar residual-weight distributions.  It
-        excludes two biases, each of which can move the difference either way: residual weights
-        beyond a table and unsampled cells, which count as sure failures, and the truncation of
-        consumer fault weights above ``G``.  :guide:`Approximations and uncertainty
+        scores, so it largely cancels from their difference when the circuits have similar
+        residual-weight distributions.  The standard error of the difference keeps this
+        cancellation, so it can then be much smaller than the standard errors of the two scores
+        added in quadrature.  It excludes two biases, each of which can move the difference either
+        way.  The first is that of residual weights beyond a table and of unsampled cells, which
+        count as certain failure.  The second is that of the truncation of consumer fault weights
+        above ``G``.  :guide:`Approximations and uncertainty
         <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>` explains
         this cancellation and these biases.
 

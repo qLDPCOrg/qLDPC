@@ -311,6 +311,8 @@ def test_a_root_whose_class_codewords_fill_its_array_takes_more_passes(
     and makes another pass for the rest, while an array of 29 rows holds them all, and makes the
     walk return those of the first root once the first class codeword of the second fills it.  The
     listing is that of brute force either way.
+
+    This checks ``fault_propagation.md#sec-shared-flags``.
     """
     # Record the work of the walk, which another pass over a root adds to.
     works: list[int] = []
@@ -1244,7 +1246,10 @@ def test_the_table_of_syndromes_has_room_for_at_most_2_to_the_31_syndromes(
 
 
 def test_roots_are_weighed_by_the_choices_of_their_other_classes() -> None:
-    """The weights of the roots are in proportion to ``C(q - 1 - r, m - 2)``, and stay finite."""
+    """The weights of the roots are in proportion to ``C(q - 1 - r, m - 2)``, and stay finite.
+
+    This checks ``fault_propagation.md#sec-listing-on-threads``.
+    """
     for num_classes, fault_weight in itertools.product(range(12), range(3, 9)):
         for num_roots in range(num_classes + 1):
             weights = _fault_search._get_root_weights(num_classes, num_roots, fault_weight)

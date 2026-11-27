@@ -131,7 +131,7 @@ This space is the whole stabilizer group, of dimension `n`, exactly when `rank(W
 By default, each search of the oracle is a Brouwer-Zimmermann search of the cosets of a binary code, which [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md) describes, with the improvements that it uses for cosets.
 When a high threshold makes a search costly, the oracle may search with another family of information sets that it expects to take less work.
 The section [Heuristics and cost models](../../codes/distance/brouwer_zimmermann_code.md#sec-heuristics) of `brouwer_zimmermann_code.md` says when, from the expected work that the field `coset_route_minimum_work` of the search tuning sets.
-The oracle builds these families once for each search that it caches, and `qldpc/codes/distance/_tuning.py` sets how many searches of each kind it caches.
+The oracle builds these families once for each search that it caches, and `qldpc/codes/distance/_tuning.py` sets how many CSS and how many Pauli searches it caches.
 Another family can change the error that the oracle returns, and the lower bound that it gives, but never whether it finds an error of weight at most the threshold.
 The costliest of these searches also skip errors that tables of bounds prove to weigh more than the threshold ([Skipping completions by completion tables](../../codes/distance/brouwer_zimmermann.md#sec-completion-tables)), which can change the error and the lower bound in the same way.
 So the `output_pauli` and `residual_weight_lower_bound` of a counterexample can change between versions of qLDPC when the queries that find it are costly, while the verdict and the smallest violating fault do not.
@@ -352,7 +352,7 @@ If the search finds no violation, steps 1 to 3 show that no violating accepted f
 
 A listing of class codewords counts its **work** in units of a probe of the [map of classes by hash](#sec-shared-flags).
 The walk counts one unit for each bit of `σ(A)` that it examines to choose a bit, and for each class after `r` with bit `b` that it examines, including those that it skips as chosen or forbidden.
-It counts `64` units for each reduction of flags: that of the root at the start of each pass, and that of a candidate, whether the candidate gives a child, is found dependent, or completes a class codeword.
+It counts `64` units for each reduction of a class's flags against those of the chosen classes, by which the walk tests independence: that of the root at the start of each pass, and that of a candidate, whether the candidate gives a child, is found dependent, or completes a class codeword.
 This count estimates the time of the walk; it decides only when a listing moves to threads and when a thread pauses, never what the walk lists.
 A listing is **costly** if, once the calling thread, listing alone, has done `2^18` probes of work for each thread, at least as much work for each thread is estimated to be left, as described below.
 A costly listing runs on `SearchTuning.num_threads` threads, as the oracle's searches do.
@@ -372,7 +372,7 @@ The calling thread first lists the first roots alone, however costly the first o
 If the work left, estimated as its work times the ratio of the weights of the other roots to those of its own, is less than `2^18` probes for each thread, it lists the other roots alone too.
 Otherwise the listing is costly, and the other roots move to threads.
 The **thread runner** is the code of `qldpc/codes/distance/_threads.py` that runs the threads of a listing.
-On `n` threads, it splits the roots that move to threads into ranges, each of the fewest roots whose weights reach `1 / (256 t)` of those of all these roots, for `t = min(n - 1, number of these roots)` threads.
+On `T` threads, it splits the roots that move to threads into ranges, each of the fewest roots whose weights reach `1 / (256 t)` of those of all these roots, for `t = min(T - 1, number of these roots)` threads.
 The threads claim the ranges in order, and the calling thread takes the class codewords of each range in turn, as its thread lists them.
 The weights can estimate the work poorly, so that a range of a given share of the weights can hold much more of the work than its share.
 Small ranges keep such a range from holding up the calling thread while the other threads, far ahead, reach the cap of held batches below and wait.
@@ -387,7 +387,7 @@ So it pauses at the same faults, where its batch of faults is full or its table 
 The threads can list class codewords after the first violation, which the calling thread never expands.
 An exception on a thread, such as a `MemoryError`, can be raised before the calling thread reaches a violation that one thread would have found first.
 
-While the threads list, the calling thread can run a costly batch of the oracle, which moves to threads of its own, so that up to `2 n - 1` threads can be busy for a time.
+While the threads list, the calling thread can run a costly batch of the oracle, which moves to threads of its own, so that up to `2 T - 1` threads can be busy for a time.
 Listing on threads also takes more CPU time than on one thread, since each thread lists more slowly when more threads list.
 The docstring of `certify_bounded_fault_propagation` says how to keep a certification on one thread.
 
@@ -399,8 +399,8 @@ The tests that cite this section check them on small instances, and review check
 
 - **Expand class codewords only on the calling thread, in the serial order.**
   The table of syndromes, the choices of members that the expansion remembers, and the batches of faults depend on the order of the faults, and [skipping faults](#sec-skipping-listed-syndromes) relies on the table holding the syndrome of each earlier fault.
-  Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks those faults.
-  On any number of threads, the search must check the same faults, in the same order, as on one thread.
+  On any number of threads, the search must check the same faults, in the same order, as on one thread, unless an exception on a thread ends the listing.
+  Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks the same faults.
   This includes listings in which threads pause within passes over roots, a root takes several passes, the table of syndromes fills up, a violation stops the listing while threads list, the calling thread lists roots alone first, or a later range of roots is listed before the first.
 - **Split the listing only between roots, and start each pass over a root with only the root chosen and no class forbidden.**
   The passes over a root must stay a function of the root, also when a thread pauses within a root.
@@ -408,12 +408,14 @@ The tests that cite this section check them on small instances, and review check
 - **Keep each thread's walk by shared flags writing only to its own arrays, and the expansion into faults only to the arrays of the calling thread,** since both run in compiled code without the global interpreter lock while threads list.
   The threads read the rows of the classes, the index of their flag bits, and the map of classes by hash, which the lister builds once and never changes.
   The docstring of each function of `_fault_search.py` compiled with `nogil=True` says which arrays it writes.
-  A test marks read-only the arrays that the lister builds once, runs the threads, and checks that the arrays do not change, so that numba rejects a write to them in any branch of compiled code.
+  A test marks these arrays read-only, so that numba rejects a write to them in any branch of compiled code.
+  It then runs the threads and checks that the arrays do not change.
   Review checks the writes that the read-only marking misses, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway, and those on paths that the tests do not run.
 - **Stop the threads whenever a listing ends, also by an exception.**
   The search closes the listing of class codewords of a fault weight whenever it stops taking class codewords from it: at a violation, at the end of the listing, or at an exception.
-  The thread runner then stops the threads and waits for them, as the tests of `qldpc/codes/distance/_threads.py` check, together with the order and the bound below.
+  The thread runner then stops the threads and waits for them.
   The thread runner hands on the class codewords in the order of the ranges, and holds at most `64 t` batches of class codewords on `t` threads that list, and one more for the range that the calling thread reads.
+  The tests of `qldpc/codes/distance/_threads.py` check this order, this cap, and that the thread runner stops the threads and waits for them.
   Each batch that a thread hands to the calling thread holds at most `2^10` class codewords, so that the held batches take bounded memory.
   A thread checks the stop event after each call of the walk rather than hand on empty batches, and closing the listing sets that event.
 - **Call no numba-parallel code on threads, and read the search tuning only on the calling thread.**

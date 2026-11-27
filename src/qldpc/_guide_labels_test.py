@@ -39,7 +39,7 @@ _PATH = re.compile(r"(?<![\w./:-])([\w./-]*\.md)#([\w-]+)")
 _LOCAL = re.compile(r"\]\(#([\w-]+)\)")
 # a Markdown link to a section of a reStructuredText page, by a relative path or by the page's
 # URL on Read the Docs, and a Sphinx label in such a page; pages that Read the Docs builds from
-# notebooks or from the code have no such source, and are not checked
+# notebooks or from the code, under autoapi/, are not checked
 _RST_LINK = re.compile(r"\]\(([^)\s#]*\.rst)#([\w-]+)\)")
 _RST_URL = re.compile(r"qldpc\.readthedocs\.io/(?:en/[\w.-]+/)?([\w/-]+)\.html#([\w.-]+)")
 _SPHINX_LABEL = re.compile(r"^\.\. _([\w-]+):$", re.MULTILINE)
@@ -82,26 +82,35 @@ def test_broken_rst_links_are_found(
 ) -> None:
     """Links to a missing page, or to a section of a page by other than its label, are broken.
 
-    Links to pages that Read the Docs builds from notebooks or from the code are not checked.
+    Links to pages that Read the Docs builds from notebooks or from the code are not checked, even
+    where a docs build has left generated sources on disk.
     """
     pages = tmp_path / "docs" / "source"
-    pages.mkdir(parents=True)
+    (pages / "autoapi").mkdir(parents=True)
     (pages / "page.rst").write_text(".. _page-rounds:\n\nRounds\n------\n")
+    (pages / "basics.ipynb").write_text("{}")
+    (pages / "autoapi" / "index.rst").write_text("Generated\n---------\n")
+    (tmp_path / "notebook.ipynb").write_text(
+        '{"cells": [{"source": ["[a](https://qldpc.readthedocs.io/page.html#rounds)"]}]}'
+    )
     (tmp_path / "notes.md").write_text(
         "[ok](docs/source/page.rst#page-rounds), [slug](docs/source/page.rst#rounds), "
         "[gone](docs/source/gone.rst#page-rounds),\n"
         "https://qldpc.readthedocs.io/page.html#page-rounds and "
         "https://qldpc.readthedocs.io/en/latest/page.html#rounds, and the pages built from a notebook "
-        "and from the code, https://qldpc.readthedocs.io/examples/basics.html#Setup and "
-        "https://qldpc.readthedocs.io/autoapi/qldpc/codes/index.html#qldpc.codes.CSSCode\n"
+        "and from the code, https://qldpc.readthedocs.io/basics.html#Setup and "
+        "https://qldpc.readthedocs.io/autoapi/index.html#qldpc.codes.CSSCode, and a missing page, "
+        "https://qldpc.readthedocs.io/pages.html#page-rounds\n"
     )
     monkeypatch.setattr(sys.modules[__name__], "_ROOT", tmp_path)
     _files.cache_clear()
     try:
         assert _get_broken_rst_links() == [
+            ("notebook.ipynb", "docs/source/page.rst#rounds"),
             ("notes.md", "docs/source/gone.rst#page-rounds"),
             ("notes.md", "docs/source/page.rst#rounds"),
             ("notes.md", "docs/source/page.rst#rounds"),
+            ("notes.md", "docs/source/pages.rst#page-rounds"),
         ]
     finally:
         _files.cache_clear()
@@ -191,7 +200,7 @@ def _get_broken_rst_links() -> list[tuple[str, str]]:
         targets += [
             (pages / f"{page}.rst", fragment)
             for page, fragment in _RST_URL.findall(text)
-            if (pages / f"{page}.rst").is_file()
+            if not page.startswith("autoapi/") and not (pages / f"{page}.ipynb").exists()
         ]
         for page, fragment in targets:
             page = pathlib.Path(os.path.normpath(page))

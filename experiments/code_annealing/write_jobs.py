@@ -12,8 +12,8 @@ from any directory.  From the root::
 ``--test`` writes a small smoke-test campaign to the ``test/`` subdirectory instead.  After an
 interruption, run ``write_jobs`` again with the same options; to extend a campaign, change only the
 options that select its part.  The new file resumes unfinished searches and skips finished ones.
-``README.md#sec-rerun-searches`` describes a campaign and its cost, and
-``core/run_annealing.py`` what a job saves.
+``README.md#sec-rerun-searches`` describes a campaign and its cost, and ``core/run_annealing.py``
+what a job saves.
 
 Every search starts from the lowest-energy code of ``--init-samples`` random codes, which are
 self-dual for both code types.
