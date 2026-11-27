@@ -11,6 +11,8 @@ of the search.  A costly layer runs on several threads
 requirements on threads of ``brouwer_zimmermann_code.md#sec-requirements``, such as "Decide only
 from what a layer leaves the same on any number of threads".
 
+Here ``U`` is the best upper bound, and ``L(t)`` the lower certificate once layer ``t`` is complete
+(``brouwer_zimmermann.md#sec-bounds-and-certificates``).
 ``get_distance_brouwer_zimmermann`` builds a ``BrouwerZimmermannSearch``, which prepares a search of
 each sector with ``_prepare_sector_search``.  Each call of its ``advance`` method advances the
 search of one remaining sector by one layer, in round-robin order for a joint CSS search
@@ -43,10 +45,8 @@ Once prepared, the searches exit as follows:
   certify ``U``, or earlier if ``U <= cutoff``.  Before a costly layer, a search may first get
   automorphisms and consider switching to an automorphism family, whose rows may lower ``U`` and
   whose certificate may finish the search.  A finished search does no further work.
-- ``_SectorSearch.finished`` marks a search finished if ``U <= cutoff``, ``L >= U``, or every layer
-  has been enumerated (``next_weight > dimension``).
-- ``BrouwerZimmermannSearch.finished`` marks the search finished once the shared ``U <= cutoff``, or
-  the search of every sector has finished; ``get_distance_brouwer_zimmermann`` then returns ``U``.
+- Once every sector's search has finished, or the shared ``U <= cutoff``,
+  ``get_distance_brouwer_zimmermann`` returns ``U``.
 """
 
 from __future__ import annotations
@@ -323,7 +323,10 @@ class _SectorSearch:
 
     @property
     def finished(self) -> bool:
-        """Whether this sector cannot improve the shared upper bound."""
+        """Whether this sector cannot improve the shared upper bound.
+
+        It cannot once ``U <= cutoff``, once ``L >= U``, or once every layer has been enumerated.
+        """
         return (
             self.best <= self.cutoff
             or self.lower_bound >= self.best

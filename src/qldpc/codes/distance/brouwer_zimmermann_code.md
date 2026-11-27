@@ -1,6 +1,6 @@
 # Brouwer-Zimmermann distance search in qLDPC: the source code and its requirements
 
-This file holds the guide to the source code and the correctness requirements of the Brouwer-Zimmermann (BZ) search; [brouwer_zimmermann.md](brouwer_zimmermann.md) holds the rest of the guide and the references, and explains the algorithm and its extensions.
+This file holds the parts of the guide to the Brouwer-Zimmermann (BZ) search on the source code and the correctness requirements; [brouwer_zimmermann.md](brouwer_zimmermann.md) holds the rest, which explains the algorithm and its extensions, and the references.
 Like code comments, this file calls a search basis a **set** for short.
 
 <a name="sec-source-code"></a>
@@ -168,7 +168,7 @@ Distance searches and counts build their families in the stages of [_information
   The docstring of `get_distance_from_generators` in [distances.py](distances.py) states the contracts of `cutoff` and of its early exit, which the other distance functions share.
   The module docstring of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) lists where a BZ search checks `cutoff`.
 - **Weight limit.**
-  The same docstring states the contract of `max_weight`.
+  The docstring of `get_distance_from_generators` also states the contract of `max_weight`.
   The functions pass `max_weight+1` to BZ as an upper bound, as though a witness of that weight were known, so that it stops once its certificate reaches that bound, and clamp the results of the other methods to `max_weight+1`.
   They also cap `cutoff` at `max_weight`, since a higher cutoff would end the search at once on the assumed witness.
   Inside the searches, a sector without nontrivial words counts as `n+1`, which no word on `n` bits or qubits weighs, so that it never lowers the minimum over sectors.
@@ -176,7 +176,7 @@ Distance searches and counts build their families in the stages of [_information
   Binary input (`symplectic=False`) is a classical problem, or a pure-X or pure-Z problem with one bit per qubit, and symplectic input (`symplectic=True`) has general Pauli rows.
   For symplectic input, BZ maps rows by `T` ([Pauli weight as Hamming weight](brouwer_zimmermann.md#sec-pauli-weight)), doubles `cutoff` and the bound of a weight limit, passes the proven weight divisor two ([Rounding the certificate to a proven weight multiple](brouwer_zimmermann.md#sec-weight-multiples)), and halves the result, while `method="brute_force"` uses symplectic weights and the original `cutoff`.
 - **Independence.**
-  For every BZ and brute-force search, including those that `method="auto"` runs through [_auto.py](_auto.py), [distances.py](distances.py) makes the generators of the caller independent.
+  For every BZ and brute-force search of the distance functions of [distances.py](distances.py), including those that `method="auto"` runs through [_auto.py](_auto.py), [distances.py](distances.py) makes the generators of the caller independent.
   It reduces them with [qldpc/_binary.py](../../_binary.py), or builds the adapted basis of [_code_matrices.py](_code_matrices.py) when the caller gives `S`.
 - **Resumable layers.**
   A compiled scan of a distance search returns after a batch of at most `2^search_chunk_exponent` supports, or, with completion tables, that many supports and lookups together.
@@ -195,7 +195,7 @@ Distance searches and counts build their families in the stages of [_information
   A search resolves `num_threads` once, from the tuning; README.md's [Threads](README.md#threads) gives its default.
   Any other layer, and every layer on one thread, is scanned on the calling thread.
   A **work item** is the set of supports of the layer whose first `k` rows are fixed.
-  `k` is 2 if `w ≥ 4` and fixing one row leaves fewer than a constant of [_threads.py](_threads.py) items for each thread, and 1 otherwise.
+  `k` is 2 if `w ≥ 4` and fixing one row leaves fewer items for each thread than a constant of [_threads.py](_threads.py) sets, and 1 otherwise.
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Skipping completions by completion tables](brouwer_zimmermann.md#sec-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
   The items are numbered in lexicographic order, the order in which the scans step through a layer ([_information_sets/support_stepping.py](_information_sets/support_stepping.py)).
   Their numbers of supports vary widely, and earlier items tend to hold more, so ranges of equal numbers of items would not balance the threads.
@@ -218,11 +218,11 @@ Distance searches and counts build their families in the stages of [_information
   `CosetLeaderSearch` fixes `num_threads` when it is built, and with it a **split work** of `num_threads << search_chunk_exponent` units.
   The comment of `search_chunk_exponent` in [_tuning.py](_tuning.py) defines these units for the BZ and connected-cluster methods.
   `find_first_not_within_max_weight` and `get_min_weights` of `CosetLeaderSearch` run each batch of a BZ coset search through [_threads.py](_threads.py).
-  The calling thread searches the batch alone, in order, in one call of the compiled batch loop of the query, which stops once the work of its queries reaches the split work.
+  The calling thread searches the batch alone, in order, in one call of the compiled batch loop of its query, which stops once the work of its queries reaches the split work.
   So a batch of cheap queries, and any batch on one thread, runs on the calling thread in one call, and costs about as much as one call of the loop.
   Once a batch has shown that it is costly, the rest of it is split into contiguous blocks, about a fixed number for each thread, a constant of [_threads.py](_threads.py).
   The threads, the calling thread among them, claim ranges of blocks in increasing order, and search the blocks one at a time with the same loop.
-  Each worker has its own buffer for the lightest word; Numba compiles both loops without the global interpreter lock, and the call on the calling thread compiles them before any thread starts.
+  Each worker has its own buffer for the lightest word; Numba compiles the batch loops of both queries without the global interpreter lock, and the call on the calling thread compiles them before any thread starts.
   The query takes its route before the threads start, so no thread builds tails or tables, and the threads share the tables of the route, apart from the copies of its planning buffer that a batch gives its workers ([Coset searches](#sec-coset-searches)).
   The answer for a syndrome depends only on the code, the maximum weight, and the tuning ([Correctness requirements](#sec-requirements)), so the weights of `get_min_weights` are those of one thread.
   In `find_first_not_within_max_weight`, a syndrome without a word within the maximum weight ends the batch.

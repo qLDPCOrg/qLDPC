@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
+"""Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches.
+
+Several codes here are chosen for the families of search bases that the heuristics of
+``brouwer_zimmermann_code.md#sec-heuristics`` build for them.
+"""
 
 import contextlib
 import itertools
@@ -104,7 +108,7 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# that coset searches can take (``brouwer_zimmermann_code.md#sec-heuristics``):
+# that coset searches can take:
 #
 # - EVEN_ROUTES_CODE has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so its rows
 #   are even.  Its greedy packing has ranks three and two, but its columns hold two disjoint
@@ -136,7 +140,7 @@ OVERLAPPING_ROUTES_CODE = get_binary_matrix(
 # A [15, 6, 4] code whose last nine columns have even weight on the first four rows.  A greedy
 # packing of its columns in natural order takes the first six, and leaves a partial set of rank
 # five, but the columns hold two disjoint information sets, which matroid partitioning with coverage
-# one finds (``brouwer_zimmermann_code.md#sec-heuristics``).
+# one finds.
 MISSED_SET_CODE = get_binary_matrix(
     [
         "100000111011011",
@@ -371,7 +375,7 @@ def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.N
 
 
 # Graph states whose costly queries of Pauli errors take a maximum disjoint family that beats the
-# greedy packing (``brouwer_zimmermann_code.md#sec-heuristics``).  By physical weight, the family
+# greedy packing.  By physical weight, the family
 # has more information sets on the first of ROUTED_PHYSICAL_STATES, and a larger partial set on the
 # second, where it returns other errors than the greedy packing for some classes without an error
 # within the maximum weight.  By CSS weight, it has a larger partial set on ROUTED_CSS_WEIGHT_STATE.

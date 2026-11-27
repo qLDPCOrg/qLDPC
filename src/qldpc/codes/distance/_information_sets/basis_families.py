@@ -286,10 +286,8 @@ def build_overlapping_family_policy(
     """The policy of stage three with given settings, for a basis of ``dimension`` rows.
 
     Its generator is new, with a fixed seed, so that every search chooses the same replacement for
-    the same basis family and settings (``brouwer_zimmermann_code.md#sec-heuristics``).  Every
-    caller of ``get_overlapping_family`` gets its policy here: distance searches and counts through
-    ``get_overlapping_family_policy``, which reads the tuning, and the routes of coset searches
-    directly.
+    the same basis family and settings (``brouwer_zimmermann_code.md#sec-heuristics``).
+    ``get_overlapping_family_policy``, for example, calls it with the settings of the tuning.
     """
     return OverlappingFamilyPolicy(
         max_sets,

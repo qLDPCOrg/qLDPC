@@ -8,9 +8,9 @@ of ``P``, the weight of the words that complete those rows with two rows from ``
 the least number of their pivot ones to this bound, and skips the words if the sum reaches the limit
 of the scan, such as the best weight ``U`` of a distance search.
 ``brouwer_zimmermann.md#sec-completion-tables`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
-derive the bound, and the limit of each kind of scan.  ``select_completion_tables`` chooses and
-builds the tables of distance searches and counts.  The routes by tails of coset searches size their
-tables with ``get_table_bytes_within``, and build them with ``CompletionTables.build``.
+derive the bound, and the limit of each kind of scan.  ``select_completion_tables`` chooses the
+layers whose tables pay and builds them, ``get_table_bytes_within`` sizes tables within a limit on
+memory, and ``CompletionTables.build`` builds the tables of given search bases.
 
 Threads read shared tables at once (``brouwer_zimmermann.md#sec-completion-lookups`` and
 ``brouwer_zimmermann_code.md#sec-requirements``).  ``get_completion_bound`` and its helper

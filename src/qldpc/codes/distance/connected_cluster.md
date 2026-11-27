@@ -45,7 +45,7 @@ A caller who knows sparse stabilizer generators can search them as given with `g
 A code that is not CSS costs more to search than an equivalent CSS code: each qubit of a check offers two Paulis that flip the check, and a `Y` can flip more checks, which weakens the bounds ([Section 3.7](#sec-non-css)).
 So `get_distance_pauli` searches checks as a CSS code whenever X-type and Z-type operators generate their group, even if the checks mix X and Z, but searches a code that is CSS only up to local Cliffords, such as a CSS code with Hadamards on some qubits, as a code that is not CSS.
 
-Sparse checks alone do not make the search faster than BZ, whose work depends not on sparsity but on the distance and on the dimension of the space that it searches, stabilizers included for a quantum code ([Section 3.6 of brouwer_zimmermann.md](brouwer_zimmermann.md#sec-work-estimates)).
+Sparse checks alone do not make the search faster than BZ, whose work depends not on sparsity but on the distance and on the dimension of the space that it searches, stabilizers included for a quantum code ("[Work estimates and exhaustive enumeration](brouwer_zimmermann.md#sec-work-estimates)" in `brouwer_zimmermann.md`).
 The connected-cluster search is often much faster on quantum LDPC codes, but can be much slower on some of them, and on classical LDPC codes whose checks are only moderately sparse.
 The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) compares the methods on known codes.
 
@@ -588,7 +588,7 @@ It counts the states above the frontier before that witness in DFS order, the st
 
 **When to split.**
 A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#sec-symmetries)) that the limit visits more than `(num_threads << search_chunk_exponent) >> connected_cluster_split_shift` states.
-By default, that is a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#sec-cross-file-behavior)), since a state costs far more than a support.
+By default, that is a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ("[Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior)" in `brouwer_zimmermann_code.md`), since a state costs far more than a support.
 A split costs up to about a millisecond for each thread, in its frontier passes, the calls that search its items, and the start of the threads.
 At the default exponent and shift, the gate is 8192 states for each thread, about one to a dozen milliseconds of work, so a limit that splits is predicted to cost at least about as much as its split; a limit that finds its witness early can cost less.
 A first limit at the weight divisor is predicted to visit no states, so it runs on one thread.

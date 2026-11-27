@@ -227,7 +227,7 @@ Over GF(2), applied to a parity-check matrix, his program computes the distance 
 <a name="sec-coset-families"></a>
 #### Families for coset searches
 
-The coset searches of [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
+The coset searches of `CosetLeaderSearch` ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches)) search a coset `u + V` to answer **queries**: whether the coset has a word of weight at most a given maximum weight.
 For each search basis `G_i`, fix an **offset**, a word of the coset that is zero on the pivot columns of `B_i`.
 Every word of the coset is the offset plus a unique sum of rows of `G_i`, so once `G_i` has completed layer `t`, an unexamined word has at least `b_i(t)` ones on `B_i`, as a word of `V` does.
 So every certificate of this section holds for cosets, and any family of search bases of `V` serves every coset of `V`.
@@ -411,7 +411,7 @@ This guide at commit 0870f6a derives these bounds and compares them with White's
 #### Where automorphisms come from
 
 With the optional `pybliss` package, the graph-automorphism tool bliss of Junttila and Kaski ([References](#sec-references)) searches the parity checks of a binary classical or quantum code for automorphisms.
-For a quantum code, the class of the code can also supply other sets of checks that span the same space, through a method of `QuditCode` that its subclasses override.
+For a quantum code, the class of the code can also supply other sets of checks that span the same space, through a method of `QuditCode` in [codes/common.py](../common.py) that its subclasses override.
 Bliss can then find automorphisms that do not map parity checks to parity checks.
 `QTCode`, for example, supplies its canonical local checks where they are few enough.
 Bliss finds the automorphisms of the Tanner graph of each set, whose edges are colored by the Pauli operators of the checks.
@@ -421,7 +421,7 @@ For a classical code, bliss searches only the parity check matrix, whose automor
 G. Lee (Appendix C.4) likewise finds the automorphisms of Tanner graphs automatically, but for the roots of a connected-cluster search ([Section 3.5 of connected_cluster.md](connected_cluster.md#sec-symmetries); [References](#sec-references)).
 
 With or without `pybliss`, the class of the code can supply generators of automorphisms that its construction provides.
-Quantum code classes supply them through a method of `QuditCode` that they override, such as the translations of the group of an `MBCode`, and classical code classes through a method of `ClassicalCode`.
+Quantum code classes supply them through a method of `QuditCode` that they override, such as the translations of the group of an `MBCode`, and classical code classes through a method of `ClassicalCode`, both in [codes/common.py](../common.py).
 Bliss finds only automorphisms of the Tanner graphs of the sets of checks that it searches, so it can miss these generators.
 A cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
 Searches use these generators together with those that bliss finds.
@@ -632,4 +632,4 @@ It can also change the distance and the weights of check words, so the counter s
 - G. Lee, "Bicycle race: small two-block codes on the Pareto frontier" ([arXiv:2610.13880v2](https://arxiv.org/abs/2610.13880v2)): Appendix C.4 takes the roots of a connected-cluster search from the automorphisms of the Tanner graph, which pynauty finds ([Images of an information set under automorphisms](#sec-automorphisms)).
 - R. E. Korf and A. Felner, "Disjoint pattern database heuristics," *Artificial Intelligence* 134, 9-22, 2002 ([doi:10.1016/S0004-3702(01)00092-3](https://doi.org/10.1016/S0004-3702%2801%2900092-3)), and A. Felner, R. E. Korf, and S. Hanan, "Additive pattern database heuristics," *Journal of Artificial Intelligence Research* 22, 279-318, 2004 ([doi:10.1613/jair.1480](https://doi.org/10.1613/jair.1480)): disjoint and additive pattern databases ([Skipping completions by completion tables](#sec-completion-tables)).
 - S. Bouyuklieva and I. Bouyukliev, "An extension of the Brouwer-Zimmermann algorithm for calculating the minimum weight of a linear code," *Mathematics* 9(19), 2354, 2021 ([doi:10.3390/math9192354](https://doi.org/10.3390/math9192354)): page 6 lists the codewords of a given weight without repetition ([Counting logical operators](#sec-counting)).
-- The implementation and its tests: "[Where to look](README.md#where-to-look)" in README.md names the module of each part, and the tests that check the requirements of [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) cite that section in their docstrings.
+- The implementation and its tests: "[Where to look](README.md#where-to-look)" in README.md names the module of each part, and the tests of the [correctness requirements](brouwer_zimmermann_code.md#sec-requirements) cite that section in their docstrings.

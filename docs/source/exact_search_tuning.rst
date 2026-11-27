@@ -50,7 +50,7 @@ Start from a symptom
        For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
        For the Brouwer-Zimmermann method of :class:`~qldpc.codes.distance.CosetLeaderSearch` by CSS weight, on a stabilizer state that is not CSS, lower :attr:`~SearchTuning.max_css_single_pairs`.
        For the completion tables of its other searches, by physical weight or on a CSS state, lower :attr:`~SearchTuning.coset_completion_block_bits` or :attr:`~SearchTuning.coset_completion_max_table_bytes`.
-       The latter applies to each set of each family that has tables: the disjoint family, and the maximum disjoint and overlapping families of :guide:`Heuristics and cost models <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>` of ``brouwer_zimmermann_code.md``.
+       The latter applies to each set of each family that has tables: the disjoint family, and the maximum disjoint and overlapping families that :guide:`Heuristics and cost models <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>` describes.
        For every search of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method, raise :attr:`~SearchTuning.coset_route_minimum_work`, so that a search builds its extra families later or not at all, and, as a rule, in its searches by physical weight or on a CSS state, fewer queries build completion tables.
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.

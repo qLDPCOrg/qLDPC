@@ -6,8 +6,8 @@
 ``brouwer_zimmermann.md#sec-completion-cosets`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
 derive the bounds of their queries.
 
-- ``get_pauli_search`` and ``get_css_searches`` cache the searches, whose planning buffers the
-  callers that share a search share too.
+- ``get_pauli_search`` and ``get_css_searches`` cache the searches; callers that share a search
+  also share its planning buffers.
 - ``BrouwerZimmermannCosetSearch.get_min_weight_bound`` answers a single query.  It takes the route
   of its maximum weight from ``coset_routes.CosetRoutes``, and calls ``_search_coset`` from Python
   as a compiled entry point without ``nogil``.
@@ -19,8 +19,9 @@ derive the bounds of their queries.
   through ``_find_min_weights_on_threads``.  The loop searches the coset of each syndrome with
   ``_search_coset_for_min_weight``, which finds its stopping steps with
   ``coset_tables.get_first_step_reaching``.
-- ``_search_coset`` finds its stopping step with ``coset_tables.get_stopping_step``, and both
-  searches scan with the scans of ``affine_search`` that fit the route (see ``_scan_step``).
+- ``_search_coset`` finds its stopping step with ``coset_tables.get_stopping_step``.  It and
+  ``_search_coset_for_min_weight`` scan with the scans of ``affine_search`` that fit the route (see
+  ``_scan_step``).
 
 The batch loops run on several threads at once, through ``_threads.run_blocks``, and so can the
 queries of callers that share a search.  A change here must keep the requirements on threads under
