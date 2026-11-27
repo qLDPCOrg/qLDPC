@@ -289,4 +289,5 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   Two of these tests cite [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, and Section 5 of `connected_cluster.md` names the other two.
   Each guide lists the writes that its tests miss.
   Review checks those writes.
-- `_readme_test.py` fails if "Where to look" omits a module, if "Layout" omits a top-level module or subpackage, or if this page or `problems.md` names, in a code span, a Python file of this package that does not exist.
+- "Layout" and "Where to look" are selective maps, so a new module needs no entry in them.
+  `_readme_test.py` fails if this page or `problems.md` names, in a code span, a Python file of this package that does not exist.
