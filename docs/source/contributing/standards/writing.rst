@@ -65,7 +65,7 @@ Where documentation belongs
   The label is an anchor ``<a name="sec-…"></a>`` alone on the line above the section's heading, and a change that cites an unlabeled section adds one.
   Rendered reStructuredText, such as a public docstring or a page under ``docs/source/``, links to the label through the ``:guide:`` role with the guide's path under ``src/qldpc/``, or through the ``:repo:`` role with the path of another document from the root of the repository.
   Markdown links to it by a relative link or a GitHub URL, and comments and other docstrings cite it as in the example above.
-  Sections of ``.rst`` documents keep their Sphinx labels, cited with ``:ref:``.
+  Sections of ``.rst`` documents keep their Sphinx labels, cited with ``:ref:`` in reStructuredText and from Markdown by a relative link with the label as fragment, as in ``reviewing.rst#review-rounds``.
 * Some guides explain how a package's code works, as those of ``codes/distance/`` and ``circuits/certification/`` do; the guides to workarounds do not.
   Such a guide, not the code, gives the correctness arguments for the package's code, such as why a bound holds.
   When a section explains a function, class, or module of the package, that object cites the section, and so does any code that relies on a section.
