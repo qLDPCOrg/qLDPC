@@ -38,9 +38,10 @@ _PATH = re.compile(r"(?<![\w./:-])([\w./-]*\.md)#([\w-]+)")
 # a link from a guide to one of its own sections
 _LOCAL = re.compile(r"\]\(#([\w-]+)\)")
 # a Markdown link to a section of a reStructuredText page, by a relative path or by the page's
-# URL on Read the Docs, and a Sphinx label in such a page
+# URL on Read the Docs, and a Sphinx label in such a page; pages that Read the Docs builds from
+# notebooks or from the code have no such source, and are not checked
 _RST_LINK = re.compile(r"\]\(([^)\s#]*\.rst)#([\w-]+)\)")
-_RST_URL = re.compile(r"qldpc\.readthedocs\.io/(?:en/[\w.-]+/)?([\w/-]+)\.html#([\w-]+)")
+_RST_URL = re.compile(r"qldpc\.readthedocs\.io/(?:en/[\w.-]+/)?([\w/-]+)\.html#([\w.-]+)")
 _SPHINX_LABEL = re.compile(r"^\.\. _([\w-]+):$", re.MULTILINE)
 
 
@@ -79,7 +80,10 @@ def test_markdown_links_to_rst_sections_name_their_sphinx_labels() -> None:
 def test_broken_rst_links_are_found(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Links to a missing page, or to a section of a page by other than its label, are broken."""
+    """Links to a missing page, or to a section of a page by other than its label, are broken.
+
+    Links to pages that Read the Docs builds from notebooks or from the code are not checked.
+    """
     pages = tmp_path / "docs" / "source"
     pages.mkdir(parents=True)
     (pages / "page.rst").write_text(".. _page-rounds:\n\nRounds\n------\n")
@@ -87,7 +91,9 @@ def test_broken_rst_links_are_found(
         "[ok](docs/source/page.rst#page-rounds), [slug](docs/source/page.rst#rounds), "
         "[gone](docs/source/gone.rst#page-rounds),\n"
         "https://qldpc.readthedocs.io/page.html#page-rounds and "
-        "https://qldpc.readthedocs.io/en/latest/page.html#rounds\n"
+        "https://qldpc.readthedocs.io/en/latest/page.html#rounds, and the pages built from a notebook "
+        "and from the code, https://qldpc.readthedocs.io/examples/basics.html#Setup and "
+        "https://qldpc.readthedocs.io/autoapi/qldpc/codes/index.html#qldpc.codes.CSSCode\n"
     )
     monkeypatch.setattr(sys.modules[__name__], "_ROOT", tmp_path)
     _files.cache_clear()
@@ -182,7 +188,11 @@ def _get_broken_rst_links() -> list[tuple[str, str]]:
         text = path.read_text(encoding="utf-8")
         targets = [(path.parent / page, fragment) for page, fragment in _RST_LINK.findall(text)]
         pages = _ROOT / "docs" / "source"
-        targets += [(pages / f"{page}.rst", fragment) for page, fragment in _RST_URL.findall(text)]
+        targets += [
+            (pages / f"{page}.rst", fragment)
+            for page, fragment in _RST_URL.findall(text)
+            if (pages / f"{page}.rst").is_file()
+        ]
         for page, fragment in targets:
             page = pathlib.Path(os.path.normpath(page))
             labels = (

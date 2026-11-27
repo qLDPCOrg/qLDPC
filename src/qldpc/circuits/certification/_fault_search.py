@@ -112,7 +112,8 @@ def find_smallest_violation(
     syndrome packed into an integer.  ``max_weight``, a positive integer or None, limits the fault
     weight.  ``stabilizers``, ``css_weight``, and ``method`` configure the oracle of the search, a
     ``CosetLeaderSearch``.  ``fault_propagation.md#sec-first-violation`` proves that the search
-    finds a violating fault of the smallest fault weight if there is one.
+    finds a violating accepted fault of the smallest fault weight, up to ``max_weight``, if there is
+    one.
     """
     # Keep the first primitive fault of each distinct nonzero signature (see
     # ``fault_propagation.md#sec-dropped-signatures``).

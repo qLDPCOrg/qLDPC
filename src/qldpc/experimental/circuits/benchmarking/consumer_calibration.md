@@ -187,9 +187,9 @@ For example, `decoders.mwpm()` suits a code whose checks give a matching graph, 
 
 If the correctable weight is at least 1, as it is by default for a code of distance at least 3, the consumer checks that each per-step decoder, the default one included, corrects every single-qubit error.
 It raises an error if one does not.
-The consumer decodes every syndrome of one type of check, in each step and in the final readout, with the same decoder.
-For a decoder whose predictions depend on the syndrome alone, checking it on the errors of one code block therefore checks every step.
 For example, `decoders.bp_osd(max_iter=50, bp_method="minimum_sum")` passes this check on the Steane code, and `decoders.bp_osd()` does not.
+The consumer decodes every syndrome of one type of check, in each step and in the final readout, with the same decoder.
+For a decoder whose predictions depend on the syndrome alone, checking it on no error and on the single-qubit errors of one code block therefore checks every step.
 With a per-step decoder that passes the check and whose predictions depend on the syndrome alone, and a code of distance at least 3, the window has the guarantees that [the window section](#sec-window) describes.
 
 With `decoding="window"` and a decoder specification, the consumer instead builds one decoder from the detector error model of its whole window.

@@ -399,20 +399,20 @@ The tests that cite this section check them on small instances, and review check
 
 - **Expand class codewords only on the calling thread, in the serial order.**
   The table of syndromes, the choices of members that the expansion remembers, and the batches of faults depend on the order of the faults, and [skipping faults](#sec-skipping-listed-syndromes) relies on the table holding the syndrome of each earlier fault.
-  Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks the faults of one thread.
-  On any number of threads, the search must check the faults of one thread.
+  Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks those faults.
+  On any number of threads, the search must check the same faults, in the same order, as on one thread.
   This includes listings in which threads pause within passes over roots, a root takes several passes, the table of syndromes fills up, a violation stops the listing while threads list, the calling thread lists roots alone first, or a later range of roots is listed before the first.
 - **Split the listing only between roots, and start each pass over a root with only the root chosen and no class forbidden.**
   The passes over a root must stay a function of the root, also when a thread pauses within a root.
   So the ranges of roots list the class codewords in the serial order, and their work adds up to that of one thread, as [Listing class codewords on threads](#sec-listing-on-threads) shows.
-- **Keep the walk by shared flags writing only to the arrays of its own walk, and the expansion into faults only to the arrays of the calling thread,** since both run in compiled code without the global interpreter lock while threads list.
+- **Keep each thread's walk by shared flags writing only to its own arrays, and the expansion into faults only to the arrays of the calling thread,** since both run in compiled code without the global interpreter lock while threads list.
   The threads read the rows of the classes, the index of their flag bits, and the map of classes by hash, which the lister builds once and never changes.
-  The docstring of each compiled function of `_fault_search.py` that runs without the lock says which arrays it writes.
-  A test runs the threads with the arrays that the lister builds once marked read-only, so that numba rejects a write to them in any branch of compiled code, and checks that they do not change.
+  The docstring of each function of `_fault_search.py` compiled with `nogil=True` says which arrays it writes.
+  A test marks read-only the arrays that the lister builds once, runs the threads, and checks that the arrays do not change, so that numba rejects a write to them in any branch of compiled code.
   Review checks the writes that the read-only marking misses, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway, and those on paths that the tests do not run.
 - **Stop the threads whenever a listing ends, also by an exception.**
   The search closes the listing of class codewords of a fault weight whenever it stops taking class codewords from it: at a violation, at the end of the listing, or at an exception.
-  The thread runner then stops the threads and waits for them.
+  The thread runner then stops the threads and waits for them, as the tests of `qldpc/codes/distance/_threads.py` check, together with the order and the bound below.
   The thread runner hands on the class codewords in the order of the ranges, and holds at most `64 t` batches of class codewords on `t` threads that list, and one more for the range that the calling thread reads.
   Each batch that a thread hands to the calling thread holds at most `2^10` class codewords, so that the held batches take bounded memory.
   A thread checks the stop event after each call of the walk rather than hand on empty batches, and closing the listing sets that event.

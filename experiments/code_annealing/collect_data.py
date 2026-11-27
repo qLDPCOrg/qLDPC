@@ -14,8 +14,8 @@ these scripts of ``analysis/`` on the results directory, in order:
    scrape.  It is skipped if there is no scrape, or if the newest one is unreadable or does not
    match the current codes.
 
-The files go to ``data/`` of the results directory, and the section "What the scripts write" of
-``README.md`` lists them.  Each step also runs alone, with more options, as
+The files go to ``data/`` of the results directory, and ``README.md#sec-outputs`` lists them.
+Each step also runs alone, with more options, as
 ``python -m experiments.code_annealing.analysis.NAME``.
 """
 
