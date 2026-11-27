@@ -61,16 +61,17 @@ Where documentation belongs
   Apart from such checks, a rule or check that ties code to a document requires the code to point to the document, not the reverse.
 * Refer to qLDPC's code and documents by name or label, never by line or section number.
   Pages written under ``docs/source/`` are reStructuredText, which Sphinx renders; documents elsewhere, such as package guides and READMEs, are Markdown.
-  Code and documents cite a section of a Markdown document, such as a guide or a README, by its label, as in ``brouwer_zimmermann.md#sec-completion-tables``.
+  Code and documents cite a section of a Markdown document by its label, as in ``brouwer_zimmermann.md#sec-completion-tables``.
   The label is an anchor ``<a name="sec-…"></a>`` alone on the line above the section's heading, and a change that cites an unlabeled section adds one.
-  Rendered reStructuredText, such as a public docstring or a page under ``docs/source/``, links to the label through the ``:guide:`` role with the guide's path under ``src/qldpc/``, or through the ``:repo:`` role with the path of another document from the root of the repository.
+  Rendered reStructuredText, such as a public docstring or a page under ``docs/source/``, links to the label through the ``:guide:`` role with the path of a document under ``src/qldpc/``, or through the ``:repo:`` role with the path from the repository root of a document outside it.
   Markdown links to it by a relative link or a GitHub URL, and comments and other docstrings cite it as in the example above.
-  Sections of ``.rst`` documents keep their Sphinx labels, cited with ``:ref:`` in reStructuredText and from Markdown by a relative link with the label as fragment, as in ``reviewing.rst#review-rounds``.
+  A section of an ``.rst`` document keeps its Sphinx label.
+  reStructuredText cites it with ``:ref:``, and Markdown by a relative link with the label as fragment, as in ``reviewing.rst#review-rounds``.
 * Some guides explain how a package's code works, as those of ``codes/distance/`` and ``circuits/certification/`` do; the guides to workarounds do not.
   Such a guide, not the code, gives the correctness arguments for the package's code, such as why a bound holds.
-  When a section explains a function, class, or module of the package, that object cites the section, and so does any code that relies on a section.
-  The citation sits once in the docstring, or in a comment at each step that relies on the section, and may state in a clause what the section proves.
-  Such a guide names qLDPC's code no more finely than its modules, its public API as the :doc:`code standard <code>` defines it, and its settings, such as environment variables and the fields of ``SearchTuning`` in ``codes/distance/``.
+  A function, class, or module of the package cites each section of such a guide that explains it, and any code cites each section that it relies on.
+  Each citation sits once in the docstring, or in a comment at each step that relies on the section, and may state in a clause what the section proves.
+  Of qLDPC's code, such a guide names only modules, public API as the :doc:`code standard <code>` defines it, and settings, such as environment variables and the fields of ``SearchTuning`` in ``codes/distance/``.
   To find the code that such a guide explains, search for its labels.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
   Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
