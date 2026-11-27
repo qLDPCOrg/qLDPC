@@ -93,7 +93,8 @@ def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.Mo
     """A coset search tabulates the overlap cuts of its queries before its first query.
 
     It does so even before ``use_query_overlap_words`` gives it words, so that its queries, single
-    or in batches, only read the search.
+    or in batches, only read the search.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     tabulated: list[object] = []
     get_overlap_cuts = search._get_overlap_cuts

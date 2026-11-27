@@ -7,8 +7,18 @@ checks ``H`` and are outside the row space of ``G``, or that have a given syndro
 supports through unsatisfied checks.  It is the connected-cluster algorithm of Dumer, Kovalev, and
 Pryadko, with the branch and bound of Okada and Kasai.  ``connected_cluster.md`` in
 ``src/qldpc/codes/distance/`` derives the search, cites its sources, and states its correctness
-requirements.  These include requirements on threads, since several threads run ``_search_supports``
-at once, to search a costly weight limit or to answer several queries (Sections 3.11 and 5).
+requirements.
+
+``get_distance_connected_cluster`` advances a ``ConnectedClusterSearch`` one weight limit at a time
+until it finishes.  Each advance searches one sector, a ``SupportSearch``, through a limit with
+``SupportSearch.find_witness`` (``connected_cluster.md#sec-search-to-distance``).  ``find_witness``
+runs the limit in chunks on the calling thread with ``_search_in_chunks``, or splits it into work
+items on threads with ``_search_on_threads`` (``connected_cluster.md#sec-threads``).  Each chunk,
+and each pass that deepens the frontier of work items, is a call of the compiled search
+``_search_supports``.  A syndrome query, ``SupportSearch.find_vector_with_syndrome``, is one call of
+``_search_supports`` from the sentinel root -1 (``connected_cluster.md#sec-syndromes``).  Several
+threads run ``_search_supports`` at once, to search a costly weight limit or to answer several
+queries, so it keeps the requirements on threads of ``connected_cluster.md#sec-requirements``.
 """
 
 from __future__ import annotations
@@ -747,7 +757,8 @@ class SupportSearch:
         """The products of the rows of a matrix with the word of each symbol, as columns.
 
         The word of a symbol has its value on its variable, so for a symplectic problem the columns
-        are those of the ``X`` part, of the ``Z`` part, and of their sum.
+        are those of the ``X`` part, of the ``Z`` part, and of their sum
+        (``connected_cluster.md#sec-non-css``).
         """
         return symplectic_to_hamming(matrix) if self._symplectic else matrix
 
@@ -1104,7 +1115,9 @@ def _search_supports(
     first call if it has one, and otherwise that of the second, and the call counts the states of
     the first, and also those of the second if the first has no witness.
 
-    The search runs without the global interpreter lock, and keeps the rules on threads of
+    Leaving a state undoes what the state changed in the levels of the symbols and in the loads of
+    the overlap cuts, so that a replay of a path rebuilds them.  The search runs without the global
+    interpreter lock, and writes only to arrays that it allocates.  It keeps the rules on threads of
     ``connected_cluster.md#sec-requirements``.
 
     Args:
@@ -1464,7 +1477,7 @@ def _get_branches(
 ) -> int:
     """Choose the branches of the state at ``depth``, whose syndrome is not empty, and count them.
 
-    Section 3.4 of ``connected_cluster.md`` says when the state is pruned, and when it allows only
+    ``connected_cluster.md#sec-pruning`` says when the state is pruned, and when it allows only
     viable symbols in its subtree.  A state that restricts its subtree raises the levels of the
     symbols that it allows, lists them in ``allowances`` from ``allowance_starts[depth]``, and sets
     ``restricts[depth]``.  It also writes the entry of ``allowances`` after the last symbol that it
@@ -1473,14 +1486,15 @@ def _get_branches(
 
     A state visits each entry of its unsatisfied checks in passes that select rather than branch
     where they can, since the processor would often mispredict a branch on whether a symbol is
-    available or viable.  The state estimates the entries of its unsatisfied checks as their number
-    times the average number of entries of a check.  If the estimate exceeds the number of symbols,
-    it first takes the overlaps of all symbols in one pass over the rows of ``symbol_masks``, and
-    otherwise computes the overlap of each entry, once per symbol if it memoizes.  A state that
-    restricts its subtree clears the repairs of the symbols of its unsatisfied checks, or of all
-    symbols if these checks have at least as many entries as there are symbols, and adds the weight
-    of each unsatisfied check to the repair of each of its symbols.  Its branches reuse these
-    repairs, and the branches of a state that does not restrict its subtree compute their own.
+    available or viable (``connected_cluster.md#sec-cost``).  The state estimates the entries of its
+    unsatisfied checks as their number times the average number of entries of a check.  If the
+    estimate exceeds the number of symbols, it first takes the overlaps of all symbols in one pass
+    over the rows of ``symbol_masks``, and otherwise computes the overlap of each entry, once per
+    symbol if it memoizes.  A state that restricts its subtree clears the repairs of the symbols of
+    its unsatisfied checks, or of all symbols if these checks have at least as many entries as there
+    are symbols, and adds the weight of each unsatisfied check to the repair of each of its symbols.
+    Its branches reuse these repairs, and the branches of a state that does not restrict its subtree
+    compute their own.
 
     Args:
         check_starts: As for ``_search_supports``.
@@ -1671,7 +1685,10 @@ def _get_branches(
 def _shift_other_values(
     levels: npt.NDArray[np.int64], symbol: int, num_variables: int, change: int
 ) -> None:
-    """Add ``change`` to the level of every other symbol on the variable of ``symbol``."""
+    """Add ``change`` to the level of every other symbol on the variable of ``symbol``.
+
+    This blocks or unblocks the other values of a variable (``connected_cluster.md#sec-non-css``).
+    """
     num_symbols = len(levels)
     for value in range(1, num_symbols // num_variables):
         other = symbol + value * num_variables
@@ -1696,7 +1713,8 @@ def _shift_cut_loads(
     A symbol of load ``l`` on a cut is blocked while the load of the support on the cut exceeds its
     capacity minus ``l``, so this blocks or unblocks the symbols of each cut whose load crosses that
     threshold.  A support within the weight limit has a load of at most ``2 max_weight`` on any cut,
-    so a cut whose capacity is at least that blocks nothing, and is skipped.
+    so a cut whose capacity is at least that blocks nothing, and is skipped
+    (``connected_cluster.md#sec-pruning``).
     """
     for index in range(cut_symbol_starts[symbol], cut_symbol_starts[symbol + 1]):
         cut = cut_symbol_entries[index] // _LOAD_BASE
@@ -1726,7 +1744,8 @@ def _get_overlap(
 ) -> int:
     """The number of unsatisfied checks that a symbol flips, in the syndrome at a depth.
 
-    A row of ``syndromes`` has ``num_words`` words.
+    This is the overlap of the symbol (``connected_cluster.md#sec-pruning``).  A row of
+    ``syndromes`` has ``num_words`` words.
     """
     count = 0
     for word in range(num_words):
@@ -1745,7 +1764,8 @@ def _get_repair(
 ) -> int:
     """The total weight of the unsatisfied checks that a symbol flips, at a depth.
 
-    A row of ``syndromes`` has ``num_words`` words.
+    This is the repair of the symbol (``connected_cluster.md#sec-pruning``).  A row of ``syndromes``
+    has ``num_words`` words.
     """
     repair = 0
     for word in range(num_words):
@@ -1780,7 +1800,11 @@ def _xor_and_count(
 def _is_outside_excluded(
     test_columns: npt.NDArray[np.uint64], support: npt.NDArray[np.int64], size: int
 ) -> bool:
-    """Whether the word of the symbols ``support[:size]`` fails a test."""
+    """Whether the word of the symbols ``support[:size]`` fails a test.
+
+    A word that satisfies every check fails a test exactly if it is a witness
+    (``connected_cluster.md#sec-search-to-distance``).
+    """
     for block in range(test_columns.shape[1]):
         combined = test_columns[support[0], block]
         for index in range(1, size):

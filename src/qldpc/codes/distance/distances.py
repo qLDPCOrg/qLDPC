@@ -504,8 +504,8 @@ def _search_css(
     ``_get_automorphism_getter``, and ``tuning`` is the tuning that the search reads when it starts.
     """
     # Each sector takes the stabilizers of the other type as checks, and excludes the gauge
-    # generators of its own type.  get_css_stabilizers returns gauge_x and gauge_z themselves unless
-    # the code is a subsystem code.
+    # generators of its own type (connected_cluster.md#sec-problem).  get_css_stabilizers returns
+    # gauge_x and gauge_z themselves unless the code is a subsystem code.
     stabilizers_x, stabilizers_z = get_css_stabilizers(gauge_x, gauge_z)
     subsystem = stabilizers_x is not gauge_x
     sector_of_type = {Pauli.X: (stabilizers_z, gauge_x), Pauli.Z: (stabilizers_x, gauge_z)}

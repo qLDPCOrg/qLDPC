@@ -285,7 +285,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - Coverage cannot trace compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
-- A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads of the guide of each method ([Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, or Section 5 of `connected_cluster.md`), and pass the tests on threads that cite those requirements or that `connected_cluster.md` names.
+- A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads of the guide of each method ([Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, or [Correctness requirements](connected_cluster.md#sec-requirements) in `connected_cluster.md`), and pass the tests on threads that cite those requirements.
   So must a change to data that threads read, such as completion tables, the routes of coset searches, and the tables of a connected-cluster search, or to a decision that a search makes from the results of a layer or a weight limit.
   Code that threads run reads the tuning only from its search, never through `get_tuning()`, since new threads can start with the default tuning (see the module docstring of `_tuning.py`).
   Code that threads run also calls no numba-parallel code, such as some functions of galois, since that can abort the process (see `run_work_items` in `_threads.py`).
@@ -296,7 +296,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   `test_always_compiled_functions_use_nothing_from_outside_qldpc` of the same file checks that the functions marked `@always_compiled` use no names imported from packages other than qLDPC, NumPy, and numba, such as functions of galois.
   Four tests on threads run with every array of their search read-only, through `check_shared_arrays_on_threads` or `shared_arrays_read_only` of `conftest.py`.
   Numba then rejects a write to such an array in any branch of compiled code.
-  Two of these tests cite [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, and Section 5 of `connected_cluster.md` names the other two.
+  Two of these tests cite [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, and the other two cite [Correctness requirements](connected_cluster.md#sec-requirements) in `connected_cluster.md`.
   Each guide lists the writes that its tests miss.
   Review checks those writes.
 - "Layout" and "Where to look" are selective maps, so a new module needs no entry in them.

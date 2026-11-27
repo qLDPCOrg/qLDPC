@@ -2,9 +2,18 @@
 
 """Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first.
 
-The batch queries of a coset search answer each block of a batch in one compiled call.  Several
-threads can run these calls at once, as Section 3.11 of ``connected_cluster.md`` says, so a change
-must keep the requirements on threads of its Section 5.
+A ``ConnectedClusterCosetSearch`` makes its checks sparser with ``get_sparser_rows``, tabulates the
+words of weight zero or one by syndrome, and searches the sparser checks with a ``SupportSearch``
+(``connected_cluster.md#sec-syndromes``).  A single query, ``get_min_weight_bound``, looks up its
+syndrome in the table, and otherwise searches the weight limit ``max_weight`` with
+``SupportSearch.find_vector_with_packed_syndrome``.  The batch queries,
+``find_first_not_within_max_weight`` and ``get_min_weights``, split a batch into blocks with
+``_threads.run_blocks``, and answer each block in one call of the compiled loop
+``_find_min_weights``.  For each syndrome of the block, the loop calls ``_get_min_weight``, which
+maps the syndrome to the sparser checks, compares it with the checks of single symbols, and tries
+increasing weight limits with ``_search_supports``.  Several threads can run these calls at once
+(``connected_cluster.md#sec-threads``), so a change must keep the requirements on threads of
+``connected_cluster.md#sec-requirements``.
 """
 
 from __future__ import annotations

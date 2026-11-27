@@ -189,13 +189,15 @@ def run_items_until_first(
     Each thread calls ``start_worker`` at most once, as in ``run_work_items``, with a function
     ``needed``.  ``start_worker`` returns a function that runs an item, given its index, and returns
     whether the item ends the work, as the first item with a witness of a search does.  An item that
-    ends the work lowers a limit to itself, and the threads skip every item after the limit,
-    including the rest of a range that they have claimed.  ``needed(item)`` says whether an item is
-    still before the limit and the stop event of ``run_work_items`` is not set, so that a function
-    that runs an item in chunks can call it between them, and stop.  The limit only falls, and every
-    item before it runs, so the item returned is the first that ends the work, as on one thread, or
-    ``num_items`` if no item does.  Items after the returned one may have run, in part or in full,
-    so a caller reads only results up to it.  Exceptions propagate as in ``run_work_items``.
+    ends the work lowers a limit to itself under a lock, as
+    ``connected_cluster.md#sec-requirements`` requires of a result that threads share.  The threads
+    skip every item after the limit, including the rest of a range that they have claimed.
+    ``needed(item)`` says whether an item is still before the limit and the stop event of
+    ``run_work_items`` is not set, so that a function that runs an item in chunks can call it
+    between them, and stop.  The limit only falls, and every item before it runs, so the item
+    returned is the first that ends the work, as on one thread, or ``num_items`` if no item does.
+    Items after the returned one may have run, in part or in full, so a caller reads only results up
+    to it.  Exceptions propagate as in ``run_work_items``.
     """
     lock = threading.Lock()
     first = num_items

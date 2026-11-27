@@ -668,6 +668,7 @@ def test_each_support_is_visited_once_above_its_least_variable(
 
     The overlap cuts are off, since the excluded words would cut some of these supports, and so are
     the sums of pairs of checks, which would add the check {0, 3}.  On threads, every limit splits.
+    The test checks rules on threads of ``connected_cluster.md#sec-requirements``.
     """
     # The checks {0, 1, 2} and {1, 2, 3} have the words {0, 1, 3}, {0, 2, 3}, and {1, 2}.  At limit
     # 4, root 0 visits {0}, {0, 1}, {0, 1, 2}, {0, 1, 3}, {0, 2}, and {0, 2, 3}, since its branch on
@@ -1678,12 +1679,13 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     """In chunks and on threads, each weight limit finds the witness and states of one call.
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
-    both on or both off, as ``get_threaded_cases`` says (Section 3.11 of ``connected_cluster.md``).
+    both on or both off, as ``get_threaded_cases`` says (``connected_cluster.md#sec-threads``).
     Chunks of one state resume the search after every state, on one thread and on threads.  The
-    threads run with every array of the search read-only, and so is every array that their calls
-    of ``_search_supports`` take.  The first witness of some limit is in each of the positions that
+    threads run with every array of the search read-only, and so is every array that their calls of
+    ``_search_supports`` take.  The first witness of some limit is in each of the positions that
     ``get_threaded_cases`` names, in a case with at least as many roots as the 8 threads.  So a
     witness above the frontier shows that the frontier deepens to more items than one per thread.
+    The test checks rules on threads of ``connected_cluster.md#sec-requirements``.
     """
     calls = record_thread_counts(monkeypatch)
     positions = record_witness_positions(monkeypatch)
@@ -1756,7 +1758,8 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
       witnesses, and visits the states, of one thread.
 
     A limit tabulates its cuts before it calls ``_search_on_threads``, so no tabulation can happen
-    while threads run.  The test checks this as well.
+    while threads run.  The test checks this as well.  These are rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     events: list[str] = []
     tabulations: list[tuple[npt.NDArray[np.int64], tuple[npt.NDArray[np.int64], ...]]] = []
@@ -1838,9 +1841,9 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
     At exponent 0, every limit on eight threads that is predicted to visit more than two states
     splits, into many items.  A cutoff makes the search exit at its first limit, which visits
     states; on eight threads, the frontier passes of that limit find the witness.  Except at that
-    limit on eight threads, the searches of the limits run in chunks of
-    ``2**search_chunk_exponent`` states, here one, and some stop early (Section 3.6 of
-    ``connected_cluster.md``).
+    limit on eight threads, the searches of the limits run in chunks of ``2**search_chunk_exponent``
+    states, here one, and some stop early (``connected_cluster.md#sec-search-to-distance``).  The
+    test checks rules on threads of ``connected_cluster.md#sec-requirements``.
     """
     tune(search_chunk_exponent=0)
     calls = record_thread_counts(monkeypatch)
@@ -1985,7 +1988,8 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
 
     Every symbol of this problem is a witness, so each of its 100 roots is an item with a witness.
     On two threads, item 0 runs either after a later item has run, or while a later item that has
-    started searching waits for it.
+    started searching waits for it.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
     run_work_items = _threads.run_work_items
@@ -2043,7 +2047,8 @@ def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_l
     are the items on two threads, and the limit runs in chunks of one state.  The search of item 0
     finds that witness, or raises an error, while the other thread searches the first chunk of item
     1.  After the witness, that thread searches no further chunk of item 1, though it had more to
-    search; after the error, the stop event ends it.
+    search; after the error, the stop event ends it.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     later_started, first_ran = threading.Event(), threading.Event()
     stops: list[threading.Event] = []
@@ -2128,7 +2133,8 @@ def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
     and the interrupt waits until the other thread has searched a chunk.  Most roots of the toric
     code are items whose searches at this limit, which has no witness, span several chunks of one
     state.  So the search ends before the limit does, and the other thread starts at most one chunk
-    once the interrupt has set the stop event of the threads.
+    once the interrupt has set the stop event of the threads.  The test checks rules on threads of
+    ``connected_cluster.md#sec-requirements``.
     """
     problem = get_sectors(codes.ToricCode(6))[0]
     serial = get_search(*problem)
