@@ -334,8 +334,7 @@ def test_versions_compiled_at_the_same_time_are_loaded_only_for_their_argument_t
     """A version compiled for some argument types is never loaded for others.
 
     TEMPORARY until numba loads a data file only if its own version saved it for the key that it
-    loads (numba/numba#10862): see numba_workarounds.md,
-    "Data files that hold code for another key".
+    loads (numba/numba#10862): see numba_workarounds.md#sec-foreign-data-files.
 
     Without the check of keys, a later process here would run code compiled for F-ordered arrays on
     a C-ordered array and return a wrong entry.  Each new dispatcher stands for a process, and
@@ -371,8 +370,7 @@ def test_code_saved_by_another_version_of_numba_is_compiled_again(
     """Code that another version of numba saved for the same key is compiled again, not loaded.
 
     TEMPORARY until numba loads a data file only if its own version saved it for the key that it
-    loads (numba/numba#10862): see numba_workarounds.md,
-    "Data files that hold code for another key".
+    loads (numba/numba#10862): see numba_workarounds.md#sec-foreign-data-files.
 
     In one case, this version can unpickle the code.  In the other, the code refers to a module that
     this version lacks, as code that numba 0.61.2 saved does for numba 0.67.0.
@@ -405,8 +403,7 @@ def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class
     """qLDPC caches only through a cache-file object exactly of the class that qLDPC extends.
 
     TEMPORARY until numba loads a data file only if its own version saved it for the key that it
-    loads (numba/numba#10862): see numba_workarounds.md,
-    "Data files that hold code for another key".
+    loads (numba/numba#10862): see numba_workarounds.md#sec-foreign-data-files.
 
     Here ``object`` stands for the class that qLDPC extends, so numba's cache-file object is of a
     subclass of it.
@@ -426,8 +423,7 @@ def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class
 def test_code_compiled_in_different_processes_has_distinct_names(fork: bool) -> None:
     """Check the workaround for a numba bug that gives different code the same name.
 
-    TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
-    "Clashing names of code compiled in different processes".
+    TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md#sec-name-clashes.
     """
     code = _PRINT_SYMBOL_NAMES + (_IN_PARENT_AND_FORKED_CHILD if fork else "print_names()\n")
     outputs = run_python(code).splitlines() if fork else [run_python(code), run_python(code)]
@@ -435,8 +431,7 @@ def test_code_compiled_in_different_processes_has_distinct_names(fork: bool) -> 
     assert first and second and not first & second
 
 
-# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
-# "Clashing names of code compiled in different processes".
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md#sec-name-clashes.
 def test_compiled_code_is_not_cached_without_the_workaround_for_a_numba_bug(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -683,8 +678,7 @@ def add_to(value):
     return increment(value)
 """
 
-# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
-# "Clashing names of code compiled in different processes".
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md#sec-name-clashes.
 # A program whose ``print_names`` compiles a function that sorts, and prints the names in its code
 # that hold numba's count of compiled functions, in tags such as ``B5v5006``.
 _PRINT_SYMBOL_NAMES = """
@@ -701,8 +695,7 @@ def print_names():
     print(*{name for name in names if re.search("B[0-9]+v[0-9]+", name)}, flush=True)
 """
 
-# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md,
-# "Clashing names of code compiled in different processes".
+# TEMPORARY until numba fixes numba/numba#11016: see numba_workarounds.md#sec-name-clashes.
 _IN_PARENT_AND_FORKED_CHILD = """
 if os.fork() == 0:
     print_names()
@@ -724,7 +717,7 @@ def _add_one(value: int) -> int:
 
 
 # TEMPORARY until numba loads a data file only if its own version saved it for the key that it loads
-# (numba/numba#10862): see numba_workarounds.md, "Data files that hold code for another key".
+# (numba/numba#10862): see numba_workarounds.md#sec-foreign-data-files.
 def _get_top_right_entry(matrix: npt.NDArray[np.uint8]) -> int:
     return matrix[0, -1]
 

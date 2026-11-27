@@ -2,17 +2,18 @@
 
 This guide lists the code in qLDPC that exists only because of a bug of [numba](https://github.com/numba/numba), with one section for each bug, and says how to remove the code once numba is fixed.
 
-Each site carries a marker that names its section, so `git grep "TEMPORARY until"` lists every site, apart from passages of docstrings that describe a workaround, which the section's steps name.
+Each site carries a marker that cites its section by the label above the section's heading, so `git grep "TEMPORARY until"` lists every site, apart from passages of docstrings that describe a workaround, which the section's steps name.
 A function or class with a docstring that the migration deletes has the marker right after its docstring's summary line.
 Anything else that the migration deletes has the marker as a comment above it:
 
 ```python
-# TEMPORARY until <trigger>: see numba_workarounds.md, "<section title>".
+# TEMPORARY until <trigger>: see numba_workarounds.md#sec-<label>.
 ```
 
 A trigger holds once qLDPC's `pyproject.toml` requires a numba release that does what it says.
 To migrate, follow the section's steps, delete the imports that become unused, and delete the section.
 
+<a name="sec-name-clashes"></a>
 ## Clashing names of code compiled in different processes
 
 Numba names compiled code by function name, argument types, and a count that starts at one in each process ([numba/numba#11016](https://github.com/numba/numba/issues/11016)).
@@ -26,6 +27,7 @@ So `_compilation` starts the count at a random number in each process.
 1. In `_compilation`, delete `_work_around_numba_name_clashes`, `_NUMBA_NAME_CLASHES_AVOIDED`, the `if` statement that calls `os.register_at_fork`, and the check that opens `_compile_with_cache_in`.
 2. In `_compilation_test`, delete `test_code_compiled_in_different_processes_has_distinct_names`, `test_compiled_code_is_not_cached_without_the_workaround_for_a_numba_bug`, `_PRINT_SYMBOL_NAMES`, and `_IN_PARENT_AND_FORKED_CHILD`.
 
+<a name="sec-foreign-data-files"></a>
 ## Data files that hold code for another key
 
 Numba saves the code that it compiles for each key, which includes the argument types, in a data file, and keeps an index that maps each key to its data file.
