@@ -6,9 +6,13 @@ A basis family holds the search bases that a search scans and certifies together
 and counts build families in stages, with their own exits between them: ``get_disjoint_family``,
 ``prune_family``, ``get_overlapping_family``, and ``get_partitioned_family``.  Stages two to four
 aim at a target ``upper_bound``: the best weight ``U`` of a distance search, or ``t + 1`` for a
-count of the words of weight ``t``.  Sections cited in this module are those of
-``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.  Section 4.4 gives the rules of the
-stages and of the families of the coset searches.
+count of the words of weight ``t``.  ``brouwer_zimmermann_code.md#sec-heuristics`` gives the rules
+of the stages and of the families of the coset searches.
+
+In the functions here, ``num_columns`` counts the nonzero columns of a basis, the coordinates ``N``
+of ``brouwer_zimmermann.md#sec-bounds-and-certificates``.  In the shape of ``BasisFamily``, it
+counts every column of the basis, all-zero ones too, as ``N_stored`` of
+``brouwer_zimmermann.md#sec-packed-enumeration`` does.
 """
 
 from __future__ import annotations
@@ -54,7 +58,9 @@ class BasisFamily(NamedTuple):
     shape ``(num_sets, dimension, num_columns)``.  ``labels`` holds the quotient labels of the rows
     (see ``_code_matrices.get_nested_code_basis``), reduced by the same row operations.  ``labels``
     has the same first two axes as ``generators``, and no columns for a basis without labels.
-    ``pivots`` has shape ``(num_sets, dimension)``, padded with -1 beyond each set's rank.
+    ``pivots`` has shape ``(num_sets, dimension)``, padded with -1 beyond each set's rank: a
+    rank-deficient set records only its independent pivot columns as its block
+    (``brouwer_zimmermann.md#sec-search-bases``).
     ``ranks``, ``weight_divisor``, and ``max_coverage`` are the parameters of the family's
     :attr:`certificate`.  Compiled code can take the family, since it holds only arrays and
     integers.
@@ -92,7 +98,8 @@ def get_disjoint_family(
     """Stage one: pack disjoint information sets, and certify them with any inferred parity.
 
     ``labels`` are the quotient labels of ``basis``, and None stands for labels with no columns.
-    The packing may try up to ``random_column_orders`` random column orders (Section 4.4).
+    The packing may try up to ``random_column_orders`` random column orders
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
     dimension = len(basis)
     set_labels = np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels
@@ -163,7 +170,8 @@ def get_overlapping_family(
     ``basis_family`` holds the sets of the independent binary ``basis``, whose quotient labels
     ``labels`` have no columns if it has none.  The replacement holds only full sets, with labels
     that follow their row operations, and is certified with its maximum coverage.  It has no sets if
-    the construction does not run or finds no family that does less work (Section 4.4).
+    the construction does not run or finds no family that does less work
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
     max_sets, _, attempts_per_set, binomials, rng = policy
     dimension = basis.shape[0]
@@ -278,7 +286,8 @@ def build_overlapping_family_policy(
     """The policy of stage three with given settings, for a basis of ``dimension`` rows.
 
     Its generator is new, with a fixed seed, so that every search chooses the same replacement for
-    the same basis family and settings (Section 4.4).
+    the same basis family and settings (``brouwer_zimmermann_code.md#sec-heuristics``).
+    ``get_overlapping_family_policy``, for example, calls it with the settings of the tuning.
     """
     return OverlappingFamilyPolicy(
         max_sets,
@@ -307,15 +316,15 @@ def get_partitioned_family(
     of ``get_maximum_disjoint_family``, but with ``labels``, and prunes it as stage two does.  The
     stage skips the maximum disjoint family if ``basis_family`` is disjoint and has the pruned
     disjoint rank bound (see ``_has_pruned_disjoint_rank_bound``), since the maximum disjoint family
-    could then not replace ``basis_family`` (Section 4.4).  ``basis``, ``labels``, and
-    ``basis_family`` are as in ``get_overlapping_family``.
+    could then not replace ``basis_family`` (``brouwer_zimmermann_code.md#sec-heuristics``).
+    ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
 
     ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
     to which the caller would switch instead, discarding this stage's family.  The stage calls it
     only if the stage would try some coverage, would not cost too much for this search (see
     ``tuning.partition_work_ratio``), and some family of the stage could do less work than
     ``basis_family``.  The stage then partitions only if the competing work exceeds the least that a
-    family of this stage could do (Section 3.7, "When a search uses an automorphism family").
+    family of this stage could do (``brouwer_zimmermann.md#sec-automorphism-gate``).
 
     Returns:
         The family that certifies ``upper_bound`` with the least estimated work, if partitioning
@@ -346,7 +355,7 @@ def get_partitioned_family(
     for coverage in plan.coverages:
         if coverage == 1:
             # Skip coverage one if the given family is disjoint and has the pruned disjoint rank
-            # bound, which leaves the result unchanged (Section 4.4).
+            # bound, which leaves the result unchanged.
             if _has_pruned_disjoint_rank_bound(basis_family, plan.num_columns, upper_bound):
                 continue
             maximum_disjoint = _get_family_of_sets(
@@ -355,7 +364,7 @@ def get_partitioned_family(
             family = prune_family(maximum_disjoint, upper_bound)
         else:
             # Skip a coverage at which no family could do less work than the best so far, which
-            # leaves the result unchanged (Section 4.4).
+            # leaves the result unchanged.
             bound = plan.estimate_optimistic_coverage_work(coverage, weight_divisor, upper_bound)
             if bound >= best_work:
                 continue
@@ -378,7 +387,7 @@ def get_maximum_disjoint_family(
     ``basis_family`` is a disjoint family of the independent binary ``basis``, such as the greedy
     packing of ``get_disjoint_family``.  Matroid partitioning with coverage one finds the new
     family, which has no labels and at most as many information sets as a packing keeps
-    (Section 4.4).
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
 
     Returns:
         The new family, if its tuple of ranks is lexicographically larger than that of
@@ -424,7 +433,8 @@ def _get_no_replacement(
 ) -> BasisFamily:
     """A family of no sets, for when no better family is found.
 
-    A caller that gets a family of no sets keeps the family that it already has (Section 4.4).
+    A caller that gets a family of no sets keeps the family that it already has
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
     dimension = basis.shape[0]
     return BasisFamily(
@@ -440,11 +450,11 @@ def _get_no_replacement(
 def _get_disjoint_sets(
     basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8], random_column_orders: int
 ) -> list[_DisjointSet]:
-    """Construct a large deterministic packing of disjoint information sets (Section 4.4).
+    """Construct a large deterministic packing of disjoint information sets.
 
     The natural column order comes first, and then up to ``random_column_orders`` random orders,
     until one packs ``min(N // r, 2**r - 1)`` full sets, which no order exceeds, for ``r`` rows and
-    ``N`` nonzero columns.
+    ``N`` nonzero columns (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = get_nonzero_columns(basis)
@@ -485,7 +495,10 @@ def _count_full_sets(information_sets: list[_DisjointSet], dimension: int) -> in
 
 
 def _get_full_set_limit(dimension: int) -> int:
-    """The most full sets that a packing of ``dimension`` rows keeps (Section 4.4)."""
+    """The most full sets that a packing of ``dimension`` rows keeps.
+
+    ``brouwer_zimmermann_code.md#sec-heuristics`` gives this limit of the disjoint packing.
+    """
     return (1 << dimension) - 1
 
 
@@ -596,7 +609,7 @@ class _PartitionPlan(NamedTuple):
         coverages: The coverages that partitioning may try, possibly none.
         max_sets: The largest number of information sets in a family of coverage two or more.
         unit: The sum of ``b**2 * r**2 * N`` over the coverages ``b``.  The gate multiplies it by
-            ``partition_work_ratio`` (Section 4.4).
+            ``partition_work_ratio`` (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
 
     dimension: int
@@ -623,7 +636,7 @@ class _PartitionPlan(NamedTuple):
 
         ``coverage`` is two or more.  The bound is over families of at most
         ``min(max_sets, coverage * num_columns // dimension)`` sets, a cap that counts pivots as
-        ``_get_partition_plan`` does (Section 4.4).
+        ``_get_partition_plan`` does (``brouwer_zimmermann_code.md#sec-heuristics``).
         """
         most_sets = min(self.max_sets, coverage * self.num_columns // self.dimension)
         return _estimate_optimistic_work(
@@ -637,8 +650,9 @@ class _PartitionPlan(NamedTuple):
 
 
 def _get_partition_plan(basis: npt.NDArray[np.uint8], tuning: SearchTuning) -> _PartitionPlan:
-    """The plan of ``get_partitioned_family`` for a basis under a tuning (Section 4.4)."""
-    # Choose the coverages to try and the unit of the gate.  A coverage limit of one tries only the
+    """The plan of ``get_partitioned_family`` for a basis under a tuning."""
+    # Choose the coverages to try and the unit of the gate
+    # (``brouwer_zimmermann_code.md#sec-heuristics``).  A coverage limit of one tries only the
     # maximum disjoint family.  Above one, cap the number of sets by counting pivots: each set has
     # ``dimension`` of them, and no nonzero column may be a pivot of more than ``coverage_limit``
     # sets.  Then try coverages from two.  Coverage one is left to the disjoint packing of stage
@@ -685,7 +699,7 @@ def _has_pruned_disjoint_rank_bound(
     the ``N = num_columns`` nonzero columns of the basis, and below the limit of a packing a partial
     set of rank ``N - f*r``, if that is positive.  It is pruned as ``prune_family`` prunes a family.
     If the family is disjoint and has these ranks, so does every pruned maximum disjoint family
-    (Section 4.4).
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
     # Bound the ranks of a maximum disjoint family: the most information sets that fit, up to the
     # limit of a packing, and below that limit a partial set of rank N - f*r, the number of other
@@ -796,7 +810,7 @@ def _estimate_optimistic_work(
     The family is of a basis of ``dimension`` rows and ``num_columns`` nonzero columns, and
     ``binomials`` are ``get_capped_binomials(dimension)``.  No family of ``m`` full sets has a
     maximum coverage below ``_get_least_coverage(m, dimension, num_columns)``, which the bound
-    assumes for each ``m`` (Section 4.4).
+    assumes for each ``m`` (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
     optimistic_work = WORK_CAP
     for num_sets in range(1, max_sets + 1):
@@ -821,7 +835,7 @@ def _estimate_optimistic_disjoint_work(
     Such a family, like a packing, holds at most ``k`` sets, counting a partial set, where
     ``k = min(ceil(num_columns / dimension), 2**dimension - 1)``.  The arguments are as for
     ``_estimate_optimistic_work``.  The bound is the least work of 1 to ``k`` full sets of coverage
-    one (Section 4.4).
+    one (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
     max_sets = min((num_columns + dimension - 1) // dimension, _get_full_set_limit(dimension))
     return min(
@@ -842,7 +856,8 @@ def _get_least_coverage(num_sets: int, dimension: int, num_columns: int) -> int:
     """A lower bound on the maximum coverage of ``num_sets`` full information sets of a basis.
 
     The basis has ``dimension`` rows and ``num_columns`` nonzero columns, so the sets' pivots put
-    some column in at least ``ceil(num_sets * dimension / num_columns)`` of them (Section 4.4).  A
-    light word can force more, since every information set meets its support.
+    some column in at least ``ceil(num_sets * dimension / num_columns)`` of them
+    (``brouwer_zimmermann_code.md#sec-heuristics``).  A light word can force more, since every
+    information set meets its support.
     """
     return (num_sets * dimension + num_columns - 1) // num_columns

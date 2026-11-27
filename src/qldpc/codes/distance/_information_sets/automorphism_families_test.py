@@ -45,7 +45,10 @@ def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
 
 
 def test_automorphism_families_certify_like_the_family_of_all_images() -> None:
-    """The certificate is that of the images of the scanned set under every group element."""
+    """The certificate is that of the images of the scanned set under every group element.
+
+    It checks "Use only justified certificates" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     rng = np.random.default_rng(0)
     for code in _get_random_mb_codes(rng, 12):
         translations = code._get_permutation_automorphisms()

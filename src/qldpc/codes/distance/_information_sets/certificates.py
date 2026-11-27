@@ -4,15 +4,13 @@
 
 A certificate bounds the weights of the eligible words that a search of a basis family has not
 visited, and a plan says where a search stops above a limit, and the work of its steps up to there.
-Sections cited in this module are those of ``brouwer_zimmermann.md`` and
-``brouwer_zimmermann_code.md``.
 
 Compiled functions here, such as ``find_stopping_step`` and ``is_unused_set``, also run within nogil
 calls of threaded searches, so they must keep the rules for such code in the docstring of
 ``qldpc/_compilation.py``.  The plans and certificates, through ``Certificate.certifies`` and
 ``Certificate.get_num_sets_to_certify``, feed the decisions of a distance search, which must keep
-the requirement of Section 5, "Decide only from what a layer leaves the same on any number of
-threads".
+the requirement "Decide only from what a layer leaves the same on any number of threads" of
+``brouwer_zimmermann_code.md#sec-requirements``.
 """
 
 from __future__ import annotations
@@ -44,13 +42,16 @@ class Certificate:
 
     ``lower_bound`` holds once every set of the family has completed each layer through
     ``completed_weight``.  ``step_lower_bound`` holds part way through a layer, once the first sets
-    in family order have completed it (Sections 2.5 and 3.1).  A set interrupted within a layer
+    in family order have completed it (``brouwer_zimmermann.md#sec-stopping-certificate`` and
+    ``brouwer_zimmermann.md#sec-overlapping-certificate``).  A set interrupted within a layer
     advances neither.  The bounds hold only for the eligible words of the family's sector that the
-    family has not visited (Section 3.3).  In a search that skips completions by tables, they hold
-    only for those lighter than its best weight (Section 3.9).  A certificate of the images of an
+    family has not visited (``brouwer_zimmermann.md#sec-shared-witnesses``).  In a search that skips
+    completions by tables, they hold only for those lighter than its best weight
+    (``brouwer_zimmermann.md#sec-completion-contracts``).  A certificate of the images of an
     information set under automorphisms, as of an automorphism family, holds only for unvisited
     eligible words lighter than a best weight that every visited eligible word lowers, as in a
-    distance search.  Counts and coset searches must not use one (Section 3.7).
+    distance search.  Counts and coset searches must not use one
+    (``brouwer_zimmermann.md#sec-automorphism-certificate``).
 
     Each bound is the occupancy of the sets (see ``get_step_lower_bounds``) divided by
     ``max_coverage``, rounded up, and then rounded up to a multiple of ``weight_divisor``.
@@ -59,7 +60,8 @@ class Certificate:
         dimension: Number of rows of the searched basis.
         ranks: Rank of the pivot block of each search basis, in family order.
         weight_divisor: A proven divisor of the Hamming weight of every eligible word, such as two
-            for general Pauli problems or an even basis (Section 3.2).
+            for general Pauli problems or an even basis
+            (``brouwer_zimmermann.md#sec-weight-multiples``).
         max_coverage: An upper bound on the number of pivot blocks that contain any one column.
     """
 
@@ -89,7 +91,7 @@ class Certificate:
 
         These are the sets completed at the first step of the layer whose ``step_lower_bound``
         reaches ``upper_bound``, or every set if no fewer suffice, in which case the bound may need
-        later layers too (Section 4.1).
+        later layers too (``brouwer_zimmermann.md#sec-stopping-certificate``).
         """
         _, num_completed = find_stopping_step(
             self._step_lower_bounds, upper_bound - 1, weight, weight
@@ -97,10 +99,11 @@ class Certificate:
         return num_completed
 
     def work(self, upper_bound: int, first_layer: int = 1) -> int:
-        """Estimate the candidate/set evaluations that certify ``upper_bound`` (Section 3.6).
+        """Estimate the candidate/set evaluations that certify ``upper_bound``.
 
-        From a later ``first_layer``, it is the work left once every set has completed the layers
-        before ``first_layer``.
+        The estimate is that of ``brouwer_zimmermann.md#sec-work-estimates``.  From a later
+        ``first_layer``, it is the work left once every set has completed the layers before
+        ``first_layer``.
         """
         ranks, *_ = self._as_array_arguments()
         binomials = get_capped_binomials(self.dimension)
@@ -121,11 +124,13 @@ class Certificate:
         """Coverage bounds on the weight of the unvisited eligible words after each step.
 
         ``parity``, if given, is the parity of the Hamming weight of every eligible word, and every
-        word weighs at least its Hamming weight divided by ``weight_factor`` (Sections 3.2 and 4.1).
-        So each entry of the table of ``get_step_lower_bounds`` is rounded up to ``parity``, if
-        any, and then divided by ``weight_factor``, rounding up.  The entries do not decrease in
-        the order of the steps, those that mean that no word remains stay ``NO_WORD_BOUND``, and
-        entry ``[0, 0]``, before every step, stays zero.  Each call returns a new table.
+        word weighs at least its Hamming weight divided by ``weight_factor``
+        (``brouwer_zimmermann.md#sec-weight-multiples`` and
+        ``brouwer_zimmermann_code.md#sec-coset-searches``).  So each entry of the table of
+        ``get_step_lower_bounds`` is rounded up to ``parity``, if any, and then divided by
+        ``weight_factor``, rounding up.  The entries do not decrease in the order of the steps,
+        those that mean that no word remains stay ``NO_WORD_BOUND``, and entry ``[0, 0]``, before
+        every step, stays zero.  Each call returns a new table.
         """
         bounds = self._step_lower_bounds
         if parity is not None:
@@ -188,9 +193,9 @@ def get_step_lower_bounds(
     Entry ``[w, j]`` holds once the first ``j`` sets, in family order, have completed layer ``w``
     and the others layer ``w - 1``, so column zero of row ``w`` repeats the last column of row
     ``w - 1``.  A set of rank deficiency ``s`` that has completed layer ``c`` adds
-    ``max(0, c + 1 - s)`` to the occupancy from which each bound comes (Section 2.4).  Entries
-    ``[dimension, j]`` for ``j >= 1`` hold ``NO_WORD_BOUND``, since a set that has completed layer
-    ``dimension`` has visited every word.
+    ``max(0, c + 1 - s)`` to the occupancy from which each bound comes
+    (``brouwer_zimmermann.md#sec-search-bases``).  Entries ``[dimension, j]`` for ``j >= 1`` hold
+    ``NO_WORD_BOUND``, since a set that has completed layer ``dimension`` has visited every word.
     """
     num_sets = len(ranks)
     bounds = np.empty((dimension + 1, num_sets + 1), dtype=np.int64)
@@ -240,7 +245,8 @@ def plan_steps(
     work saturates at ``WORK_CAP`` once a layer through ``w*`` has a binomial above
     ``WORK_CAP // num_sets``, or the sum reaches the cap.  From layer one, for a limit one below the
     best weight, the work is the estimate of a distance search.  From layer zero, for a maximum
-    weight, and skipping unused sets, it is that of a coset query (Section 3.6).
+    weight, and skipping unused sets, it is that of a coset query
+    (``brouwer_zimmermann.md#sec-work-estimates``).
 
     Returns:
         The stopping step ``(w*, j*)``, and the work.
@@ -264,6 +270,8 @@ def find_stopping_step(
     step_bounds: npt.NDArray[np.int64], limit: int, first_layer: int, last_layer: int
 ) -> tuple[int, int]:
     """Find the stopping step of ``plan_steps`` by a binary search, since the bounds never decrease.
+
+    The steps are those of ``brouwer_zimmermann.md#sec-stopping-certificate``.
 
     Returns:
         The stopping step ``(w*, j*)``.

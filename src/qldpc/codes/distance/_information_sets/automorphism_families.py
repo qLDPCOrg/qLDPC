@@ -3,10 +3,12 @@
 """Automorphism families: the images of one information set under automorphisms of a problem.
 
 A BZ search can scan the search basis of one information set ``I`` and certify with all of the
-images of ``I`` under a group ``Γ`` of automorphisms.  Sections cited in this module are those of
-``brouwer_zimmermann.md``, whose Section 3.7 derives the certificate and the choice of ``I``.  The
-connected-cluster search also uses ``verify_automorphisms`` and ``get_orbits``, and ranks its
-variables by the orbit numbers of ``get_orbits`` (Section 3.5 of ``connected_cluster.md``).
+images of ``I`` under a group ``Γ`` of automorphisms.  ``brouwer_zimmermann.md#sec-automorphisms``
+derives the certificate and the choice of ``I``.  The connected-cluster search also uses
+``verify_automorphisms`` and ``get_orbits``, and ranks its variables by the orbit numbers of
+``get_orbits`` (Section 3.5 of ``connected_cluster.md``).  Here ``num_columns`` counts every column
+of a basis, all-zero ones too, as ``N_stored`` of ``brouwer_zimmermann.md#sec-packed-enumeration``
+does.
 """
 
 from __future__ import annotations
@@ -71,7 +73,8 @@ def get_automorphism_family(
     ``basis``, ``labels``, and ``automorphisms`` are as in ``verify_automorphisms``, which must
     accept them, and ``weight_divisor`` is a proven divisor of the Hamming weight of every eligible
     word.  ``I`` is chosen to lower the largest share ``|I ∩ O| / |O|`` over the orbits ``O``, since
-    the certificate depends on that share (Section 3.7; see ``_balance_orbit_shares``).
+    the certificate depends on that share (``brouwer_zimmermann.md#sec-scanned-set``; see
+    ``_balance_orbit_shares``).
 
     Returns:
         A basis family of the search basis of ``I`` alone, and the certificate of all of the images
@@ -88,8 +91,9 @@ def get_automorphism_family(
         unpack_bits(packed_labels, labels.shape[1]),
     )
 
-    # The certificate of the |Γ| images depends only on |Γ| / C = min |O| / |I ∩ O| (Section 3.7),
-    # which ``certificate`` represents in lowest terms as a number of sets and a coverage.
+    # The certificate of the |Γ| images depends only on |Γ| / C = min |O| / |I ∩ O|
+    # (``brouwer_zimmermann.md#sec-automorphism-certificate``), which ``certificate`` represents in
+    # lowest terms as a number of sets and a coverage.
     sizes = np.bincount(orbits)
     counts = np.bincount(orbits[pivots], minlength=len(sizes))
     share = max(Fraction(int(count), int(size)) for count, size in zip(counts, sizes))
@@ -111,8 +115,8 @@ def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int
     """Estimate the candidate/set evaluations that certify ``upper_bound`` with automorphisms.
 
     ``certificate`` is that of an automorphism family, whose search scans one set and advances its
-    certificate once per layer (Section 3.7).  So the estimate plans one set whose bound after each
-    layer is that of the whole family.
+    certificate once per layer (``brouwer_zimmermann.md#sec-automorphism-certificate``).  So the
+    estimate plans one set whose bound after each layer is that of the whole family.
     """
     dimension, num_sets = certificate.dimension, len(certificate.ranks)
     layer_bounds = certificate.get_weight_bounds(1)[:, [0, num_sets]]
@@ -162,7 +166,7 @@ def _balance_orbit_shares(
     another orbit where it has a one, if that orbit's share with the new pivot stays below that of
     ``O``.  For two orbits, the exchanges stop once the emptier orbit's own pivot columns span its
     columns, or once one more pivot would make it at least as full as ``O``, so they reach the least
-    largest share of any information set (Section 3.7).
+    largest share of any information set (``brouwer_zimmermann.md#sec-scanned-set``).
     """
     sizes = np.bincount(orbits)
     counts = np.zeros(len(sizes), dtype=np.int64)

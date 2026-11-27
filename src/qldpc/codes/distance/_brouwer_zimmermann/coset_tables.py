@@ -2,10 +2,9 @@
 
 """Tables of the Brouwer-Zimmermann coset searches: bounds of steps, stopping steps, and tails.
 
-Sections cited in this module are those of ``brouwer_zimmermann.md`` and
-``brouwer_zimmermann_code.md``.  Section 4.1 says how the coset searches use these tables.  Threads
-that answer queries at once read them, so a change here must keep the requirements on threads under
-"Keep coset queries reproducible" in Section 5.
+``brouwer_zimmermann_code.md#sec-coset-searches`` says how the coset searches use these tables.
+Threads that answer queries at once read them, so a change here must keep the requirements on
+threads under "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
 """
 
 from __future__ import annotations
@@ -50,10 +49,12 @@ class CosetSearchTables(NamedTuple):
         inverse: Row ``j`` is the packed embedded word of a word whose syndrome has only bit ``j``
             set.
         generators: For each set, or search basis, of a basis family of the code, its packed rows as
-            embedded words (Section 4.4).  The last set of a disjoint family may be partial.
+            embedded words (``brouwer_zimmermann_code.md#sec-heuristics``).  The last set of a
+            disjoint family may be partial.
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family (see ``_get_planning``).
-            Section 4.1 says which queries write its cached stopping steps.
+            ``brouwer_zimmermann_code.md#sec-coset-searches`` says which queries write its cached
+            stopping steps.
         x_mask: Selects the bits of a packed embedded word that form its X part, with one machine
             word for each machine word of the embedded words.  Only searches of Pauli errors by
             CSS weight scan with it, but every search reads it when it weighs the word of a
@@ -72,7 +73,8 @@ class CosetTails(NamedTuple):
 
     The tail of an embedded word on a set keeps every column but the pivots of the set, and a word
     of a coset weighs the number of its rows below the rank of the set plus the weight of its tail
-    (Section 3.5).  The tails are packed, and zero-padded to the width of the set of least rank.
+    (``brouwer_zimmermann.md#sec-packed-enumeration``).  The tails are packed, and zero-padded to
+    the width of the set of least rank.
 
     Attributes:
         tails: The tails of the rows of each set, with shape ``(num_sets, num_rows, num_words)``.
@@ -83,7 +85,8 @@ class CosetTails(NamedTuple):
             set, without gathering columns or reading pivots.
         ranks: The rank of each set.
         completion_tables: The completion tables of the tails of the sets that have them, one after
-            another (see ``completion_bounds.CompletionTables``).
+            another (see ``completion_bounds.CompletionTables`` and
+            ``brouwer_zimmermann.md#sec-completion-cosets``).
         layout: A row for each set: the start of its tables in ``completion_tables``, their number
             of blocks ``b``, zero for a set without tables, and their ``b + 1`` block offsets,
             padded with zeros.  One array holds every set, since each argument of a compiled call
@@ -107,8 +110,9 @@ def get_search_tables(
     ``inverse`` holds embedded words whose syndromes have one bit set, and the first
     ``num_x_columns`` columns of an embedded word form its X part.  The tables round the bounds of
     each coset to its parity if the code is even and some row of ``inverse``, and hence some coset,
-    is odd (Section 4.1).  If every coset is even, which happens only in the search of Pauli errors
-    by physical weight, rounding would change none of its halved bounds (Section 3.2).
+    is odd (``brouwer_zimmermann_code.md#sec-coset-searches``).  If every coset is even, which
+    happens only in the search of Pauli errors by physical weight, rounding would change none of its
+    halved bounds (``brouwer_zimmermann.md#sec-weight-multiples``).
     """
     width = instance.generators.shape[2]
     x_mask = int_to_words((1 << num_x_columns) - 1, width)
@@ -145,8 +149,8 @@ def get_coset_tails(
 
     Returns:
         ``record`` itself if it is given and the function adds no tables, and otherwise a new
-        record, whose ``completion_tables`` copies the earlier tables before the new ones (Section
-        4.1).
+        record, whose ``completion_tables`` copies the earlier tables before the new ones
+        (``brouwer_zimmermann_code.md#sec-coset-searches``).
     """
     # Build the tails of the family once, with a layout of no tables.
     if record is None:
@@ -229,8 +233,9 @@ def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[in
     ``(w, j)`` if its bound exceeds ``max_weight`` and entry ``[w, j - 1]``, the bound of the step
     before it, does not.  Otherwise ``certificates.find_stopping_step`` finds the step, and the
     function caches it.  A negative ``max_weight`` gives the first step.  The largest native
-    integer, the only ``max_weight`` that no bound exceeds, gives the last.  Section 4.1 says which
-    queries share a buffer, and why their writes of cached steps are safe.
+    integer, the only ``max_weight`` that no bound exceeds, gives the last.
+    ``brouwer_zimmermann_code.md#sec-coset-searches`` says which queries share a buffer, and why
+    their writes of cached steps are safe.
 
     Returns:
         ``stop_layer``, ``stop_num_completed``, and the bound of that step.

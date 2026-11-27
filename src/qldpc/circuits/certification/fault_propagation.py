@@ -459,7 +459,7 @@ def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:
     """Test whether a complete rank-n stabilizer space is CSS in the physical basis."""
     n = len(stabilizers)
     # The state is CSS exactly when the ranks of the X and Z parts of the rows sum to n (see
-    # "Checking one fault" in ``fault_propagation.md``).
+    # ``fault_propagation.md#sec-checking-one-fault``).
     ranks = [
         get_rank_packed(pack_bits(sector)) for sector in (stabilizers[:, :n], stabilizers[:, n:])
     ]

@@ -775,6 +775,8 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
     This integration check covers what ``distances.py`` adds to a BZ search: the nested bases of
     words with excluded rows, and the map of Pauli strings to binary words.  The expected minimum
     weights come from enumerating the spans, independently of ``distances.py``.
+
+    It checks the correctness requirements of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     BZ: distances.DistanceMethod = "brouwer_zimmermann"
     rng = np.random.default_rng(118)
@@ -842,7 +844,10 @@ def test_coset_weights_of_vectors(
 
 
 def test_max_weight() -> None:
-    """A weight limit returns the smaller of the distance and max_weight + 1, on every route."""
+    """A weight limit returns the smaller of the distance and max_weight + 1, on every route.
+
+    It checks "Preserve the return contract" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     rng = np.random.default_rng(7)
     basis = get_random_full_rank_matrix(rng, 4, 7)
     classical = functools.partial(distances.get_distance_from_generators, basis)
@@ -873,7 +878,10 @@ def test_max_weight() -> None:
 
 
 def test_max_weight_caps_cutoff() -> None:
-    """A large cutoff cannot make the search give up on a word within the limit."""
+    """A large cutoff cannot make the search give up on a word within the limit.
+
+    It checks "Preserve the return contract" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     # Both rows weigh more than the limit, but their sum weighs 3, which the BZ search finds after
     # the rows.  The test pins BZ, since "auto" would enumerate so small a code.
     basis = [[1, 0, 1, 1, 1, 1], [0, 1, 1, 1, 1, 0]]

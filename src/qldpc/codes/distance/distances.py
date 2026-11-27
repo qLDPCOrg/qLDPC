@@ -49,8 +49,8 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   ``"brute_force"`` and ``"brouwer_zimmermann"``.  Which method ``"auto"`` takes can depend on the
   tuning (see :doc:`/exact_search_tuning`) and on the version of qLDPC.  Every method gives the same
   result, unless the search exits early at a ``cutoff`` (see :func:`get_distance_from_generators`).
-- ``"brouwer_zimmermann"``: the `Brouwer-Zimmermann algorithm
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
+- ``"brouwer_zimmermann"``: the :guide:`Brouwer-Zimmermann algorithm
+  <codes/distance/brouwer_zimmermann.md>`,
   which enumerates words of increasing weight in several information sets, and stops once a lower
   bound that the sets prove meets the lightest word found.
 - ``"connected_cluster"``: the `connected-cluster algorithm
@@ -771,8 +771,8 @@ def _get_nested_basis(
     """A basis of the span of both matrices' rows and its labels, or None if every word is trivial.
 
     The trivial words are those in the row space of the excluded rows.  With excluded rows, the
-    basis is adapted to them (Section 3.4 of ``brouwer_zimmermann.md``).  Without excluded rows,
-    the labels have no columns, which exclude nothing.
+    basis is adapted to them (``brouwer_zimmermann.md#sec-quotient-labels``).  Without excluded
+    rows, the labels have no columns, which exclude nothing.
     """
     if len(excluded):
         basis, labels = get_nested_code_basis(generators, excluded)
@@ -792,7 +792,7 @@ def _get_brouwer_zimmermann_problem(
     """The problem of a BZ search of sectors, given by their nested bases and labels.
 
     A Pauli string weighs half the Hamming weight of its image under ``symplectic_to_hamming``
-    (Section 2.7 of ``brouwer_zimmermann.md``), so for Pauli strings the bases are mapped to those
+    (``brouwer_zimmermann.md#sec-pauli-weight``), so for Pauli strings the bases are mapped to those
     images, and the automorphisms are lifted to their coordinates.
     """
     if not symplectic:
@@ -889,9 +889,10 @@ def _get_lifted_automorphisms(
 ) -> npt.NDArray[np.int_] | None:
     """Call a function that returns qubit permutations, and lift them to Hamming coordinates.
 
-    The coordinates are ``(x | z | x + z)``, as in ``symplectic_to_hamming`` (Section 2.7 of
-    ``brouwer_zimmermann.md``).  Section 3.7 says why verifying a lifted permutation checks the
-    original one.  The result is None if ``get_automorphisms`` returns None.
+    The coordinates are ``(x | z | x + z)``, as in ``symplectic_to_hamming``
+    (``brouwer_zimmermann.md#sec-pauli-weight``).  Verifying a lifted permutation checks the
+    original one (``brouwer_zimmermann.md#sec-automorphism-sources``).  The result is None if
+    ``get_automorphisms`` returns None.
     """
     automorphisms = get_automorphisms()
     if automorphisms is None:

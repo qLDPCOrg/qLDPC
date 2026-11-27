@@ -33,6 +33,7 @@ extensions = [
     "autoapi.extension",
     "nbsphinx",
     "sphinx.ext.autodoc",
+    "sphinx.ext.extlinks",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
@@ -42,6 +43,15 @@ extensions = [
 # Render "Attributes:" sections as :ivar: fields.  Otherwise napoleon emits an attribute directive
 # for each entry, which duplicates the attribute that AutoAPI documents for the dataclass field.
 napoleon_use_ivar = True
+
+# Link to a Markdown document of the repository, so that the address of the repository is written
+# only here: a guide by its path under src/qldpc/, as in
+# :guide:`codes/distance/brouwer_zimmermann.md#sec-completion-tables`, and any other document by its
+# path from the root of the repository, as in :repo:`experiments/README.md`.
+extlinks = {
+    "guide": ("https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/%s", "%s"),
+    "repo": ("https://github.com/qLDPCOrg/qLDPC/blob/main/%s", "%s"),
+}
 
 # use the pre-executed outputs in notebooks
 nbsphinx_execute = "never"

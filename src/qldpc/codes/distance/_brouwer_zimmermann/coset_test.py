@@ -366,7 +366,10 @@ def test_cosets_match_brute_force_with_other_families(
 
 
 def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, tune: Tune) -> None:
-    """The answers of a search depend only on its code, the syndrome, and the maximum weight."""
+    """The answers of a search depend only on its code, the syndrome, and the maximum weight.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
 
@@ -472,7 +475,11 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
 def test_searches_by_tails_answer_as_searches_of_whole_words(
     block_bits: int | None, pytestconfig: pytest.Config
 ) -> None:
-    """Coset searches by tails decide as searches of whole words, and match them without tables."""
+    """Coset searches by tails decide as searches of whole words, and match them without tables.
+
+    It checks "Skip only words that a bound proves heavy enough" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The arguments of each check, and whether its searches with tables must skip words.
     searches: list[tuple[tuple[Any, ...], bool]] = []
@@ -636,6 +643,9 @@ def test_min_weights_of_cosets_match_brute_force(
     """Searches for the minimum weights of cosets agree with the least weights of their words.
 
     Routes by tails build completion tables, unless their budget is zero.
+
+    It checks "Find minimum weights of cosets exactly up to ω" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     tune(**tuning)
 
@@ -682,7 +692,11 @@ def test_min_weights_of_cosets_match_brute_force(
 def test_min_weight_searches_above_max_weight_examine_as_queries(
     tuning: dict[str, int], tune: Tune
 ) -> None:
-    """A search for a minimum weight above ``max_weight`` weighs and skips as a query does."""
+    """A search for a minimum weight above ``max_weight`` weighs and skips as a query does.
+
+    It checks "Find minimum weights of cosets exactly up to ω" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     tune(**tuning)
     tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     cases = []
@@ -764,6 +778,8 @@ def test_batches_on_threads_answer_as_on_one_thread(
     ``split_work``, which is 50 on three threads and zero on eight.  The threads search the rest in
     blocks, which hold several syndromes of a long batch on three threads, and one syndrome on eight
     threads.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -800,7 +816,11 @@ def test_batches_on_threads_answer_as_on_one_thread(
 def test_batches_within_the_split_work_run_on_the_calling_thread(
     query: str, compiled_name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A batch whose queries do less work than ``split_work`` runs in one call, on no thread."""
+    """A batch whose queries do less work than ``split_work`` runs in one call, on no thread.
+
+    It checks "Count only work without the global interpreter lock in the split of coset batches" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     search, _ = _get_rank_deficient_search()
     compiled = getattr(coset, compiled_name)
     calls: list[int] = []
@@ -859,6 +879,8 @@ def test_an_earlier_heavy_coset_that_ends_last_is_the_answer(
 
     On two threads, the block of the earlier heavy coset waits until a thread has searched the
     block of the later one, and the answer is still that of one thread.
+
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     search, batch = _get_two_heavy_cosets()
     expected = search.find_first_not_within_max_weight(batch, 1)
@@ -891,6 +913,8 @@ def test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer(
 
     On two threads, the block of row 40 starts before the block of row 2 is searched, and searches
     only once the range of the thread that found row 2 has returned, after it recorded row 2.
+
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     search, batch = _get_two_heavy_cosets()
     expected = search.find_first_not_within_max_weight(batch, 1)
@@ -941,6 +965,8 @@ def test_the_word_of_an_earlier_heavy_coset_survives_a_later_search(
 
     On two threads, the search of the block of row 2 returns, and its thread waits until the search
     of the block of row 40 has returned before it records row 2.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     search, batch = _get_two_heavy_cosets()
     expected = search.find_first_not_within_max_weight(batch, 1)
@@ -982,6 +1008,9 @@ def test_costly_batches_move_to_threads_once_their_work_reaches_the_split_work(
 
     The 16 queries alone count 16 units, one less than ``split_work``; each also weighs words, so
     the work reaches it before the batch ends.
+
+    It checks "Count only work without the global interpreter lock in the split of coset batches" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     search, minima = _get_rank_deficient_search()
     max_weight = int(minima.max())
@@ -1008,7 +1037,10 @@ def test_costly_batches_move_to_threads_once_their_work_reaches_the_split_work(
 
 
 def test_copies_of_planning_buffers_share_nothing_and_start_from_the_first_step() -> None:
-    """A copy of a planning buffer has its bounds, shares no memory, and caches the first step."""
+    """A copy of a planning buffer has its bounds, shares no memory, and caches the first step.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     search, _ = _get_rank_deficient_search()
     planning = search._get_route(3)[0].planning.copy()
     planning[:, -1, :2] = (1, 2)
@@ -1050,6 +1082,8 @@ def test_each_worker_searches_with_its_own_copy_of_the_planning_buffer(
 
     On two threads, the block at row 1 waits until the other thread has started a block, so both
     threads search.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     search, _ = _get_rank_deficient_search()
     batch = split_syndromes_into_words([1] * 64, search._num_syndrome_bits)
@@ -1129,6 +1163,8 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     Each batch has its own maximum weight, and so its own stopping steps, which it caches in its
     own copies of the planning buffer of its route.  The batches run with every array of the
     search, such as the shared buffer, read-only.
+
+    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     tune(coset_route_minimum_work=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -1261,8 +1297,8 @@ def _assert_searches_by_tails_match_searches_of_words(
     The family reduces the embedded generators on consecutive blocks, whose sizes cycle through
     ``block_sizes``, and adds a set of rank zero.  Without ``block_bits``, both searches give the
     same bounds, words, and counts.  With tables on blocks of ``block_bits`` columns, they differ
-    only as Section 3.9 of ``brouwer_zimmermann.md`` ("Coset searches") allows.  If ``minima`` is
-    given, the searches also decide as these least weights of the cosets.
+    only as ``brouwer_zimmermann.md#sec-completion-cosets`` allows.  If ``minima`` is given, the
+    searches also decide as these least weights of the cosets.
 
     Returns:
         The number of supports that the searches by tails skipped.
@@ -1365,9 +1401,8 @@ def _assert_searches_by_tails_match_searches_of_words(
                     least_beyond += 1
                 assert answer_by_tails[0] == (least_beyond if skipped else answer[0])
                 assert int(np.bitwise_count(words[1]).sum()) >= scale * answer_by_tails[0]
-                # The skip bound ``h(ω)`` of Section 3.9 of ``brouwer_zimmermann.md``: one more than
-                # the greatest Hamming weight at most ``scale * max_weight`` that a word of the
-                # coset can have.
+                # The skip bound ``h(ω)``: one more than the greatest Hamming weight at most
+                # ``scale * max_weight`` that a word of the coset can have.
                 skip_bound = scale * max_weight + 1
                 if even and (skip_bound - coset_parity) % 2 == 0:
                     skip_bound -= 1
@@ -1426,8 +1461,8 @@ def _count_skipped_supports(
 ) -> int:
     """Count the supports that tables skip in the layers from two to ``last_layer`` of a set.
 
-    ``word`` is the word of a syndrome.  The bound of a support follows Section 3.9 of
-    ``brouwer_zimmermann.md`` ("Coset searches"), on blocks that cover the tails up to their last
+    ``word`` is the word of a syndrome.  The bound of a support follows
+    ``brouwer_zimmermann.md#sec-completion-cosets``, on blocks that cover the tails up to their last
     column with a one.
     """
     rank = int(np.sum(pivots >= 0))

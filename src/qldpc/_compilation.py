@@ -58,24 +58,22 @@ compiled function that it calls.  Such an entry point, and every compiled functi
 may write only to arrays that it allocates, or to arrays or entries that nothing else reads or
 writes while it runs, such as buffers that its caller gives to one thread.  It must read nothing
 that anything else writes while it runs, and call no numba code compiled with ``parallel=True`` or
-``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  Guides state the
-requirements on threads and say which tests check them.  For the distance package, Section 5 of
-``qldpc/codes/distance/brouwer_zimmermann_code.md`` and Section 5 of
-``qldpc/codes/distance/connected_cluster.md`` state them, each for its method.  For the certifier's
-fault lister, the section "Threads" of ``qldpc/circuits/certification/fault_propagation.md`` states
-them.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC asks numba for
-parallel code, that no module of the library other than this one and tests calls numba's ``njit`` or
-``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the only form that the
-tests read.  A compiled function without ``nogil=True`` keeps the lock when Python calls it while it
-is compiled, so threads that call it at once from Python take turns.
+``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  The guide of each
+package with such entry points states its requirements on threads, as
+``qldpc/codes/distance/brouwer_zimmermann_code.md#sec-requirements`` does for the
+Brouwer-Zimmermann method.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC
+asks numba for parallel code, that no module of the library other than this one and tests calls
+numba's ``njit`` or ``jit``, and that ``nogil`` is passed as a literal ``True`` or ``False``, the
+only form that the tests read.  A compiled function without ``nogil=True`` keeps the lock when
+Python calls it while it is compiled, so threads that call it at once from Python take turns.
 
-A subpackage other than the distance and certification packages may compile entry points with
-``nogil=True`` only if it meets these conditions:
+A subpackage may compile entry points with ``nogil=True`` only if it meets these conditions:
 
-- It has a guide that states the requirements on threads of its entry points and names the tests
-  that check them.
-- It has a test that checks that the guide names each entry point that
-  ``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds in the subpackage.
+- It has a guide that states the requirements on threads of its entry points, and the tests that
+  check them cite that guide's section.
+- It has a test that checks that the docstring of each entry point that
+  ``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds in the subpackage cites the
+  section of the guide that states those requirements, by its label.
   ``qldpc/codes/distance/_thread_rules_test.py`` has such a test.
 - If it starts threads, it starts them through ``run_work_items`` of
   ``qldpc/codes/distance/_threads.py`` or the helpers there.  The subpackage's ``conftest.py`` then

@@ -5,13 +5,17 @@
 For a BZ coset search of ``CosetLeaderSearch``, ``CosetRoutes`` chooses the route of each maximum
 weight once: its family of information sets, and whether its queries weigh words by their tails and
 skip completions by completion tables.  Every route answers within the contract of
-``MinWeightBound``, and depends only on the code, the maximum weight, and the tuning.  Sections
-cited in this module are those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``:
-Section 4.4 gives the rules of the routes and their reasons, Section 4.1 says how ``CosetRoutes``
-keeps tails and tables, and Sections 3.1, 3.9, and 5 say why every route answers correctly and
-reproducibly.  Threads can ask for routes at once, and read the tables of a route while another
-thread chooses one, so ``CosetRoutes`` chooses routes under ``_ROUTE_LOCK`` and puts new tables in a
-new record of tails, as Section 5 requires under "Keep coset queries reproducible".
+``MinWeightBound``, and depends only on the code, the maximum weight, and the tuning.
+``brouwer_zimmermann_code.md#sec-heuristics`` gives the rules of the routes and their reasons,
+``brouwer_zimmermann_code.md#sec-coset-searches`` says how the routes keep tails and tables, and
+``brouwer_zimmermann.md#sec-coset-families`` and ``brouwer_zimmermann.md#sec-completion-cosets`` say
+why every route answers correctly.
+
+``CosetRoutes`` builds the tails of a family, and the tables of each set, once, for the first route
+that needs them, with ``coset_tables.get_coset_tails``.  Threads can ask for routes at once, and
+read the tables of a route while another thread chooses one, so ``CosetRoutes`` chooses routes under
+``_ROUTE_LOCK`` and puts new tables in a new record of tails, as
+``brouwer_zimmermann_code.md#sec-requirements`` requires under "Keep coset queries reproducible".
 """
 
 from __future__ import annotations
@@ -51,7 +55,8 @@ class CosetRoutes:
         inverse: The embedded words whose syndromes have one bit set, with every column, which the
             tables and records of tails of every family hold.
         num_x_columns: The number of leading columns of an embedded word that form its X part.
-        minimum_work: The field ``coset_route_minimum_work`` of the tuning (Section 4.4).
+        minimum_work: The field ``coset_route_minimum_work`` of the tuning
+            (``brouwer_zimmermann_code.md#sec-heuristics``).
         max_sets: The field ``max_information_sets`` of the tuning.
         attempts_per_set: The field ``overlapping_attempts_per_set`` of the tuning.
         by_tails: Whether the search has routes by tails, which only searches that weigh Hamming
@@ -125,7 +130,7 @@ class CosetRoutes:
 
         It is the work of ``certificates.plan_steps`` from layer zero, without unused sets: the
         words that a query of a coset without a light enough word weighs or skips after the word of
-        its syndrome (Section 3.6).
+        its syndrome (``brouwer_zimmermann.md#sec-work-estimates``).
         """
         return [
             certificates.plan_steps(
@@ -151,8 +156,9 @@ class CosetRoutes:
             return self.disjoint_tables, None
 
         # Build the other families once, at the least weight from two at which the predicted
-        # examinations reach the threshold (Section 4.4).  They reach it at ``max_weight`` and never
-        # decrease with the weight, so this weight is at most ``max(2, max_weight)``.
+        # examinations reach the threshold (``brouwer_zimmermann_code.md#sec-heuristics``).  They
+        # reach it at ``max_weight`` and never decrease with the weight, so this weight is at most
+        # ``max(2, max_weight)``.
         if self._candidates is None:
             target_weight = next(
                 weight
@@ -226,14 +232,14 @@ class CosetRoutes:
         """Try to build the maximum disjoint and the overlapping families, and their tables.
 
         The overlapping family starts from the maximum disjoint family, or from the disjoint one if
-        the maximum disjoint family is not kept (Section 4.4).  Returns those of the two families
-        that have sets, each with its tables.
+        the maximum disjoint family is not kept (``brouwer_zimmermann_code.md#sec-heuristics``).
+        Returns those of the two families that have sets, each with its tables.
         """
         weight_factor = self._disjoint.weight_factor
         disjoint = _get_basis_family(self._disjoint, self._basis.shape[1])
         maximum = basis_families.get_maximum_disjoint_family(self._basis, disjoint)
         # ``get_overlapping_family`` gets a minimum work of zero, since the route threshold gates it
-        # instead (Section 4.4).
+        # instead.
         overlapping = basis_families.get_overlapping_family(
             self._basis,
             np.empty((len(self._basis), 0), dtype=np.uint8),

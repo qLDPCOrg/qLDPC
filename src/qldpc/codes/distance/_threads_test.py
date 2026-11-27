@@ -51,6 +51,9 @@ def test_every_item_runs_once(num_threads: int) -> None:
 
     Each of ``num_threads`` workers starts once, on the calling thread or on a new thread.  The
     number of ranges grows only with the logarithm of the number of items.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     num_items = 500
     claims: list[list[tuple[int, int]]] = []
@@ -118,6 +121,9 @@ def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
     Four threads share the four items.  After the first item, an eighth of the three units of
     weight left falls below half the spacing of floats near ``8e15``, so the share adds nothing to
     the weight claimed so far.
+
+    It checks "Keep the scans of a layer splittable across threads" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     claimed: list[int] = []
 
@@ -500,6 +506,8 @@ def test_costly_batches_move_the_rest_to_threads_in_contiguous_blocks(
     """The calling thread runs rows until their work reaches the split work, and threads the rest.
 
     The rest of the batch runs in contiguous blocks that partition it, each in one call.
+
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     rows = _Rows()
     assert _threads.run_blocks(num_rows, num_threads, split_work, rows.start_worker) == num_rows
@@ -521,6 +529,8 @@ def test_blocks_after_the_first_that_ends_a_batch_are_skipped_by_its_thread(
     """Every row up to the first that ends the batch runs, and its thread runs no later row.
 
     The batch returns that row.
+
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     rows = _Rows(ending_rows)
     first = ending_rows[0]
@@ -550,6 +560,8 @@ def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
 
     The block of row 6 waits until the block of row 21 has ended the batch.  Then every row up to 6
     runs, and no block between them starts after that.
+
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     later_ended = threading.Event()
     events: list[tuple[str, int]] = []

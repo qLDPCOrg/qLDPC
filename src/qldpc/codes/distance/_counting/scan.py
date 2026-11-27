@@ -4,8 +4,13 @@
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` counts the
 nontrivial words of one weight in a sector, and ``transport_basis_family`` moves a basis family of a
-sector through a local gate.  Sections cited in this module are those of ``brouwer_zimmermann.md``,
-whose Section 3.11 explains counts, and ``brouwer_zimmermann_code.md``.
+sector through a local gate.  ``brouwer_zimmermann.md#sec-counting`` explains counts.
+
+``count_words`` builds its basis family from the result of ``get_disjoint_basis_family``.  It
+applies the later stages of ``_information_sets/basis_families.py``, as distance searches do:
+pruning and an overlapping replacement in ``_select_basis_family``, which can be compiled, and then
+matroid partitioning.  It stops and skips only as the strict stop of counting of
+``brouwer_zimmermann_code.md#sec-requirements`` allows.
 """
 
 from __future__ import annotations
@@ -151,8 +156,9 @@ def transport_basis_family(
     """The basis family of a sector after a local gate, or None if the gate breaks one of its sets.
 
     Each set is mapped through the gate and reduced again, with its labels, on its own pivot
-    columns, and the gate breaks a set that loses rank there (Section 3.11).  ``basis`` is the basis
-    of the sector after the gate, from which the weight divisor of the family is inferred again.
+    columns, and the gate breaks a set that loses rank there
+    (``brouwer_zimmermann.md#sec-deformed-counters``).  ``basis`` is the basis of the sector after
+    the gate, from which the weight divisor of the family is inferred again.
     """
     moved, generators, labels = _transport_sets(
         basis_family.generators,
@@ -182,7 +188,8 @@ def _select_basis_family(
     """Run the basis family stages that can be compiled: pruning, then an overlapping replacement.
 
     The stages aim at the stop of a count, ``L(t) >= weight + 1``, though any basis family gives an
-    exact count (Section 5).  ``policy`` is that of the overlapping replacement.
+    exact count (``brouwer_zimmermann_code.md#sec-requirements``).  ``policy`` is that of the
+    overlapping replacement.
     """
     upper_bound = weight + 1
     pruned = basis_families.prune_family(basis_family, upper_bound)
@@ -212,7 +219,8 @@ def _get_last_step(certificate: certificates.Certificate, weight: int) -> tuple[
     """The first step after which the certificate rules out unvisited words of the given weight.
 
     Returns the step's layer, and how many sets have completed that layer (see ``_Steps``).  The
-    certificate must exceed the weight, not equal it (Section 5).
+    certificate must exceed the weight, not equal it
+    (``brouwer_zimmermann_code.md#sec-requirements``).
     """
     # The first set to complete the last layer visits every word, so some step certifies.
     steps = itertools.product(
@@ -264,7 +272,8 @@ class _StepTables:
     A step may skip completions if its layer has at least two rows, and the block of its set of
     ``basis_family`` is an information set.  It skips the supports whose words all weigh at least
     ``upper_bound``, the target weight plus one.  ``tuning`` chooses and keeps the tables, as
-    Section 3.9 describes.  For brute force, ``basis_family`` is None, and no step skips.
+    ``brouwer_zimmermann.md#sec-completion-gate`` describes.  For brute force, ``basis_family`` is
+    None, and no step skips.
     """
 
     def __init__(
@@ -624,10 +633,11 @@ def _count_chunk_skipping(
     ``step_rows``, ``label_end``, and the tables.  Each row of ``step_rows`` holds ``label_end``
     machine words of its word and label, then its tail, the row without its pivot columns.
     ``tables``, ``offsets``, and ``block_bits`` index the tails.  Completions that the tables prove
-    heavier than ``target`` are skipped (Section 3.9).  So words of weight ``target`` and lighter
-    are visited as ``_count_chunk`` visits them.  A chunk ends once its weighed supports and
-    looked-up bounds reach ``chunk_size`` together.  ``depth`` is ``len(support) - 1`` while the
-    scan visits last rows, and smaller while it chooses the rows before them.
+    heavier than ``target`` are skipped (``brouwer_zimmermann.md#sec-completion-contracts``).  So
+    words of weight ``target`` and lighter are visited as ``_count_chunk`` visits them.  A chunk
+    ends once its weighed supports and looked-up bounds reach ``chunk_size`` together.  ``depth`` is
+    ``len(support) - 1`` while the scan visits last rows, and smaller while it chooses the rows
+    before them.
     """
     num_rows, total_width = step_rows.shape
     layer = len(support)
@@ -759,7 +769,7 @@ def _is_owned(
 ) -> bool:
     """Whether set ``set_index`` minimizes (layer, set index) among the sets that visit ``word``.
 
-    That set owns the word, and visits it first (Section 3.11).
+    That set owns the word, and visits it first (``brouwer_zimmermann.md#sec-counting``).
     """
     for other in range(len(extractors)):
         if other == set_index:

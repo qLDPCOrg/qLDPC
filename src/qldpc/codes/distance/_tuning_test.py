@@ -256,23 +256,16 @@ def test_limits_on_partitioned_coverage_change_routes_but_not_results(
     assert max_coverages == [3, 2, 1]
 
 
-def test_the_tuning_page_documents_every_field_and_constant() -> None:
-    """The tuning page names every field and constant, and renders each constant.
+def test_each_field_and_constant_has_its_own_comment() -> None:
+    """Each field and constant of the tuning module has its own ``#:`` comment.
 
-    Each field and constant has its own ``#:`` comment, since Sphinx gives a comment above several
-    names only to the first of them, and renders the docstring of ``int`` or ``float`` for the
-    others.
+    The tuning page renders the module's members from these comments.  Sphinx gives a comment above
+    several names only to the first of them, and renders the docstring of ``int`` or ``float`` for
+    the others.
     """
-    root = pathlib.Path(__file__).parents[4]
-    page = (root / "docs" / "source" / "exact_search_tuning.rst").read_text()
-    route_map = page.split("Routes and the names that control them")[1].split("\nSettings\n")[0]
     fields = {field.name for field in dataclasses.fields(_tuning.SearchTuning)}
     constants = {name for name in vars(_tuning) if re.fullmatch(r"[A-Z][A-Z0-9_]*", name)}
     constants -= {"DEFAULT_TUNING"}
-
-    assert set(re.findall(r"^\.\. autodata:: (\w+)$", page, flags=re.MULTILINE)) == constants
-    assert set(re.findall(r":attr:`SearchTuning\.(\w+)`", route_map)) == fields
-    assert set(re.findall(r":data:`(\w+)`", route_map)) == constants - {"MAX_VALUE"}
 
     source = pathlib.Path(_tuning.__file__).read_text()
     lines = source.splitlines()

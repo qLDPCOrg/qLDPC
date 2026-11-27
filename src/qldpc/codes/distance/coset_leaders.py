@@ -47,8 +47,7 @@ CosetMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster"]
   whose stabilizer groups have sparse generators, such as encoded states of surface codes.  On other
   states, it can be much slower.
 - ``"brouwer_zimmermann"``: searches the cosets of binary codes by information sets (see the
-  `Brouwer-Zimmermann guide
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
+  :guide:`Brouwer-Zimmermann guide <codes/distance/brouwer_zimmermann.md>`).
 - ``"connected_cluster"``: makes generators of the stabilizer group sparser, and grows errors from
   the syndrome through them, so it can be fast only if those generators are sparse (see the
   `connected-cluster guide
@@ -138,8 +137,8 @@ class CosetLeaderSearch:
         # Read the active tuning, and prepare the searches.
         tuning = get_tuning()
         # A batch query moves to threads once its queries on the calling thread have done the split
-        # work (Section 4.5 of brouwer_zimmermann_code.md), in the units that the comment of
-        # ``search_chunk_exponent`` in ``_tuning.py`` defines.
+        # work (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Coset batches on threads"),
+        # in the units that the comment of ``search_chunk_exponent`` in ``_tuning.py`` defines.
         num_threads = _threads.get_num_threads(tuning.num_threads)
         split_work = min(num_threads << tuning.search_chunk_exponent, _threads.NO_WORK_LIMIT)
         self._thread_options = {"num_threads": num_threads, "split_work": split_work}

@@ -71,9 +71,9 @@ chosen by hand:
   for automorphisms.  The step runs when the estimated work that it acts on reaches the value, or,
   for ``partition_work_ratio``, the value times the formula that its description gives.  The value
   is the cost of the step on a large basis or code, or its cost per unit of the formula.  It is
-  known to an order of magnitude, and written as 1, 2, or 5 times a power of ten (Section 4.4 of
-  ``brouwer_zimmermann_code.md``).  On a small search, where the step costs less, a gate can skip a
-  step that would have paid.
+  known to an order of magnitude, and written as 1, 2, or 5 times a power of ten
+  (:guide:`Heuristics and cost models <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
+  On a small search, where the step costs less, a gate can skip a step that would have paid.
 - A limit at equality compares two estimates in one unit, and defaults to the value at which they
   are equal.
 - A rough coefficient is a coefficient of the cost model of completion tables
@@ -83,8 +83,7 @@ chosen by hand:
   compiled code is negligible.  Not every current size meets this.
 - A convention is a statistical or numerical setting, and its description says what it guarantees.
 - A switch turns a step of a search on or off, and defaults to on.
-- Blocks of completion tables default to the widest allowed width, and a budget bounds their memory
-  (Section 4.4 of ``brouwer_zimmermann_code.md``).
+- Blocks of completion tables default to the widest allowed width, and a budget bounds their memory.
 - A limit for experiments restricts what searches may build, and its default, ``MAX_VALUE``,
   restricts nothing.
 
@@ -147,12 +146,14 @@ class SearchTuning:
       binary code whose cosets the search examines.  A full set is one whose pivot columns form an
       information set.
     - Tail columns: the columns of a search basis other than its pivot columns.  The tail of a word
-      is its restriction to them (Section 3.5 of ``brouwer_zimmermann.md``).
+      is its restriction to them (:guide:`Packed enumeration with pivot-column deletion
+      <codes/distance/brouwer_zimmermann.md#sec-packed-enumeration>`).
     - Support: in a BZ search or count, a set of rows of a search basis.  The word of a support is
       the sum of its rows, plus, in a coset search of ``CosetLeaderSearch``, a fixed word of the
-      coset (Section 3.5).
-    - Coefficient layer ``w``, or layer: the supports of ``w`` rows of a search basis (Section 2.5).
-    - Candidate/set evaluation: the examination of one support in one search basis (Section 2.5).
+      coset.
+    - Coefficient layer ``w``, or layer: the supports of ``w`` rows of a search basis.
+    - Candidate/set evaluation: the examination of one support in one search basis (:guide:`The
+      stopping certificate <codes/distance/brouwer_zimmermann.md#sec-stopping-certificate>`).
     - Symbol: in a connected-cluster search, a coordinate of a binary word, or, in a search of Pauli
       operators, a qubit with one of the values X, Y, and Z (Section 3.7 of
       ``connected_cluster.md``).
@@ -163,9 +164,10 @@ class SearchTuning:
     - Searches by Hamming weight: the BZ searches of a ``CosetLeaderSearch`` that weigh each binary
       word that they scan by its Hamming weight divided by a fixed number.  The number is two for
       the searches by physical weight, which scan the images of Pauli errors under the map of
-      Section 2.7 of ``brouwer_zimmermann.md``.  It is one for the searches of X parts and of Z
-      parts into which a ``CosetLeaderSearch`` splits a query by CSS weight on a CSS stabilizer
-      state.
+      :guide:`Pauli weight as Hamming weight
+      <codes/distance/brouwer_zimmermann.md#sec-pauli-weight>`.  It is one for the searches of X
+      parts and of Z parts into which a ``CosetLeaderSearch`` splits a query by CSS weight on a CSS
+      stabilizer state.
 
     Work is counted in candidate/set evaluations unless a description names another unit.  Integer
     fields lie between zero and ``MAX_VALUE``, and float fields are finite and non-negative.  A
@@ -180,7 +182,8 @@ class SearchTuning:
     #: Exhaustive enumeration finds distances by the method ``"brute_force"``, by ``"auto"`` when
     #: enumerating is cheap, and when a count by ``"brute_force"`` first finds the distance.  It
     #: takes keyboard interrupts between batches.  At most 62.  Defaults to 15, a budget of
-    #: interrupt latency and memory (Section 3.6 of ``brouwer_zimmermann.md``).
+    #: interrupt latency and memory (:guide:`Work estimates and exhaustive enumeration
+    #: <codes/distance/brouwer_zimmermann.md#sec-work-estimates>`).
     enumeration_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     # Fields of information-set families.
@@ -190,22 +193,23 @@ class SearchTuning:
     #: a column can lie in up to ``b`` sets.  Zero disables both kinds of family, but not maximum
     #: disjoint families.  More sets can stop a search before costly layers, but setup grows roughly
     #: with the square of this limit, or with its cube when partitioning, so it is at most
-    #: ``2**10``.  Defaults to 16, a budget of setup effort (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: ``2**10``.  Defaults to 16, a budget of setup effort (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     max_information_sets: int = dataclasses.field(default=16, metadata={"maximum": 2**10})
 
     #: How many random column orders, in a fixed sequence, a search tries in order to pack more
     #: disjoint full sets.  Let a basis have ``r`` rows and ``N`` nonzero columns.  A search tries
     #: the orders only while its packing has fewer than ``min(N // r, 2**r - 1)`` full sets, and it
     #: keeps the best packing.  Zero keeps the natural order.  Defaults to 8, a budget of setup
-    #: effort, since each order costs a packing of the basis (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: effort, since each order costs a packing of the basis (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a distance search or count, in candidate/set evaluations, from which it
     #: tries a family of overlapping information sets; zero removes this gate, and ``MAX_VALUE``
     #: closes it.  Defaults to ``2 * 10**6``, a derived value: the cost of building such a family on
-    #: a large basis, a few million evaluations (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: a large basis, a few million evaluations (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     overlapping_minimum_work: int = 2_000_000
 
     #: A threshold on predicted examinations, the number of words that a query of a
@@ -221,36 +225,41 @@ class SearchTuning:
     #:    of step 1 or one that it built.
     #: 3. If it is a search by Hamming weight, it then predicts the examinations with the family
     #:    that it takes.  If they also reach this value, it computes the weight of each word from
-    #:    the word's support and tail (Section 3.5 of ``brouwer_zimmermann.md``), and uses
-    #:    completion tables to skip groups of words that are all too heavy (see
+    #:    the word's support and tail (:guide:`Packed enumeration with pivot-column deletion
+    #:    <codes/distance/brouwer_zimmermann.md#sec-packed-enumeration>`), and uses completion
+    #:    tables to skip groups of words that are all too heavy (see
     #:    ``coset_completion_max_table_bytes``).
     #:
     #: Zero always goes on to step 2 and always passes the test of step 3; ``MAX_VALUE`` always
-    #: skips steps 2 and 3.  Defaults to ``2 * 10**4``, chosen by hand (the ``CosetRoutes`` item of
-    #: Section 4.4 of ``brouwer_zimmermann_code.md`` says why).
+    #: skips steps 2 and 3.  Defaults to ``2 * 10**4``, chosen by hand (the item "The routes of
+    #: coset searches" of :guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>` says why).
     coset_route_minimum_work: int = 20_000
 
     #: How many column orders the construction of a family of overlapping information sets tries for
     #: each set that it may add, counting orders that give a set already in the family; zero builds
-    #: no family.  Defaults to 2, a budget of setup effort (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: no family.  Defaults to 2, a budget of setup effort (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     overlapping_attempts_per_set: int = 2
 
     #: A distance search or count tries matroid partitioning only if its estimated work reaches
     #: ``partition_work_ratio * sum(b**2 * r**2 * N)``.  The sum runs over the coverages ``b`` that
     #: the search may try, for a basis of ``r`` rows and ``N`` nonzero columns.  A BZ distance
-    #: search gets automorphisms before partitioning only if it passes this gate (Section 3.7 of
-    #: ``brouwer_zimmermann.md``).  Zero removes the gate, and ``MAX_VALUE`` closes it.  Defaults to
-    #: 2, a derived value: trying every such coverage costs roughly that sum times one or two
-    #: evaluations when coverages of two or more are tried, and less at coverage one alone (Section
-    #: 4.4 of ``brouwer_zimmermann_code.md``).
+    #: search gets automorphisms before partitioning only if it passes this gate (:guide:`When a
+    #: search uses an automorphism family
+    #: <codes/distance/brouwer_zimmermann.md#sec-automorphism-gate>`).  Zero removes the gate, and
+    #: ``MAX_VALUE`` closes it.  Defaults to 2, a derived value: trying every such coverage costs
+    #: roughly that sum times one or two evaluations when coverages of two or more are tried, and
+    #: less at coverage one alone (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     partition_work_ratio: int = 2
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches
     #: and counts.  At least 1.  At 1, partitioning builds the maximum disjoint family, which
     #: ``max_information_sets`` does not limit, instead of families of coverage two or more.  It
     #: skips the maximum disjoint family when a test shows that this family could not do less work
-    #: than the family that the search has so far (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: than the family that the search has so far (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     #: Defaults to ``MAX_VALUE``, a limit for experiments.
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
@@ -265,8 +274,9 @@ class SearchTuning:
     #: ``_information_sets/certificates.py``), such as ``MAX_VALUE``, turn automorphisms off in
     #: every BZ distance search.  Defaults to ``5 * 10**6``, a derived value: the cost of finding
     #: automorphisms, verifying them, and building their family for a large code, several million
-    #: evaluations (Section 3.7 of ``brouwer_zimmermann.md`` and Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: evaluations (:guide:`When a search uses an automorphism family
+    #: <codes/distance/brouwer_zimmermann.md#sec-automorphism-gate>` and :guide:`Heuristics and
+    #: cost models <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of distance searches of CSS codes.
@@ -380,34 +390,38 @@ class SearchTuning:
     #: the search basis has at least this many supports in the layer.  Considering them means
     #: sampling supports to predict the cost of the tables.  Zero considers every layer, and
     #: ``MAX_VALUE`` none.  Defaults to ``2 * 10**7``, a derived value: the cost of that prediction
-    #: on a large basis, tens of millions of evaluations (Section 3.9 of ``brouwer_zimmermann.md``
-    #: and Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: on a large basis, tens of millions of evaluations (:guide:`When a search uses the tables
+    #: <codes/distance/brouwer_zimmermann.md#sec-completion-gate>` and :guide:`Heuristics and cost
+    #: models <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_minimum_layer_work: int = 20_000_000
 
     #: A layer of a distance search or count uses the completion tables that it considers only if
     #: their predicted cost, building included unless the search has them, is at most this
     #: percentage of the cost of scanning without them; zero never uses tables, and ``MAX_VALUE``
-    #: uses them wherever they are considered.  Defaults to 100, a limit at equality (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: uses them wherever they are considered.  Defaults to 100, a limit at equality
+    #: (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_max_cost_percent: int = 100
 
     #: The most bytes of completion tables kept by a distance search for each sector, and by a count
     #: for each sector besides the tables that it is building; a basis whose tables do not fit gets
     #: none, and zero disables tables.  Defaults to 2 GiB, a budget of memory, which fits blocks of
     #: 16 columns for bases of up to about 500 rows and 1000 tail columns.  Distance searches and
-    #: counts build tables only where their cost model accepts them (Section 3.9 of
-    #: ``brouwer_zimmermann.md``).
+    #: counts build tables only where their cost model accepts them (:guide:`When a search uses
+    #: the tables <codes/distance/brouwer_zimmermann.md#sec-completion-gate>`).
     completion_bound_max_table_bytes: int = 2 * 2**30
 
     #: The number of tail columns in a block of the completion tables of distance searches and
     #: counts, a power of two up to 16.  The table of a block has ``2**width`` bytes for each row of
-    #: the basis, so 1 builds fastest and skips least.  Defaults to 16, the widest allowed (Section
-    #: 4.4 of ``brouwer_zimmermann_code.md``).
+    #: the basis, so 1 builds fastest and skips least.  Defaults to 16, the widest allowed
+    #: (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The number of tail columns in a block of the completion tables that the searches of
     #: ``CosetLeaderSearch`` by Hamming weight build for their costliest queries, a power of two up
-    #: to 16.  Defaults to 16, the widest allowed (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: to 16.  Defaults to 16, the widest allowed (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     coset_completion_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The most bytes of completion tables, for each set of a family, that the searches of
@@ -415,15 +429,18 @@ class SearchTuning:
     #: do not fit gets none, and zero disables these tables.  Defaults to 256 MiB, a budget of
     #: memory and of setup effort.  These queries get the tables of every set that they scan in
     #: layers of two or more rows, if the tables fit.  They do not predict whether the tables pay
-    #: (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     coset_completion_max_table_bytes: int = 256 * 2**20
 
     #: The number of random supports from which a distance search or count estimates the share of a
     #: layer that completion tables would skip.  ``completion_bound_sampling_work`` can allow fewer.
     #: Drawing them takes about 16 bytes for each sample and each row of the basis.  Between 1 and
     #: ``2**12``.  Defaults to 1024, a convention: the standard error of the sampled share is at
-    #: most 1/64, or ``1 / (2 * sqrt(n))`` when the budget allows only ``n`` samples (Section 3.9 of
-    #: ``brouwer_zimmermann.md`` and Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: most 1/64, or ``1 / (2 * sqrt(n))`` when the budget allows only ``n`` samples (:guide:`When
+    #: a search uses the tables <codes/distance/brouwer_zimmermann.md#sec-completion-gate>` and
+    #: :guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_samples: int = dataclasses.field(
         default=1024, metadata={"minimum": 1, "maximum": 2**12}
     )
@@ -431,8 +448,8 @@ class SearchTuning:
     #: The fewest samples with which a distance search or count trusts its estimate of the share
     #: that completion tables would skip; with fewer, it takes the share to be zero.  At least 1.
     #: Defaults to 64, a convention: when every sample skips, the lower end of the Wilson interval
-    #: at the default ``completion_bound_confidence_z`` is 0.94 (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: at the default ``completion_bound_confidence_z`` is 0.94 (:guide:`Heuristics and cost
+    #: models <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_min_samples: int = dataclasses.field(default=64, metadata={"minimum": 1})
 
     #: Each time that a distance search or count considers completion tables for a layer of a search
@@ -442,45 +459,49 @@ class SearchTuning:
     #: is the second-largest zero-based index of a basis row in the support.  The test tries each
     #: pair of the last ``m`` rows of the basis on each block.  Zero takes no samples, so the search
     #: predicts that tables skip nothing.  Defaults to ``5 * 10**7``, a budget of setup effort,
-    #: which bounds the cost of sampling on large bases (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: which bounds the cost of sampling on large bases (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_sampling_work: int = 50_000_000
 
     #: A distance search or count estimates the share of supports that completion tables would skip
     #: by the lower end of a one-sided Wilson score interval of the sampled share.  This field is
     #: the z-score of that interval.  At most 10.  Defaults to 2.0, a convention: the true share
-    #: exceeds the estimate with a one-sided confidence of about 98% (Section 4.4 of
-    #: ``brouwer_zimmermann_code.md``).
+    #: exceeds the estimate with a one-sided confidence of about 98% (:guide:`Heuristics and cost
+    #: models <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_confidence_z: float = dataclasses.field(
         default=2.0, metadata={"maximum": 10.0}
     )
 
     #: The cost of one lookup of completion tables for each block of the tables, in scanned
     #: supports, the unit of their cost model: the cost of scanning one support without tables.
-    #: Defaults to 2.0, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: Defaults to 2.0, a rough coefficient (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_lookup_block_cost: float = 2.0
 
     #: The additional cost of a lookup of completion tables, in scanned supports for each block and
     #: each MiB of tables, since larger tables miss the processor's caches more often.  Defaults to
-    #: 0.04, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: 0.04, a rough coefficient (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_lookup_block_cost_per_mib: float = 0.04
 
     #: A multiplier in the number of lookups of completion tables that the cost model predicts.  A
     #: larger value predicts more lookups, so distance searches and counts may use tables in fewer
-    #: layers.  Defaults to 0.35, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``
-    #: gives the model).
+    #: layers.  Defaults to 0.35, a rough coefficient (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>` gives the model).
     completion_bound_kept_first_row_ratio: float = 0.35
 
     #: The cost of building completion tables, in scanned supports for each byte of tables; with
     #: ``completion_bound_build_step_cost``, it predicts the cost of a build.  Defaults to 0.1, a
-    #: rough coefficient, set by hand to half of ``completion_bound_build_step_cost`` (Section 4.4
-    #: of ``brouwer_zimmermann_code.md``).
+    #: rough coefficient, set by hand to half of ``completion_bound_build_step_cost``
+    #: (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_table_byte_cost: float = 0.1
 
     #: The cost of building completion tables, in scanned supports for each step of the
     #: breadth-first searches that fill them, as ``_estimate_build_cost`` in
     #: ``_information_sets/completion_bounds.py`` counts steps.  Defaults to 0.2, a rough
-    #: coefficient on the high side (Section 4.4 of ``brouwer_zimmermann_code.md``).
+    #: coefficient on the high side (:guide:`Heuristics and cost models
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-heuristics>`).
     completion_bound_build_step_cost: float = 0.2
 
     # Fields of batches and memory limits.
@@ -488,15 +509,16 @@ class SearchTuning:
     #: The size of a chunk of work that a search does in one call of compiled code, which keyboard
     #: interrupts cannot stop: ``2**search_chunk_exponent`` units.  A BZ distance search scans at
     #: most that many supports and lookups of completion tables, counted together, in one call.  On
-    #: several threads, each thread scans ``num_threads`` times as many (Section 4.5 of
-    #: ``brouwer_zimmermann_code.md``).  A connected-cluster distance search visits at most a chunk
-    #: of states in one call on each thread, except in the passes that choose its work items.  On
-    #: threads, it splits a weight limit into work items of about a chunk of states each, within
-    #: bounds on their number (Sections 3.6 and 3.11 of ``connected_cluster.md``).  The gates that
-    #: decide when work moves to threads also count in chunks; their thresholds, chosen by hand,
-    #: should pass only work that costs many times as much as starting threads.  On several threads,
-    #: a layer of a set in a BZ search moves to threads if it has at least three rows and more than
-    #: ``num_threads`` chunks of supports.  A connected-cluster weight limit moves under the gate of
+    #: several threads, each thread scans ``num_threads`` times as many (:guide:`Behavior spanning
+    #: files <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>`).  A
+    #: connected-cluster distance search visits at most a chunk of states in one call on each
+    #: thread, except in the passes that choose its work items.  On threads, it splits a weight
+    #: limit into work items of about a chunk of states each, within bounds on their number
+    #: (Sections 3.6 and 3.11 of ``connected_cluster.md``).  The gates that decide when work moves
+    #: to threads also count in chunks; their thresholds, chosen by hand, should pass only work that
+    #: costs many times as much as starting threads.  On several threads, a layer of a set in a BZ
+    #: search moves to threads if it has at least three rows and more than ``num_threads`` chunks of
+    #: supports.  A connected-cluster weight limit moves under the gate of
     #: ``connected_cluster_split_shift``.  A batch query of ``CosetLeaderSearch`` runs on the
     #: calling thread alone until its queries have done ``num_threads`` chunks of work, and then
     #: moves the rest of the batch to threads; on one thread, the batch never moves.  With the BZ
@@ -521,17 +543,18 @@ class SearchTuning:
     #: layer of a set on these threads, which share one copy of the set's completion tables.  A
     #: connected-cluster distance search searches a costly weight limit on them, and the batch
     #: queries of ``CosetLeaderSearch`` search the blocks of a batch.  The fault lister of the
-    #: certifier of bounded fault propagation runs each costly listing on them too (section
-    #: "Threads" of ``fault_propagation.md`` in ``qldpc/circuits/certification``).  At least 1, and
-    #: 1 runs on the calling thread alone.  ``None`` takes the value of the environment variable
+    #: certifier of bounded fault propagation runs each costly listing on them too (:guide:`Threads
+    #: <circuits/certification/fault_propagation.md#sec-threads>`).  At least 1, and 1 runs on the
+    #: calling thread alone.  ``None`` takes the value of the environment variable
     #: ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
     #: ``numba.config.NUMBA_NUM_THREADS``.  The row on cores in "Start from a symptom" of
     #: :doc:`/exact_search_tuning` says how to set and cap it, and the section "Threads" of the
     #: README of ``qldpc/codes/distance`` says when ``QLDPC_NUM_THREADS`` also sets numba's own
-    #: count.  The description of ``search_chunk_exponent`` says when work moves to threads (Section
-    #: 4.5 of ``brouwer_zimmermann_code.md`` and Section 3.11 of ``connected_cluster.md``).
-    #: Defaults to ``None``, chosen by hand: a search uses the cores that numba counts unless its
-    #: caller caps them.
+    #: count.  The description of ``search_chunk_exponent`` says when work moves to threads
+    #: (:guide:`Behavior spanning files
+    #: <codes/distance/brouwer_zimmermann_code.md#sec-cross-file-behavior>` and Section 3.11 of
+    #: ``connected_cluster.md``).  Defaults to ``None``, chosen by hand: a search uses the cores
+    #: that numba counts unless its caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
     #: A count by the BZ or brute-force method scans in chunks.  Each chunk lies within one

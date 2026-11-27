@@ -4,9 +4,11 @@
 
 The distance search (``distance.py``) and the coset searches (``coset.py``) scan the words of an
 affine space: an offset plus sums of rows of a set.  Each search packs its problem once for each
-family in an :class:`AffineInstance`.  Sections cited in this module are those of
-``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.  Section 4.1 says how the searches use
-instances.
+family, before it scans, in an :class:`AffineInstance`: the packed rows, labels, pivots, and ranks
+of its sets, and the certificate of their steps, whose weight divisor rounds its bounds.  A distance
+search packs a basis family without its pivot columns (``get_distance_instance``).  Each family of
+a coset search has a coset instance with full rows (``get_coset_instance`` and
+``get_coset_family_instance``; ``brouwer_zimmermann_code.md#sec-coset-searches``).
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ class AffineInstance:
     Attributes:
         generators: The packed rows of each set, with shape ``(num_sets, dimension, width)``,
             zero-padded to a common width.  A distance instance deletes the pivot columns of each
-            set (Section 3.5).
+            set (``brouwer_zimmermann.md#sec-packed-enumeration``).
         labels: The packed quotient labels of the rows, with the same first two axes, and no words
             for a problem without labels.
         widths: The number of words of ``generators`` that each set uses.
@@ -40,9 +42,9 @@ class AffineInstance:
         ranks: The number of pivots of each set that are not padding.
         certificate: The certificate of the steps, in Hamming units, whose weight divisor is one
             in a coset instance.  For an automorphism family, it covers every image of the one
-            packed set (Section 3.7).
+            packed set (``brouwer_zimmermann.md#sec-automorphism-certificate``).
         weight_factor: The factor ``η`` such that a lower bound ``L`` on Hamming weights bounds
-            weights below by ``ceil(L / η)`` (Section 4.1).
+            weights below by ``ceil(L / η)`` (``brouwer_zimmermann_code.md#sec-coset-searches``).
     """
 
     generators: npt.NDArray[np.uint64]
@@ -64,7 +66,7 @@ class AffineInstance:
 
         ``parity``, if given, must be the parity of the Hamming weight of every word.  The Hamming
         bounds are rounded up to it, and then divided by the weight factor, rounding up
-        (Section 3.2).  Each call returns a new table.
+        (``brouwer_zimmermann.md#sec-weight-multiples``).  Each call returns a new table.
         """
         return self.certificate.get_weight_bounds(self.weight_factor, parity)
 
@@ -77,7 +79,8 @@ def get_distance_instance(
     ``certificate`` is ``basis_family.certificate``, or that of the automorphism family whose one
     set ``basis_family`` holds.
     """
-    # The scans count the ones of the deleted pivot columns from the support (Section 3.5).
+    # The scans count the ones of the deleted pivot columns from the support
+    # (``brouwer_zimmermann.md#sec-packed-enumeration``).
     packed_rows = [
         pack_bits(np.delete(generators, pivots[:rank], axis=1))
         for generators, pivots, rank in zip(
@@ -110,14 +113,14 @@ def get_coset_instance(
     """Pack a disjoint basis family of the code of ``generators`` for the coset search.
 
     The rows keep every column, and the certificate has no weight divisor, even if the code has one
-    (Section 3.2).  Without generators, each coset is a single word, which the search visits on
-    layer zero of one empty set.
+    (``brouwer_zimmermann.md#sec-weight-multiples``).  Without generators, each coset is a single
+    word, which the search visits on layer zero of one empty set.
 
     Args:
         generators: Independent generators of the code, one in each row.
         random_column_orders: Passed to ``basis_families.get_disjoint_family``.
         weight_factor: Two for a search of Pauli errors, and one for a search of X or Z parts
-            (Section 4.1).
+            (``brouwer_zimmermann_code.md#sec-coset-searches``).
     """
     num_generators, num_columns = generators.shape
     if not num_generators:
@@ -141,9 +144,10 @@ def get_coset_family_instance(
 ) -> AffineInstance:
     """Pack the sets of any basis family of a code for the coset search, with every column.
 
-    The sets may overlap, as in the families of coset routes (Section 4.4).  The certificate takes
-    the ranks and maximum coverage of the family, and no weight divisor, and holds for every coset
-    (Section 3.1, "Families for coset searches").  ``weight_factor`` is as for
+    The sets may overlap, as in the families of coset routes
+    (``brouwer_zimmermann_code.md#sec-heuristics``).  The certificate takes the ranks and maximum
+    coverage of the family, and no weight divisor, and holds for every coset
+    (``brouwer_zimmermann.md#sec-coset-families``).  ``weight_factor`` is as for
     ``get_coset_instance``.
     """
     num_sets, num_generators, num_columns = basis_family.generators.shape

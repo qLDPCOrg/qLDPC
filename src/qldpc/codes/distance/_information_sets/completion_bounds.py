@@ -6,11 +6,14 @@ A BZ scan weighs the sums of supports of ``w`` rows of a systematic basis ``[I |
 first ``w - 2`` rows of such a support and a row ``s``, ``CompletionTables`` bound, on the columns
 of ``P``, the weight of the words that complete those rows with two rows from ``s`` on.  A scan adds
 the least number of their pivot ones to this bound, and skips the words if the sum reaches the limit
-of the scan, such as the best weight ``U`` of a distance search.  Sections 3.9 and 3.10 of
-``brouwer_zimmermann.md`` derive the bound, and the limit of each kind of scan.
+of the scan, such as the best weight ``U`` of a distance search.
+``brouwer_zimmermann.md#sec-completion-tables`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
+derive the bound, and the limit of each kind of scan.  ``select_completion_tables`` chooses the
+layers whose tables pay and builds them, ``get_table_bytes_within`` sizes tables within a limit on
+memory, and ``CompletionTables.build`` builds the tables of given search bases.
 
-Threads read shared tables at once (Section 3.9 of ``brouwer_zimmermann.md``, "Tables and lookups",
-and Section 5 of ``brouwer_zimmermann_code.md``).  ``get_completion_bound`` and its helper
+Threads read shared tables at once (``brouwer_zimmermann.md#sec-completion-lookups`` and
+``brouwer_zimmermann_code.md#sec-requirements``).  ``get_completion_bound`` and its helper
 ``_get_block_value`` also run within nogil calls of threaded searches, so they must keep the rules
 for nogil code in the docstring of ``qldpc/_compilation.py``.
 """
@@ -43,12 +46,12 @@ class CompletionTables:
     """Bounds on the completions by two more rows of the supports of every layer of one basis.
 
     The tables belong to the packed tails of one systematic basis, with its rows in the order in
-    which a search sums them (Section 3.9).  Block ``b`` covers the tail columns from
-    ``b * block_bits`` up to, but not including, ``(b + 1) * block_bits``, and the last block may be
-    narrower.  Viewed with shape ``(offsets[-1], num_rows - 1)``, entry ``s`` of row
-    ``offsets[b] + x`` of ``tables`` is the least weight of ``x + P_i + P_j`` on block ``b`` over
-    the pairs ``s <= i < j``, where ``x`` is the value of a tail on the block.  Section 3.9 says why
-    the rows ``s`` are innermost.
+    which a search sums them (``brouwer_zimmermann.md#sec-completion-bound``).  Block ``b`` covers
+    the tail columns from ``b * block_bits`` up to, but not including, ``(b + 1) * block_bits``, and
+    the last block may be narrower.  Viewed with shape ``(offsets[-1], num_rows - 1)``, entry ``s``
+    of row ``offsets[b] + x`` of ``tables`` is the least weight of ``x + P_i + P_j`` on block ``b``
+    over the pairs ``s <= i < j``, where ``x`` is the value of a tail on the block.
+    ``brouwer_zimmermann.md#sec-completion-lookups`` says why the rows ``s`` are innermost.
     """
 
     tables: npt.NDArray[np.uint8]
@@ -99,11 +102,12 @@ def select_completion_tables(
     current: CompletionTables | None,
     tuning: SearchTuning,
 ) -> CompletionTables | None:
-    """Choose the tables, if any, with which to scan a layer, by the steps of Section 3.9.
+    """Choose the tables, if any, with which to scan a layer.
 
     A search is about to scan layer ``weight`` of a systematic basis whose packed tails are
     ``rows``.  ``upper_bound`` is its best weight, or ``t + 1`` in a count of the words of weight
-    ``t``, and ``current``, if given, are its tables of ``rows``, which need no build.
+    ``t``, and ``current``, if given, are its tables of ``rows``, which need no build.  The choice
+    follows the steps of ``brouwer_zimmermann.md#sec-completion-gate``.
 
     Returns:
         Tables, possibly ``current``, if the predicted cost of the layer with them is at most
@@ -136,7 +140,8 @@ def predict_completion_cost(
     """Predict the cost of a scan of a layer with completion tables, and the width of their blocks.
 
     The arguments are those of ``select_completion_tables``, and ``reuse`` means that the tables
-    exist already, so that the prediction leaves out their build.
+    exist already, so that the prediction leaves out their build.  The cost model and its rough
+    coefficients are those of ``brouwer_zimmermann_code.md#sec-heuristics``.
 
     Returns:
         The predicted cost of the layer with tables, as a share of its cost without them, and the
@@ -192,7 +197,8 @@ def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
     The layer must have two to ``num_rows`` rows (tables bound completions by two rows) and at least
     ``tuning.completion_bound_minimum_layer_work`` supports.  That count saturates at ``WORK_CAP``,
     so a threshold above it, such as ``MAX_VALUE``, considers no layer.  A tuning that allows no
-    cost or no bytes of tables considers none.
+    cost or no bytes of tables considers none.  This is the gate of the choice of tables in
+    ``brouwer_zimmermann_code.md#sec-heuristics``.
     """
     return (
         2 <= weight <= num_rows
@@ -312,7 +318,8 @@ def _estimate_skipped_share(
     """Estimate the share of the supports of a layer that tables would skip, by sampling.
 
     A support is skipped exactly if the bound of its prefix and the first row of its last pair
-    proves that it cannot lower ``upper_bound``, which the estimate takes as fixed (Section 3.9).
+    proves that it cannot lower ``upper_bound``, which the estimate takes as fixed
+    (``brouwer_zimmermann.md#sec-completion-lookups``).
 
     Returns:
         The share in ``tuning.completion_bound_samples`` random supports, or as many as fit the
@@ -359,13 +366,13 @@ def _fill_tables(
     offsets: npt.NDArray[np.int64],
     tables: npt.NDArray[np.uint8],
 ) -> None:
-    """Fill the tables of ``CompletionTables`` for the packed tails of a basis (Section 3.9).
+    """Fill the tables of ``CompletionTables`` for the packed tails of a basis.
 
     On each block, the table of row ``s`` holds the distance from each value to the nearest sum of a
-    pair of rows from ``s`` on.  A breadth-first search computes it from the table of row ``s + 1``.
-    The tables of up to 64 rows collect in a tile, whose transpose then fills ``tables``.  Reading
-    the tile a word at a time, rather than a byte at a time, makes this transpose about a third
-    cheaper.
+    pair of rows from ``s`` on (``brouwer_zimmermann.md#sec-completion-lookups``).  A breadth-first
+    search computes it from the table of row ``s + 1``.  The tables of up to 64 rows collect in a
+    tile, whose transpose then fills ``tables``.  Reading the tile a word at a time, rather than a
+    byte at a time, makes this transpose about a third cheaper.
     """
     num_rows = rows.shape[0]
     num_table_rows = num_rows - 1

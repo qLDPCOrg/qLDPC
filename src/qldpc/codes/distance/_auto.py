@@ -8,8 +8,8 @@ explains the rule, why it keeps results exact, and its estimates.  This module h
 whether brute force is cheap, ``is_cheap_to_enumerate``, and the search by cost, ``search_by_cost``:
 a connected-cluster search that switches to a Brouwer-Zimmermann (BZ) search once that is predicted
 to cost less.  The rule decides only from results that are the same on any number of threads, since
-both searches can run on several threads (Section 5 of ``brouwer_zimmermann_code.md`` and of
-``connected_cluster.md``).
+both searches can run on several threads (``brouwer_zimmermann_code.md#sec-requirements`` and
+Section 5 of ``connected_cluster.md``).
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ class BrouwerZimmermannProblem:
             their BZ words: two for Pauli strings, whose BZ words are their images under
             ``symplectic_to_hamming``, and one otherwise.
         weight_divisor: A proven divisor of the weights of BZ words.  Certificates round up to its
-            multiples (Section 3.2 of ``brouwer_zimmermann.md``).  It equals ``weight_scale`` for
-            the problems that ``distances.py`` builds.
+            multiples (``brouwer_zimmermann.md#sec-weight-multiples``).  It equals ``weight_scale``
+            for the problems that ``distances.py`` builds.
         get_automorphisms: A function that returns automorphisms of the coordinates of the BZ
             words, or None, as ``get_distance_brouwer_zimmermann`` takes it.
     """
@@ -144,8 +144,9 @@ class _BrouwerZimmermannCosts:
 
     A family of information sets of a basis of rank ``r`` and width ``n`` that covers the columns
     evenly certifies the weight ``ceil((t + 1) n / r)`` after layer ``t``, rounded up to the weight
-    divisor (Sections 3.2 and 3.7 of ``brouwer_zimmermann.md``), and each of its search bases scans
-    ``C(r, t)`` supports in layer ``t``.  The estimates count the supports of one search basis per
+    divisor (``brouwer_zimmermann.md#sec-automorphism-certificate`` and
+    ``brouwer_zimmermann.md#sec-weight-multiples``), and each of its search bases scans ``C(r, t)``
+    supports in layer ``t``.  The estimates count the supports of one search basis per
     layer, as for an automorphism family, and leave out completion tables.  The section "Choosing a
     method" of ``problems.md`` discusses the errors of these estimates.
     """

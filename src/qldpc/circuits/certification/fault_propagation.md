@@ -1,16 +1,19 @@
 # Exact certification of bounded fault propagation in qLDPC
 
+<a name="sec-scope"></a>
 ## Purpose and scope
 
-A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault has [residual weight](#syndromes-and-pauli-weight) at most its fault weight.
+A noisy Clifford circuit that prepares a stabilizer state has bounded fault propagation if every fault has [residual weight](#sec-syndromes) at most its fault weight.
 Bounded fault propagation is a sufficient criterion for fault-tolerant state preparation (Definition 3 in Section 4.2 of [arXiv:0904.2557](https://arxiv.org/abs/0904.2557)): a few faults can leave only correspondingly few errors on the prepared state.
 The residual weight of a fault is the smallest Pauli weight of the Pauli error that the fault leaves on the output qubits, after multiplying that error by any stabilizer of the prepared state.
 With post-selection, only the faults that fire none of the post-selection detectors count.
 This guide explains why the certifier can decide this exactly, and how it searches for a violation.
 It is for contributors who need to understand or modify the certifier in this directory.
 
+<a name="sec-definitions"></a>
 ## Definitions
 
+<a name="sec-faults"></a>
 ### Faults, primitive faults, and acceptance
 
 An **error mechanism** is one error instruction of the detector error model (DEM) that the certifier returns, which is the DEM of the circuit after adding any flag detectors and one noiseless detector for each stabilizer of the prepared state.
@@ -25,6 +28,7 @@ A fault `F` is **accepted**, or passes post-selection, if its flags are zero, `P
 So the accepted faults are exactly the codewords of the binary linear code with parity check matrix `P`.
 Without post-selection, `P` has no rows and every fault is accepted.
 
+<a name="sec-syndromes"></a>
 ### Syndromes and Pauli weight
 
 Let `n` be the number of output qubits, and let `g_1, ..., g_n` be `n`-qubit Pauli strings that generate the stabilizer group of the prepared state.
@@ -42,6 +46,7 @@ The **residual weight** of a fault `F` is `μ(S F)`, the smallest Pauli weight o
 A fault `F` **violates** the fault propagation bound if its residual weight exceeds its fault weight, `μ(S F) > |F|`.
 Fault propagation is bounded up to fault weight `K`, the largest fault weight to certify (a positive integer, or ∞ for no limit), if no nonzero accepted fault of fault weight at most `K` violates the bound.
 
+<a name="sec-physical-errors"></a>
 ### Physical errors
 
 A **physical error** is a case of the circuit's noise whose probability is of first order in the noise's error parameters, such as the X error of an `X_ERROR(p)`.
@@ -51,8 +56,10 @@ If independent errors are written as separate noise instructions, rather than as
 A set of `t` physical errors therefore has the same flags and syndrome as the sum of their error mechanisms, which is a fault of fault weight at most `t`, and conversely every fault of fault weight `t` arises from `t` physical errors.
 So the smallest fault weight of a violating accepted fault is also the smallest number of physical errors that together pass post-selection and violate the bound.
 
+<a name="sec-facts"></a>
 ## Facts that the search relies on
 
+<a name="sec-subadditive-weight"></a>
 ### Pauli weight is subadditive
 
 The Pauli weight of a product of two errors is at most the sum of their Pauli weights, so `μ(s + t) ≤ μ(s) + μ(t)`.
@@ -60,30 +67,34 @@ For physical weight, the product acts on no more qubits than the two errors toge
 For CSS weight, let `(a, b)` and `(c, d)` be the values of `(|x|, |z|)` of the two errors, so that the X and Z parts of the product have weights at most `a + c` and `b + d`, and `max(a + c, b + d) ≤ max(a, b) + max(c, d)`.
 So `μ(S F) ≤ Σ μ(s_j)` over the primitive faults `j` of `F`.
 
+<a name="sec-heavy-primitive-fault"></a>
 ### A violating fault contains a heavy primitive fault
 
 Call a primitive fault **heavy** if its residual weight is at least two, `μ(s_j) ≥ 2`, and **light** otherwise.
-By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ |F|` if `F` contains no heavy primitive fault, since every term of the sum is then at most one.
+By [subadditivity](#sec-subadditive-weight), `μ(S F) ≤ |F|` if `F` contains no heavy primitive fault, since every term of the sum is then at most one.
 So every fault `F` that violates the bound contains a heavy primitive fault.
 
+<a name="sec-irreducible-faults"></a>
 ### Irreducible accepted faults suffice
 
 An **irreducible accepted fault** is a nonzero accepted fault that contains no other nonzero accepted fault (a minimal codeword).
 A violating accepted fault `F` with the smallest fault weight is irreducible.
 Otherwise `F` contains another nonzero accepted fault `G`, and `F + G` is also a nonzero accepted fault, which contains exactly the primitive faults of `F` that `G` does not.
 So `|G| + |F + G| = |F|`, and by the choice of `F`, neither `G` nor `F + G` violates the bound.
-Then [subadditivity](#pauli-weight-is-subadditive) gives `μ(S F) ≤ μ(S G) + μ(S (F + G)) ≤ |G| + |F + G| = |F|`, which contradicts that `F` violates the bound.
+Then [subadditivity](#sec-subadditive-weight) gives `μ(S F) ≤ μ(S G) + μ(S (F + G)) ≤ |G| + |F + G| = |F|`, which contradicts that `F` violates the bound.
 So if some accepted fault of fault weight at most `K` violates the bound, so does an irreducible one, and it is enough to check those.
 
+<a name="sec-fault-weight-bound"></a>
 ### Irreducible accepted faults have fault weight at most `rank(P) + 1`
 
 For a fault `F`, let `P[:, F]` be the columns of `P` for the primitive faults that `F` contains.
 The null vectors of `P[:, F]`, padded with zeros at the other error mechanisms, are the accepted faults that `F` contains, and the all-ones vector gives `F`.
 So a nonzero fault `F` is an irreducible accepted fault exactly when the all-ones vector spans the null space of `P[:, F]`.
 By rank-nullity, an irreducible accepted fault `F` has `|F| = rank(P[:, F]) + 1 ≤ rank(P) + 1`.
-So, since [irreducible accepted faults suffice](#irreducible-accepted-faults-suffice), no fault of fault weight above `min(K, rank(P) + 1)` needs checking.
+So, since [irreducible accepted faults suffice](#sec-irreducible-faults), no fault of fault weight above `min(K, rank(P) + 1)` needs checking.
 For a finite `K`, the search computes the rank only up to `K - 1`, since every rank of at least `K - 1` gives `min(K, rank(P) + 1) = K`.
 
+<a name="sec-dropped-signatures"></a>
 ### Duplicate and zero signatures can be dropped
 
 The **signature** of a primitive fault is the pair of its flags and its syndrome.
@@ -93,8 +104,10 @@ So a violating accepted fault with the smallest fault weight contains no such pr
 We call the primitive faults that remain the **kept primitive faults**.
 Each column of `P` for a dropped primitive fault is zero or equals the column of a kept primitive fault, so the flags of the kept primitive faults have rank `rank(P)`, and the search computes `rank(P)` from them.
 
+<a name="sec-search"></a>
 ## The search
 
+<a name="sec-checking-one-fault"></a>
 ### Checking one fault
 
 The search decides exactly whether `μ(S F) ≤ |F|` for a fault `F` with a minimum-weight oracle for the Pauli errors with a given syndrome.
@@ -117,10 +130,10 @@ This space is the whole stabilizer group, of dimension `n`, exactly when `rank(W
 
 By default, each search of the oracle is a Brouwer-Zimmermann search of the cosets of a binary code, which [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md) describes, with the improvements that it uses for cosets.
 When a high threshold makes a search costly, the oracle may search with another family of information sets that it expects to take less work.
-Section 4.4 of [brouwer_zimmermann_code.md](../../codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models) says when, from the expected work that the field `coset_route_minimum_work` of the search tuning sets.
+The section [Heuristics and cost models](../../codes/distance/brouwer_zimmermann_code.md#sec-heuristics) of `brouwer_zimmermann_code.md` says when, from the expected work that the field `coset_route_minimum_work` of the search tuning sets.
 The oracle builds these families once for each cached search (see `CSS_SEARCH_CACHE_SIZE` and `PAULI_SEARCH_CACHE_SIZE` in `qldpc.codes.distance._tuning`).
 Another family can change the error that the oracle returns, and the lower bound that it gives, but never whether it finds an error of weight at most the threshold.
-The costliest of these searches also skip errors that tables of bounds prove to weigh more than the threshold ([Section 3.9](../../codes/distance/brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)), which can change the error and the lower bound in the same way.
+The costliest of these searches also skip errors that tables of bounds prove to weigh more than the threshold ([Skipping completions by completion tables](../../codes/distance/brouwer_zimmermann.md#sec-completion-tables)), which can change the error and the lower bound in the same way.
 So the `output_pauli` and `residual_weight_lower_bound` of a counterexample can change between versions of qLDPC when the queries that find it are costly, while the verdict and the smallest violating fault do not.
 The thresholds of certifications are usually small, so their searches rarely cost that much, but the maximum weights of the residual-weight estimates of `qldpc.experimental` often are not.
 
@@ -136,9 +149,10 @@ The search skips the oracle for a fault `F` in two cases, each of which cannot h
    It keeps them in a table, which grows within a user-specified memory limit, up to `2^31` syndromes.
    A full table takes no more syndromes, so the search may check some syndromes more than once.
 
+<a name="sec-listing-once"></a>
 ### Listing each irreducible accepted fault once
 
-In this section, every fault contains only [kept primitive faults](#duplicate-and-zero-signatures-can-be-dropped).
+In this section, every fault contains only [kept primitive faults](#sec-dropped-signatures).
 A primitive fault with zero flags is an irreducible accepted fault by itself, and no larger irreducible accepted fault contains one.
 Every other irreducible accepted fault has fault weight `m ≥ 2` and contains only primitive faults with nonzero flags.
 
@@ -153,7 +167,7 @@ Then choosing one primitive fault from each class of a class codeword gives an i
 Conversely, the classes of the primitive faults of an irreducible accepted fault of fault weight `m ≥ 3` form a class codeword.
 So choosing a class codeword of `m ≥ 3` classes and one primitive fault from each of its classes gives each irreducible accepted fault of fault weight `m` exactly once.
 
-Only a fault that [contains a heavy primitive fault](#a-violating-fault-contains-a-heavy-primitive-fault) can violate the bound.
+Only a fault that [contains a heavy primitive fault](#sec-heavy-primitive-fault) can violate the bound.
 The search orders the kept primitive faults that have nonzero flags with the heavy ones first, lists the members of each class in this order, and orders the classes by their first members.
 Then a class that contains a heavy primitive fault, a **start class**, comes before every class that does not, and its heavy members come before its light ones.
 The code calls the heavy primitive faults the **start members**.
@@ -163,11 +177,12 @@ While all the primitive faults that it has chosen are light, it skips the rest o
 For fault weight two, it chooses two primitive faults from a start class in order, the first of them heavy.
 This lists each irreducible accepted fault that contains a heavy primitive fault once, and lists nothing else.
 
-The search lists the class codewords that start with a start class by the [walk by shared flags](#listing-class-codewords-by-shared-flags).
+The search lists the class codewords that start with a start class by the [walk by shared flags](#sec-shared-flags).
 
 Many primitive faults can share their flags, so there can be far fewer classes than primitive faults.
 That is why the search works with classes, and handles individual primitive faults only when it expands each class codeword into faults.
 
+<a name="sec-shared-flags"></a>
 ### Listing class codewords by shared flags
 
 Order the classes as the search does, with the start classes first, and write a class codeword as `c_1 < ... < c_m` in this order.
@@ -176,7 +191,7 @@ So one could list the class codewords by choosing every independent set of `m - 
 For `q` classes, there are about `q^{m-2} / (m-2)!` such sets for each start class.
 When each flag bit is set by few classes, nearly none of them has such a later class, and choosing them all is out of reach for fault weights of four or five on circuits with tens of thousands of classes.
 The **walk by shared flags** visits far fewer sets of classes.
-It adds to the classes chosen so far only a class that shares a flag bit with the sum of their flags, as the depth-first search of [connected_cluster.md](../../codes/distance/connected_cluster.md#33-the-depth-first-search) does for the codewords of a sparse code.
+It adds to the classes chosen so far only a class that shares a flag bit with the sum of their flags, as the depth-first search of [connected_cluster.md](../../codes/distance/connected_cluster.md#sec-depth-first-search) does for the codewords of a sparse code.
 In its terms, the classes are the variables, and the flag bits are the checks.
 
 For a set `A` of classes, let `σ(A)` be the sum of their flags, and `f(c)` the flags of a class `c`.
@@ -250,7 +265,7 @@ A pass **keeps** class codewords that it finds in an array of a fixed number `D 
 Once the pass is done, the walk sorts the rows in lexicographic order, and only then does the search **release** them, passing them on to be expanded into faults.
 A root with more class codewords than fit in the array takes several passes, each releasing the next of them in lexicographic order, as the next paragraph shows.
 The search lists the roots in order, and the root is the first class of each of its class codewords, so the search releases all its class codewords in lexicographic order.
-The result depends on the listing only through this sequence of class codewords (see [threads](#listing-class-codewords-on-threads)).
+The result depends on the listing only through this sequence of class codewords (see [threads](#sec-listing-on-threads)).
 The search reports the first violating fault of the smallest fault weight in this sequence, so a fixed order keeps the reported fault the same between versions of qLDPC.
 
 **Roots with many class codewords.**
@@ -286,11 +301,12 @@ Otherwise, the walk checks every class with this hash, comparing its flags in fu
 For the class with these flags, if there is one, it checks whether that class is available and whether `A ∪ {x}` is independent.
 These are the checks of the walk's definition above, applied only when a probe finds a class, so the walk finds exactly the class codewords of that definition, while most candidates cost only a probe.
 
+<a name="sec-skipping-listed-syndromes"></a>
 ### Skipping faults whose syndromes are listed
 
-Many faults of a fault weight share their syndromes, so the table of syndromes leaves out most of the faults that the search lists (see [Checking one fault](#checking-one-fault), case 2).
+Many faults of a fault weight share their syndromes, so the table of syndromes leaves out most of the faults that the search lists (see [Checking one fault](#sec-checking-one-fault), case 2).
 The search skips many of them without looking them up.
-It expands each class codeword by choosing one member of each of its classes in turn, as [above](#listing-each-irreducible-accepted-fault-once) describes.
+It expands each class codeword by choosing one member of each of its classes in turn, as [above](#sec-listing-once) describes.
 Take two choices `U` and `U'` of members of the first `ℓ < m` classes of a class codeword of `m` classes, where the search chooses `U` first, and either both or neither contain a heavy primitive fault.
 The rule above that skips the rest of a class depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it, so the search completes `U` and `U'` by the same choices `R` of members of the other classes.
 If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which comes earlier in the listing order, and the search can skip all the faults `U' + R` without looking them up.
@@ -301,7 +317,7 @@ These have the same flags, and so distinct syndromes, since kept primitive fault
 Suppose that the table of syndromes has had room for every syndrome so far.
 Then, when the search reaches a fault, the table holds the syndrome of every fault that comes earlier in the listing order, whether the search looked it up or skipped it.
 This holds by induction on the listing order: a fault that the search looked up had its syndrome added to the table, or found it there, and a skipped fault `U' + R` has the syndrome of the earlier fault `U + R`, which by induction is in the table.
-So the table holds the syndrome of each skipped fault, and it holds only syndromes of faults that the search looked up earlier, so by case 2 of [Checking one fault](#checking-one-fault), no skipped fault is the first violation.
+So the table holds the syndrome of each skipped fault, and it holds only syndromes of faults that the search looked up earlier, so by case 2 of [Checking one fault](#sec-checking-one-fault), no skipped fault is the first violation.
 The table would also have left out each skipped fault, so skipping changes neither the faults that the search checks nor the table.
 The search skips faults only while the table has had room for every syndrome.
 This keeps the faults that it checks the same.
@@ -309,28 +325,31 @@ It is not needed for exactness.
 Even when the table is full, each skipped fault has the syndrome of a fault listed earlier, so the first fault in the listing order with a given syndrome is never skipped, and the table cannot hold its syndrome when the search reaches it.
 The first violation is such a fault, since an earlier fault with its syndrome would violate the bound too, so the search checks it.
 
+<a name="sec-first-violation"></a>
 ### Why the first violation has the smallest fault weight
 
-The search checks the kept primitive faults with zero flags first, and then the [listed faults](#listing-each-irreducible-accepted-fault-once) in order of fault weight 2, 3, and so on, up to `min(K, rank(P) + 1)`.
+The search checks the kept primitive faults with zero flags first, and then the [listed faults](#sec-listing-once) in order of fault weight 2, 3, and so on, up to `min(K, rank(P) + 1)`.
 The search reports the first violation that it finds, which is a violating accepted fault because every fault that it checks is accepted.
 
 Suppose that some violating accepted fault of fault weight at most `K` exists, and take one with the smallest fault weight.
 
-1. It is [irreducible](#irreducible-accepted-faults-suffice).
-2. Its primitive faults have [distinct nonzero signatures](#duplicate-and-zero-signatures-can-be-dropped), so replacing each by the kept primitive fault with the same signature gives a violating accepted fault of the same fault weight that contains only kept primitive faults.
+1. It is [irreducible](#sec-irreducible-faults).
+2. Its primitive faults have [distinct nonzero signatures](#sec-dropped-signatures), so replacing each by the kept primitive fault with the same signature gives a violating accepted fault of the same fault weight that contains only kept primitive faults.
    This fault also has the smallest fault weight, so it is irreducible by step 1.
 3. If this fault has fault weight one, it is a primitive fault with zero flags, and the search checks it first.
-   Otherwise, it [contains a heavy primitive fault](#a-violating-fault-contains-a-heavy-primitive-fault), and it has [fault weight at most `rank(P) + 1`](#irreducible-accepted-faults-have-fault-weight-at-most-rankp--1) and at most `K` by assumption, so the search lists it.
+   Otherwise, it [contains a heavy primitive fault](#sec-heavy-primitive-fault), and it has [fault weight at most `rank(P) + 1`](#sec-fault-weight-bound) and at most `K` by assumption, so the search lists it.
 4. No accepted fault with a smaller fault weight violates the bound, so the search finds no violation at a smaller fault weight, and it finds one at this fault weight.
 
 So the reported fault has the smallest fault weight of any violating accepted fault.
 If the search finds no violation, steps 1 to 3 show that no violating accepted fault of fault weight at most `K` exists, so fault propagation is bounded up to fault weight `K`.
 
+<a name="sec-threads"></a>
 ## Threads
 
+<a name="sec-listing-on-threads"></a>
 ### Listing class codewords on threads
 
-A listing of class codewords counts its **work** in units of a probe of the [map of classes by hash](#listing-class-codewords-by-shared-flags).
+A listing of class codewords counts its **work** in units of a probe of the [map of classes by hash](#sec-shared-flags).
 The walk counts one unit for each bit of `σ(A)` that it examines to choose a bit, and for each class after `r` with bit `b` that it examines, including those that it skips as chosen or forbidden.
 It counts `64` units for the root at the start of each pass, and for each reduction of the flags of a candidate, whether the candidate gives a child, is found dependent, or completes a class codeword (`_PROBES_PER_REDUCTION` in `_fault_search.py`).
 This count estimates the time of the walk; it decides only when a listing moves to threads and when a thread pauses, never what the walk lists.
@@ -341,7 +360,7 @@ Only listing class codewords moves to threads, since it takes most of the lister
 The calling thread expands the class codewords into faults in the order in which a listing on a single thread lists them, which we call the **serial order**, while the threads list later ones.
 So the search looks up and skips the same faults, keeps the same table of syndromes, and sends the oracle the same syndromes in the same batches as on one thread, and its result does not depend on the number of threads.
 
-The search lists the class codewords [root by root](#listing-class-codewords-by-shared-flags), so its **work items** are the roots.
+The search lists the class codewords [root by root](#sec-shared-flags), so its **work items** are the roots.
 Each pass over a root starts with only the root chosen and no class forbidden, and a pass after the first depends only on the class codewords of the root that earlier passes released, so the listing of a root, its work, and its class codewords depend only on the root.
 So the listings of consecutive ranges of roots list the class codewords in the serial order, and the work of all the ranges adds up to that of a single thread.
 The search **weighs** each root `r` by `C(q - 1 - r, m - 2)`, for `q` classes and fault weight `m`: the number of choices of the classes of a class codeword with root `r` other than the root and the one that the walk finds by a probe (see `_get_root_weights`).
@@ -370,12 +389,13 @@ While the threads list, the calling thread can run a costly batch of the oracle,
 Listing on threads also takes more CPU time than on one thread, since each thread lists more slowly when more threads list.
 The docstring of `certify_bounded_fault_propagation` says how to keep a certification on one thread.
 
+<a name="sec-thread-requirements"></a>
 ### Requirements on threads
 
 Changes to the listing must keep these requirements.
 
 - **Expand class codewords only on the calling thread, in the serial order.**
-  The table of syndromes, the remembered choices of `_expand_class_tuples`, and the batches of faults depend on the order of the faults, and [skipping faults](#skipping-faults-whose-syndromes-are-listed) relies on the table holding the syndrome of each earlier fault.
+  The table of syndromes, the remembered choices of `_expand_class_tuples`, and the batches of faults depend on the order of the faults, and [skipping faults](#sec-skipping-listed-syndromes) relies on the table holding the syndrome of each earlier fault.
   Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks the faults of one thread.
   In `_fault_search_test.py`, `test_listing_on_threads_checks_the_faults_of_one_thread` compares listings on 2, 3, and 8 threads with one thread, also with pauses within passes over roots, several passes over a root, tables of syndromes that fill up, violations that stop a listing while threads list, and listings that the calling thread starts alone.
   `test_listing_on_threads_keeps_the_order_whichever_range_ends_first` lists a later range before the first, after the calling thread has listed roots alone.
@@ -395,16 +415,18 @@ Changes to the listing must keep these requirements.
   The fixture `check_code_on_threads` of `qldpc/codes/distance/conftest.py`, which `conftest.py` here imports, fails each test of this package whose threads call numba-parallel code from Python or read the tuning through `get_tuning`.
   `test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads` checks that the fixture is active here: it runs `iterate_in_order`, which listings use, with a thread that calls `get_tuning`, and expects that thread to fail.
   `test_nothing_asks_numba_for_parallel_code` of `qldpc/_compiled_code_rules_test.py` checks that qLDPC compiles none of its functions numba-parallel.
-  `test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads` in `_fault_search_test.py` checks that this section names each function of this package compiled with `nogil=True`.
+  `test_entry_points_without_the_lock_cite_the_requirements_on_threads` in `_fault_search_test.py` checks that the docstring of each function of this package compiled with `nogil=True` cites this section.
 
+<a name="sec-unused-speed-up"></a>
 ## A speed-up that the search does not use
 
+<a name="sec-light-heavy-part"></a>
 ### Skipping faults whose heavy part is light enough
 
 Split a fault `F` into three faults, `F = G + L0 + L1`.
 The **heavy part** `G` contains the heavy primitive faults of `F`.
 `L0` contains its light primitive faults with zero syndrome, and `L1` its light primitive faults with nonzero syndrome, each of which has `μ(s_j) = 1`.
-By [subadditivity](#pauli-weight-is-subadditive), `μ(S F) ≤ μ(S G) + |L1|`.
+By [subadditivity](#sec-subadditive-weight), `μ(S F) ≤ μ(S G) + |L1|`.
 Since `|F| = |G| + |L0| + |L1|`, the fault `F` satisfies the bound whenever `μ(S G) ≤ |G| + |L0|`.
 
 In a class codeword, the start classes come first, and only they contain heavy primitive faults.
@@ -420,5 +442,5 @@ It did not look when adding the last primitive fault of a fault, since only one 
 The number of faults that complete a choice grows with the fault weight.
 Up to fault weight four, looking for such a Pauli error cost about as much time as it saved.
 In searches that listed every fault, it saved little time at fault weight five but made the search about twice as fast at fault weight six.
-Later trials reached fault weight ten, where the search skips most faults because [their syndromes are listed](#skipping-faults-whose-syndromes-are-listed).
+Later trials reached fault weight ten, where the search skips most faults because [their syndromes are listed](#sec-skipping-listed-syndromes).
 There, expanding class codewords into faults took under a fifth of the listing's time, and the rule, with the smallest Pauli weight of each heavy part from the oracle, would have removed under a third of the choices of members that remain.

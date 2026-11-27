@@ -72,7 +72,11 @@ def get_bound_oracle(
 
 
 def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
-    """Bounds on sums of rows equal their definition and never exceed the lightest completion."""
+    """Bounds on sums of rows equal their definition and never exceed the lightest completion.
+
+    It checks "Skip only words that a bound proves heavy enough" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     get_bound = cb.get_completion_bound
     for num_rows, num_columns in [(2, 1), (3, 5), (6, 21), (7, 70)]:

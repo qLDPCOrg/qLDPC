@@ -523,7 +523,11 @@ def test_searches_answer_exactly_with_other_families(
 def test_min_weights_match_exhaustive_minima(
     tuning: dict[str, int], pytestconfig: pytest.Config, tune: Tune
 ) -> None:
-    """The minimum weights of syndrome classes agree with exhaustive minima, by either method."""
+    """The minimum weights of syndrome classes agree with exhaustive minima, by either method.
+
+    It checks "Find minimum weights of cosets exactly up to ω" of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
+    """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # Graph states with phases are not CSS, so one search covers their Pauli errors.  By physical

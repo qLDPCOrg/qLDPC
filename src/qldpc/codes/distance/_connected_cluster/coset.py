@@ -324,7 +324,8 @@ def _find_min_weights(
     search stops after the last syndrome, or once the work of this call reaches ``max_work``, or, if
     ``stop_above_max_weight``, at the first syndrome whose coset has no word within ``max_weight``.
     It writes only ``weights`` and arrays that it allocates, so calls that run at once may share
-    every argument but ``weights``.
+    every argument but ``weights``.  It runs without the global interpreter lock, and keeps the
+    rules on threads of ``connected_cluster.md#sec-requirements``.
 
     Returns:
         If the search stopped at a syndrome whose coset has no word within ``max_weight``, the index
