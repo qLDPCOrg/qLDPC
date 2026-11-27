@@ -10,7 +10,7 @@ It explains how qLDPC computes exact distances of binary codes with BZ, how it c
 
 - [The Brouwer-Zimmermann algorithm](#sec-algorithm) explains BZ as published, including its adaptation to quantum codes.
 - [Extensions and optimizations](#sec-extensions) explains the extensions and optimizations of qLDPC, and where each comes from.
-- [Guide to the source code](brouwer_zimmermann_code.md#sec-source-code), in [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), points to the modules and docstrings that implement these concepts, and explains the coset searches, the heuristics and their cost models, and the behavior that spans files.
+- [Guide to the source code](brouwer_zimmermann_code.md#sec-source-code), in [brouwer_zimmermann_code.md](brouwer_zimmermann_code.md), points to the modules that implement these concepts, and to their docstrings, and explains the coset searches, the heuristics and their cost models, and the behavior that spans files.
 - [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements), in the same file, lists the requirements that a change must preserve.
 
 <a name="sec-algorithm"></a>

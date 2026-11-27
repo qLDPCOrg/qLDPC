@@ -4,8 +4,9 @@
 
 A guide labels a section with an anchor on the line above the section's heading, and code and
 documents cite the section by that label, as the writing standard describes.  A guide is labeled
-once it has a label, and only citations of labeled guides are checked, apart from links by the
-``:guide:`` role of the documentation or by GitHub URL, whose files must exist.
+once it has a label, and only citations of labeled guides are checked, apart from two kinds: a
+link by the ``:guide:`` role of the documentation or by GitHub URL must name a file that exists,
+and a path whose fragment is a label must name a guide.
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ def test_labels_sit_above_headings() -> None:
 def test_citations_of_labeled_guides_name_their_labels() -> None:
     """Each citation of a section of a labeled guide names a label of that guide.
 
-    Each link to a guide by role or URL names a file.
+    Each link to a guide by role or URL names a file that exists.
     """
     assert _labels(), "no guide has labels"
     assert not _get_broken_citations()
@@ -113,7 +114,8 @@ def _get_broken_citations() -> list[tuple[str, str]]:
 
     A citation is broken if it names a labeled guide but no label of it, if it is a role or URL
     whose path names no file, or if it names a label but no guide.  A broken citation that names a
-    guide is given by the guide's path from the root of the repository, and any other as written.
+    guide is given by the guide's path from the root of the repository and the fragment, and any
+    other as written.
     """
     broken = set()
     for path in _files():
@@ -131,10 +133,10 @@ def _get_broken_citations() -> list[tuple[str, str]]:
 def _citations(path: pathlib.Path) -> list[tuple[str | None, str, str]]:
     """List the guide sections that a file cites, each as a guide, a fragment, and the text cited.
 
-    The guide is a path from the root of the repository, or None if the citation is broken without
-    one: a role or URL whose path names no file, or a path that resolves to no guide but has a
-    label for its fragment.  Other paths that resolve to no file, and roles and URLs to a file
-    without a fragment, are not citations of sections and are left out.
+    The guide is a path from the root of the repository, or None if the citation names no file: a
+    role or URL whose path names no file, or a path that names no file but has a label for its
+    fragment.  Other paths that name no file, and roles and URLs without a fragment, are not
+    citations of sections and are left out.
     """
     text = path.read_text(encoding="utf-8")
     citations: list[tuple[str | None, str, str]] = []

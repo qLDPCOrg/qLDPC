@@ -1155,6 +1155,9 @@ class ClassicalCode(AbstractCode):
         ``_get_permutation_automorphisms``, without repeats or the identity, in an array whose row
         ``i`` maps bit ``j`` to bit ``row[j]``.  The result is None if there are no generators.
 
+        ``distance/brouwer_zimmermann.md#sec-automorphism-sources`` explains how exact distance
+        searches find and use these generators.
+
         Raises:
             ValueError: If a generator from ``_get_permutation_automorphisms`` does not map the row
                 space of the parity check matrix onto itself.
@@ -2898,16 +2901,13 @@ class QuditCode(AbstractCode):
     def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
         """Sets of checks, whose Tanner graphs bliss searches for permutation automorphisms.
 
-        ``distance/brouwer_zimmermann.md#sec-automorphism-sources`` says how exact distance searches
-        use the automorphisms.
-
         By default, the only matrix is the parity check matrix.  Bliss finds only qudit permutations
         that map the rows of a matrix onto themselves.  A permutation automorphism of this code maps
         the row space of the parity check matrix onto itself, but it can map parity checks to other
         words of that space, and then bliss cannot find it among the parity checks.  A subclass can
         let bliss find such permutation automorphisms by adding a set of checks that the structure
         of the code determines, rather than a choice of basis, such as the canonical local checks of
-        a QTCode.
+        a QTCode (``distance/brouwer_zimmermann.md#sec-automorphism-sources``).
 
         Each matrix must meet two requirements:
 
@@ -2940,6 +2940,9 @@ class QuditCode(AbstractCode):
         The result holds these qudit permutations, followed by the generators from
         ``_get_permutation_automorphisms``, without repeats or the identity, in an array whose row
         ``i`` maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no generators.
+
+        ``distance/brouwer_zimmermann.md#sec-automorphism-sources`` explains how exact distance
+        searches find and use these generators.
 
         Raises:
             ValueError: If a generator from ``_get_permutation_automorphisms``, or a permutation

@@ -286,6 +286,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   `test_always_compiled_functions_use_nothing_from_outside_qldpc` of the same file checks that the functions marked `@always_compiled` use no names imported from packages other than qLDPC, NumPy, and numba, such as functions of galois.
   Four tests on threads run with every array of their search read-only, through `check_shared_arrays_on_threads` or `shared_arrays_read_only` of `conftest.py`.
   Numba then rejects a write to such an array in any branch of compiled code.
-  Both guides list the writes that these tests miss: [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, which the tests cite, and Section 5 of `connected_cluster.md`, which names them.
+  Two of these tests cite [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, and Section 5 of `connected_cluster.md` names the other two.
+  Each guide lists the writes that its tests miss.
   Review checks those writes.
 - `_readme_test.py` fails if "Where to look" omits a module, if "Layout" omits a top-level module or subpackage, or if this page or `problems.md` names, in a code span, a Python file of this package that does not exist.
