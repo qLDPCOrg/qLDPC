@@ -53,10 +53,12 @@ Where documentation belongs
   Put anything that people need in a guide or a standard, never only in ``AGENTS.md``.
 * Keep each page focused on one topic or task, and small enough to read whole; split a page that outgrows that.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
-* Point references from the specific to the general: docstrings, comments, and guides that describe how an object can be extended, such as by a hook, explain it without relying on any extension, and do not list its extensions, though catalogs such as the library map may.
-  Such documentation may name an extension as an example.
-* In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
-  Docstrings and comments in the package point to a guide's section rather than repeat its argument, and may state in a clause what that section proves.
+* Write each statement next to what it describes, and point references from the specific to the general, so that a change to code or to a document stays local.
+  A docstring or comment explains its object without relying on documents that depend on it, and does not list the code that extends or uses it, though catalogs such as the library map may.
+  In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
+  Code points to the guide section that it relies on by the section's label, as in ``brouwer_zimmermann.md#sec-completion-tables``, once where that code is documented, and may state in a clause what that section proves.
+  Guides name code no more finely than its modules, public names, and settings.
+  Require each item of code that a document covers to point to that document, rather than requiring a document to list items of code.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
   Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
   Measurements that only check a choice made on other grounds, such as a heuristic, go in the pull request description when review needs them; a heuristic may still state the rough costs that it assumes.
