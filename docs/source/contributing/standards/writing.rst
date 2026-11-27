@@ -53,17 +53,32 @@ Where documentation belongs
   Put anything that people need in a guide or a standard, never only in ``AGENTS.md``.
 * Keep each page focused on one topic or task, and small enough to read whole; split a page that outgrows that.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
-* Point references from the specific to the general: docstrings, comments, and guides that describe how an object can be extended, such as by a hook, explain it without relying on any extension, and do not list its extensions, though catalogs such as the library map may.
-  Such documentation may name an extension as an example.
-* In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
-  Docstrings and comments in the package point to a guide's section rather than repeat its argument, and may state in a clause what that section proves.
+* Write each statement next to what it describes, and point references from the specific to the general, so that a change stays local.
+  A docstring, comment, or guide explains its object without relying on the code or documents that extend or use that object.
+  It may name one of them as an example, but only the library map and the guides to workarounds may list them.
+  A hand-written map of code, such as the library map or a README's map of modules, is selective, and no check requires it to be complete.
+  A list that must be complete, such as a reference of public items or settings, is generated where a standard tool can generate it, as AutoAPI lists the public symbols; otherwise a check requires it to cover each item.
+  Apart from such checks, a rule or check that ties code to a document requires the code to point to the document, not the reverse.
+* Refer to qLDPC's code and documents by name or label, never by line or section number.
+  Pages written under ``docs/source/`` are reStructuredText, which Sphinx renders; documents elsewhere, such as package guides and READMEs, are Markdown.
+  Code and documents cite a section of a Markdown document by its label, as in ``brouwer_zimmermann.md#sec-completion-tables``.
+  The label is an anchor ``<a name="sec-…"></a>`` alone on the line above the section's heading, and a change that cites an unlabeled section adds one.
+  Rendered reStructuredText, such as a public docstring or a page under ``docs/source/``, links to the label through the ``:guide:`` role with the path of a document under ``src/qldpc/``, or through the ``:repo:`` role with the path from the repository root of a document outside it.
+  Markdown links to it by a relative link or a GitHub URL, and comments and other docstrings cite it as in the example above.
+  A section of an ``.rst`` document keeps its Sphinx label.
+  reStructuredText cites it with ``:ref:``, and Markdown by a relative link with the label as fragment, as in ``reviewing.rst#review-rounds``.
+* Some guides explain how a package's code works, as those of ``codes/distance/`` and ``circuits/certification/`` do; the guides to workarounds do not.
+  Such a guide, not the code, gives the correctness arguments for the package's code, such as why a bound holds.
+  A function, class, or module of the package cites each section of such a guide that explains it, and any code cites each section that it relies on.
+  Each citation sits once in the docstring, or in a comment at each step that relies on the section, and may state in a clause what the section proves.
+  Of qLDPC's code, such a guide names only modules, public API as the :doc:`code standard <code>` defines it, and settings, such as environment variables and the fields of ``SearchTuning`` in ``codes/distance/``.
+  To find the code that such a guide explains, search for its labels.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
   Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
   Measurements that only check a choice made on other grounds, such as a heuristic, go in the pull request description when review needs them; a heuristic may still state the rough costs that it assumes.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
 * After changing a notebook example, refresh its saved outputs by executing the entire canonical notebook in an offline, editable installation.
-* Keep README and the library map selective; AutoAPI lists the public symbols.
 * When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
 
 .. _writing-notebooks:
