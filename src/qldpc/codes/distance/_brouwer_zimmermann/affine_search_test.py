@@ -18,6 +18,7 @@ from qldpc._compilation import is_compilation_disabled
 
 from .. import _threads
 from .._information_sets import completion_bounds
+from .._information_sets.support_stepping import PackedBasis
 from . import affine_search
 
 
@@ -39,10 +40,12 @@ def test_scans_of_sets_of_any_rank() -> None:
         for index, weight in itertools.product(range(3), range(1, dimension + 1)):
             support = np.zeros(weight, dtype=np.int64)
             arguments = (
-                generators[index],
-                np.ascontiguousarray(labels[index, :, : label_widths[index]]),
-                ranks[index],
-                widths[index],
+                PackedBasis(
+                    generators[index],
+                    np.ascontiguousarray(labels[index, :, : label_widths[index]]),
+                    ranks[index],
+                    widths[index],
+                ),
                 support,
                 np.zeros((weight + 1, 5), dtype=np.uint64),
             )
@@ -60,14 +63,7 @@ def test_scans_of_sets_of_any_rank() -> None:
 
                 # Scan one combination of rows.
                 best, depth, *visited = affine_search.scan_set(
-                    *arguments,
-                    depth,
-                    best,
-                    0,
-                    1,
-                    no_tables.tables,
-                    no_tables.offsets,
-                    no_tables.block_bits,
+                    *arguments, depth, best, 0, 1, no_tables.view
                 )
                 assert visited == [1, 0, 0] and best == expected
                 np.testing.assert_array_equal(support[:-1], indices[:-1])
@@ -75,14 +71,7 @@ def test_scans_of_sets_of_any_rank() -> None:
 
             # One more call finds the layer complete.
             best, depth, *visited = affine_search.scan_set(
-                *arguments,
-                depth,
-                best,
-                0,
-                1,
-                no_tables.tables,
-                no_tables.offsets,
-                no_tables.block_bits,
+                *arguments, depth, best, 0, 1, no_tables.view
             )
             assert (best, depth, visited) == (expected, -1, [0, 0, 0])
 
@@ -127,19 +116,14 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                     while depth >= 0 and best > cutoff:
                         best, depth, num_evaluated, num_lookups, num_skipped = (
                             affine_search.scan_set(
-                                generators,
-                                labels,
-                                dimension,
-                                width,
+                                PackedBasis(generators, labels, dimension, width),
                                 support,
                                 prefixes,
                                 depth,
                                 best,
                                 cutoff,
                                 batch_size,
-                                tables.tables,
-                                tables.offsets,
-                                tables.block_bits,
+                                tables.view,
                             )
                         )
                         assert num_evaluated + num_lookups <= batch_size
@@ -189,11 +173,10 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
     ):
         if rank < num_rows and set_tables is tables:
             continue
-        arguments = (generators, labels, rank, generators.shape[1])
-        table_arguments = (set_tables.tables, set_tables.offsets, set_tables.block_bits)
+        basis = PackedBasis(generators, labels, rank, generators.shape[1])
 
         # Scan the layer.
-        scan_arguments = (*arguments, weight, batch_size, table_arguments)
+        scan_arguments = (basis, weight, batch_size, set_tables.view)
         expected_best, expected_counts = _scan_layer(*scan_arguments, initial_best)
         assert expected_counts[2] > 0 or set_tables is no_tables
         support = np.zeros(weight, dtype=np.int64)
@@ -211,14 +194,14 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
                 depth = affine_search.start_set_items(generators, items[start], support, prefixes)
                 while depth >= 0:
                     best, depth, *counts = affine_search.scan_set_items(
-                        *arguments,
+                        basis,
                         support,
                         prefixes,
                         depth,
                         best,
                         -1,
                         batch_size,
-                        *table_arguments,
+                        set_tables.view,
                         last_item,
                     )
                     assert counts[0] + counts[1] <= batch_size
@@ -384,12 +367,7 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
                 )
                 if pair_steps:
                     best, weighed, skipped = affine_search.scan_coset_layer_by_tails_with_tables(
-                        *arguments,
-                        0,
-                        no_tables.tables,
-                        no_tables.offsets,
-                        no_tables.block_bits,
-                        best_support,
+                        *arguments, 0, no_tables.view, best_support
                     )
                     assert not skipped
                 else:
@@ -441,9 +419,7 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
                     num_columns + num_rows + 1,
                     skip_bound - 1,
                     skip_bound,
-                    tables.tables,
-                    tables.offsets,
-                    tables.block_bits,
+                    tables.view,
                     best_support,
                 )
                 assert (best < skip_bound) == (least < skip_bound)
@@ -474,8 +450,7 @@ def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower
     tails[0, -1] = 1
     packed_tails = pack_bits(tails)
     width = packed_tails.shape[1]
-    tables = completion_bounds.CompletionTables.build(packed_tails, block_bits)
-    table_arguments = (tables.tables, tables.offsets, tables.block_bits)
+    table_view = completion_bounds.CompletionTables.build(packed_tails, block_bits).view
     total_skipped = 0
     for rank, _ in itertools.product((num_rows, num_rows - 3), range(4)):
         offset_tail = (rng.random(num_columns) < 0.25).astype(np.uint8)
@@ -494,7 +469,7 @@ def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower
                 )
                 best_support = np.full(layer, -1, dtype=np.int64)
                 found, weighed, skipped = affine_search.scan_coset_layer_by_tails_with_tables(
-                    *arguments, best, -1, best, *table_arguments, best_support
+                    *arguments, best, -1, best, table_view, best_support
                 )
                 assert weighed + skipped == math.comb(num_rows, layer)
                 if best > least:
@@ -502,7 +477,7 @@ def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower
                 else:
                     assert found == best
                     _, *expected = affine_search.scan_coset_layer_by_tails_with_tables(
-                        *arguments, best, best - 1, best, *table_arguments, best_support
+                        *arguments, best, best - 1, best, table_view, best_support
                     )
                     assert [weighed, skipped] == expected
                 total_skipped += skipped
@@ -552,51 +527,36 @@ def _get_completion_bound(
 
 
 def _scan_layer(
-    generators: npt.NDArray[np.uint64],
-    labels: npt.NDArray[np.uint64],
-    rank: int,
-    width: int,
+    basis: PackedBasis,
     weight: int,
     batch_size: int,
-    table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
+    tables: completion_bounds.CompletionTableView,
     best: int,
 ) -> tuple[int, npt.NDArray[np.int64]]:
     """Scan a layer of a set with ``scan_set``, and return its best weight and its total counts."""
     support = np.zeros(weight, dtype=np.int64)
-    prefixes = np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64)
+    prefixes = np.zeros((weight + 1, basis.rows.shape[1]), dtype=np.uint64)
     depth, layer_counts = 0, np.zeros(3, dtype=np.int64)
     while depth >= 0:
         best, depth, *counts = affine_search.scan_set(
-            generators,
-            labels,
-            rank,
-            width,
-            support,
-            prefixes,
-            depth,
-            best,
-            -1,
-            batch_size,
-            *table_arguments,
+            basis, support, prefixes, depth, best, -1, batch_size, tables
         )
         layer_counts += counts
     return best, layer_counts
 
 
 def _scan_items_on_threads(
-    generators: npt.NDArray[np.uint64],
-    labels: npt.NDArray[np.uint64],
-    rank: int,
-    width: int,
+    basis: PackedBasis,
     weight: int,
     batch_size: int,
-    table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
+    tables: completion_bounds.CompletionTableView,
     best: int,
 ) -> npt.NDArray[np.int64]:
     """Scan the items of a layer that fix one row, on three threads, all from one best weight.
 
     Returns the total counts of the scans.
     """
+    generators = basis.rows
     num_rows = generators.shape[0]
     items = [np.array([row], dtype=np.int64) for row in range(num_rows - weight + 1)]
     lock = threading.Lock()
@@ -610,18 +570,7 @@ def _scan_items_on_threads(
             depth = affine_search.start_set_items(generators, items[start], support, prefixes)
             while depth >= 0:
                 _, depth, *counts = affine_search.scan_set_items(
-                    generators,
-                    labels,
-                    rank,
-                    width,
-                    support,
-                    prefixes,
-                    depth,
-                    best,
-                    -1,
-                    batch_size,
-                    *table_arguments,
-                    items[end - 1],
+                    basis, support, prefixes, depth, best, -1, batch_size, tables, items[end - 1]
                 )
                 with lock:
                     total_counts[:] += counts

@@ -440,9 +440,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                 stop_bound,
                 best,
                 best_weight,
-                tables.generators,
-                tables.pivots,
-                tables.x_mask,
+                tables,
                 None,
                 1,
                 coset._get_rounding_parity(tables.planning, 1, parity),
@@ -744,15 +742,13 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
                     stop_bound,
                     best,
                     best_weight,
-                    tables.generators,
-                    tables.pivots,
-                    tables.x_mask,
+                    tables,
                     tails,
                     search.scale,
                     coset._get_rounding_parity(tables.planning, search.scale, parity),
                 )
                 _, *found = coset._search_coset_for_min_weight(
-                    packed_syndrome, max_weight, 0, best, *tables, tails, search.scale
+                    packed_syndrome, max_weight, 0, best, tables, tails, search.scale
                 )
                 skipped += expected[1]
                 assert found == expected
@@ -1094,9 +1090,8 @@ def test_each_worker_searches_with_its_own_copy_of_the_planning_buffer(
 
     def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
         """Record the thread and the planning buffer of each call, and hold the block at row 1."""
-        # The arguments after the syndromes start with max_weight, max_work, best, inverse,
-        # generators, pivots, and planning.
-        calls.append((threading.get_ident(), args[6]))
+        # The arguments after the syndromes start with max_weight, max_work, best, and the tables.
+        calls.append((threading.get_ident(), args[3].planning))
         start = _get_row(syndromes, batch)
         if start == 1:
             assert other_searched.wait(THREAD_TIMEOUT)
@@ -1326,8 +1321,6 @@ def _assert_searches_by_tails_match_searches_of_words(
         weight_factor=2 if scale == 2 else 1,
     )
     tables = coset_tables.get_search_tables(instance, inverse, num_columns)
-    # Pass the fields of the tails as a plain tuple, as the searches do, so that numba compiles the
-    # searches for the type of argument that they use.
     tails = coset_tables.get_coset_tails(
         instance,
         list(range(len(sets))) if block_bits else [],
@@ -1335,7 +1328,7 @@ def _assert_searches_by_tails_match_searches_of_words(
         inverse=inverse,
         block_bits=block_bits or 8,
         max_table_bytes=MAX_VALUE,
-    )[:]
+    )
     even = scale == 1 and not np.any(generators.sum(axis=1) % 2)
     packed_syndromes = split_syndromes_into_words(syndromes, len(inverse))
     total_skipped = 0
@@ -1362,9 +1355,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                 stop_bound,
                 words[0],
                 best_weight,
-                tables.generators,
-                tables.pivots,
-                tables.x_mask,
+                tables,
                 None,
                 scale,
                 coset._get_rounding_parity(tables.planning, scale, parity),
@@ -1377,9 +1368,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                 stop_bound,
                 words[1],
                 best_weight,
-                tables.generators,
-                tables.pivots,
-                tables.x_mask,
+                tables,
                 tails,
                 scale,
                 coset._get_rounding_parity(tables.planning, scale, parity),
@@ -1423,7 +1412,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                 max_weight,
                 _threads.NO_WORK_LIMIT,
                 words[0],
-                *tables,
+                tables,
                 None,
                 scale,
             )
@@ -1432,7 +1421,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                 max_weight,
                 _threads.NO_WORK_LIMIT,
                 words[1],
-                *tables,
+                tables,
                 tails,
                 scale,
             )

@@ -10,7 +10,8 @@ of the scan, such as the best weight ``U`` of a distance search.
 ``brouwer_zimmermann.md#sec-completion-tables`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
 derive the bound, and the limit of each kind of scan.  ``select_completion_tables`` chooses the
 layers whose tables pay and builds them, ``get_table_bytes_within`` sizes tables within a limit on
-memory, and ``CompletionTables.build`` builds the tables of given search bases.
+memory, and ``CompletionTables.build`` builds the tables of given search bases.  Compiled scans take
+tables as a ``CompletionTableView``.
 
 Threads read shared tables at once (``brouwer_zimmermann.md#sec-completion-lookups`` and
 ``brouwer_zimmermann_code.md#sec-requirements``).  ``get_completion_bound`` and its helper
@@ -23,6 +24,7 @@ from __future__ import annotations
 import math
 import sys
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -77,9 +79,26 @@ class CompletionTables:
         _fill_tables(rows, block_bits, offsets, tables)
         return CompletionTables(tables, offsets, block_bits)
 
+    @property
+    def view(self) -> CompletionTableView:
+        """The fields of these tables as one argument of compiled code."""
+        return CompletionTableView(self.tables, self.offsets, self.block_bits)
 
-# Tables that bound nothing, for a scan that skips nothing.
+
+class CompletionTableView(NamedTuple):
+    """The fields of a ``CompletionTables``, as a record that compiled code takes.
+
+    Compiled scans take tables in this form, and ``NO_TABLE_VIEW`` when they have none.
+    """
+
+    tables: npt.NDArray[np.uint8]
+    offsets: npt.NDArray[np.int64]
+    block_bits: int
+
+
+# Tables that bound nothing, for a scan that skips nothing, and their view.
 NO_TABLES = CompletionTables(np.zeros(0, dtype=np.uint8), np.zeros(1, dtype=np.int64), 0)
+NO_TABLE_VIEW = NO_TABLES.view
 
 
 def get_table_bytes_within(rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int) -> int:

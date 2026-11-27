@@ -25,17 +25,6 @@ from . import affine_instance
 # row that caches a stopping step (see ``_get_planning``).
 PlanningBuffer = npt.NDArray[np.int64]
 
-# The fields of a ``CosetTails`` record, which the compiled searches take as the record itself or
-# as a plain tuple.
-TailFields = tuple[
-    npt.NDArray[np.uint64],
-    npt.NDArray[np.uint64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.uint8],
-    npt.NDArray[np.int64],
-    int,
-]
-
 
 class CosetSearchTables(NamedTuple):
     """The tables of ``_search_coset`` in ``coset.py`` for one BZ coset search.

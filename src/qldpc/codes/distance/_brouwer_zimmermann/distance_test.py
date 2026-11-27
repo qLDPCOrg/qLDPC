@@ -1341,7 +1341,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
-        rows, width, tables, block_bits = args[0], args[3], args[10], args[12]
+        (rows, _, _, width), tables, block_bits = args[0], args[7].tables, args[7].block_bits
         if scanned_index:
             later_scans["with tables" if len(tables) else "without tables"] += 1
         if len(tables):
@@ -1528,8 +1528,8 @@ def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set_items(*args)
         counts = (int(result[2]), int(result[3]), int(result[4]))
-        lowered = bool(result[0] < args[7])
-        scans.append(ItemScan(threading.get_ident(), len(args[10]), counts, lowered))
+        lowered = bool(result[0] < args[4])
+        scans.append(ItemScan(threading.get_ident(), len(args[7].tables), counts, lowered))
         return result
 
     monkeypatch.setattr(affine_search, "scan_set_items", recording_scan)
@@ -1765,7 +1765,7 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set(*args)
         if result[0] <= cutoff and not witness_items:
-            witness_items.append(tuple(args[4][: items.length].tolist()))
+            witness_items.append(tuple(args[1][: items.length].tolist()))
         return result
 
     with monkeypatch.context() as patch, use_tuning(num_threads=1):
@@ -1895,7 +1895,7 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
             failed.set()
             raise ValueError("failed")
         # The scan from depth -1 before the threads start returns at once.
-        if args[6] >= 0:
+        if args[3] >= 0:
             scanning.set()
             assert failed.wait(timeout=THREAD_TIMEOUT)
         return scan_set_items(*args)
