@@ -4,8 +4,7 @@
 
 Each scan covers one layer ``w`` of one search basis: the sums of the basis's offset and ``w`` of
 its rows.  Every scan runs one body, ``_scan``, which Numba compiles separately for each set of
-constant flags, so that no flag costs a branch for each word.  Sections cited in this module are
-those of ``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``.
+constant flags, so that no flag costs a branch for each word.
 
 - ``scan_set`` scans one set of a distance search, with or without completion tables.
 - ``scan_set_items`` scans a range of work items of a layer of such a set, as ``scan_set`` does, on
@@ -65,10 +64,11 @@ def scan_set(
     """Scan one chunk of a layer of one set, skipping completions that tables prove too heavy.
 
     The rows have the pivot columns of the set deleted, so a word weighs the number of its rows
-    below ``rank`` plus the weight of its packed tail (Section 3.5).  With tables, in a layer of two
-    or more rows, the scan skips the completions that tables prove no lighter than the best weight,
-    as ``pair_steps`` of ``_scan`` describes (Section 3.9).  A chunk ends when the layer is
-    complete, at the cutoff, or at the end of the batch.
+    below ``rank`` plus the weight of its packed tail
+    (``brouwer_zimmermann.md#sec-packed-enumeration``).  With tables, in a layer of two or more
+    rows, the scan skips the completions that tables prove no lighter than the best weight, as
+    ``pair_steps`` of ``_scan`` describes (``brouwer_zimmermann.md#sec-completion-tables``).  A
+    chunk ends when the layer is complete, at the cutoff, or at the end of the batch.
 
     Args:
         generators: Packed rows of the set, with shape ``(num_rows, num_words)``.
@@ -162,8 +162,9 @@ def scan_set_items(
 
     Suppose the items of a layer are scanned in order, with each scan starting from the best weight
     left by its predecessor.  Together, these scans weigh the same supports, look up the same
-    bounds, and skip the same completions as one scan of the layer.  Section 4.5, "Threads", says
-    why, and ``pair_steps`` of ``_scan`` defines completions.
+    bounds, and skip the same completions as one scan of the layer.
+    ``brouwer_zimmermann_code.md#sec-cross-file-behavior`` ("Threads") says why, and ``pair_steps``
+    of ``_scan`` defines completions.
 
     Start the range with ``start_set_items`` at its first item.  The scan returns depth ``-1`` at
     the end of the range, once the first ``k`` rows of a support pass ``last_item``, as at the end
@@ -413,10 +414,11 @@ def scan_coset_layer_by_tails(
 
     The tail of a word is its packed columns other than the pivots of the basis.  ``tails`` holds
     the tails of the rows, with shape ``(num_rows, width)``, and ``offset_tail`` that of the offset.
-    A word weighs the number of its rows below ``rank`` plus the weight of its tail (Section 3.5).
-    The scan copies the support of each lighter word, rather than the word, into ``best_support``,
-    of at least ``len(support)`` entries.  The routes by tails of coset searches weigh words this
-    way (Section 4.4).
+    A word weighs the number of its rows below ``rank`` plus the weight of its tail
+    (``brouwer_zimmermann.md#sec-packed-enumeration``).  The scan copies the support of each lighter
+    word, rather than the word, into ``best_support``, of at least ``len(support)`` entries.  The
+    routes by tails of coset searches weigh words this way
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the number of
@@ -481,10 +483,11 @@ def scan_coset_layer_by_tails_with_tables(
     arguments.  ``tables``, ``offsets``, and ``block_bits`` are the fields of a
     ``completion_bounds.CompletionTables`` of the tails of the rows, or of
     ``completion_bounds.NO_TABLES``, which skip nothing.  The scan skips completions by the tables
-    as ``pair_steps`` of ``_scan`` describes (Section 3.9, "Coset searches").  A coset query passes
-    as ``skip_bound`` the least Hamming weight that proves a word of its coset heavier than the
-    query's maximum weight (see ``coset._get_skip_bound``).  A search for a minimum weight passes at
-    least ``best`` as ``skip_bound`` (Section 3.10).
+    as ``pair_steps`` of ``_scan`` describes (``brouwer_zimmermann.md#sec-completion-cosets``).  A
+    coset query passes as ``skip_bound`` the least Hamming weight that proves a word of its coset
+    heavier than the query's maximum weight (see ``coset._get_skip_bound``).  A search for a minimum
+    weight passes at least ``best`` as ``skip_bound``
+    (``brouwer_zimmermann.md#sec-coset-min-weights``).
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of
@@ -572,15 +575,15 @@ def _scan(
       row ``s`` as the first of the last two rows.  The bound is that of the tables plus the least
       number of pivot ones that such a completion can have (see ``deleted_pivots`` and ``ranked``).
       The scan skips the completions if this bound reaches the lesser of ``skip_bound`` and the best
-      weight (Section 3.9).
+      weight (``brouwer_zimmermann.md#sec-completion-bound``).
     - ``deleted_pivots``: add to the weight of a word a pivot one for each of its rows
-      (Section 3.5).
+      (``brouwer_zimmermann.md#sec-packed-enumeration``).
     - ``test_labels``: keep only words whose quotient labels make them eligible.
     - ``record``: copy each lighter word into ``representative``.
     - ``css_weight``: weigh words by their CSS weight, with ``x_mask``, rather than Hamming weight.
     - ``chunked``: return once the weighed supports and the lookups reach ``batch_size`` together.
     - ``ranked``: with ``deleted_pivots``, count pivot ones only for rows below ``rank``, in words
-      and in bounds of completions (Section 3.9, "Coset searches").
+      and in bounds of completions (``brouwer_zimmermann.md#sec-completion-cosets``).
     - ``record_support``: copy the support of each lighter word into ``best_support``.
     - ``ends_after_item``: with ``pair_steps``, end the layer once the first ``len(last_item)``
       rows of a support pass ``last_item`` in lexicographic order (see ``scan_set_items``).
@@ -625,7 +628,7 @@ def _scan(
             prefix = prefixes[pair_depth]
             if len(tables):
                 lookups += 1
-                # Count the pivot ones of every completion (Section 3.9, "Coset searches").
+                # Count the pivot ones of every completion.
                 pivot_ones = weight
                 if ranked:
                     pivot_ones = max(0, 2 - (num_rows - rank))
@@ -715,7 +718,8 @@ def _is_eligible(labels: npt.NDArray[np.uint64], support: npt.NDArray[np.int64])
     """Decide whether the word of a support of a search basis lies outside the excluded subcode.
 
     It does if the basis has no label words, since then nothing is excluded, or if the XOR of the
-    quotient labels of the rows of the support is nonzero (Section 3.4).
+    quotient labels of the rows of the support is nonzero
+    (``brouwer_zimmermann.md#sec-quotient-labels``).
     """
     weight = len(support)
     label_width = labels.shape[1]

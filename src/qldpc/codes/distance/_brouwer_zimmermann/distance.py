@@ -5,12 +5,11 @@
 The search follows `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_ and its
 `adaptation to quantum codes <https://arxiv.org/abs/2408.10743>`_.  This module prepares each
 search, takes its early exits, and scans its layers in resumable chunks with ``affine_search.py``.
-Sections cited in this module are those of ``brouwer_zimmermann.md`` and
-``brouwer_zimmermann_code.md``, which derive the certificates and invariants of the search.  A
-costly layer runs on several threads (``brouwer_zimmermann_code.md#sec-cross-file-behavior``), so a
-change here must keep the requirements on threads of
-``brouwer_zimmermann_code.md#sec-requirements``, such as "Decide only from what a layer leaves the
-same on any number of threads".
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md`` derive the certificates and invariants
+of the search.  A costly layer runs on several threads
+(``brouwer_zimmermann_code.md#sec-cross-file-behavior``), so a change here must keep the
+requirements on threads of ``brouwer_zimmermann_code.md#sec-requirements``, such as "Decide only
+from what a layer leaves the same on any number of threads".
 
 ``get_distance_brouwer_zimmermann`` builds a ``BrouwerZimmermannSearch``, which prepares a search of
 each sector with ``_prepare_sector_search``.  Each call of its ``advance`` method advances the
@@ -99,7 +98,8 @@ def get_distance_brouwer_zimmermann(
     """Compute the minimum distance across nested-code sectors by a BZ search.
 
     The searches of the sectors advance round-robin, and share their best upper bound, the weight of
-    the lightest witness that any of them has found, but not their certificates (Section 3.3).
+    the lightest witness that any of them has found, but not their certificates
+    (``brouwer_zimmermann.md#sec-shared-witnesses``).
 
     Args:
         sectors: Nested-code bases and their quotient labels (see ``get_nested_code_basis``).  The
@@ -107,9 +107,11 @@ def get_distance_brouwer_zimmermann(
             of any nonzero word if its labels have no columns.  Each sector must have such a word.
         cutoff: Return once the best upper bound is at most this cutoff.
         weight_divisor: A proven divisor of the weights over which the sectors minimize, to whose
-            multiples the certificates round up (Section 3.2).  Default: 1.
+            multiples the certificates round up (``brouwer_zimmermann.md#sec-weight-multiples``).
+            Default: 1.
         upper_bound: A cap on the result, if any, such as the weight of a known witness outside
-            ``sectors``, or ``max_weight + 1`` under a weight limit (Section 4.5).
+            ``sectors``, or ``max_weight + 1`` under a weight limit
+            (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Weight limit").
         get_disjoint_basis_families: If given, a function for each sector that returns a disjoint
             basis family of it, with its labels and certified with ``weight_divisor``, such as that
             of ``basis_families.get_disjoint_family``.  A search calls it only if it needs the
@@ -118,7 +120,8 @@ def get_distance_brouwer_zimmermann(
             column permutations, each mapping column ``j`` to column ``g[j]``.  Each generator must
             map the space and the excluded subspace of every sector onto themselves.  The search
             of each sector calls the function at most once, so a search of two sectors may call it
-            twice.  Each search verifies the generators (Section 3.7).
+            twice.  Each search verifies the generators
+            (``brouwer_zimmermann.md#sec-automorphism-sources``).
         tuning: The tuning that every search uses throughout.  Default: the active tuning.
 
     Returns:
@@ -274,16 +277,17 @@ class _SectorSearch:
     ``L`` of ``brouwer_zimmermann.md#sec-bounds-and-certificates``, and ``next_weight`` is the layer
     after the last that every set has completed.  No eligible word weighs less than
     ``min(lower_bound, best)``, and the search has finished once ``lower_bound`` reaches ``best``.
-    ``lower_bound`` bounds only the eligible words lighter than ``best`` (Section 3.9, "Certificates
-    and contracts").
+    ``lower_bound`` bounds only the eligible words lighter than ``best``
+    (``brouwer_zimmermann.md#sec-completion-contracts``).
 
     ``get_automorphism_family``, if given, returns an automorphism family of the sector, or None.
     The search calls it at most once, and then sets it to None.  A search that declines to switch
     keeps the family in ``automorphism_family``, and its best weight at that time in
-    ``declined_best`` (Section 3.7, "When a search uses an automorphism family").
-    ``completion_tables`` keeps the tables last chosen, for the set ``completion_tables_set``, for
-    later layers of that set (Section 3.9, "When a search uses the tables").  ``num_threads`` is the
-    number of threads on which the search scans a costly layer of a set (Section 4.5).
+    ``declined_best`` (``brouwer_zimmermann.md#sec-automorphism-gate``).  ``completion_tables``
+    keeps the tables last chosen, for the set ``completion_tables_set``, for later layers of that
+    set (``brouwer_zimmermann.md#sec-completion-gate``).  ``num_threads`` is the number of threads
+    on which the search scans a costly layer of a set
+    (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Threads").
     """
 
     instance: affine_instance.AffineInstance
@@ -341,10 +345,11 @@ class _SectorSearch:
         """Search the next coefficient layer, and return the best shared upper bound.
 
         The search scans the sets in order, and stops after the first set whose step certifies the
-        best weight, as lowered by any lighter word that the scan finds (Section 2.5).  A search of
-        an automorphism family scans its one set, which completes the layer for every image.  A scan
-        that stops at the cutoff or raises leaves ``lower_bound`` and ``next_weight`` unchanged, as
-        the resumable layers of ``brouwer_zimmermann_code.md#sec-cross-file-behavior`` require.
+        best weight, as lowered by any lighter word that the scan finds
+        (``brouwer_zimmermann.md#sec-stopping-certificate``).  A search of an automorphism family
+        scans its one set, which completes the layer for every image.  A scan that stops at the
+        cutoff or raises leaves ``lower_bound`` and ``next_weight`` unchanged, as the resumable
+        layers of ``brouwer_zimmermann_code.md#sec-cross-file-behavior`` require.
         """
         if self.finished:
             return self.best
@@ -356,7 +361,7 @@ class _SectorSearch:
         num_scanned, num_completed = self._plan_layer()
 
         # Before a costly layer, consider switching to an automorphism family, whose rows may lower
-        # the best weight and so finish the search (Section 3.7).
+        # the best weight and so finish the search.
         if (
             self._considers_automorphism_family
             and self.get_layer_work() >= self.tuning.automorphism_minimum_layer_work
@@ -374,7 +379,7 @@ class _SectorSearch:
                 break
 
         # Advance the certificate.  The bound of a family scanned before a switch still holds
-        # (Section 3.7).
+        # (``brouwer_zimmermann.md#sec-automorphism-gate``).
         self.lower_bound = max(
             self.lower_bound, certificate.step_lower_bound(weight, num_completed)
         )
@@ -408,7 +413,8 @@ class _SectorSearch:
         """Scan a layer of the set ``index``, with the completion tables that it chooses, if any.
 
         The block of the set need not be an information set.  A costly layer of three or more rows
-        is split across threads (Section 4.5).  Returns False if the scan stopped at the cutoff.
+        is split across threads (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Threads").
+        Returns False if the scan stopped at the cutoff.
         """
         tables = self._select_completion_tables(index, weight)
         instance = self.instance
@@ -452,8 +458,9 @@ class _SectorSearch:
         of supports.  Each thread scans in chunks of ``batch_size * num_threads`` supports and
         lookups.  It starts each chunk from the shared best weight so far, so that the tables skip
         more, and lowers that weight after the chunk.  Whatever weights the chunks start from, the
-        best weight after the layer is that of a scan on one thread (Section 4.5).  Returns False if
-        the scan stopped at the cutoff.
+        best weight after the layer is that of a scan on one thread
+        (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Threads").  Returns False if the
+        scan stopped at the cutoff.
         """
         instance = self.instance
         generators = instance.generators[index]
@@ -559,8 +566,8 @@ class _SectorSearch:
         """Whether the search would consider switching to an automorphism family before a layer.
 
         It would until it has switched or found no family, and after declining, only once its best
-        weight has dropped (Section 3.7).  The property is False right after every consideration,
-        which ends the recursion of ``advance``.
+        weight has dropped (``brouwer_zimmermann.md#sec-automorphism-gate``).  The property is False
+        right after every consideration, which ends the recursion of ``advance``.
         """
         if self.get_automorphism_family is not None:
             return True
@@ -572,7 +579,7 @@ class _SectorSearch:
         The first call gets the automorphism family, which the search keeps while it declines.  The
         search switches to scan one set and certify with its images, if that predicts less work.
         After a switch, the search scans the new set from layer two, and keeps its lower bound
-        (Section 3.7, "When a search uses an automorphism family").
+        (``brouwer_zimmermann.md#sec-automorphism-gate``).
         """
         if self.get_automorphism_family is not None:
             weight_divisor = self.instance.certificate.weight_divisor
@@ -665,9 +672,10 @@ def _prepare_sector_search(
     ``upper_bound`` is the best weight so far, which must be at most the weight of the lightest
     eligible row of ``basis``.  The stages of ``basis_families`` run in order, and between them
     setup returns if the rows of the family bring the best weight to the cutoff, or if its
-    certificate proves the best weight (Section 4.2).  ``get_disjoint_basis_family``, if given,
-    returns the result of the first stage, and ``get_automorphisms`` is as for
-    ``get_distance_brouwer_zimmermann``.  The search scans on ``num_threads`` threads (Section 4.5).
+    certificate proves the best weight, at the exits that the module docstring lists.
+    ``get_disjoint_basis_family``, if given, returns the result of the first stage, and
+    ``get_automorphisms`` is as for ``get_distance_brouwer_zimmermann``.  The search scans on
+    ``num_threads`` threads (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Threads").
     """
     dimension = len(basis)
     best = upper_bound
@@ -675,7 +683,7 @@ def _prepare_sector_search(
         return best
 
     # The certificate of the disjoint family also uses a weight divisor of two if the family infers
-    # one (Section 3.2).
+    # one (``brouwer_zimmermann.md#sec-weight-multiples``).
     basis_family = (
         basis_families.get_disjoint_family(
             basis,
@@ -697,11 +705,11 @@ def _prepare_sector_search(
     if lower_bound >= best:
         return best
 
-    # Build the automorphism family at most once (Section 3.7).  A threshold above ``WORK_CAP``
-    # turns automorphisms off (see ``_tuning.py``).  Setup asks before partitioning, whatever the
-    # threshold, and ``advance`` asks once a layer's work, which may exceed ``WORK_CAP``, reaches
-    # the threshold.  So only this check keeps a threshold above ``WORK_CAP`` from building the
-    # family.
+    # Build the automorphism family at most once (``brouwer_zimmermann.md#sec-automorphism-gate``).
+    # A threshold above ``WORK_CAP`` turns automorphisms off (see ``_tuning.py``).  Setup asks
+    # before partitioning, whatever the threshold, and ``advance`` asks once a layer's work, which
+    # may exceed ``WORK_CAP``, reaches the threshold.  So only this check keeps a threshold above
+    # ``WORK_CAP`` from building the family.
     get_automorphism_family = (
         None
         if get_automorphisms is None
@@ -712,8 +720,8 @@ def _prepare_sector_search(
     )
 
     # Overlapping sets, and then matroid partitioning, may each replace the family if they predict
-    # less work (Section 4.4).  Partitioning yields to an automorphism family that would do no more
-    # work than any partitioned family could (Section 3.7).
+    # less work (``brouwer_zimmermann_code.md#sec-heuristics``).  Partitioning yields to an
+    # automorphism family that would do no more work than any partitioned family could.
     for get_replacement in (
         lambda family, best: basis_families.get_overlapping_family(
             basis,
@@ -739,7 +747,7 @@ def _prepare_sector_search(
         ),
     ):
         replacement = get_replacement(basis_family, best)
-        # An empty family means that this stage found no better family (Section 4.4).
+        # An empty family means that this stage found no better family.
         if not len(replacement.ranks):
             continue
         basis_family = replacement
@@ -766,7 +774,7 @@ def _prepare_sector_search(
     )
 
     # If setup has already asked for the automorphism family, which the cache then holds, use it
-    # now: its rows and certificate can lower the best weight or finish the search (Section 3.7).
+    # now: its rows and certificate can lower the best weight or finish the search.
     if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
         search._switch_to_automorphism_family()
         if search.finished:

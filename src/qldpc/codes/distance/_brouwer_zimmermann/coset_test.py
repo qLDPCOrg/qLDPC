@@ -1297,8 +1297,8 @@ def _assert_searches_by_tails_match_searches_of_words(
     The family reduces the embedded generators on consecutive blocks, whose sizes cycle through
     ``block_sizes``, and adds a set of rank zero.  Without ``block_bits``, both searches give the
     same bounds, words, and counts.  With tables on blocks of ``block_bits`` columns, they differ
-    only as Section 3.9 of ``brouwer_zimmermann.md`` ("Coset searches") allows.  If ``minima`` is
-    given, the searches also decide as these least weights of the cosets.
+    only as ``brouwer_zimmermann.md#sec-completion-cosets`` allows.  If ``minima`` is given, the
+    searches also decide as these least weights of the cosets.
 
     Returns:
         The number of supports that the searches by tails skipped.
@@ -1401,9 +1401,8 @@ def _assert_searches_by_tails_match_searches_of_words(
                     least_beyond += 1
                 assert answer_by_tails[0] == (least_beyond if skipped else answer[0])
                 assert int(np.bitwise_count(words[1]).sum()) >= scale * answer_by_tails[0]
-                # The skip bound ``h(ω)`` of Section 3.9 of ``brouwer_zimmermann.md``: one more than
-                # the greatest Hamming weight at most ``scale * max_weight`` that a word of the
-                # coset can have.
+                # The skip bound ``h(ω)``: one more than the greatest Hamming weight at most
+                # ``scale * max_weight`` that a word of the coset can have.
                 skip_bound = scale * max_weight + 1
                 if even and (skip_bound - coset_parity) % 2 == 0:
                     skip_bound -= 1
@@ -1462,8 +1461,8 @@ def _count_skipped_supports(
 ) -> int:
     """Count the supports that tables skip in the layers from two to ``last_layer`` of a set.
 
-    ``word`` is the word of a syndrome.  The bound of a support follows Section 3.9 of
-    ``brouwer_zimmermann.md`` ("Coset searches"), on blocks that cover the tails up to their last
+    ``word`` is the word of a syndrome.  The bound of a support follows
+    ``brouwer_zimmermann.md#sec-completion-cosets``, on blocks that cover the tails up to their last
     column with a one.
     """
     rank = int(np.sum(pivots >= 0))

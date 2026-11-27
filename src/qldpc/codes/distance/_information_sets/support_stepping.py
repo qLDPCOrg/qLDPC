@@ -2,10 +2,10 @@
 
 """The step of the scans of search bases from one support of a layer to the next.
 
-Splitting a layer into work items for threads relies on the lexicographic order of the steps
-(Section 5 of ``brouwer_zimmermann_code.md``, "Keep the scans of a layer splittable across
-threads").  ``advance_support`` also runs within nogil calls of threaded searches, so it must keep
-the rules for nogil code in the docstring of ``qldpc/_compilation.py``.
+Splitting a layer into work items for threads relies on the lexicographic order of the steps ("Keep
+the scans of a layer splittable across threads" of ``brouwer_zimmermann_code.md#sec-requirements``).
+``advance_support`` also runs within nogil calls of threaded searches, so it must keep the rules for
+nogil code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def advance_support(
 
     A support of layer ``len(support)`` lists the indices of rows of a search basis in increasing
     order, and its word adds those packed ``rows``, in their first ``width`` machine words, to an
-    offset (Section 3.5 of ``brouwer_zimmermann.md``).  The state is the rows chosen so far,
+    offset (``brouwer_zimmermann.md#sec-packed-enumeration``).  The state is the rows chosen so far,
     ``support[:depth]``; the next row to try, ``support[depth]``; and ``prefixes``, whose row
     ``level`` holds the offset plus the rows ``support[:level]``.  Start with ``depth = 0``,
     ``support[0] = 0``, and the offset in ``prefixes[0]``, which stays unchanged.  To continue after

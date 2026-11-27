@@ -351,7 +351,7 @@ def get_partition_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
     It divides the seconds of each run by ``tried_unit``, the sum of ``b**2 * r**2 * N`` over the
     coverages ``b`` that the run tried, since partitioning skips a coverage at which no family could
-    replace the best so far (Section 4.4 of ``brouwer_zimmermann_code.md``).  The seconds leave out
+    replace the best so far (``brouwer_zimmermann_code.md#sec-heuristics``).  The seconds leave out
     building a competing family of automorphism images, which ``get_automorphism_seconds`` counts.
     """
     runs = [
@@ -405,10 +405,10 @@ def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
     Each trace holds one search.  A search asks for automorphisms before partitioning if
     partitioning may try some coverage and passes its gate, and some partitioned family could do
-    less work (Section 3.7 of ``brouwer_zimmermann.md``).  It then finds, verifies, and builds the
-    family of its automorphisms, to compare that family's work (``competing_seconds``), and
-    considers switching to it at the end of setup.  Another search takes these steps when it first
-    considers switching.  So each search counts both its competing seconds and its first
+    less work (``brouwer_zimmermann.md#sec-automorphism-gate``).  It then finds, verifies, and
+    builds the family of its automorphisms, to compare that family's work (``competing_seconds``),
+    and considers switching to it at the end of setup.  Another search takes these steps when it
+    first considers switching.  So each search counts both its competing seconds and its first
     consideration, and searches that consider no switch do not count.
     """
     searches = []

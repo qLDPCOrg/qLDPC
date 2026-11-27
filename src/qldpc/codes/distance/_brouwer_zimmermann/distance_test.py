@@ -416,8 +416,8 @@ def test_a_search_of_an_mb_code_takes_overlapping_sets(
 ) -> None:
     """The X-sector search of a 64-qubit MB code takes overlapping sets, and finds the distance.
 
-    Section 3.8 of ``brouwer_zimmermann.md`` works this example: overlapping sets do far less work
-    than the one set of a disjoint family.
+    ``brouwer_zimmermann.md#sec-worked-example`` works this example: overlapping sets do far less
+    work than the one set of a disjoint family.
     """
     # Remove the work gate of overlapping families, so that setup chooses between the families by
     # their predicted work alone.  Keep setup from partitioning, since a partitioned family can also
@@ -1169,7 +1169,7 @@ def test_searches_reject_wrong_automorphisms(tune: Tune, partitions: bool) -> No
     """A permutation that does not preserve a sector fails loudly when a search would use it.
 
     The search asks for automorphisms before its first layer, or, if it may partition, when it is
-    built, to weigh partitioning against them (Section 3.7 of ``brouwer_zimmermann.md``).
+    built, to weigh partitioning against them (``brouwer_zimmermann.md#sec-automorphism-gate``).
     """
     tune(partition_work_ratio=0 if partitions else MAX_VALUE)
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)

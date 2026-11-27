@@ -6,8 +6,8 @@ Exact-search performance and tuning
 This page suggests what to try first when exact distance searches or logical-operator counts are slow or memory-hungry, often by changing values of the private module ``qldpc.codes.distance._tuning``.
 The :ref:`table of routes <tuning-routes>` below leads from the routes that searches and counts take, such as which optional steps they run, to the values that control them.
 Before you change a value, read :ref:`the documentation of that module <tuning-module>` below: what its privacy means, what tuning can and cannot change, how to change the tuning, and how the defaults are chosen.
-The `Brouwer-Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-cluster guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ explain the methods.
-Sections 4 and 5 of the Brouwer-Zimmermann guide are in `brouwer_zimmermann_code.md <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md>`__.
+The :guide:`Brouwer-Zimmermann guide <codes/distance/brouwer_zimmermann.md>` and the `connected-cluster guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ explain the methods.
+The parts of the Brouwer-Zimmermann guide on the source code of the method, its heuristics, and its correctness requirements are in :guide:`brouwer_zimmermann_code.md <codes/distance/brouwer_zimmermann_code.md>`.
 
 Start from a symptom
 --------------------
@@ -216,7 +216,7 @@ Routes and the names that control them
    * - Counts of deformed codes
      -
      - :data:`LOCAL_CLIFFORD_CACHE_SIZE`
-     - :guide:`Deformed counters <codes/distance/brouwer_zimmermann.md#sec-deformed-counters>` in Section 3.11 of ``brouwer_zimmermann.md``
+     - :guide:`Deformed counters <codes/distance/brouwer_zimmermann.md#sec-deformed-counters>` in "Counting logical operators" of ``brouwer_zimmermann.md``
 
 .. _tuning-module:
 

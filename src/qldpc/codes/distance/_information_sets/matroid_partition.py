@@ -3,11 +3,11 @@
 """Information sets with bounded column coverage, by matroid partitioning.
 
 The independent sets of columns of a binary basis form a linear matroid, whose bases are the
-information sets.  As in Section 5.1 of Lisoněk and Trummer (References of
-``brouwer_zimmermann.md``), ``get_information_sets_with_coverage`` finds the most information sets
-that use no column more than ``b = max_coverage`` times.  It partitions ``b`` copies of each column
-into independent sets with Edmonds' matroid partitioning algorithm.  Section 4.4 of
-``brouwer_zimmermann_code.md`` says which searches use it.
+information sets.  As in Section 5.1 of Lisoněk and Trummer
+(``brouwer_zimmermann.md#sec-references``), ``get_information_sets_with_coverage`` finds the most
+information sets that use no column more than ``b = max_coverage`` times.  It partitions ``b``
+copies of each column into independent sets with Edmonds' matroid partitioning algorithm.
+``brouwer_zimmermann_code.md#sec-heuristics`` says which searches use it.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ def get_information_sets_with_coverage(
 
     With ``keep_partial``, a last set that partitioning cannot fill to the number of rows is kept as
     a partial set, unless it is empty, and counts toward ``max_sets``.  With coverage one, no other
-    choice of as many information sets leaves room for a larger partial set (Section 4.4 of
-    ``brouwer_zimmermann_code.md``).
+    choice of as many information sets leaves room for a larger partial set
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
 
     Args:
         basis: A binary matrix with independent rows.

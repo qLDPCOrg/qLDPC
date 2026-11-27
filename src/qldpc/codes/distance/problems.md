@@ -61,7 +61,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
    A connected-cluster search can be much slower than BZ on classical codes whose checks are only moderately sparse.
 3. Every other search, as of a quantum code or of the faults of a circuit, runs `search_by_cost` in `_auto.py`.
    It advances a connected-cluster search for a witness, a nontrivial word, through `ConnectedClusterSearch`, one weight limit at a time, as [Section 3.6 of connected_cluster.md](connected_cluster.md#sec-search-to-distance) describes.
-   It counts work in BZ candidate/set evaluations ([Section 2.5 of brouwer_zimmermann.md](brouwer_zimmermann.md#sec-stopping-certificate)), a state being `connected_cluster_state_evaluations` of them.
+   It counts work in BZ candidate/set evaluations ([The stopping certificate](brouwer_zimmermann.md#sec-stopping-certificate) in `brouwer_zimmermann.md`), a state being `connected_cluster_state_evaluations` of them.
    The expected work of a limit is the work that the search has spent plus the predicted work of that limit.
    - In its free phase, the search runs on until the expected work of its next limit exceeds `auto_free_work`, and its result is the answer if it finishes first.
      Below that, fixed costs that the estimates leave out, such as setup, dominate the costs that a switch would compare.
@@ -85,7 +85,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
 The choice keeps every result exact, and `cutoff` and `upper_bound` mean what they mean for each method.
 Since `U` is the weight of a nontrivial word or the caller's upper bound, a search with `U` as its upper bound returns the smaller of the distance and the caller's upper bound, as a search without it does.
 When the connected-cluster search switches, a BZ search of the same sectors, in the same order, replaces it, with `U` as its upper bound, and takes nothing from it.
-For Pauli strings, that BZ search searches their images under `symplectic_to_hamming` (Section 2.7 of `brouwer_zimmermann.md`) and halves the weight that it finds.
+For Pauli strings, that BZ search searches their images under `symplectic_to_hamming` ([Pauli weight as Hamming weight](brouwer_zimmermann.md#sec-pauli-weight) in `brouwer_zimmermann.md`) and halves the weight that it finds.
 The tuning of the probe changes only its family of information sets and their certificate, which no result depends on.
 Which method runs can still change which word an early exit at `cutoff` finds, as can the timing of the threads of a BZ search ("Returns" of `get_distance_from_generators`).
 
@@ -94,7 +94,7 @@ The connected-cluster search predicts the states of a limit by `SupportSearch._p
 It then extrapolates the states of its last limit without a witness by the growth of its states per unit of weight (`ConnectedClusterSearch.get_growth`).
 `_BrouwerZimmermannCosts` estimates the work of BZ from the rank `r` and width `n` of each basis alone.
 It assumes a family that covers the columns evenly, which certifies about `(t + 1) n / r` after layer `t`.
-For `t < r`, no family of information sets certifies more than `ceil((t + 1) n / r)` after layer `t`, before rounding up to a multiple of the weight divisor (Section 3.7 of `brouwer_zimmermann.md`).
+For `t < r`, no family of information sets certifies more than `ceil((t + 1) n / r)` after layer `t`, before rounding up to a multiple of the weight divisor ([The certificate of an automorphism family](brouwer_zimmermann.md#sec-automorphism-certificate) in `brouwer_zimmermann.md`).
 So a search can need more layers than the estimate counts.
 In each layer `t`, the estimate counts the `binom(r, t)` supports of one search basis, as for an automorphism family, whose search scans only one search basis.
 A family of several search bases scans that many supports in each of its bases, so the estimate can also count too few supports in a layer.
@@ -124,7 +124,7 @@ A better rule could use:
 - more features of the sectors, such as the weights of their checks.
 
 It could also resume the probe rather than start a new BZ search.
-It must read from a search only what is the same on any number of threads, as Section 5 of `brouwer_zimmermann_code.md` and Section 5 of `connected_cluster.md` require ("Decide only from what a layer leaves the same on any number of threads" in the first).
+It must read from a search only what is the same on any number of threads, as [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md` and Section 5 of `connected_cluster.md` require ("Decide only from what a layer leaves the same on any number of threads" in the first).
 For example, the counts of supports that a BZ layer on threads weighs and skips depend on the timing of its threads, but the predictions of its completion tables do not.
 To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
 A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.
@@ -144,15 +144,15 @@ For a single query, each coset search first looks up a word of weight at most on
   Each pure-Z stabilizer is a product of given stabilizers, so the syndrome bit of `x` for it, which is that of the error, is the sum of the bits of the given syndrome for those factors, and likewise for `z`.
   `get_min_weights` searches the Z part of an error only if its X part is within `max_weight`, with the weight of the X part as the floor of that search.
 
-By default, each coset search is a BZ search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the search bases of its code (Section 4.1 of `brouwer_zimmermann_code.md`).
+By default, each coset search is a BZ search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the search bases of its code ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`).
 For a single query, a BZ search by CSS weight on a stabilizer state that is not CSS also looks for the errors `X_i Z_j`, which have CSS weight one.
 It finds them in a table if the table would hold at most `max_css_single_pairs` pairs of syndromes, and otherwise by matching the syndromes of single-qubit X and Z errors (`_weight_one_word` of `_brouwer_zimmermann/coset.py`).
 The BZ search of Pauli errors is cached by stabilizer matrix (`PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`), since its syndromes are for the given stabilizers.
 Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`), so `CosetLeaderSearch` objects for different generators of one state share them.
 `find_first_not_within_max_weight` returns the bound that a single BZ search found for the first syndrome without an error within `max_weight`, or, with two BZ searches, the bound that `get_min_weight_bound` gives for that syndrome.
-`get_min_weights` answers a batch in one compiled loop per coset search (`BrouwerZimmermannCosetSearch.get_min_weights`; Section 3.10 of `brouwer_zimmermann.md`).
+`get_min_weights` answers a batch in one compiled loop per coset search (`BrouwerZimmermannCosetSearch.get_min_weights`; [Minimum weights of cosets](brouwer_zimmermann.md#sec-coset-min-weights) in `brouwer_zimmermann.md`).
 Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](README.md#threads)).
-The comment of `search_chunk_exponent` in `_tuning.py` says when a batch moves to threads, and in what units its queries count their work; `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks (Section 4.5 of `brouwer_zimmermann_code.md`).
+The comment of `search_chunk_exponent` in `_tuning.py` says when a batch moves to threads, and in what units its queries count their work; `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks ("Coset batches on threads" in [Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior) of `brouwer_zimmermann_code.md`).
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
 With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset searches, `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which make their checks sparser with `get_sparser_rows` and run `SupportSearch` from the syndrome of a query (Section 3.8 of `connected_cluster.md`); their checks are the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.

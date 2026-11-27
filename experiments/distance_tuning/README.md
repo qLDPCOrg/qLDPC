@@ -2,11 +2,11 @@
 
 Many defaults of `SearchTuning` in `qldpc.codes.distance._tuning` come from simple heuristics, such as "run an optional step when the work that it acts on reaches the cost of the step".
 The [Retuning section of `_tuning.py`](../../src/qldpc/codes/distance/_tuning.py) names the kinds of default and says when to change a default.
-[Section 4.4 of the Brouwer-Zimmermann code guide](../../src/qldpc/codes/distance/brouwer_zimmermann_code.md#sec-heuristics) describes the heuristics of Brouwer-Zimmermann searches and their known weak spots.
+The section [Heuristics and cost models](../../src/qldpc/codes/distance/brouwer_zimmermann_code.md#sec-heuristics) of the Brouwer-Zimmermann code guide describes the heuristics of Brouwer-Zimmermann searches and their known weak spots.
 These scripts check the tuning, and none of them sets or justifies a default:
 
 - [`workloads.py`](workloads.py) names the codes and the workloads that the other scripts run.
-- [`constants.py`](constants.py) checks that the orders of magnitude that the heuristics assume still hold on a machine, and measures the coefficients of the cost model of completion tables ([Section 3.9 of the Brouwer-Zimmermann guide](../../src/qldpc/codes/distance/brouwer_zimmermann.md#sec-completion-tables); [Section 4.4 of `brouwer_zimmermann_code.md`](../../src/qldpc/codes/distance/brouwer_zimmermann_code.md#sec-heuristics) names them and gives the model).
+- [`constants.py`](constants.py) checks that the orders of magnitude that the heuristics assume still hold on a machine, and measures the coefficients of the cost model of completion tables ([Skipping completions by completion tables](../../src/qldpc/codes/distance/brouwer_zimmermann.md#sec-completion-tables); [Heuristics and cost models](../../src/qldpc/codes/distance/brouwer_zimmermann_code.md#sec-heuristics) names them and gives the model).
 - [`trace.py`](trace.py) shows which decisions the searches of one workload make and what each of their stages costs, and compares the decisions of two traces.
 - [`sweep.py`](sweep.py) times two arms in paired trials, either the current tuning against a proposed one or the defaults of two checkouts, to catch gross regressions or bugs when the tuning or the search code changes.
 - [`trial.py`](trial.py) times one workload under one tuning in one process; `sweep.py` runs it for each trial.

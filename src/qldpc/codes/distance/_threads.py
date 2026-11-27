@@ -6,7 +6,7 @@ A worker runs compiled code that releases Python's global interpreter lock (see 
 ``qldpc/_compilation.py``), so that the threads run at once.  Threads share the read-only inputs of
 a search, such as its completion tables, rather than copy them, as processes would.  A caller of
 ``run_work_items``, ``run_items_until_first``, or ``run_blocks`` must keep the requirements on
-threads in Section 5 of the guide of its method, ``brouwer_zimmermann_code.md`` or
+threads in the guide of its method, ``brouwer_zimmermann_code.md#sec-requirements`` or Section 5 of
 ``connected_cluster.md``.  The fault lister of the certifier of bounded fault propagation, which
 calls ``iterate_in_order``, must keep those in "Threads" of
 ``qldpc/circuits/certification/fault_propagation.md``.  Workers read the tuning only from their
@@ -47,7 +47,7 @@ _Output = TypeVar("_Output")
 # threads
 
 # The fewest work items for each thread that a search aims for when it splits work across threads: a
-# layer of a BZ search (Section 4.5 of brouwer_zimmermann_code.md) or a weight limit of a
+# layer of a BZ search (brouwer_zimmermann_code.md#sec-cross-file-behavior) or a weight limit of a
 # connected-cluster search (Section 3.11 of connected_cluster.md).  More items balance the threads
 # better at the end of the work; the number changes no result.
 ITEMS_PER_THREAD = 32

@@ -59,8 +59,8 @@ may write only to arrays that it allocates, or to arrays or entries that nothing
 writes while it runs, such as buffers that its caller gives to one thread.  It must read nothing
 that anything else writes while it runs, and call no numba code compiled with ``parallel=True`` or
 ``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  Guides state the
-requirements on threads and say which tests check them.  For the distance package, Section 5 of
-``qldpc/codes/distance/brouwer_zimmermann_code.md`` and Section 5 of
+requirements on threads and say which tests check them.  For the distance package,
+``codes/distance/brouwer_zimmermann_code.md#sec-requirements`` and Section 5 of
 ``qldpc/codes/distance/connected_cluster.md`` state them, each for its method.  For the certifier's
 fault lister, the section "Threads" of ``qldpc/circuits/certification/fault_propagation.md`` states
 them.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of qLDPC asks numba for

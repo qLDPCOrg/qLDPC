@@ -46,14 +46,14 @@ Where the code, guide, and tests of each supported cell live:
 
 | Cell | Code | Guide | Tests |
 | --- | --- | --- | --- |
-| Distance, `brute_force` | `_brute_force.py` | Section 3.6 of `brouwer_zimmermann.md` | `_brute_force_test.py` |
-| Distance, `brouwer_zimmermann` | `_brouwer_zimmermann/distance.py` | Sections 2 and 3 of `brouwer_zimmermann.md`, and `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/distance_test.py` |
+| Distance, `brute_force` | `_brute_force.py` | [Work estimates and exhaustive enumeration](brouwer_zimmermann.md#sec-work-estimates) in `brouwer_zimmermann.md` | `_brute_force_test.py` |
+| Distance, `brouwer_zimmermann` | `_brouwer_zimmermann/distance.py` | [The Brouwer-Zimmermann algorithm](brouwer_zimmermann.md#sec-algorithm) and [Extensions and optimizations](brouwer_zimmermann.md#sec-extensions) in `brouwer_zimmermann.md`, and `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/distance_test.py` |
 | Distance, `connected_cluster` | `_connected_cluster/search.py` | Sections 3.1 to 3.7, 3.9, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/search_test.py` |
 | Distance, `auto` | `distances.py` and `_auto.py` | [Choosing a method](problems.md#choosing-a-method) in `problems.md` | `distances_test.py` and `_auto_test.py` |
-| Coset weight of a vector, every method | `_get_coset_weight` of `distances.py` | For `connected_cluster`, "The distance of a vector from a classical code" in Section 3.8 of `connected_cluster.md`.  For the others, the vector `v` is the only generator and the words of the code `C` are excluded, which is the problem of Section 2.1 of `brouwer_zimmermann.md`.  Over GF(2), the words spanned by `v` and `C` but outside `C` are the coset `v + C` | `distances_test.py` and `src/qldpc/codes/common_test.py` |
-| Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, Sections 3.1 ("Families for coset searches"), 3.2, 3.9, and 3.10 of `brouwer_zimmermann.md`, and Sections 4.1, 4.4, 4.5, and 5 of `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
+| Coset weight of a vector, every method | `_get_coset_weight` of `distances.py` | For `connected_cluster`, "The distance of a vector from a classical code" in Section 3.8 of `connected_cluster.md`.  For the others, the vector `v` is the only generator and the words of the code `C` are excluded, which is the problem that [The problem](brouwer_zimmermann.md#sec-problem) in `brouwer_zimmermann.md` states.  Over GF(2), the words spanned by `v` and `C` but outside `C` are the coset `v + C` | `distances_test.py` and `src/qldpc/codes/common_test.py` |
+| Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, [Families for coset searches](brouwer_zimmermann.md#sec-coset-families), [Rounding the certificate to a proven weight multiple](brouwer_zimmermann.md#sec-weight-multiples), [Skipping completions by completion tables](brouwer_zimmermann.md#sec-completion-tables), and [Minimum weights of cosets](brouwer_zimmermann.md#sec-coset-min-weights) in `brouwer_zimmermann.md`, and [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches), [Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics), [Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior), and [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
 | Coset leaders, `connected_cluster` | `_connected_cluster/coset.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, and Sections 3.8, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/coset_test.py` and `coset_leaders_test.py` |
-| Logical counts, `brute_force`, `brouwer_zimmermann`, and `auto` | `logical_counts.py` and `_counting/scan.py` | Section 3.11 of `brouwer_zimmermann.md` | `_counting/scan_test.py` and `logical_counts_test.py` |
+| Logical counts, `brute_force`, `brouwer_zimmermann`, and `auto` | `logical_counts.py` and `_counting/scan.py` | [Counting logical operators](brouwer_zimmermann.md#sec-counting) in `brouwer_zimmermann.md` | `_counting/scan_test.py` and `logical_counts_test.py` |
 | Logical counts, `macwilliams` | `logical_counts.py` and `_counting/macwilliams.py` | [The MacWilliams method](problems.md#the-macwilliams-method) in `problems.md` | `_counting/macwilliams_test.py` and `logical_counts_test.py` |
 
 `_grid_test.py` checks the first table against the methods that each problem takes, and runs every supported cell, in each of its modes, on small instances against brute force.
@@ -74,34 +74,34 @@ The documentation cites the other names at `qldpc.codes.distance`.
   [Searching one sector of a CSS code](problems.md#searching-one-sector-of-a-css-code) in `problems.md` gives the sectors of a CSS subsystem code.
   A search of a classical code, of a qubit code that is not CSS, or of a circuit examines one sector.
 - **Search basis** and **information set:** a search basis is a basis that a Brouwer-Zimmermann search or count scans.
-  It spans a sector, or, in a coset search, the binary code whose cosets the search examines ("Families for coset searches" in Section 3.1 of `brouwer_zimmermann.md`).
+  It spans a sector, or, in a coset search, the binary code whose cosets the search examines ([Families for coset searches](brouwer_zimmermann.md#sec-coset-families) in `brouwer_zimmermann.md`).
   It is row reduced on a block of columns.
   If the block has rank `r_i`, the first `r_i` rows of the basis are the identity on `r_i` pivot columns of the block, and the other rows are zero on the block.
-  The block is an information set if its rank is the dimension of the basis, and rank-deficient otherwise (Sections 2.3 and 2.4 of `brouwer_zimmermann.md`).
+  The block is an information set if its rank is the dimension of the basis, and rank-deficient otherwise ([Systematic bases and information sets](brouwer_zimmermann.md#sec-information-sets) and [Search bases and rank-deficient blocks](brouwer_zimmermann.md#sec-search-bases) in `brouwer_zimmermann.md`).
   Code comments and `brouwer_zimmermann_code.md` call a search basis a set for short, a full set if its block is an information set and a partial set otherwise.
   Identifiers such as `_information_sets/` and `max_information_sets`, and the phrase "family of information sets", say "information sets" but also mean the search bases row reduced on them.
 - **Basis family** (`BasisFamily`): the search bases that one Brouwer-Zimmermann search or count uses together, stacked into arrays.
-- **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither examined nor skipped (Sections 2.5 and 3.1 of `brouwer_zimmermann.md`).
+- **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither examined nor skipped ([The stopping certificate](brouwer_zimmermann.md#sec-stopping-certificate) and [Overlapping search bases](brouwer_zimmermann.md#sec-overlapping-bases) in `brouwer_zimmermann.md`).
   The search can stop once the certificate reaches `U`, the weight of the lightest word that it has found.
-  With completion tables, or with the images of an information set under automorphisms, the certificate bounds only the words lighter than `U` (Sections 3.7 and 3.9 of `brouwer_zimmermann.md`).
+  With completion tables, or with the images of an information set under automorphisms, the certificate bounds only the words lighter than `U` ([The certificate of an automorphism family](brouwer_zimmermann.md#sec-automorphism-certificate) and [Certificates and contracts](brouwer_zimmermann.md#sec-completion-contracts) in `brouwer_zimmermann.md`).
 - **Connected-cluster search** (`SupportSearch`): the depth-first search that `method="connected_cluster"` selects.
   It grows supports through the unsatisfied rows of a check matrix `H`.
   It finds light binary or symplectic words outside the row space of an excluded matrix `G`, or light vectors with a given syndrome.
   Unless enumerating is cheap, `"auto"` runs it for most distance searches of quantum codes and circuits (steps 2 and 3 of [Choosing a method](problems.md#choosing-a-method) in `problems.md`).
 - **Automorphism:** in this package, a permutation of the coordinates of a search that maps the words it searches, and those it excludes, onto themselves.
-  The public functions take only permutation automorphisms of a code, which permute qudits and apply no single-qudit gates, and lift them to the coordinates of a Pauli problem (Section 2.7 of `brouwer_zimmermann.md`).
+  The public functions take only permutation automorphisms of a code, which permute qudits and apply no single-qudit gates, and lift them to the coordinates of a Pauli problem ([Pauli weight as Hamming weight](brouwer_zimmermann.md#sec-pauli-weight) in `brouwer_zimmermann.md`).
   An automorphism of a quantum code can also apply single-qudit Clifford gates (see `get_transversal_automorphism_group` in `qldpc.circuits`).
   In a Pauli problem, exchanging the coordinates of one qubit applies a single-qubit Clifford gate, but qLDPC never supplies such permutations.
 - **Scan:** the enumeration of the combinations of rows of each search basis, layer by layer, a layer holding the combinations of a given number of rows.
-  A scan names each combination by its **support**, the set of its row indices (Section 3.5 of `brouwer_zimmermann.md`); elsewhere, as in a connected-cluster search, the support of a word is the set of its nonzero coordinates.
+  A scan names each combination by its **support**, the set of its row indices ([Packed enumeration with pivot-column deletion](brouwer_zimmermann.md#sec-packed-enumeration) in `brouwer_zimmermann.md`); elsewhere, as in a connected-cluster search, the support of a word is the set of its nonzero coordinates.
   Counts have their own scan, in `_counting/scan.py`, and the Brouwer-Zimmermann distance and coset searches (see [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`) use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
   Every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.
 - **Search by Hamming weight:** a Brouwer-Zimmermann coset search of `CosetLeaderSearch` that weighs its binary words by their Hamming weight, up to a fixed factor.
-  The searches by physical weight are searches by Hamming weight, since they search the images of Pauli errors under the map `T` of Section 2.7 of `brouwer_zimmermann.md`.
+  The searches by physical weight are searches by Hamming weight, since they search the images of Pauli errors under the map `T` of [Pauli weight as Hamming weight](brouwer_zimmermann.md#sec-pauli-weight) in `brouwer_zimmermann.md`.
   The Hamming weight of the image of an error is twice the physical weight of the error.
   The searches of X parts and of Z parts, into which `CosetLeaderSearch` splits a query by CSS weight on a CSS stabilizer state, are searches by Hamming weight too ([The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`).
   A search by CSS weight on a stabilizer state that is not CSS weighs a Pauli error by `max(|x|, |z|)`, where `x` and `z` are its X and Z parts, so it is not a search by Hamming weight.
-  Of the coset searches, only the searches by Hamming weight can weigh words by their tails and skip completions by completion tables (Section 4.1 of `brouwer_zimmermann_code.md`).
+  Of the coset searches, only the searches by Hamming weight can weigh words by their tails and skip completions by completion tables ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`).
 
 ## Layout
 
@@ -228,7 +228,7 @@ They are not arguments of public functions, whose arguments say what to compute 
 
 ### Threads
 
-A BZ distance search scans each costly layer of a search basis on `num_threads` threads, which share one copy of the completion tables of that basis (Section 4.5 of `brouwer_zimmermann_code.md`).
+A BZ distance search scans each costly layer of a search basis on `num_threads` threads, which share one copy of the completion tables of that basis ([Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior) in `brouwer_zimmermann_code.md`).
 A connected-cluster distance search searches each costly weight limit on `num_threads` threads, which give the same witness and count of states as a search on one thread (Section 3.11 of `connected_cluster.md`).
 With either method, the batch queries of `CosetLeaderSearch`, `find_first_not_within_max_weight` and `get_min_weights`, move the rest of a costly batch to `num_threads` threads ([The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`).
 A `CosetLeaderSearch` fixes its number of threads when it is built.
@@ -275,7 +275,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - Coverage cannot trace compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
-- A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads in Section 5 of the guide of each method (`brouwer_zimmermann_code.md` or `connected_cluster.md`), and pass the tests on threads that the guide lists.
+- A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads of the guide of each method ([Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md`, or Section 5 of `connected_cluster.md`), and pass the tests on threads that the guide lists.
   So must a change to data that threads read, such as completion tables, the routes of coset searches, and the tables of a connected-cluster search, or to a decision that a search makes from the results of a layer or a weight limit.
   Code that threads run reads the tuning only from its search, never through `get_tuning()`, since new threads can start with the default tuning (see the module docstring of `_tuning.py`).
   Code that threads run also calls no numba-parallel code, such as some functions of galois, since that can abort the process (see `run_work_items` in `_threads.py`).
@@ -286,6 +286,6 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   `test_always_compiled_functions_use_nothing_from_outside_qldpc` of the same file checks that the functions marked `@always_compiled` use no names imported from packages other than qLDPC, NumPy, and numba, such as functions of galois.
   Four tests on threads run with every array of their search read-only, through `check_shared_arrays_on_threads` or `shared_arrays_read_only` of `conftest.py`.
   Numba then rejects a write to such an array in any branch of compiled code.
-  Section 5 of `brouwer_zimmermann_code.md` and of `connected_cluster.md` names these tests and lists the writes that they miss.
+  [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md` and Section 5 of `connected_cluster.md` name these tests and list the writes that they miss.
   Review checks those writes.
 - `_readme_test.py` fails if "Where to look" omits a module, if "Layout" omits a top-level module or subpackage, or if this page or `problems.md` names, in a code span, a Python file of this package that does not exist.

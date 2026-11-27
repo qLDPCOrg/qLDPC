@@ -2,10 +2,10 @@
 
 """Exact counts of the logical operators of a given weight in binary CSS codes.
 
-:class:`CSSLogicalCounter` states the conventions of the counts.  Section 3.11 of
-``brouwer_zimmermann.md`` explains the Brouwer-Zimmermann method, full Pauli counts, and the
-counters of deformed codes.  The section "The MacWilliams method" of ``problems.md`` explains the
-MacWilliams method.
+:class:`CSSLogicalCounter` states the conventions of the counts.  :guide:`Counting logical
+operators <codes/distance/brouwer_zimmermann.md#sec-counting>` explains the Brouwer-Zimmermann
+method, full Pauli counts, and the counters of deformed codes.  The section "The MacWilliams method"
+of ``problems.md`` explains the MacWilliams method.
 
 ``compile_search_setup`` is here because it serves programs that make very many counts, and it
 compiles by running counts of a small code.
@@ -327,8 +327,8 @@ class CSSLogicalCounter:
 
         # Full Pauli counts raise an error at a nontrivial word lighter than the weight.  Unless the
         # counter knows its code to be self-dual, they also need the rank of the checks restricted
-        # to the support of each counted word, or to its complement (Section 3.11 of
-        # brouwer_zimmermann.md).
+        # to the support of each counted word, or to its complement
+        # (``brouwer_zimmermann.md#sec-pauli-counts``).
         count_masked_ranks = count_pauli and not self._self_dual
         reject_lighter = count_pauli or within_distance
         no_rows = self._gauge_x[:0]
@@ -476,8 +476,8 @@ class CSSLogicalCounter:
         """Apply validated, packed local matrices to every stored X-type and Z-type matrix.
 
         The sectors, with their quotient labels, follow the gate, and so do the kept basis families
-        where they can (Section 3.11 of ``brouwer_zimmermann.md``).  The checks lose their reduced
-        row echelon form, which is recomputed only if needed.
+        where they can (``brouwer_zimmermann.md#sec-deformed-counters``).  The checks lose their
+        reduced row echelon form, which is recomputed only if needed.
         """
         counter = CSSLogicalCounter.__new__(CSSLogicalCounter)
         counter._num_qubits, counter._dimension = self._num_qubits, self._dimension

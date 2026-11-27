@@ -2,10 +2,9 @@
 
 """Brouwer-Zimmermann coset searches of ``CosetLeaderSearch``: the cosets of one binary code.
 
-Sections cited in this module are those of ``brouwer_zimmermann.md`` and
-``brouwer_zimmermann_code.md``.  ``brouwer_zimmermann_code.md#sec-coset-searches`` explains these
-searches, and ``brouwer_zimmermann.md#sec-completion-cosets`` and
-``brouwer_zimmermann.md#sec-coset-min-weights`` derive the bounds of their queries.
+``brouwer_zimmermann_code.md#sec-coset-searches`` explains these searches, and
+``brouwer_zimmermann.md#sec-completion-cosets`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
+derive the bounds of their queries.
 
 - ``get_pauli_search`` and ``get_css_searches`` cache the searches, whose planning buffers the
   callers that share a search share too.
@@ -78,7 +77,8 @@ class BrouwerZimmermannCosetSearch:
     stabilizers; X parts, modulo the X parts of the pure-X stabilizers; or Z parts, modulo the Z
     parts of the pure-Z stabilizers.  A coset is labeled by the syndrome of its words.  Bit ``j`` of
     the syndrome is the parity of a word with row ``j`` of a matrix of checks.  The search answers
-    the queries of each maximum weight with the route that ``routes`` choose (Section 4.4).
+    the queries of each maximum weight with the route that ``routes`` choose
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
 
     Args:
         routes: The routes of the search.
@@ -125,8 +125,8 @@ class BrouwerZimmermannCosetSearch:
         self._num_syndrome_bits = len(inverse_rows)
         # Below maximum weight two, a query bounds a coset without words of weight at most one by
         # two, or by three if the coset is odd in a search of X or Z parts that rounds to parity
-        # (Section 4.1).  An odd coset of Pauli errors can hold one of CSS weight two, such as
-        # ``YX``.
+        # (``brouwer_zimmermann_code.md#sec-coset-searches``).  An odd coset of Pauli errors can
+        # hold one of CSS weight two, such as ``YX``.
         num_tables = len(routes.disjoint_tables.planning)
         self._odd_coset_lookup_bound = 3 if not symplectic and num_tables == 2 else 2
 
@@ -185,9 +185,10 @@ class BrouwerZimmermannCosetSearch:
         the search takes the route of the maximum weight once for all of them.  On more than one
         thread, the calling thread searches the batch alone until its queries have done
         ``split_work`` work, about one unit for each query and each word that it weighs, and
-        ``num_threads`` threads then search the rest of it (``_threads.run_blocks``; Section 4.5).
-        The result is the same on any number of threads.  ``CosetLeaderSearch`` passes the thread
-        options of its tuning.  The defaults search on the calling thread alone.
+        ``num_threads`` threads then search the rest of it (``_threads.run_blocks``;
+        ``brouwer_zimmermann_code.md#sec-cross-file-behavior``).  The result is the same on any
+        number of threads.  ``CosetLeaderSearch`` passes the thread options of its tuning.  The
+        defaults search on the calling thread alone.
 
         Returns:
             The index of the first such syndrome and a ``MinWeightBound`` whose representative is
@@ -222,10 +223,10 @@ class BrouwerZimmermannCosetSearch:
         The syndromes are packed as for ``CosetLeaderSearch.find_first_not_within_max_weight``.  The
         search of a syndrome also ends at a word of weight at most its floor in ``floors``, which
         must be at most ``max_weight``.  For ``n`` qubits, the search takes the route of
-        ``min(max_weight, n)`` once, since no coset has a minimum weight above ``n`` (Section 3.10).
-        It looks up no words of weight at most one, which its first layers find.  A batch moves to
-        ``num_threads`` threads as in ``find_first_not_within_max_weight``, and each weight is the
-        same on any number of threads.
+        ``min(max_weight, n)`` once, since no coset has a minimum weight above ``n``
+        (``brouwer_zimmermann.md#sec-coset-min-weights``).  It looks up no words of weight at most
+        one, which its first layers find.  A batch moves to ``num_threads`` threads as in
+        ``find_first_not_within_max_weight``, and each weight is the same on any number of threads.
 
         Returns:
             For each syndrome, the weight of a word of its coset of weight at most its floor if
@@ -359,7 +360,8 @@ class _CosetTuning(NamedTuple):
     """The fields of the tuning that the setup of a BZ coset search reads, which key its cache.
 
     The search builds its other families, its tails, and its completion tables after the cache
-    stores it, so the fields that configure them key the cache too (Section 4.4).
+    stores it, so the fields that configure them key the cache too
+    (``brouwer_zimmermann_code.md#sec-heuristics``).
     """
 
     disjoint_random_column_orders: int
@@ -406,7 +408,7 @@ def _get_pauli_search(
     embedded_stabilizers = stabilizers if css_weight else symplectic_to_hamming(stabilizers)
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
     # The weight factor is two by either measure of weight, and a search by CSS weight has no routes
-    # by tails (Section 4.1).
+    # by tails (``brouwer_zimmermann_code.md#sec-coset-searches``).
     routes = _get_routes(
         embedded_stabilizers,
         embedded_inverse,
@@ -606,8 +608,9 @@ def _get_own_planning(planning: PlanningBuffer) -> PlanningBuffer:
 
     ``_find_first_not_within_max_weight`` caches stopping steps in its planning buffer, and runs
     without the global interpreter lock, so no two of its calls that run at once may share one.
-    Resetting the cached steps of the copy makes it independent of what another thread writes to
-    the original while it is copied (Section 4.1).  The copy holds a few small tables.
+    Resetting the cached steps of the copy makes it independent of what another thread writes to the
+    original while it is copied (``brouwer_zimmermann_code.md#sec-coset-searches``).  The copy holds
+    a few small tables.
     """
     own_planning = planning.copy()
     own_planning[:, -1, :2] = (0, 1)
@@ -639,10 +642,10 @@ def _find_first_not_within_max_weight(
     and leaves the lightest word that it weighed for that syndrome in ``best``.  Otherwise it stops
     once the work of this call reaches ``max_work``, or after the last syndrome.  Threads run it at
     once, so no two calls that run at once may share ``best`` or ``planning``, whose cached stopping
-    steps it writes (Section 4.1).  A call writes only ``best`` and the cached steps of
-    ``planning``, which are those of its worker's copy of the planning buffer, reset to the first
-    step by ``_get_own_planning``, never those of the shared buffer.  It runs without the global
-    interpreter lock, and keeps the rules on threads of
+    steps it writes (``brouwer_zimmermann_code.md#sec-coset-searches``).  A call writes only
+    ``best`` and the cached steps of ``planning``, which are those of its worker's copy of the
+    planning buffer, reset to the first step by ``_get_own_planning``, never those of the shared
+    buffer.  It runs without the global interpreter lock, and keeps the rules on threads of
     ``brouwer_zimmermann_code.md#sec-requirements``.
 
     Returns:
@@ -692,12 +695,15 @@ def _search_coset(
     may update the cached stopping steps of ``planning``.  A word weighs its CSS weight if ``scale``
     is zero, and otherwise the Hamming weight of its embedded word divided by ``scale``: two for the
     physical weight of a Pauli error, and one for an X or Z part.  ``tails`` is None, or the fields
-    of the ``CosetTails`` of a route by tails (Section 4.4); with tails, ``scale`` is one or two.
+    of the ``CosetTails`` of a route by tails (``brouwer_zimmermann_code.md#sec-heuristics``); with
+    tails, ``scale`` is one or two.
 
     The search starts from the word of the syndrome, and visits layer zero of the sets that it uses,
     then layer one, and so on, up to its stopping step, until it finds a word within ``max_weight``
-    (Sections 3.1 and 4.1).  By tails, it skips only words that tables prove beyond ``max_weight``,
-    so it finds the same first word as without tails, if any (Section 3.9, "Coset searches").
+    (``brouwer_zimmermann.md#sec-coset-families`` and
+    ``brouwer_zimmermann_code.md#sec-coset-searches``).  By tails, it skips only words that tables
+    prove beyond ``max_weight``, so it finds the same first word as without tails, if any
+    (``brouwer_zimmermann.md#sec-completion-cosets``).
 
     Returns:
         A lower bound on the weight of every word in the coset: zero if ``best``, which holds the
@@ -751,20 +757,20 @@ def _search_from_syndrome_word(
     ``get_stopping_step``.  ``parity`` is the parity of the Hamming weights of the coset if the
     search weighs Hamming weights and rounds to it (see ``get_search_tables``), and otherwise -1.
     The search skips the unused sets of ``certificates.plan_steps``, which add nothing to the bound
-    of the stopping step (Section 3.6).  By tails, it weighs words as
-    ``affine_search.scan_coset_layer_by_tails`` does, and skips completions at the skip bound that
-    ``_get_skip_bound`` gives for the cutoff ``max(1, scale) * max_weight``.  The search writes its
-    lightest word into ``best`` before it returns.
+    of the stopping step (``brouwer_zimmermann.md#sec-work-estimates``).  By tails, it weighs words
+    as ``affine_search.scan_coset_layer_by_tails`` does, and skips completions at the skip bound
+    that ``_get_skip_bound`` gives for the cutoff ``max(1, scale) * max_weight``.  The search writes
+    its lightest word into ``best`` before it returns.
 
     Returns:
-        A lower bound on the weight of every word in the coset (Section 3.9, "Coset searches").  It
-        is zero if the search finds a word within ``max_weight``.  Otherwise, if the search skipped
-        a word, it is the least weight beyond ``max_weight`` that a word of the coset can have.
-        Otherwise it is the lesser of the weight of the lightest word that the search weighed and
-        the bound of the stopping step.  Also the number of words weighed after the word of the
-        syndrome, which measures the work of the query for ``split_work``, and the number of
-        supports skipped.  Only tests read the number of supports skipped, which they cannot count
-        by wrapping compiled calls.
+        A lower bound on the weight of every word in the coset
+        (``brouwer_zimmermann.md#sec-completion-cosets``).  It is zero if the search finds a word
+        within ``max_weight``.  Otherwise, if the search skipped a word, it is the least weight
+        beyond ``max_weight`` that a word of the coset can have.  Otherwise it is the lesser of the
+        weight of the lightest word that the search weighed and the bound of the stopping step.
+        Also the number of words weighed after the word of the syndrome, which measures the work of
+        the query for ``split_work``, and the number of supports skipped.  Only tests read the
+        number of supports skipped, which they cannot count by wrapping compiled calls.
     """
     # Make room for the offset of each set, or, by tails, for its tail, which the search computes
     # from the word of the syndrome in ``best`` as it reaches the set (see ``_prepare_offsets``).
@@ -921,7 +927,7 @@ def _search_coset_for_min_weight(
     whose bound reaches ``U``, or within a step once ``U`` is at most ``floor`` or the bound of the
     step before.  Its scans keep only the words lighter than an incumbent, and its tables skip only
     at the incumbent or at the weight of a lighter word that a scan has found.  So it gives the
-    weight that a search of whole words gives (Section 3.10).
+    weight that a search of whole words gives (``brouwer_zimmermann.md#sec-coset-min-weights``).
 
     Returns:
         ``U`` when the search stops: the lesser of the minimum weight of the coset and
@@ -941,8 +947,8 @@ def _search_coset_for_min_weight(
     num_ready = 0
 
     # Find, in the units of the scans, the skip bound and the slack, one where the words of the
-    # coset share a parity, by which the incumbent falls below the best weight (Section 3.10).  Find
-    # also the upper bound ``U`` of the search, in units of weight, with its first stopping step.
+    # coset share a parity, by which the incumbent falls below the best weight.  Find also the upper
+    # bound ``U`` of the search, in units of weight, with its first stopping step.
     factor = max(1, scale)
     rounding_parity = _get_rounding_parity(planning, scale, parity)
     skip_bound = _get_skip_bound(factor * max_weight, rounding_parity)
@@ -1190,7 +1196,7 @@ def _get_skip_bound(cutoff: int, parity: int) -> int:
 
     ``parity`` is the parity of the coset if the search rounds to it, and -1 otherwise.  The bound
     is ``cutoff + 1``, or ``cutoff`` if the search rounds and the words have the parity of
-    ``cutoff + 1`` (``h(ω)`` of Section 3.9, "Coset searches").
+    ``cutoff + 1`` (``h(ω)`` of ``brouwer_zimmermann.md#sec-completion-cosets``).
     """
     if parity >= 0 and (cutoff - parity) % 2:
         return cutoff
