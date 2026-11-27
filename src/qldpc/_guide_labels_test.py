@@ -37,6 +37,11 @@ _REPO_ROLE = re.compile(r":repo:`(?:[^`<]*<)?([\w./-]+\.md)(?:#([\w-]+))?>?`")
 _PATH = re.compile(r"(?<![\w./:-])([\w./-]*\.md)#([\w-]+)")
 # a link from a guide to one of its own sections
 _LOCAL = re.compile(r"\]\(#([\w-]+)\)")
+# a Markdown link to a section of a reStructuredText page, by a relative path or by the page's
+# URL on Read the Docs, and a Sphinx label in such a page
+_RST_LINK = re.compile(r"\]\(([^)\s#]*\.rst)#([\w-]+)\)")
+_RST_URL = re.compile(r"qldpc\.readthedocs\.io/(?:en/[\w.-]+/)?([\w/-]+)\.html#([\w-]+)")
+_SPHINX_LABEL = re.compile(r"^\.\. _([\w-]+):$", re.MULTILINE)
 
 
 def test_labels_sit_above_headings() -> None:
@@ -64,6 +69,36 @@ def test_citations_of_labeled_guides_name_their_labels() -> None:
     """
     assert _labels(), "no guide has labels"
     assert not _get_broken_citations()
+
+
+def test_markdown_links_to_rst_sections_name_their_sphinx_labels() -> None:
+    """Each Markdown link to a section of a reStructuredText page names a Sphinx label of it."""
+    assert not _get_broken_rst_links()
+
+
+def test_broken_rst_links_are_found(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Links to a missing page, or to a section of a page by other than its label, are broken."""
+    pages = tmp_path / "docs" / "source"
+    pages.mkdir(parents=True)
+    (pages / "page.rst").write_text(".. _page-rounds:\n\nRounds\n------\n")
+    (tmp_path / "notes.md").write_text(
+        "[ok](docs/source/page.rst#page-rounds), [slug](docs/source/page.rst#rounds), "
+        "[gone](docs/source/gone.rst#page-rounds),\n"
+        "https://qldpc.readthedocs.io/page.html#page-rounds and "
+        "https://qldpc.readthedocs.io/en/latest/page.html#rounds\n"
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_ROOT", tmp_path)
+    _files.cache_clear()
+    try:
+        assert _get_broken_rst_links() == [
+            ("notes.md", "docs/source/gone.rst#page-rounds"),
+            ("notes.md", "docs/source/page.rst#rounds"),
+            ("notes.md", "docs/source/page.rst#rounds"),
+        ]
+    finally:
+        _files.cache_clear()
 
 
 def test_broken_citations_are_found(
@@ -135,6 +170,27 @@ def _get_broken_citations() -> list[tuple[str, str]]:
                         cited if guide is None else f"{guide}#{fragment}",
                     )
                 )
+    return sorted(broken)
+
+
+def _get_broken_rst_links() -> list[tuple[str, str]]:
+    """List each Markdown link to a section of a reStructuredText page that names no label of it."""
+    broken = []
+    for path in _files():
+        if path.suffix not in (".md", ".ipynb"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        targets = [(path.parent / page, fragment) for page, fragment in _RST_LINK.findall(text)]
+        pages = _ROOT / "docs" / "source"
+        targets += [(pages / f"{page}.rst", fragment) for page, fragment in _RST_URL.findall(text)]
+        for page, fragment in targets:
+            page = pathlib.Path(os.path.normpath(page))
+            labels = (
+                _SPHINX_LABEL.findall(page.read_text(encoding="utf-8")) if page.is_file() else []
+            )
+            if fragment not in labels:
+                where = page.relative_to(_ROOT).as_posix() if _ROOT in page.parents else str(page)
+                broken.append((path.relative_to(_ROOT).as_posix(), f"{where}#{fragment}"))
     return sorted(broken)
 
 
