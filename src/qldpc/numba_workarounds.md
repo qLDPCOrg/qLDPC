@@ -19,6 +19,7 @@ To migrate, follow the section's steps, delete the imports that become unused, a
 Numba names compiled code by function name, argument types, and a count that starts at one in each process ([numba/numba#11016](https://github.com/numba/numba/issues/11016)).
 Functions that numba generates from one template, such as the sorts behind `np.sort` and `np.argsort`, can thus get the same name for different code in different processes, and a process that loads both from the disk cache runs one in place of the other.
 So `_compilation` starts the count at a random number in each process.
+The count is not part of the key by which numba's disk cache finds compiled code, so starting it at a random number does not stop later processes from reusing cached code.
 
 **Trigger:** numba fixes numba/numba#11016.
 
