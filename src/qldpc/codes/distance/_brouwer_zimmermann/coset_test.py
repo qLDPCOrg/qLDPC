@@ -880,7 +880,7 @@ def test_an_earlier_heavy_coset_that_ends_last_is_the_answer(
     On two threads, the block of the earlier heavy coset waits until a thread has searched the
     block of the later one, and the answer is still that of one thread.
 
-    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     search, batch = _get_two_heavy_cosets()
     expected = search.find_first_not_within_max_weight(batch, 1)
@@ -914,7 +914,7 @@ def test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer(
     On two threads, the block of row 40 starts before the block of row 2 is searched, and searches
     only once the range of the thread that found row 2 has returned, after it recorded row 2.
 
-    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     search, batch = _get_two_heavy_cosets()
     expected = search.find_first_not_within_max_weight(batch, 1)

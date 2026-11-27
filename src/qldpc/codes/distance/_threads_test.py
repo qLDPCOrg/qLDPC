@@ -507,7 +507,7 @@ def test_costly_batches_move_the_rest_to_threads_in_contiguous_blocks(
 
     The rest of the batch runs in contiguous blocks that partition it, each in one call.
 
-    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     rows = _Rows()
     assert _threads.run_blocks(num_rows, num_threads, split_work, rows.start_worker) == num_rows
@@ -530,7 +530,7 @@ def test_blocks_after_the_first_that_ends_a_batch_are_skipped_by_its_thread(
 
     The batch returns that row.
 
-    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     rows = _Rows(ending_rows)
     first = ending_rows[0]
@@ -561,7 +561,7 @@ def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
     The block of row 6 waits until the block of row 21 has ended the batch.  Then every row up to 6
     runs, and no block between them starts after that.
 
-    It checks "Keep coset queries reproducible" of ``brouwer_zimmermann_code.md#sec-requirements``.
+    It checks "Coset batches on threads" of ``brouwer_zimmermann_code.md#sec-cross-file-behavior``.
     """
     later_ended = threading.Event()
     events: list[tuple[str, int]] = []

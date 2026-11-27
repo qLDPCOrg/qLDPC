@@ -911,9 +911,8 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
 def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
     """The search of a sector asks for automorphisms at most once.
 
-    It asks only before a costly layer or partitioning.
-
-    It checks the correctness requirements of ``brouwer_zimmermann_code.md#sec-requirements``.
+    It asks only before a costly layer or partitioning, as the heuristic of
+    ``brouwer_zimmermann.md#sec-automorphism-gate`` decides.
     """
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     sector = get_sector(code, Pauli.X)

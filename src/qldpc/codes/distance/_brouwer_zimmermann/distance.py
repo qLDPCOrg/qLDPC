@@ -11,8 +11,8 @@ of the search.  A costly layer runs on several threads
 requirements on threads of ``brouwer_zimmermann_code.md#sec-requirements``, such as "Decide only
 from what a layer leaves the same on any number of threads".
 
-Here ``U`` is the best upper bound, and ``L(t)`` the lower certificate once layer ``t`` is complete
-(``brouwer_zimmermann.md#sec-bounds-and-certificates``).
+Here ``U`` is the best upper bound (``brouwer_zimmermann.md#sec-bounds-and-certificates``), and
+``L(t)`` the lower certificate once layer ``t`` is complete.
 ``get_distance_brouwer_zimmermann`` builds a ``BrouwerZimmermannSearch``, which prepares a search of
 each sector with ``_prepare_sector_search``.  Each call of its ``advance`` method advances the
 search of one remaining sector by one layer, in round-robin order for a joint CSS search
@@ -35,8 +35,8 @@ pruning, and any overlapping or partitioned replacement come from the stages of
 - Certificate of each replacement family: returns if ``L(1) >= U``.
 - Switch at the end of setup: if setup asked for automorphisms before partitioning and got a family
   from them, the search weighs the rows of that family's one set and considers switching to the
-  family (``brouwer_zimmermann.md#sec-automorphisms``); returns if the search is then finished (see
-  ``_SectorSearch.finished``).
+  family (``brouwer_zimmermann.md#sec-automorphism-gate``); returns if the search is then finished
+  (see ``_SectorSearch.finished``).
 - Ready search: returns a ``_SectorSearch`` that scans from layer two.
 
 Once prepared, the searches exit as follows:
