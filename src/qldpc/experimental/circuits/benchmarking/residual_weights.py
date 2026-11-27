@@ -14,7 +14,9 @@ X-type or Z-type part of the error alone.
 
 ``ResidualWeightHistogram.get_excess_failure_probability`` turns a histogram into a single figure of
 merit for a ``ConsumerProfile``, a model of the circuits that consume the prepared state.  See
-``consumer_calibration.md`` for consumer calibrations, which score histograms of each Pauli type.
+:guide:`The figure of merit
+<experimental/circuits/benchmarking/consumer_calibration.md#sec-figure-of-merit>` for consumer
+calibrations, which score histograms of each Pauli type.
 """
 
 from __future__ import annotations

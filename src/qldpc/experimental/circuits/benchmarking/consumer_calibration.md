@@ -187,6 +187,8 @@ For example, `decoders.mwpm()` suits a code whose checks give a matching graph, 
 
 If the correctable weight is at least 1, as it is by default for a code of distance at least 3, the consumer checks that each per-step decoder, the default one included, corrects every single-qubit error.
 It raises an error if one does not.
+The consumer decodes every syndrome of one type of check, in each step and in the final readout, with the same decoder.
+For a decoder whose predictions depend on the syndrome alone, checking it on the errors of one code block therefore checks every step.
 For example, `decoders.bp_osd(max_iter=50, bp_method="minimum_sum")` passes this check on the Steane code, and `decoders.bp_osd()` does not.
 With a per-step decoder that passes the check and whose predictions depend on the syndrome alone, and a code of distance at least 3, the window has the guarantees that [the window section](#sec-window) describes.
 
@@ -294,8 +296,12 @@ The excess of the cell is `p₊ - p₋`.
 With `a₊ = n₊ + 1/2`, `a₋ = n₋ + 1/2`, and `A = n₊ + n₀ + n₋ + 3/2`, its posterior variance is
 
 ```text
-Var(p₊ - p₋) = [a₊ (A - a₊) + a₋ (A - a₋) + 2 a₊ a₋] / (A² (A + 1)).
+Var(p₊ - p₋) = [a₊ (A - a₊) + a₋ (A - a₋) + 2 a₊ a₋] / (A² (A + 1))
+             = [(a₊ + a₋) A - (a₊ - a₋)²] / (A² (A + 1)).
 ```
+
+This follows from the Dirichlet variances `a (A - a) / (A² (A + 1))` of `p₊` and `p₋`, for `a = a₊` and `a = a₋`, and their covariance `-a₊ a₋ / (A² (A + 1))`.
+With `a₊ = k + 1/2`, `a₋ = 0`, and `A = K + 1`, the same expression is the variance of the baseline's posterior `Beta(k + 1/2, K - k + 1/2)`.
 
 The point estimates are the sample means: the mean paired change for an excess, and the failure fraction for the baseline.
 The prior changes only the standard errors.

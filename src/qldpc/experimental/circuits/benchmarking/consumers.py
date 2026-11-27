@@ -12,9 +12,9 @@ circuit::
     calibration = get_steane_swap_consumer(code, noise_model).calibrate()
     phi, standard_error = calibration.estimate_excess_failure_probability(circuit)
 
-See the `consumer-calibration guide
-<https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/experimental/circuits/benchmarking/consumer_calibration.md>`_
-for the model, the scoring formula, its approximations, and validation guidance.
+See the :guide:`consumer-calibration guide
+<experimental/circuits/benchmarking/consumer_calibration.md>` for the model, the scoring formula,
+its approximations, and validation guidance.
 """
 
 from __future__ import annotations
@@ -61,7 +61,8 @@ _TOLERANCE = 1e-12
 _FAULT_WEIGHT_TOLERANCE = 1e-3
 
 # The window of a Steane-swap consumer starts this many noisy steps before the step by which the
-# block under test enters, and ends this many steps after it (see consumer_calibration.md).
+# block under test enters, and ends this many steps after it (see
+# ``consumer_calibration.md#sec-window``).
 _NUM_STEPS_BEFORE_ENTRY = 2
 _NUM_STEPS_AFTER_ENTRY = 2
 # The default decoder of a Steane-swap consumer refuses a lookup table, or a list of the errors of
@@ -87,7 +88,9 @@ class Consumer:
     to include Pauli operators on qubits, as the observables of ``get_steane_swap_consumer`` do.
     The consumer does not post-select.  Every operation must be a Clifford operation or Pauli noise,
     so that a Pauli error on the block flips a fixed set of detectors and observables.  See
-    ``consumer_calibration.md`` for how consumers are used.
+    :guide:`Consumers and profiles
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-consumers>` for how consumers
+    are used.
 
     Only the first three attributes can be passed by position.
 
@@ -174,8 +177,13 @@ class Consumer:
         standard deviations under a Jeffreys prior, so they are positive for every sampled cell
         and baseline.  A cell ``(m, g)`` that no sample reaches counts as certain failure, with the
         excess ``1 - f(0, g)``, a standard error of zero, and a sample count of zero.  See
-        ``consumer_calibration.md`` for the sampled errors, the posteriors, and the approximations
-        of the calibration.
+        :guide:`How it is sampled
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-sampling>` for the sampled
+        errors, :guide:`Standard errors of a simulated calibration
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-standard-errors>` for the
+        posteriors, and :guide:`Approximations and uncertainty
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>` for the
+        approximations of the calibration.
 
         Args:
             max_residual_weight: The largest residual weight to calibrate.  Heavier residual weights
@@ -279,11 +287,13 @@ class Consumer:
         The block qubits take the place of the output qubits, in order.  Each error is paired with
         one independently noisy shot of the consumer, which is decoded with and without the error.
         The estimate is the mean paired change in failure per accepted shot.  It validates a
-        calibration at the cost of a simulation for every circuit (see ``consumer_calibration.md``).
+        calibration at the cost of a simulation for every circuit (see :guide:`How to validate
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-validation>`).
 
         The point estimate is the sample mean.  The standard error is the posterior standard
         deviation of the excess per accepted shot under a Jeffreys prior, which rejected shots do
-        not affect (see ``consumer_calibration.md``).
+        not affect (see :guide:`Standard errors of a simulated calibration
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-standard-errors>`).
 
         Args:
             circuit: A noisy Stim Clifford circuit starting in Stim's all-zero state, whose
@@ -366,10 +376,9 @@ def _get_jeffreys_deviations(
     expected change is a probability.  The Jeffreys prior gives the probabilities of the possible
     changes a Dirichlet posterior, with parameters ``a₊ = n₊ + 1/2``, ``a₀ = n₀ + 1/2``, and, if
     there are decreases, ``a₋ = n₋ + 1/2``.  Let ``A`` be the sum of these parameters, and let
-    ``a₋ = 0`` without decreases.  The Dirichlet variances ``a (A - a) / (A² (A + 1))`` and the
-    covariance ``-a₊ a₋ / (A² (A + 1))`` give the expected change ``p₊ - p₋`` the variance
-    ``((a₊ + a₋) A - (a₊ - a₋)²) / (A² (A + 1))``.  Without decreases, this is the variance of the
-    posterior ``Beta(n₊ + 1/2, n₀ + 1/2)``.
+    ``a₋ = 0`` without decreases.  The expected change ``p₊ - p₋`` then has the posterior variance
+    ``((a₊ + a₋) A - (a₊ - a₋)²) / (A² (A + 1))``, with or without decreases, as
+    ``consumer_calibration.md#sec-standard-errors`` shows.
 
     Returns:
         The standard deviations, in the shape of the counts.
@@ -397,8 +406,17 @@ class ConsumerCalibration:
 
     A cell ``(m, g)`` of a table is exact if its excess and the baseline ``f(0, g)`` both have zero
     standard error.  The failure probability ``f(0, g) + Δ_s(m, g)`` of an exact cell must lie in
-    [0, 1].  See ``consumer_calibration.md`` for the scoring model, its approximations, costs
-    measured at a fixed noise level, and validation guidance.
+    [0, 1].  See :guide:`What is estimated
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-estimand>` and :guide:`The
+    figure of merit
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-figure-of-merit>` for the
+    scoring model, :guide:`Approximations and uncertainty
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>` for its
+    approximations, :guide:`Supplying a consumer's response
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-supplied-response>` for costs
+    measured at a fixed noise level, and :guide:`How to validate
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-validation>` for validation
+    guidance.
 
     ``Consumer.calibrate`` estimates a calibration by simulation.  Only the first three attributes
     can be passed by position.
@@ -542,7 +560,8 @@ class ConsumerCalibration:
         """The calibration with every error probability of the consumer multiplied by ``scale``.
 
         This recomputes ``Pr[g]`` and reuses the tables of excesses and the baseline, which is an
-        approximation for nearby low error rates (see ``consumer_calibration.md``).
+        approximation for nearby low error rates (see :guide:`Approximations and uncertainty
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>`).
 
         Args:
             scale: A nonnegative factor for every error probability of the consumer.
@@ -567,10 +586,12 @@ class ConsumerCalibration:
 
         Here ``c(0) = c_s(0) = Σ_{g ≤ G} Pr[g] f(0, g) + Pr[g > G]`` is the failure probability
         without a block error, and ``c_s(m) = c(0) + Σ_{g ≤ G} Pr[g] Δ_s(m, g)`` for the rows ``m``
-        of the table of type ``s``.  As for a ``ConsumerProfile``, every heavier residual weight
-        counts as certain failure.  ``Φ`` adds, over the Pauli types, the average of
-        ``c_s(m) - c(0)`` over the histogram of that type.  The values are not clipped, so sampling
-        noise in estimated cells, or rounding, can put them slightly outside [0, 1].
+        of the table of type ``s``, as :guide:`What is estimated
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-estimand>` defines them.  As
+        for a ``ConsumerProfile``, every heavier residual weight counts as certain failure.  ``Φ``
+        adds, over the Pauli types, the average of ``c_s(m) - c(0)`` over the histogram of that
+        type.  The values are not clipped, so sampling noise in estimated cells, or rounding, can
+        put them slightly outside [0, 1].
 
         Args:
             pauli: The Pauli type ``s``, as ``Pauli.X``, ``Pauli.Z``, ``"X"``, or ``"Z"``.
@@ -596,11 +617,13 @@ class ConsumerCalibration:
         """The calibrated figure of merit ``Φ`` of a preparation circuit, from its histograms.
 
         For each Pauli type, this is the expectation of the excess ``c_s(m) - c(0)`` over the
-        residual weight ``m`` of the histogram of that type, and ``Φ`` is their sum.  Residual
-        weights beyond the table of a type count as certain failure, with excess ``1 - c(0)``.  The
-        histograms must describe the same preparation circuit, output qubits, and post-selection.
-        ``estimate_excess_failure_probability`` builds such histograms and checks the state of the
-        circuit.
+        residual weight ``m`` of the histogram of that type, and ``Φ`` is their sum, as
+        :guide:`The figure of merit
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-figure-of-merit>` defines.
+        Residual weights beyond the table of a type count as certain failure, with excess
+        ``1 - c(0)``.  The histograms must describe the same preparation circuit, output qubits,
+        and post-selection.  ``estimate_excess_failure_probability`` builds such histograms and
+        checks the state of the circuit.
 
         Args:
             histograms: One residual-weight histogram of the preparation circuit for each calibrated
@@ -609,15 +632,17 @@ class ConsumerCalibration:
                 are treated as independent, so give each histogram its own seed, or None.
 
         Returns:
-            ``Φ`` and its standard error, propagated to first order.  The standard error combines
-            the sampling errors of the histograms, the standard errors of the cells of the tables,
-            and the error of the baseline in quadrature.  Every certain failure, beyond a table or
-            in a cell with a sample count of zero, depends on the baseline.  The contributions of
-            the error of each ``f(0, g)`` from all residual weights and Pauli types that use it add
-            linearly before the quadrature sum.  The histograms of distinct Pauli types, the cells,
-            and the baseline estimates for distinct ``g`` are treated as independent.  The
-            calculation uses marginal standard errors only.  ``get_standard_error_parts`` splits
-            this standard error into its histogram and calibration parts.
+            ``Φ`` and its standard error, propagated to first order as :guide:`Approximations and
+            uncertainty
+            <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>`
+            describes.  The standard error combines the sampling errors of the histograms, the
+            standard errors of the cells of the tables, and the error of the baseline in
+            quadrature, after adding linearly the contributions of the error of each ``f(0, g)``
+            from all residual weights and Pauli types that use it.  The histograms of distinct
+            Pauli types, the cells, and the baseline estimates for distinct ``g`` are treated as
+            independent.  The calculation uses marginal standard errors only.
+            ``get_standard_error_parts`` splits this standard error into its histogram and
+            calibration parts.
 
         Raises:
             ValueError: If there is not exactly one histogram for each calibrated Pauli type, or if
@@ -634,7 +659,8 @@ class ConsumerCalibration:
         ``get_excess_failure_probability`` does.  To first order, more samples in the histograms
         reduce only the first part, and more samples in the calibration only the second.  Neither
         part includes the bias of cells with a sample count of zero, which more calibration
-        samples remove (see ``consumer_calibration.md``).
+        samples remove (see :guide:`Approximations and uncertainty
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>`).
 
         Args:
             histograms: The histograms of a preparation circuit, as for
@@ -655,16 +681,15 @@ class ConsumerCalibration:
     ) -> tuple[float, float]:
         """The difference ``Φ(a) - Φ(b)`` of the figures of merit of preparation circuits a and b.
 
-        Both circuits are scored with this calibration, so an error of a cell or a baseline moves
-        both scores, and largely cancels from their difference when the two circuits have similar
-        residual-weight distributions.  The standard errors of the two scores, added in
-        quadrature, can therefore greatly overstate the standard error of their difference.
-        Certain failures, beyond a table or in a cell with a sample count of zero, are a bias that
-        no standard error includes (see ``consumer_calibration.md``).  Apart from the statistical
-        error of the baseline, this bias can only raise each score, but it can move their
-        difference either way.  The truncation of consumer fault weights above ``G`` is another
-        such bias, which can move each score either way, by at most ``truncated_probability``
-        for each Pauli type.
+        Both circuits are scored with this calibration.  The standard error of the difference keeps
+        the cancellation of the errors of the cells and the baselines, which move both scores.  So
+        it can be much smaller than the standard errors of the two scores added in quadrature, when
+        the circuits have similar residual-weight distributions.  Like those standard errors, it
+        excludes the biases of certain failures, beyond a table or in a cell with a sample count of
+        zero, and of the truncation of consumer fault weights above ``G``.  Each of these biases can
+        move the difference either way.  :guide:`Approximations and uncertainty
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-approximations>` explains
+        this cancellation and these biases.
 
         Args:
             first: The histograms of circuit a, as for ``get_excess_failure_probability``.
@@ -708,9 +733,10 @@ class ConsumerCalibration:
         If the calibration has ``state_stabilizers``, this first checks that the noiseless circuit
         prepares that state on its output qubits.  It then estimates one residual-weight histogram
         of the circuit for each calibrated Pauli type, from independent random numbers.
-        ``get_excess_failure_probability`` combines these histograms.  The probability that a shot
-        is accepted is the ``acceptance_probability`` of a histogram from
-        ``estimate_residual_weight_histogram`` with the same circuit and options.
+        ``get_excess_failure_probability`` combines these histograms, as :guide:`The figure of merit
+        <experimental/circuits/benchmarking/consumer_calibration.md#sec-figure-of-merit>`
+        describes.  The probability that a shot is accepted is the ``acceptance_probability`` of a
+        histogram from ``estimate_residual_weight_histogram`` with the same circuit and options.
 
         Args:
             circuit: A noisy Stim Clifford circuit starting in Stim's all-zero state, which
@@ -818,6 +844,9 @@ class ConsumerCalibration:
         self, histograms: Sequence[ResidualWeightHistogram]
     ) -> tuple[float, float, npt.NDArray[np.float64]]:
         """Score a preparation circuit, and linearize the errors of its score.
+
+        The linearization is the first-order propagation of errors of
+        ``consumer_calibration.md#sec-approximations``.
 
         Args:
             histograms: The histograms of the circuit, as for ``get_excess_failure_probability``.
@@ -943,6 +972,9 @@ def get_steane_swap_consumer(
     the current block, and measures the current block in the Z basis.  The checks of the type that
     the step measures define detectors.  The steps do not apply the logical corrections of
     teleportation; instead, each observable includes the logical outcomes that the steps measure.
+    :guide:`The built-in consumer
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-built-in-consumer>` describes
+    this protocol and the window below.
 
     The consumer runs a window of five noisy steps of alternating kind, starting from an ideal data
     block in logical ``|0>``.  The block under test is the fresh block of the third step.  For
@@ -953,9 +985,11 @@ def get_steane_swap_consumer(
     of each step, including any idle noise that it specifies for the two blocks of the step.  It
     sees each step on its own, with the current block on qubits 0, ..., n - 1 and the fresh block on
     qubits n, ..., 2 n - 1, for a code on n qubits.  Finally, the checks of the last block, which
-    holds the logical qubits after the last step, are measured without noise.  See
-    ``consumer_calibration.md`` for why the window has this form, and for the approximations of its
-    calibrations.
+    holds the logical qubits after the last step, are measured without noise.  See :guide:`The
+    window <experimental/circuits/benchmarking/consumer_calibration.md#sec-window>` for why the
+    window has this form, and :guide:`What a calibration measures
+    <experimental/circuits/benchmarking/consumer_calibration.md#sec-calibration-measures>` for the
+    approximations of its calibrations.
 
     The detectors of each step come from a maximal independent subset of the code's own checks of
     the type that the step measures, in their order in the code.  The final readout uses such
@@ -1006,7 +1040,10 @@ def get_steane_swap_consumer(
             consumer checks that the per-step decoders correct every single-qubit error when the
             correctable weight is at least 1 (see Raises), and no decoder does for a code of
             distance less than 3.  Whole-window decoding has neither guarantee, and its results can
-            depend on the window's length.  See ``consumer_calibration.md``.
+            depend on the window's length.  See :guide:`The window
+            <experimental/circuits/benchmarking/consumer_calibration.md#sec-window>` and
+            :guide:`Decoders
+            <experimental/circuits/benchmarking/consumer_calibration.md#sec-decoders>`.
         correctable_weight: The largest weight ``t`` of errors that the code corrects.  It sets
             the default largest residual weight ``t + 1`` of ``calibrate``.  Default:
             ``(d - 1) // 2`` for the distance ``d`` of the code.  If the code does not know its
@@ -1078,7 +1115,7 @@ def get_steane_swap_consumer(
     correctable_weight = _check_integer(correctable_weight, "correctable_weight", 0)
 
     # the guarantees of the window need a per-step decoder that corrects every single-qubit error
-    # (see consumer_calibration.md)
+    # (see ``consumer_calibration.md#sec-window``)
     if isinstance(consumer_decoder, _SteaneSwapDecoder) and correctable_weight >= 1:
         for check_type in (Pauli.X, Pauli.Z):
             if consumer_decoder.corrects_single_errors(check_type):
@@ -1129,7 +1166,8 @@ class _SteaneSwapDecoder:
     the syndromes of each type of check with a decoder built from the specification and a detector
     error model of one code block.  That model has one error mechanism on each qubit, each of
     probability ``PLACEHOLDER_ERROR_RATE``, the independent checks of the type as detectors, and
-    the logical operators of the type as observables.
+    the logical operators of the type as observables.  ``consumer_calibration.md#sec-decoders``
+    describes these decoders.
 
     Attributes:
         name: The name of the decoder in error messages.
@@ -1197,9 +1235,8 @@ class _SteaneSwapDecoder:
 
         It corrects an error if it predicts the error's logical flips from its syndrome.  The errors
         are no error and the single-qubit errors of the Pauli type that the checks of the type
-        detect.  Every step, and the final readout, decodes the syndromes of one type of check with
-        the same decoder.  So, for a decoder whose predictions depend on the syndrome alone,
-        checking one code block checks every step.
+        detect.  For a decoder whose predictions depend on the syndrome alone, checking one code
+        block checks every step, as ``consumer_calibration.md#sec-decoders`` shows.
         """
         checks, logicals = self._checks[check_type], self._logicals[check_type]
         # no error, then an error on each qubit
@@ -1253,7 +1290,8 @@ def _get_steane_swap_window(
     ``basis`` is Z for a fresh ``|0>`` block under test, and X for a fresh ``|+>`` block.  The
     window has ``num_before`` noisy steps before the step by which the block under test enters, and
     ``num_after`` noisy steps after it.  The block under test therefore enters by the step with
-    index ``num_before``, counting from zero.
+    index ``num_before``, counting from zero.  ``consumer_calibration.md#sec-built-in-consumer``
+    describes the window.
 
     Returns:
         A preparation of the block under test, the rest of the window, the qubits of the block
@@ -1481,7 +1519,8 @@ class _ConsumerSimulation:
         self._num_detectors = full_circuit.num_detectors
         self._num_observables = full_circuit.num_observables
         self.sampler = full_circuit.compile_detector_sampler(seed=_get_seed(rng))
-        # without simplification, each error instruction of the model is one error mechanism
+        # without simplification, each error instruction of the model is one error mechanism (see
+        # ``consumer_calibration.md#sec-faults``)
         dem_arrays = decoders.DetectorErrorModelArrays(full_circuit, simplify=False)
         mechanisms = np.flatnonzero(dem_arrays.error_probs > 0)
         self.probabilities = np.asarray(dem_arrays.error_probs, dtype=float)[mechanisms]
@@ -1578,8 +1617,8 @@ def _sample_failure_changes(
 ]:
     """Sample paired changes in the failure of a consumer for one Pauli type.
 
-    See ``Consumer.calibrate``.  Each sample is decoded with and without its block error, so its
-    paired change in failure is -1, 0, or 1.
+    See ``Consumer.calibrate`` and ``consumer_calibration.md#sec-sampling``.  Each sample is decoded
+    with and without its block error, so its paired change in failure is -1, 0, or 1.
 
     Returns:
         Five arrays.  The first three have one row for each residual weight
@@ -1624,11 +1663,10 @@ def _sample_fault_sets(
 ) -> npt.NDArray[np.intp]:
     """Sample sets of error mechanisms given that exactly ``fault_weight`` of them occur.
 
-    Given that exactly ``g`` independent error mechanisms occur, each set of ``g`` mechanisms has a
-    probability proportional to the product of their odds ``p / (1 - p)``.  Scaling all odds by a
-    common factor keeps this conditional distribution.  This function draws independent Bernoulli
-    samples with scaled odds whose expected fault weight is ``g``.  Their shots with exactly ``g``
-    mechanisms are exact samples.
+    This function draws independent Bernoulli samples of the mechanisms, with their odds
+    ``p / (1 - p)`` scaled by a common factor so that the expected fault weight is
+    ``fault_weight``.  Their shots with exactly ``fault_weight`` mechanisms are exact samples, as
+    ``consumer_calibration.md#sec-sampling`` shows.
 
     Returns:
         One row of ``fault_weight`` mechanism indices per set.
