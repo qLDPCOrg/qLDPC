@@ -25,6 +25,8 @@ The other notebooks in this group are standalone technical examples.
    noise_models
    transversal_gates
 
+.. _examples-logical-error-rates:
+
 Logical error rates
 --------------------
 

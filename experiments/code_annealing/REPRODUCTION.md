@@ -1,7 +1,7 @@
 # Reproducing the paper's figures and tables
 
 This file maps each figure and table of [the paper](https://arxiv.org/abs/2607.19574) to the command that rebuilds it from [`paper_data/`](paper_data/).
-[README.md](README.md#rebuild-the-papers-table-and-figures) gives the running times and quick-look options.
+[README.md](README.md#sec-rebuild-figures) gives the running times and quick-look options.
 Every artifact reproduces.
 The figures come from random simulations, and match within their statistical error.
 

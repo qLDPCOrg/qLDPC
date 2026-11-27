@@ -4,7 +4,7 @@ Contributing
 Contributing in brief
 ---------------------
 
-1. Read the `project goals <https://github.com/qLDPCOrg/qLDPC#-goals>`_, and let them guide your change's scope, design, validation, and explanation.
+1. Read the :repo:`project goals <README.md#sec-goals>`, and let them guide your change's scope, design, validation, and explanation.
 2. Install qLDPC as the :ref:`development installation <development-installation>` describes.
 3. Find your kind of change in the :ref:`kinds-of-change table <kinds-of-change>`, and read the standards that it lists before editing.
 4. While you work, run the drafting checks of the :ref:`validation commands <validation-commands>`.
@@ -20,7 +20,7 @@ AI-assisted changes must meet the same standards as other changes.
 :doc:`Reviewing changes <reviewing>` describes how changes are reviewed in the maintainer workflow.
 :doc:`Decisions and recommendations <decisions>` describes how decisions are recommended and made.
 Maintainers and AI agents follow these pages; other contributors need not read them.
-The README states how `qLDPC uses AI assistants <https://github.com/qLDPCOrg/qLDPC#ai-usage>`_.
+The README states how :repo:`qLDPC uses AI assistants <README.md#sec-ai-usage>`.
 AI agents, including contributors' own, follow `AGENTS.md <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_.
 
 .. _kinds-of-change:

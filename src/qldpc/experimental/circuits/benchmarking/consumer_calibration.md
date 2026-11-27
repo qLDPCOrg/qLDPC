@@ -1,5 +1,6 @@
 # Consumer-calibrated benchmarks of state preparation
 
+<a name="sec-scope"></a>
 ## Purpose and scope
 
 A noisy state-preparation circuit leaves a Pauli error on the code block that it prepares.
@@ -15,9 +16,10 @@ One calibration of a consumer then scores any preparation circuit of the same id
 Use the figure of merit to compare preparation circuits for one fixed consumer.
 It is not a logical error rate, a fault-tolerance certificate, or a bound on the failure of a real computation.
 
+<a name="sec-workflow"></a>
 ## Two-call workflow
 
-The [built-in consumer](#the-built-in-consumer) runs a short sequence of steps of swap-type Steane quantum error correction (QEC).
+The [built-in consumer](#sec-built-in-consumer) runs a short sequence of steps of swap-type Steane quantum error correction (QEC).
 With it, two calls score a preparation circuit:
 
 ```python
@@ -26,15 +28,17 @@ phi, standard_error = calibration.estimate_excess_failure_probability(preparatio
 ```
 
 The first call calibrates the consumer by simulation, which is the expensive step.
-The second call scores a preparation circuit from the [residual weights](#residual-weights) of the errors that it leaves, without simulating the consumer again.
+The second call scores a preparation circuit from the [residual weights](#sec-residual-weights) of the errors that it leaves, without simulating the consumer again.
 Steane QEC consumes freshly prepared code blocks, and the prepared block enters the consumer in place of one of these fresh blocks.
 We call the prepared block the **block under test**.
-By default, it is a fresh logical `|0>` block, and with `basis="X"` it is a fresh logical `|+>` block (see [The built-in consumer](#the-built-in-consumer)).
+By default, it is a fresh logical `|0>` block, and with `basis="X"` it is a fresh logical `|+>` block (see [The built-in consumer](#sec-built-in-consumer)).
 The rest of this guide defines `phi`, written `Φ` below, and explains the calibration and its approximations.
 The [state-preparation benchmarking notebook](../../../../../examples/experimental/logical_state_preparation.ipynb) demonstrates the workflow.
 
+<a name="sec-definitions"></a>
 ## Definitions
 
+<a name="sec-faults"></a>
 ### Error mechanisms, faults, and acceptance
 
 Stim describes the noise of a Clifford circuit by a detector error model (DEM): a list of error instructions, each with a probability and the detectors and logical observables that it flips.
@@ -51,6 +55,7 @@ Every distribution of a preparation circuit below is conditioned on acceptance.
 The **acceptance probability**, the probability that a shot is accepted, is therefore a separate result.
 Report it with the figure of merit.
 
+<a name="sec-residual-weights"></a>
 ### Residual weights
 
 A Pauli error on the prepared block leaves the same state as the error times any stabilizer of the ideal state.
@@ -62,6 +67,7 @@ The two types describe the X and Z parts of an error separately, by their margin
 `estimate_residual_weight_histogram(circuit, ..., pauli=s)` estimates the distribution `p_s(m) = Pr[M_s = m | accepted]` of the type-`s` residual weight `M_s` of the error that the circuit leaves on its output qubits, as a `ResidualWeightHistogram`.
 Its docstring describes the exact enumeration and importance sampling by fault weight that it uses.
 
+<a name="sec-consumers"></a>
 ### Consumers and profiles
 
 A `Consumer` is a simulated consumer.
@@ -76,6 +82,7 @@ The **excess** `c_s(m) - c_s(0)` is the signed cost of residual weight `m`.
 It is normally positive, but an error can occasionally turn a failure of the consumer into a success.
 A measured or supplied profile therefore need not increase with `m`.
 
+<a name="sec-built-in-consumer"></a>
 ## The built-in consumer
 
 `get_steane_swap_consumer(code, noise_model)` builds a consumer from swap-type Steane QEC, as in Figure 4d of [arXiv:2603.04584](https://arxiv.org/abs/2603.04584).
@@ -97,7 +104,7 @@ The window starts with the logical qubits on an ideal **data block** in logical 
 It ends with a noiseless **final readout**, which measures the checks of the **last block** to define detectors.
 The last block is the block that holds the logical qubits after the last step.
 For `basis="Z"`, the following table numbers the steps of the window relative to the entry step.
-The [window section](#the-window) explains its last row.
+The [window section](#sec-window) explains its last row.
 
 | Step | −2 | −1 | 0 (entry) | +1 | +2 |
 | --- | --- | --- | --- | --- | --- |
@@ -112,6 +119,7 @@ Without noise, the window acts as the identity on the logical qubits, so each ob
 
 The consumer's `correctable_weight` defaults to `t = ⌊(d - 1) / 2⌋` for a code of distance `d`, so that `calibrate` tabulates residual weights up to `t + 1` by default.
 
+<a name="sec-window"></a>
 ### The window
 
 A step decodes an error on the block under test when the block that it measures carries the error, or a copy that a CNOT made, and its measurement detects the error's type.
@@ -134,23 +142,24 @@ The window runs these five steps, each with the noise of the noise model.
 A further noisy step before or after the window adds noise whose errors no step decodes together with the block's errors.
 The steps are transversal, so a fault of weight one leaves an error on at most one qubit of each block that a step measures.
 A per-step decoder that corrects every single-qubit error therefore corrects a fault of weight one in a further step, when it is the consumer's only fault, without changing the cost of the block's errors.
-The default decoder corrects every single-qubit error of a code of distance at least 3, and the consumer checks that every per-step decoder does when the correctable weight is at least 1 (see [the decoders section](#decoders)).
+The default decoder corrects every single-qubit error of a code of distance at least 3, and the consumer checks that every per-step decoder does when the correctable weight is at least 1 (see [the decoders section](#sec-decoders)).
 
 Second, if each per-step decoder also corrects every single-qubit error, which needs a code of distance at least 3, further steps change the excesses `c_s(m) - c_s(0)`, and so `Φ`, only at second order in the consumer's error probabilities.
 For a code of distance less than 3, no decoder corrects every single-qubit error, and further steps can change the excesses at first order.
 This second-order bound concerns the excesses summed over all fault weights.
-A calibration with `max_fault_weight=0`, which sets `G = 0` in [the stratified calibration](#what-is-estimated), keeps only the term `Pr[g = 0] Δ_s(m, 0)`.
+A calibration with `max_fault_weight=0`, which sets `G = 0` in [the stratified calibration](#sec-estimand), keeps only the term `Pr[g = 0] Δ_s(m, 0)`.
 Further steps change `Pr[g = 0]`, the probability that the consumer has no fault, and so this truncated excess, at first order.
 
-[Whole-window decoding](#decoders) has neither guarantee.
+[Whole-window decoding](#sec-decoders) has neither guarantee.
 
+<a name="sec-calibration-measures"></a>
 ### What a calibration measures
 
 A calibration of the consumer measures the cost of one imperfect fresh block in the slot of the block under test.
 It makes these approximations of how the consumer stands in for a larger computation:
 
 - The window is finite: it starts from an ideal data block and ends with a noiseless readout.
-  [The window](#the-window) says when this matters only at second order in the consumer's error probabilities.
+  [The window](#sec-window) says when this matters only at second order in the consumer's error probabilities.
 - The consumer prepares the data block and every fresh block other than the block under test without noise, with `circuits.get_encoding_circuit`, so they are ideal.
   The block under test also starts in its ideal state, and the calibration adds its errors.
 - Only one fresh block is imperfect at a time, so the calibration neglects the interplay of errors on several fresh blocks.
@@ -163,9 +172,10 @@ Suppose that the code is self-dual, such as the Steane code, and that transversa
 Then, with the default decoder, the two slots have the same costs, with X and Z exchanged.
 For comparison, the [Steane-QEC notebook](../../../../../examples/logical_error_rates/6_steane_qec.ipynb) simulates a full cycle, with noisy flagged preparations of all its fresh blocks at once.
 
+<a name="sec-decoders"></a>
 ### Decoders
 
-Per-step decoding, the default, is the reference for comparing preparation circuits, since only it has [the window's guarantees](#the-window), and whole-window decoding is a research option.
+Per-step decoding, the default, is the reference for comparing preparation circuits, since only it has [the window's guarantees](#sec-window), and whole-window decoding is a research option.
 By default, the consumer decodes the syndrome of each step, and the final syndrome, separately, with a minimum-weight lookup table for each type of check.
 A table has an entry for every syndrome of the checks of one type, so the default decoder suits small codes.
 The docstring of `get_steane_swap_consumer` gives its size limits and the layout of the window's detectors.
@@ -178,14 +188,18 @@ For example, `decoders.mwpm()` suits a code whose checks give a matching graph, 
 If the correctable weight is at least 1, as it is by default for a code of distance at least 3, the consumer checks that each per-step decoder, the default one included, corrects every single-qubit error.
 It raises an error if one does not.
 For example, `decoders.bp_osd(max_iter=50, bp_method="minimum_sum")` passes this check on the Steane code, and `decoders.bp_osd()` does not.
-With a per-step decoder that passes the check and whose predictions depend on the syndrome alone, and a code of distance at least 3, the window has the guarantees that [the window section](#the-window) describes.
+The consumer decodes every syndrome of one type of check, in each step and in the final readout, with the same decoder.
+For a decoder whose predictions depend on the syndrome alone, checking it on no error and on the single-qubit errors of one code block therefore checks every step.
+With a per-step decoder that passes the check and whose predictions depend on the syndrome alone, and a code of distance at least 3, the window has the guarantees that [the window section](#sec-window) describes.
 
 With `decoding="window"` and a decoder specification, the consumer instead builds one decoder from the detector error model of its whole window.
 For example, `decoders.mwpm(decompose_errors=True)` suits whole-window decoding of a surface code.
 The window's guarantees do not cover whole-window decoding, and its results can depend on the window's length.
 
+<a name="sec-stratified-calibration"></a>
 ## The stratified calibration
 
+<a name="sec-estimand"></a>
 ### What is estimated
 
 Let `g` be the fault weight of the consumer, the number of its own error mechanisms that occur.
@@ -234,6 +248,7 @@ The failure probability `f(0, g) + Δ_s(m, g)` of an exact cell must lie in [0, 
 Estimated cells may stray outside [0, 1] by their statistical error, so `ConsumerCalibration` accepts them.
 `Consumer.calibrate` gives every sampled cell and baseline a positive standard error, so its cells are all estimated.
 
+<a name="sec-sampling"></a>
 ### How it is sampled
 
 `Consumer.calibrate` estimates a calibration by simulation.
@@ -267,8 +282,9 @@ For a reachable residual weight, a zero count means that the calibration needs m
 The procedure gives each sampled physical weight the same number of trials and samples uniformly within that weight.
 It then pools the trials whose errors reduce to residual weight `m`.
 This ensemble generally differs from a uniform distribution over the equivalence classes of residual weight `m`.
-It also differs from the errors that a particular preparation circuit leaves, which approximation 3 [below](#approximations-and-uncertainty) concerns.
+It also differs from the errors that a particular preparation circuit leaves, which approximation 3 [below](#sec-approximations) concerns.
 
+<a name="sec-standard-errors"></a>
 ### Standard errors of a simulated calibration
 
 The standard errors of `Consumer.calibrate` are posterior standard deviations under a Jeffreys prior.
@@ -280,8 +296,12 @@ The excess of the cell is `p₊ - p₋`.
 With `a₊ = n₊ + 1/2`, `a₋ = n₋ + 1/2`, and `A = n₊ + n₀ + n₋ + 3/2`, its posterior variance is
 
 ```text
-Var(p₊ - p₋) = [a₊ (A - a₊) + a₋ (A - a₋) + 2 a₊ a₋] / (A² (A + 1)).
+Var(p₊ - p₋) = [a₊ (A - a₊) + a₋ (A - a₋) + 2 a₊ a₋] / (A² (A + 1))
+             = [(a₊ + a₋) A - (a₊ - a₋)²] / (A² (A + 1)).
 ```
+
+This follows from the Dirichlet variances `a (A - a) / (A² (A + 1))` of `p₊` and `p₋`, for `a = a₊` and `a = a₋`, and their covariance `-a₊ a₋ / (A² (A + 1))`.
+With `a₊ = k + 1/2`, `a₋ = 0`, and `A = K + 1`, the same expression is the variance of the baseline's posterior `Beta(k + 1/2, K - k + 1/2)`.
 
 The point estimates are the sample means: the mean paired change for an excess, and the failure fraction for the baseline.
 The prior changes only the standard errors.
@@ -292,13 +312,14 @@ The fixed numbers remove the variation in the mix of physical weights, so the st
 Within one physical weight `w`, the numbers of samples that reach the residual weights are multinomial.
 Excess cells of different residual weights are therefore not exactly independent, and the baseline shares their samples.
 
-The direct check `Consumer.estimate_excess_failure_probability`, described [below](#how-to-validate), uses the same posterior for the paired changes of its accepted shots.
+The direct check `Consumer.estimate_excess_failure_probability`, described [below](#sec-validation), uses the same posterior for the paired changes of its accepted shots.
 Each of its shots is rejected, or accepted with a paired change of `1`, `0`, or `-1`.
 The Jeffreys prior `Dirichlet(1/2, 1/2, 1/2, 1/2)` over these four outcomes gives the probabilities of the changes, conditioned on acceptance, the posterior `Dirichlet(n₊ + 1/2, n₀ + 1/2, n₋ + 1/2)`.
 Here `n₊`, `n₀`, and `n₋` count the accepted shots with each change.
 Three components of a Dirichlet distribution, divided by their sum, have the Dirichlet distribution of their parameters, independently of the fourth component.
 Rejected shots therefore do not affect this posterior.
 
+<a name="sec-figure-of-merit"></a>
 ## The figure of merit
 
 For a preparation circuit, the calibrated figure of merit averages the excess cost of each Pauli type over the marginal residual-weight distribution of that type.
@@ -317,19 +338,20 @@ Omit the table of a Pauli type for a consumer that ignores errors of that type.
 `ResidualWeightHistogram.acceptance_probability` gives the acceptance probability.
 Report `Φ`, its standard error, and the acceptance probability of the circuit together.
 
+<a name="sec-approximations"></a>
 ## Approximations and uncertainty
 
 `Φ` estimates the change in the failure probability of the calibrated consumer, per accepted preparation, relative to an ideal block, under the approximations below.
 How well a consumer stands in for a larger computation is a separate question.
-For the built-in consumer, [What a calibration measures](#what-a-calibration-measures) lists the approximations of this second kind.
+For the built-in consumer, [What a calibration measures](#sec-calibration-measures) lists the approximations of this second kind.
 
 1. **Independent error mechanisms.**
-   The consumer's and the preparation's noise channels are replaced by independent DEM mechanisms, as described [above](#error-mechanisms-faults-and-acceptance).
+   The consumer's and the preparation's noise channels are replaced by independent DEM mechanisms, as described [above](#sec-faults).
 2. **Separate Pauli types.**
    The X and Z contributions are added, which neglects their interaction when both parts of an error occur in one shot.
    Examples are the two parts of a Y error, and X and Z errors that one fault leaves on different qubits.
 3. **The calibration ensemble.**
-   Each excess `c_s(m) - c(0)` averages over the [calibration's errors](#how-it-is-sampled) of residual weight `m`, not over those of the preparation circuit.
+   Each excess `c_s(m) - c(0)` averages over the [calibration's errors](#sec-sampling) of residual weight `m`, not over those of the preparation circuit.
 4. **Truncation.**
    Consumer fault weights above `G` count as certain failure, which cancels from the excesses.
    This drops the excesses of those fault weights, so it can move the term of each Pauli type in `Φ` either way, by at most `truncated_probability`.
@@ -375,17 +397,18 @@ It treats every histogram of either circuit as independent of the others, so giv
 The truncations of approximation 4 are a bias that no standard error includes.
 Certain failures beyond a table or in an unsampled cell can only raise each score, apart from the statistical error of the baseline, but they can move a difference either way.
 
+<a name="sec-supplied-response"></a>
 ## Supplying a consumer's response
 
 - **The built-in consumer.**
-  `get_steane_swap_consumer` builds a simulated consumer from a window of swap-type Steane QEC steps; see [the built-in consumer](#the-built-in-consumer) and the [two-call workflow](#two-call-workflow).
+  `get_steane_swap_consumer` builds a simulated consumer from a window of swap-type Steane QEC steps; see [the built-in consumer](#sec-built-in-consumer) and the [two-call workflow](#sec-workflow).
 - **A Poisson profile.**
   `ConsumerProfile.poisson(expected_fault_weight, t)` models a consumer that fails exactly when `m + g > t` for a Poisson-distributed `g`.
   `estimate_downstream_fault_weight` estimates the expected fault weight from an operation-count preset.
   Score the profile with `ResidualWeightHistogram.get_excess_failure_probability` on a histogram computed with `pauli=None`.
   Its hard-threshold response and Poisson approximation make it an approximate score rather than a calibrated one or a bound.
 - **A simulated consumer.**
-  `Consumer(block_preparation, circuit, decoder).calibrate(...)` estimates [stratified tables](#how-it-is-sampled).
+  `Consumer(block_preparation, circuit, decoder).calibrate(...)` estimates [stratified tables](#sec-sampling).
   The consumer can be any noisy Clifford circuit that uses a block in a CSS stabilizer state.
   Its decoder can be an observable decoder or a decoder specification such as `decoders.mwpm(decompose_errors=True)`.
   A specification is built from the detector error model of the consumer, which keeps its detector coordinates and Stim's suggested decompositions of errors.
@@ -399,12 +422,13 @@ Certain failures beyond a table or in an unsampled cell can only raise each scor
 - **Serialization.**
   `calibration.to_dict()` returns JSON-compatible values, which `ConsumerCalibration.from_dict` loads.
 
+<a name="sec-validation"></a>
 ## How to validate
 
 - **Direct simulation.**
   `Consumer.estimate_excess_failure_probability(circuit, ...)` runs the consumer on the errors that the preparation circuit actually leaves.
   It pairs each error with one shot of the consumer's noise, decoded with and without the error.
-  Its standard error is a Jeffreys-prior posterior standard deviation, like those of a calibration (see [above](#standard-errors-of-a-simulated-calibration)).
+  Its standard error is a Jeffreys-prior posterior standard deviation, like those of a calibration (see [above](#sec-standard-errors)).
   It samples the noise channels of both circuits with Stim, and keeps the joint X and Z parts of each error and the circuit's own errors.
   It therefore probes approximations 1, 2, and 3 together, and a discrepancy does not identify its cause.
   Direct simulation runs the same consumer as the calibration, so it does not test how well the consumer models a larger computation.

@@ -10,6 +10,7 @@ Each search fixes the numbers `n` of physical and `k` of logical qubits, and wal
 Every proposed code is scored exactly, by its distance and its number of minimum-weight X-only and Z-only logical operators, with no sampling.
 The energy computed from that score is a leading-order proxy for the rate of undetected logical errors of the code.
 
+<a name="sec-setup"></a>
 ## Setup
 
 Run every command from the root of a clone of qLDPC, in a Python environment with its `qldpc` package and matplotlib:
@@ -34,6 +35,7 @@ This recounts every code of [`paper_data/`](paper_data/) exactly, and checks the
 It takes seconds and writes no file.
 [paper_data/README.md](paper_data/README.md) describes the data, and shows how to load the codes.
 
+<a name="sec-rebuild-figures"></a>
 ## Rebuild the paper's table and figures
 
 ```bash
@@ -52,6 +54,7 @@ The figures take many hours, because they sample 10^7 errors for each code.
 
 [REPRODUCTION.md](REPRODUCTION.md) maps each figure and table to its command, and says what kind of evidence it is.
 
+<a name="sec-rerun-searches"></a>
 ## Rerun the searches
 
 The paper's campaign ran 5700 searches, one for each code type (CSS or SWEL), code size, and seed, for about 10^4 core-hours.
@@ -90,7 +93,7 @@ python -m experiments.code_annealing.make_figures
 ```
 
 - Without [GNU parallel](https://www.gnu.org/software/parallel/), `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
-- `make_figures` takes the options of [the paper's figures](#rebuild-the-papers-table-and-figures).
+- `make_figures` takes the options of [the paper's figures](#sec-rebuild-figures).
 - `collect_data` writes the LaTeX tables and listings only with a scrape of qecdb.org.
   `--scrape` takes a new one, which needs network access and sends three requests per code.
   Without it, `collect_data` uses the newest scrape in `results/data/`, and skips the tables and listings if there is none, or if it is unreadable or covers other codes.
@@ -133,6 +136,7 @@ The docstring of `core/run_annealing.py` explains how searches are saved, resume
 
 ## Reference
 
+<a name="sec-outputs"></a>
 ### What the scripts write
 
 Everything goes under `results/`, which Git ignores.
@@ -201,4 +205,4 @@ Follow the repository's [AGENTS.md](../../AGENTS.md) only when asked to change c
 - Answer questions about the science first, and cite the sections of the paper, files, and functions that support each answer.
 - Say what each answer rests on: the paper, a file of `paper_data/`, a check or reproduction that you ran, an inference, or something that you could not check.
 - Prefer cheap checks: `check_claims` and `reproduce_paper --skip-figures`.
-- Ask before running anything heavy: [the paper's figures](#rebuild-the-papers-table-and-figures), [a campaign](#rerun-the-searches), or a scrape of the public database qecdb.org.
+- Ask before running anything heavy: [the paper's figures](#sec-rebuild-figures), [a campaign](#sec-rerun-searches), or a scrape of the public database qecdb.org.

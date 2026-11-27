@@ -9,6 +9,8 @@ Before you change a value, read :ref:`the documentation of that module <tuning-m
 The :guide:`Brouwer-Zimmermann guide <codes/distance/brouwer_zimmermann.md>` and the `connected-cluster guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ explain the methods.
 The parts of the Brouwer-Zimmermann guide on the source code of the method, its heuristics, and its correctness requirements are in :guide:`brouwer_zimmermann_code.md <codes/distance/brouwer_zimmermann_code.md>`.
 
+.. _tuning-symptoms:
+
 Start from a symptom
 --------------------
 

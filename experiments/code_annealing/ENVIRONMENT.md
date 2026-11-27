@@ -8,7 +8,7 @@
 - Optional: network access to scrape qecdb.org, and [GNU parallel](https://www.gnu.org/software/parallel/) to run many searches at once.
 
 Tested on macOS on Apple silicon with Python 3.13 (October 2026), and on Linux on x86-64 with Python 3.11 (November 2026).
-[README.md](README.md#setup) gives the installation.
+[README.md](README.md#sec-setup) gives the installation.
 
 ## Development and tests
 

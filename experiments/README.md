@@ -10,7 +10,7 @@ The code-annealing experiment has offline tests that you can run locally, but th
 | [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
 | [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS and SWEL codes, scored exactly | `python -m experiments.code_annealing.reproduce_paper`; or `write_jobs`, its jobs, `collect_data`, and `make_figures` (see its guide) |
 | [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and checks of the heuristics behind their tuning | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
-| [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
+| [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#sec-lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
 The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro-Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
@@ -21,7 +21,7 @@ Without GroupNames.org, `abstract.SmallGroup` offers a manual workflow, which pr
 `codes.ClassicalCode.from_name` offers this workflow whenever GAP cannot be called.
 The bivariate bicycle and quantum Tanner searches bound distances with the default backend of `get_distance_bound`, which uses `sqetch` if installed, then GAP's QDistRnd package if available, and a decoder-based method otherwise.
 Code annealing instead computes exact distances and counts of minimum-weight logical operators with qLDPC alone, without GAP.
-See the [GAP integration instructions](../docs/source/installation.rst#gap-integration) to set up GAP, for example with `pip install 'qldpc[gap]'`.
+See the [GAP integration instructions](../docs/source/installation.rst#installation-gap) to set up GAP, for example with `pip install 'qldpc[gap]'`.
 Commands below are written relative to the repository root.
 
 ## Results
@@ -39,7 +39,7 @@ Each experiment in the table below holds a CSV summary in its results directory,
 | Distance tuning | `results/trials.jsonl`: one line per trial of a comparison; `results/constants/`: the measurements of `constants.py` | `results/summary-<tag>.csv`: times of both arms of a comparison on each workload, and their ratios |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
-[The code-annealing guide](code_annealing/README.md#what-the-scripts-write) lists its results.
+[The code-annealing guide](code_annealing/README.md#sec-outputs) lists its results.
 
 ## Bivariate bicycle codes
 
@@ -231,6 +231,7 @@ python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6
     --workloads ccdistance/lp13s5/X ccdistance/qt7/X --proposed '{"automorphism_minimum_states": 100000}'
 ```
 
+<a name="sec-lattice-surgery"></a>
 ## Lattice surgery
 
 > [!WARNING]
