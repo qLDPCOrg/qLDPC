@@ -1,8 +1,9 @@
 # How the package turns problems into searches
 
-This guide, for contributors, explains how the package turns problems of [the grid](README.md#the-grid) into searches or other computations: which sectors a distance search of a CSS code searches, how `method="auto"` chooses the method of each distance search, how the coset-leader search answers its queries with coset searches, and how the MacWilliams method counts logical operators from the weight distributions of the checks.
+This guide, for contributors, explains how the package turns problems of [the grid](README.md#sec-grid) into searches or other computations: which sectors a distance search of a CSS code searches, how `method="auto"` chooses the method of each distance search, how the coset-leader search answers its queries with coset searches, and how the MacWilliams method counts logical operators from the weight distributions of the checks.
 [brouwer_zimmermann.md](brouwer_zimmermann.md) and [connected_cluster.md](connected_cluster.md) explain the searches themselves.
 
+<a name="sec-one-sector"></a>
 ## Searching one sector of a CSS code
 
 The distance of a CSS code is the smaller of the distances of its two sectors, so a search of the distance normally searches both.
@@ -46,6 +47,7 @@ DistQLDPC, at commit fae495b, finds a map of the X sector onto the Z sector by a
 QEDist, at commit 71a0f0c, takes a map that its user supplies or that its constructor of lifted-product codes proposes ([constructors.py, lines 103–116](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/constructors.py#L103-L116)), verifies it when it builds a `CSSCode` ([code.py, lines 59–67](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/code.py#L59-L67)), and then certifies the distance by searching one sector ([audit.py, lines 39–43](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/audit.py#L39-L43)).
 Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qubits, or a cyclic shift by half of them swaps the row spaces ([cc.cpp, lines 105–120](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/cc.cpp#L105-L120)).
 
+<a name="sec-choosing-a-method"></a>
 ## Choosing a method
 
 Each problem's method type has its own `"auto"`, which chooses among that problem's methods.
@@ -60,7 +62,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
 2. Otherwise, a search of binary words that excludes no nonzero word, as for a classical code, takes the BZ method, and so does every search of a function that takes generators, since it has no checks.
    A connected-cluster search can be much slower than BZ on classical codes whose checks are only moderately sparse.
 3. Every other search, as of a quantum code or of the faults of a circuit, runs `search_by_cost` in `_auto.py`.
-   It advances a connected-cluster search for a witness, a nontrivial word, through `ConnectedClusterSearch`, one weight limit at a time, as [Section 3.6 of connected_cluster.md](connected_cluster.md#sec-search-to-distance) describes.
+   It advances a connected-cluster search for a witness, a nontrivial word, through `ConnectedClusterSearch`, one weight limit at a time, as [From a search to the distance](connected_cluster.md#sec-search-to-distance) describes.
    It counts work in BZ candidate/set evaluations ([The stopping certificate](brouwer_zimmermann.md#sec-stopping-certificate) in `brouwer_zimmermann.md`), a state being `connected_cluster_state_evaluations` of them.
    The expected work of a limit is the work that the search has spent plus the predicted work of that limit.
    - In its free phase, the search runs on until the expected work of its next limit exceeds `auto_free_work`, and its result is the answer if it finishes first.
@@ -72,7 +74,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
      Otherwise, its shared upper bound `U`, the weight of a nontrivial word that it has found or the caller's upper bound if that is less, caps the connected-cluster search, which then stops once its lower bounds reach `U`.
      The search of a sector can hold a lighter witness from its setup, which joins `U` only after the probe advances that search.
    - Before each limit whose expected work exceeds `auto_free_work`, starting with the limit that ended the free phase, `_should_switch` may switch to a BZ search with the full tuning and the upper bound `U`.
-     The level of a limit is the weight that it certifies, one weight divisor above the limit ("Weight divisor" in [Section 3.6 of connected_cluster.md](connected_cluster.md#sec-search-to-distance)).
+     The level of a limit is the weight that it certifies, one weight divisor above the limit ("Weight divisor" in [From a search to the distance](connected_cluster.md#sec-search-to-distance)).
      The search switches if its spent and projected work to certify the level of its next limit exceeds the estimated work of BZ.
      Otherwise, it switches if its spent and projected work to reach `U` exceeds that of BZ, but only while the search of its next limit grows faster per unit of weight than BZ's would at the level of that limit.
      The projection to `U` extrapolates that growth over every limit below `U`, so it calls for a switch only while the growth test agrees.
@@ -103,6 +105,7 @@ To reach `U`, the projection counts half of the states predicted for the limit a
 A search with `U` as its upper bound stops before that limit, so this overestimates the connected-cluster work.
 These two overestimates push the choice in opposite directions, so a refinement that removes one should remove the other.
 
+<a name="sec-refining-the-choice"></a>
 ### Refining the choice
 
 The known ways for the rule to lose are these:
@@ -129,6 +132,7 @@ For example, the counts of supports that a BZ layer on threads weighs and skips 
 To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
 A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.
 
+<a name="sec-coset-leader-search"></a>
 ## The coset-leader search
 
 `CosetLeaderSearch` weighs an error by its physical weight, the number of qubits that it acts on, or by its CSS weight `max(|x|, |z|)`, where `x` and `z` are its X and Z parts.
@@ -151,7 +155,7 @@ The BZ search of Pauli errors is cached by stabilizer matrix (`PAULI_SEARCH_CACH
 Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`), so `CosetLeaderSearch` objects for different generators of one state share them.
 `find_first_not_within_max_weight` returns the bound that a single BZ search found for the first syndrome without an error within `max_weight`, or, with two BZ searches, the bound that `get_min_weight_bound` gives for that syndrome.
 `get_min_weights` answers a batch in one compiled loop per coset search (`BrouwerZimmermannCosetSearch.get_min_weights`; [Minimum weights of cosets](brouwer_zimmermann.md#sec-coset-min-weights) in `brouwer_zimmermann.md`).
-Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](README.md#threads)).
+Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](README.md#sec-threads)).
 The comment of `search_chunk_exponent` in `_tuning.py` says when a batch moves to threads, and in what units its queries count their work; `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks ("Coset batches on threads" in [Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior) of `brouwer_zimmermann_code.md`).
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
@@ -166,11 +170,12 @@ Their answers are those of one thread (Section 3.11 of `connected_cluster.md`).
 
 The table "Routes and the names that control them" of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) names the fields that configure the searches of `CosetLeaderSearch`.
 
+<a name="sec-macwilliams"></a>
 ## The MacWilliams method
 
 For a stabilizer code on `n` qubits with checks `H_X` and `H_Z`, `method="macwilliams"` of [_counting/macwilliams.py](_counting/macwilliams.py) counts from the weight distributions `A_X` of `row(H_X)` and `A_Z` of `row(H_Z)`.
 The nontrivial X logicals are the words of `ker(H_Z)` outside `row(H_X)`.
-Since `ker(H_Z)` is the dual of `row(H_Z)`, the MacWilliams identity ([References](#references)) gives their number of weight `w`:
+Since `ker(H_Z)` is the dual of `row(H_Z)`, the MacWilliams identity ([References](#sec-references)) gives their number of weight `w`:
 
 $$
 N_X(w) = 2^{-\operatorname{rank}(H_Z)} \sum_j K_w(j)\,A_Z(j) - A_X(w),
@@ -183,6 +188,7 @@ Since `|K_w(j)| ≤ binom(n, w)` and `A` sums to `2^r`, no Krawtchouk value, ent
 So the sum of these products and its division by `2^r` are exact in signed 64-bit integers at every weight `w` with `2^r binom(n, w) < 2^63`.
 qLDPC uses 64-bit integers below the first weight that fails this bound, and Python integers from there on.
 
+<a name="sec-references"></a>
 ## References
 
-- J. MacWilliams, "A theorem on the distribution of weights in a systematic code," *Bell System Technical Journal* 42(1), 79-94, 1963 ([doi:10.1002/j.1538-7305.1963.tb04003.x](https://doi.org/10.1002/j.1538-7305.1963.tb04003.x)): the MacWilliams identity of [The MacWilliams method](#the-macwilliams-method).
+- J. MacWilliams, "A theorem on the distribution of weights in a systematic code," *Bell System Technical Journal* 42(1), 79-94, 1963 ([doi:10.1002/j.1538-7305.1963.tb04003.x](https://doi.org/10.1002/j.1538-7305.1963.tb04003.x)): the MacWilliams identity of [The MacWilliams method](#sec-macwilliams).

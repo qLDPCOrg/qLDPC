@@ -133,7 +133,7 @@ class SearchTuning:
     """Settings of exact searches and counts, such as thresholds, limits, batch sizes, and switches.
 
     The descriptions of the fields use the following terms.  The section
-    `Terms <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#terms>`__
+    `Terms <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#sec-terms>`__
     of the README of the distance package defines sectors, search bases, and searches by Hamming
     weight more fully, and also defines other terms, such as information set and automorphism.
 

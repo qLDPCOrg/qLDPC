@@ -6,7 +6,7 @@ Like code comments, this file calls a search basis a **set** for short.
 <a name="sec-source-code"></a>
 ## Guide to the source code
 
-[README.md](README.md) says which modules to start from for each kind of change, in "[Where to look](README.md#where-to-look)", and in which levels the modules import each other, in "[How the modules depend on each other](README.md#how-the-modules-depend-on-each-other)".
+[README.md](README.md) says which modules to start from for each kind of change, in "[Where to look](README.md#sec-where-to-look)", and in which levels the modules import each other, in "[How the modules depend on each other](README.md#sec-layers)".
 The docstrings of the modules and of their functions say which code does what, and cite the sections of this guide that explain it.
 A flow that spans modules is described in the docstring of the module that coordinates it.
 For example, [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) says how a BZ distance search prepares, exits, and advances by layers.
@@ -18,7 +18,7 @@ The thresholds, limits, and coefficients of the heuristics are fields of `Search
 
 `CosetLeaderSearch` of [coset_leaders.py](coset_leaders.py) applies BZ to cosets `u + V`, unless it is built with `method="connected_cluster"`.
 A query of `CosetLeaderSearch`, whether the coset of a syndrome has a word within a maximum weight, runs one or two **coset searches**.
-They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches of the X and Z parts of the errors, each in a coset of a classical code ([problems.md](problems.md#the-coset-leader-search)).
+They are a search of Pauli errors or, for the CSS weight `max(|x|, |z|)` on a CSS state, searches of the X and Z parts of the errors, each in a coset of a classical code ([problems.md](problems.md#sec-coset-leader-search)).
 
 Each family of search bases of a coset search is packed with its full rows, and with the certificate of its ranks and maximum coverage ([Families for coset searches](brouwer_zimmermann.md#sec-coset-families)).
 That certificate takes no weight divisor, even when the disjoint packing of [Heuristics and cost models](#sec-heuristics) infers one for `V`, since the words of a coset need not share it ([Rounding the certificate to a proven weight multiple](brouwer_zimmermann.md#sec-weight-multiples)).
@@ -66,7 +66,7 @@ The search of Pauli errors by CSS weight has no routes by tails, since the CSS w
 ### Heuristics and cost models
 
 Every family gets the certificate of its own verified ranks and maximum coverage, so the heuristics below change how much work a search does, not whether its certificate holds; with a cutoff above one, they can change which witness at or below the cutoff it returns ([Behavior spanning files](#sec-cross-file-behavior)).
-Searches read the heuristics' fields as README.md's [Tuning](README.md#tuning) section says.
+Searches read the heuristics' fields as README.md's [Tuning](README.md#sec-tuning) section says.
 A heuristic must also keep the requirements on threads of [Correctness requirements](#sec-requirements), such as "Decide only from what a layer leaves the same on any number of threads".
 Some fields are thresholds of gates on optional steps, such as building a family of search bases, asking for automorphisms, or predicting the cost of completion tables.
 A step can save at most the work that it acts on, so its gate lets it run once an estimate of that work, in candidate/set evaluations, reaches the cost of the step, which the threshold need match only to an order of magnitude.
@@ -136,7 +136,7 @@ Distance searches and counts build their families in the stages of [_information
      It starts from the first family if that was kept, and otherwise from the disjoint family, and it is kept if it does less work than the family that it starts from.
   3. The route is the family of least work at `ω`, summed over its planning buffer's tables, and on ties the disjoint family, then the maximum disjoint one.
      A search for minimum weights up to `ω` takes the route of `ω`, or of the number of qubits if that is smaller, since no coset has a larger minimum weight.
-  4. In a search by Hamming weight ([Terms](README.md#terms) in README.md), the route is a route by tails if its own predicted examinations also reach the threshold.
+  4. In a search by Hamming weight ([Terms](README.md#sec-terms) in README.md), the route is a route by tails if its own predicted examinations also reach the threshold.
      Its queries then weigh words by their tails, and skip completions by tables on blocks of `coset_completion_block_bits` columns, for every search basis that they scan in layers of two or more rows, if the tables fit in `coset_completion_max_table_bytes`.
      The threshold and this limit replace the minimum layer work and the cost model of the completion tables of distance searches.
 
@@ -186,7 +186,7 @@ Distance searches and counts build their families in the stages of [_information
   If an advance raises, a witness that the interrupted scan found can stay out of the `U` that the sectors share, so build a new search to search again.
 - **Threads.**
   A search scans a layer of a set on `num_threads` threads if the layer has `w ≥ 3` rows and more than `num_threads` batches of supports.
-  A search resolves `num_threads` once, from the tuning; README.md's [Threads](README.md#threads) gives its default.
+  A search resolves `num_threads` once, from the tuning; README.md's [Threads](README.md#sec-threads) gives its default.
   Any other layer, and every layer on one thread, is scanned on the calling thread.
   A **work item** is the set of supports of the layer whose first `k` rows are fixed.
   `k` is 2 if `w ≥ 4` and fixing one row leaves fewer items for each thread than a constant of [_threads.py](_threads.py) sets, and 1 otherwise.
@@ -309,10 +309,10 @@ A change may use other representations, certificates, and search strategies, but
   - The shared `U` is lowered only as a minimum, under the lock.
     Review checks this.
   - Code that threads run calls no numba-parallel code, and reads the tuning only from its search.
-    The section "Working here" of [README.md](README.md#working-here) states these rules for the whole package, why they hold, and which tests and reviews check them.
+    The section "Working here" of [README.md](README.md#sec-working-here) states these rules for the whole package, why they hold, and which tests and reviews check them.
 - **Decide only from what a layer leaves the same on any number of threads** ([Behavior spanning files](#sec-cross-file-behavior), "Threads").
   After the layer of a set, `U` and the lower bound are those of one thread, and so are the estimates derived from them, such as the work of the next layer and the work of an automorphism family.
-  Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [problems.md](problems.md#choosing-a-method)), reads nothing else that the layers leave.
+  Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [problems.md](problems.md#sec-choosing-a-method)), reads nothing else that the layers leave.
   None may read what depends on the timing of the threads, such as `U` during the layer of a set, how far the layer of a set has got, or the counts of supports that a split layer weighs, looks up, and skips, which depend on when `U` falls.
   A split layer that stops at the cutoff leaves a `U` that can depend on that timing, but the search then ends, with `U` as the result of an early exit.
   The lower bound counts the layer of a set only once every work item of that layer has run, as an advance of the search does, which raises the lower bound only after it has scanned each set that it counts.

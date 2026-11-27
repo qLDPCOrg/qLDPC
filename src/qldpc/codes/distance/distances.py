@@ -44,7 +44,7 @@ DistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "bru
   search, as for a quantum code or a circuit, runs ``"connected_cluster"``, and switches to
   ``"brouwer_zimmermann"`` if that is predicted to cost less.  A short ``"brouwer_zimmermann"``
   probe may give the result first, or cap the connected-cluster search (`Choosing a method
-  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#choosing-a-method>`_
+  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/problems.md#sec-choosing-a-method>`_
   in ``problems.md`` of the distance package).  Functions that take generators choose between
   ``"brute_force"`` and ``"brouwer_zimmermann"``.  Which method ``"auto"`` takes can depend on the
   tuning (see :doc:`/exact_search_tuning`) and on the version of qLDPC.  Every method gives the same

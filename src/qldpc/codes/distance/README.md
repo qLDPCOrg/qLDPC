@@ -2,20 +2,21 @@
 
 This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, counts the logical operators of a given weight in binary CSS codes, and finds light Pauli errors with given syndromes on stabilizer states.
-Users reach it through its public functions and classes, which take plain arrays ([Public names](#public-names)).
+Users reach it through its public functions and classes, which take plain arrays ([Public names](#sec-public-names)).
 Users also reach it through the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py`.
 These methods call the distance functions for binary codes.
 `problems.md` explains how the package turns the problems below into searches, and how the MacWilliams method counts.
 `brouwer_zimmermann.md` and `connected_cluster.md` explain the Brouwer-Zimmermann and connected-cluster searches, map them to the source code, explain their heuristics, and list the requirements that every change to them must keep.
 For the Brouwer-Zimmermann search, `brouwer_zimmermann_code.md` holds the map, the heuristics, and the requirements.
 
+<a name="sec-grid"></a>
 ## The grid
 
 The package solves a few problems, each by several methods, on one thread or several.
 The `method` argument of its functions and classes names the method.
 Each cell of the table below says whether a problem takes a method, and how it runs:
 
-- **threads:** the costly work runs on `num_threads` threads (see [Threads](#threads)); for coset leaders, only batch queries do, and a single query runs on one thread;
+- **threads:** the costly work runs on `num_threads` threads (see [Threads](#sec-threads)); for coset leaders, only batch queries do, and a single query runs on one thread;
 - **one thread:** on one thread, whatever `num_threads` is, except as the notes below say;
 - **not yet:** not supported, but it could be;
 - **not by design:** not supported, for the reason below the table.
@@ -49,16 +50,17 @@ Where the code, guide, and tests of each supported cell live:
 | Distance, `brute_force` | `_brute_force.py` | [Work estimates and exhaustive enumeration](brouwer_zimmermann.md#sec-work-estimates) in `brouwer_zimmermann.md` | `_brute_force_test.py` |
 | Distance, `brouwer_zimmermann` | `_brouwer_zimmermann/distance.py` | [The Brouwer-Zimmermann algorithm](brouwer_zimmermann.md#sec-algorithm) and [Extensions and optimizations](brouwer_zimmermann.md#sec-extensions) in `brouwer_zimmermann.md`, and `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/distance_test.py` |
 | Distance, `connected_cluster` | `_connected_cluster/search.py` | Sections 3.1 to 3.7, 3.9, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/search_test.py` |
-| Distance, `auto` | `distances.py` and `_auto.py` | [Choosing a method](problems.md#choosing-a-method) in `problems.md` | `distances_test.py` and `_auto_test.py` |
+| Distance, `auto` | `distances.py` and `_auto.py` | [Choosing a method](problems.md#sec-choosing-a-method) in `problems.md` | `distances_test.py` and `_auto_test.py` |
 | Coset weight of a vector, every method | `_get_coset_weight` of `distances.py` | For `connected_cluster`, "The distance of a vector from a classical code" in Section 3.8 of `connected_cluster.md`.  For the others, the vector `v` is the only generator and the words of the code `C` are excluded, which is the problem that [The problem](brouwer_zimmermann.md#sec-problem) in `brouwer_zimmermann.md` states.  Over GF(2), the words spanned by `v` and `C` but outside `C` are the coset `v + C` | `distances_test.py` and `src/qldpc/codes/common_test.py` |
-| Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, [Families for coset searches](brouwer_zimmermann.md#sec-coset-families), [Rounding the certificate to a proven weight multiple](brouwer_zimmermann.md#sec-weight-multiples), [Skipping completions by completion tables](brouwer_zimmermann.md#sec-completion-tables), and [Minimum weights of cosets](brouwer_zimmermann.md#sec-coset-min-weights) in `brouwer_zimmermann.md`, and [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches), [Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics), [Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior), and [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
-| Coset leaders, `connected_cluster` | `_connected_cluster/coset.py` | [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`, and Sections 3.8, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/coset_test.py` and `coset_leaders_test.py` |
+| Coset leaders, `brouwer_zimmermann` and `auto` | `_brouwer_zimmermann/coset.py`, `_brouwer_zimmermann/coset_routes.py`, and `_brouwer_zimmermann/coset_tables.py` | [The coset-leader search](problems.md#sec-coset-leader-search) in `problems.md`, [Families for coset searches](brouwer_zimmermann.md#sec-coset-families), [Rounding the certificate to a proven weight multiple](brouwer_zimmermann.md#sec-weight-multiples), [Skipping completions by completion tables](brouwer_zimmermann.md#sec-completion-tables), and [Minimum weights of cosets](brouwer_zimmermann.md#sec-coset-min-weights) in `brouwer_zimmermann.md`, and [Coset searches](brouwer_zimmermann_code.md#sec-coset-searches), [Heuristics and cost models](brouwer_zimmermann_code.md#sec-heuristics), [Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior), and [Correctness requirements](brouwer_zimmermann_code.md#sec-requirements) in `brouwer_zimmermann_code.md` | `_brouwer_zimmermann/coset_test.py` and `coset_leaders_test.py` |
+| Coset leaders, `connected_cluster` | `_connected_cluster/coset.py` | [The coset-leader search](problems.md#sec-coset-leader-search) in `problems.md`, and Sections 3.8, 3.11, 4, and 5 of `connected_cluster.md` | `_connected_cluster/coset_test.py` and `coset_leaders_test.py` |
 | Logical counts, `brute_force`, `brouwer_zimmermann`, and `auto` | `logical_counts.py` and `_counting/scan.py` | [Counting logical operators](brouwer_zimmermann.md#sec-counting) in `brouwer_zimmermann.md` | `_counting/scan_test.py` and `logical_counts_test.py` |
-| Logical counts, `macwilliams` | `logical_counts.py` and `_counting/macwilliams.py` | [The MacWilliams method](problems.md#the-macwilliams-method) in `problems.md` | `_counting/macwilliams_test.py` and `logical_counts_test.py` |
+| Logical counts, `macwilliams` | `logical_counts.py` and `_counting/macwilliams.py` | [The MacWilliams method](problems.md#sec-macwilliams) in `problems.md` | `_counting/macwilliams_test.py` and `logical_counts_test.py` |
 
 `_grid_test.py` checks the first table against the methods that each problem takes, and runs every supported cell, in each of its modes, on small instances against brute force.
 A new problem, method, or mode adds its cells to both tables, and to `_grid_test.py`.
 
+<a name="sec-public-names"></a>
 ## Public names
 
 `__init__.py` re-exports the names that its `__all__` lists, from `distances.py`, `logical_counts.py`, `coset_leaders.py`, and `min_weight_bounds.py`.
@@ -67,11 +69,12 @@ Everything else in this directory is private.
 `qldpc.codes` re-exports only `NoDistance`, `NO_DISTANCE`, and `DistanceMethod`, which the code classes take or return.
 The documentation cites the other names at `qldpc.codes.distance`.
 
+<a name="sec-terms"></a>
 ## Terms
 
 - **Sector:** a space of words that a search or count examines separately for nontrivial words.
   For example, the X sector of a CSS stabilizer code holds the X-type operators that commute with the Z stabilizers, and the trivial words of this sector are the X stabilizers.
-  [Searching one sector of a CSS code](problems.md#searching-one-sector-of-a-css-code) in `problems.md` gives the sectors of a CSS subsystem code.
+  [Searching one sector of a CSS code](problems.md#sec-one-sector) in `problems.md` gives the sectors of a CSS subsystem code.
   A search of a classical code, of a qubit code that is not CSS, or of a circuit examines one sector.
 - **Search basis** and **information set:** a search basis is a basis that a Brouwer-Zimmermann search or count scans.
   It spans a sector, or, in a coset search, the binary code whose cosets the search examines ([Families for coset searches](brouwer_zimmermann.md#sec-coset-families) in `brouwer_zimmermann.md`).
@@ -87,43 +90,45 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - **Connected-cluster search** (`SupportSearch`): the depth-first search that `method="connected_cluster"` selects.
   It grows supports through the unsatisfied rows of a check matrix `H`.
   It finds light binary or symplectic words outside the row space of an excluded matrix `G`, or light vectors with a given syndrome.
-  Unless enumerating is cheap, `"auto"` runs it for most distance searches of quantum codes and circuits (steps 2 and 3 of [Choosing a method](problems.md#choosing-a-method) in `problems.md`).
+  Unless enumerating is cheap, `"auto"` runs it for most distance searches of quantum codes and circuits (steps 2 and 3 of [Choosing a method](problems.md#sec-choosing-a-method) in `problems.md`).
 - **Automorphism:** in this package, a permutation of the coordinates of a search that maps the words it searches, and those it excludes, onto themselves.
   The public functions take only permutation automorphisms of a code, which permute qudits and apply no single-qudit gates, and lift them to the coordinates of a Pauli problem ([Pauli weight as Hamming weight](brouwer_zimmermann.md#sec-pauli-weight) in `brouwer_zimmermann.md`).
   An automorphism of a quantum code can also apply single-qudit Clifford gates (see `get_transversal_automorphism_group` in `qldpc.circuits`).
   In a Pauli problem, exchanging the coordinates of one qubit applies a single-qubit Clifford gate, but qLDPC never supplies such permutations.
 - **Scan:** the enumeration of the combinations of rows of each search basis, layer by layer, a layer holding the combinations of a given number of rows.
   A scan names each combination by its **support**, the set of its row indices ([Packed enumeration with pivot-column deletion](brouwer_zimmermann.md#sec-packed-enumeration) in `brouwer_zimmermann.md`); elsewhere, as in a connected-cluster search, the support of a word is the set of its nonzero coordinates.
-  Counts have their own scan, in `_counting/scan.py`, and the Brouwer-Zimmermann distance and coset searches (see [The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`) use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
+  Counts have their own scan, in `_counting/scan.py`, and the Brouwer-Zimmermann distance and coset searches (see [The coset-leader search](problems.md#sec-coset-leader-search) in `problems.md`) use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
   Every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.
 - **Search by Hamming weight:** a Brouwer-Zimmermann coset search of `CosetLeaderSearch` that weighs its binary words by their Hamming weight, up to a fixed factor.
   The searches by physical weight are searches by Hamming weight, since they search the images of Pauli errors under the map `T` of [Pauli weight as Hamming weight](brouwer_zimmermann.md#sec-pauli-weight) in `brouwer_zimmermann.md`.
   The Hamming weight of the image of an error is twice the physical weight of the error.
-  The searches of X parts and of Z parts, into which `CosetLeaderSearch` splits a query by CSS weight on a CSS stabilizer state, are searches by Hamming weight too ([The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`).
+  The searches of X parts and of Z parts, into which `CosetLeaderSearch` splits a query by CSS weight on a CSS stabilizer state, are searches by Hamming weight too ([The coset-leader search](problems.md#sec-coset-leader-search) in `problems.md`).
   A search by CSS weight on a stabilizer state that is not CSS weighs a Pauli error by `max(|x|, |z|)`, where `x` and `z` are its X and Z parts, so it is not a search by Hamming weight.
   Of the coset searches, only the searches by Hamming weight can weigh words by their tails and skip completions by completion tables ([Coset searches](brouwer_zimmermann_code.md#sec-coset-searches) in `brouwer_zimmermann_code.md`).
 
+<a name="sec-layout"></a>
 ## Layout
 
 - `distances.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
 - `coset_leaders.py` is the public interface of the coset-leader search.
 - `min_weight_bounds.py` defines `MinWeightBound`, the answer of a coset-leader query for one syndrome.
-- `_auto.py` holds the parts of the automatic choice of a method, `method="auto"`, that compare the costs of the methods (see [Choosing a method](problems.md#choosing-a-method) in `problems.md`).
+- `_auto.py` holds the parts of the automatic choice of a method, `method="auto"`, that compare the costs of the methods (see [Choosing a method](problems.md#sec-choosing-a-method) in `problems.md`).
 - `_brouwer_zimmermann/` and `_connected_cluster/` hold the Brouwer-Zimmermann and connected-cluster searches.
   Each holds the distance search of its method, and the coset searches that answer the single and batch queries of the coset-leader search by that method.
   `_brute_force.py` holds exhaustive enumeration.
 - `_counting/` holds the word scan of the counts, the local Clifford gates of deformed counters, and the MacWilliams method.
 - `_information_sets/` holds what the scans of search bases share: basis families and their certificates, automorphism families, completion tables, and the step from one support of a layer to the next.
-  The Brouwer-Zimmermann searches and the counts use it, and the connected-cluster search a few of its functions (see [How the modules depend on each other](#how-the-modules-depend-on-each-other)).
+  The Brouwer-Zimmermann searches and the counts use it, and the connected-cluster search a few of its functions (see [How the modules depend on each other](#sec-layers)).
 - `_cosets.py` holds the parts that the coset searches of both methods share.
   `coset_leaders.py` and `_connected_cluster/sparse_checks.py` also use them.
-- `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see [Searching one sector of a CSS code](problems.md#searching-one-sector-of-a-css-code) in `problems.md`).
+- `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see [Searching one sector of a CSS code](problems.md#sec-one-sector) in `problems.md`).
 - `_tuning.py` holds the settings of the searches.
 - `_threads.py` runs the work items of a search, or the blocks of a batch of queries, on several threads.
   For the fault lister of `src/qldpc/circuits/certification/`, it also yields the outputs of work items in order on the calling thread.
 - `_code_matrices.py` holds the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
   Modules elsewhere in qLDPC use some of its helpers, such as `infer_field`, with which the code constructors in `src/qldpc/codes/common.py` find the field of rows given in lists or tuples.
 
+<a name="sec-where-to-look"></a>
 ## Where to look
 
 | To change… | Look in (this directory) |
@@ -160,6 +165,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | Bit packing, bit counts, row reduction, or binary products over GF(2), packed or not, which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
+<a name="sec-layers"></a>
 ## How the modules depend on each other
 
 From the top:
@@ -189,6 +195,7 @@ Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed li
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
 
+<a name="sec-tuning"></a>
 ## Tuning
 
 A value that a search reads when it starts, and that changes how long the search takes or how much memory it uses but no result that it guarantees, is a field of `SearchTuning` in `_tuning.py`, unless its best value does not depend materially on the user, the code, or the machine (below).
@@ -226,11 +233,12 @@ They are not arguments of public functions, whose arguments say what to compute 
 - If the implementation cannot safely support a field's full range, narrow it in the field's metadata, and in the `narrowed` table of `test_tunings_are_validated` in `_tuning_test.py`, rather than adding code for unsupported values.
   A field whose default is `None`, such as `num_threads`, also accepts `None`.
 
+<a name="sec-threads"></a>
 ### Threads
 
 A BZ distance search scans each costly layer of a search basis on `num_threads` threads, which share one copy of the completion tables of that basis ([Behavior spanning files](brouwer_zimmermann_code.md#sec-cross-file-behavior) in `brouwer_zimmermann_code.md`).
 A connected-cluster distance search searches each costly weight limit on `num_threads` threads, which give the same witness and count of states as a search on one thread (Section 3.11 of `connected_cluster.md`).
-With either method, the batch queries of `CosetLeaderSearch`, `find_first_not_within_max_weight` and `get_min_weights`, move the rest of a costly batch to `num_threads` threads ([The coset-leader search](problems.md#the-coset-leader-search) in `problems.md`).
+With either method, the batch queries of `CosetLeaderSearch`, `find_first_not_within_max_weight` and `get_min_weights`, move the rest of a costly batch to `num_threads` threads ([The coset-leader search](problems.md#sec-coset-leader-search) in `problems.md`).
 A `CosetLeaderSearch` fixes its number of threads when it is built.
 By default, `num_threads` is `None`, which takes the value of the environment variable `QLDPC_NUM_THREADS` when qLDPC was imported, if it was set, and otherwise `numba.config.NUMBA_NUM_THREADS`.
 `QLDPC_NUM_THREADS` is the recommended control, and must be a positive integer.
@@ -243,8 +251,9 @@ The docstring of `src/qldpc/_num_threads.py` gives the other warnings.
 Programs that run searches in several processes or threads at once should keep each search on one thread, since each search would otherwise start a thread for each CPU; the row on cores of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) says how, in pools of workers and in containers.
 Neither `QLDPC_NUM_THREADS` nor `num_threads` limits BLAS threads, which follow the BLAS library's own variables, such as `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS` (Accelerate on macOS), or `OMP_NUM_THREADS`.
 Exhaustive enumeration, single coset queries, and counts run on one thread, except the BZ distance search with which a count may find its default weight.
-[Working here](#working-here) gives the rules for code that threads run, and the tests that check them.
+[Working here](#sec-working-here) gives the rules for code that threads run, and the tests that check them.
 
+<a name="sec-compiled-code"></a>
 ## Compiled code
 
 Most searches spend their time in functions that numba compiles.
@@ -265,6 +274,7 @@ Tests in `src/qldpc/_compiled_code_rules_test.py` check further rules, and the n
 Set `QLDPC_DISABLE_COMPILATION=1` before importing qLDPC to run all of this code as plain Python while debugging.
 It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages that use numba, such as galois, as plain Python, which makes them slow too.
 
+<a name="sec-working-here"></a>
 ## Working here
 
 - Tests sit beside their modules, and each module must be fully covered by its own test file.
