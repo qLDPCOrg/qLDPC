@@ -5,8 +5,8 @@
 A guide labels a section with an anchor on the line above the section's heading, and code and
 documents cite the section by that label, as the writing standard describes.  A guide is labeled
 once it has a label, and only citations of labeled guides are checked, apart from two kinds: a
-link by the ``:guide:`` role of the documentation or by GitHub URL must name a file that exists,
-and a path whose fragment is a label must name a guide.
+link by the ``:guide:`` or ``:repo:`` role of the documentation or by GitHub URL must name a file
+that exists, and a path whose fragment is a label must name a guide.
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ _LABEL = re.compile(r"sec-[a-z0-9]+(?:-[a-z0-9]+)*")
 _URL = re.compile(r"github\.com/qLDPCOrg/qLDPC/blob/main/([\w./-]+\.md)(?:#([\w-]+))?")
 # a :guide: role, with or without an explicit title, with its path from src/qldpc/
 _ROLE = re.compile(r":guide:`(?:[^`<]*<)?([\w./-]+\.md)(?:#([\w-]+))?>?`")
+# a :repo: role, with or without an explicit title, with its path from the root of the repository
+_REPO_ROLE = re.compile(r":repo:`(?:[^`<]*<)?([\w./-]+\.md)(?:#([\w-]+))?>?`")
 # a relative path or a bare file name, as in a Markdown link or a comment
 _PATH = re.compile(r"(?<![\w./:-])([\w./-]*\.md)#([\w-]+)")
 # a link from a guide to one of its own sections
@@ -81,6 +83,7 @@ def test_broken_citations_are_found(
         "# guide.md#sec-kept, guide.md#kept, codes/guide.md#sec-gone, other.md#a-heading\n"
         "# :guide:`Kept <codes/guide.md#sec-gone>`, missing.md#sec-lost, :guide:`<guide.md#sec-kept>`\n"
         "# :guide:`Moved <codes/moved.md>`, :guide:`Moved <codes/moved.md#a-heading>`\n"
+        "# :repo:`src/qldpc/codes/guide.md#sec-kept`, :repo:`codes/guide.md#sec-kept`\n"
     )
     (tmp_path / "labels.rst").write_text('Labels look like ``<a name="sec-…"></a>``.\n')
     (tmp_path / "notes.rst").write_text(
@@ -100,6 +103,7 @@ def test_broken_citations_are_found(
             ("src/qldpc/codes/module.py", ":guide:`<guide.md#sec-kept>`"),
             ("src/qldpc/codes/module.py", ":guide:`Moved <codes/moved.md#a-heading>`"),
             ("src/qldpc/codes/module.py", ":guide:`Moved <codes/moved.md>`"),
+            ("src/qldpc/codes/module.py", ":repo:`codes/guide.md#sec-kept`"),
             ("src/qldpc/codes/module.py", "missing.md#sec-lost"),
             ("src/qldpc/codes/module.py", "src/qldpc/codes/guide.md#kept"),
             ("src/qldpc/codes/module.py", "src/qldpc/codes/guide.md#sec-gone"),
@@ -140,14 +144,14 @@ def _citations(path: pathlib.Path) -> list[tuple[str | None, str, str]]:
     """
     text = path.read_text(encoding="utf-8")
     citations: list[tuple[str | None, str, str]] = []
-    for directory, pattern in ((_ROOT, _URL), (_SOURCE, _ROLE)):
+    for directory, pattern in ((_ROOT, _URL), (_SOURCE, _ROLE), (_ROOT, _REPO_ROLE)):
         for match in pattern.finditer(text):
             target, fragment = match.groups()
             guide = _get_file(directory / target)
             if guide is None or fragment is not None:
                 citations.append((guide, fragment or "", match.group()))
     # paths in URLs and roles start from fixed directories, so they are not read again as paths
-    text = _ROLE.sub("", _URL.sub("", text))
+    text = _REPO_ROLE.sub("", _ROLE.sub("", _URL.sub("", text)))
     for match in _PATH.finditer(text):
         target, fragment = match.groups()
         guide = _resolve(path, target)
