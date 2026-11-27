@@ -54,11 +54,12 @@ Where documentation belongs
 * Keep each page focused on one topic or task, and small enough to read whole; split a page that outgrows that.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * Write each statement next to what it describes, and point references from the specific to the general, so that a change to code or to a document stays local.
-  A docstring, comment, or guide explains its object without relying on the code or documents that extend or use it, and does not list them, though it may name one as an example, and catalogs such as the library map may list them.
+  A docstring, comment, or guide explains its object without relying on the code or documents that extend or use it.
+  It does not list them, though it may name one as an example; catalogs such as the library map may list them.
   In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
-  Code cites each guide section that it relies on once, where that code is documented, by the label that the guide gives that section: an anchor ``<a name="sec-…"></a>`` on the line above the section's heading, as in ``brouwer_zimmermann.md#sec-completion-tables``.
-  The citation may state in a clause what the section proves, and a change that cites a section without a label adds one.
-  Guides name code no more finely than its modules, public names, and settings, such as tuning fields and environment variables.
+  Code and documents cite a guide section by the label that the guide gives that section, an anchor ``<a name="sec-…"></a>`` on the line above its heading, as in ``brouwer_zimmermann.md#sec-completion-tables``; a change that cites a section without a label adds one.
+  Each function, class, or module that relies on a guide section cites it once, in its docstring or in the comment on the code that relies on it, and may state in a clause what the section proves; rendered text, such as a public docstring, links to the section.
+  Guides name code no more finely than its modules, public names, and settings, such as the fields of ``SearchTuning`` and environment variables.
   When a rule or check ties code to a document, it requires the code to point to the document, rather than the document to list the code.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
   Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
