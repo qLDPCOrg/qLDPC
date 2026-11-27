@@ -613,7 +613,8 @@ def _find_first_not_within_max_weight(
     and leaves the lightest word that it weighed for that syndrome in ``best``.  Otherwise it stops
     once the work of this call reaches ``max_work``, or after the last syndrome.  Threads run it at
     once, so no two calls that run at once may share ``best`` or ``planning``, whose cached stopping
-    steps it writes (Section 4.1).
+    steps it writes (Section 4.1).  It runs without the global interpreter lock, and keeps the rules
+    on threads of ``brouwer_zimmermann_code.md#sec-requirements``.
 
     Returns:
         If the search found a syndrome whose coset has no word within ``max_weight``, the index of
@@ -838,7 +839,8 @@ def _find_min_weights(
     floor of each syndrome in ``floors``, and with ``weights``, into whose entry ``i`` the search
     writes the weight of syndrome ``i``.  Each call has its own ``best``, writes only ``weights``,
     and caches no stopping steps, so calls that run at once may share every argument but
-    ``weights``.
+    ``weights``.  It runs without the global interpreter lock, and keeps the rules on threads of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
 
     Returns:
         The number of syndromes searched: all of them, or those up to the first at which the work of

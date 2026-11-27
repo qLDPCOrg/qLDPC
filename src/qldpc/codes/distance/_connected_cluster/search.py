@@ -1104,6 +1104,9 @@ def _search_supports(
     first call if it has one, and otherwise that of the second, and the call counts the states of
     the first, and also those of the second if the first has no witness.
 
+    The search runs without the global interpreter lock, and keeps the rules on threads of
+    ``connected_cluster.md#sec-requirements``.
+
     Args:
         check_starts: Where the symbols of each check start in ``check_symbols``: check ``c`` is
             flipped by the symbols ``check_symbols[check_starts[c] : check_starts[c + 1]]``.

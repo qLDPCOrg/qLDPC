@@ -117,10 +117,10 @@ This space is the whole stabilizer group, of dimension `n`, exactly when `rank(W
 
 By default, each search of the oracle is a Brouwer-Zimmermann search of the cosets of a binary code, which [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md) describes, with the improvements that it uses for cosets.
 When a high threshold makes a search costly, the oracle may search with another family of information sets that it expects to take less work.
-Section 4.4 of [brouwer_zimmermann_code.md](../../codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models) says when, from the expected work that the field `coset_route_minimum_work` of the search tuning sets.
+Section 4.4 of [brouwer_zimmermann_code.md](../../codes/distance/brouwer_zimmermann_code.md#sec-heuristics) says when, from the expected work that the field `coset_route_minimum_work` of the search tuning sets.
 The oracle builds these families once for each cached search (see `CSS_SEARCH_CACHE_SIZE` and `PAULI_SEARCH_CACHE_SIZE` in `qldpc.codes.distance._tuning`).
 Another family can change the error that the oracle returns, and the lower bound that it gives, but never whether it finds an error of weight at most the threshold.
-The costliest of these searches also skip errors that tables of bounds prove to weigh more than the threshold ([Section 3.9](../../codes/distance/brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)), which can change the error and the lower bound in the same way.
+The costliest of these searches also skip errors that tables of bounds prove to weigh more than the threshold ([Skipping completions by completion tables](../../codes/distance/brouwer_zimmermann.md#sec-completion-tables)), which can change the error and the lower bound in the same way.
 So the `output_pauli` and `residual_weight_lower_bound` of a counterexample can change between versions of qLDPC when the queries that find it are costly, while the verdict and the smallest violating fault do not.
 The thresholds of certifications are usually small, so their searches rarely cost that much, but the maximum weights of the residual-weight estimates of `qldpc.experimental` often are not.
 
@@ -176,7 +176,7 @@ So one could list the class codewords by choosing every independent set of `m - 
 For `q` classes, there are about `q^{m-2} / (m-2)!` such sets for each start class.
 When each flag bit is set by few classes, nearly none of them has such a later class, and choosing them all is out of reach for fault weights of four or five on circuits with tens of thousands of classes.
 The **walk by shared flags** visits far fewer sets of classes.
-It adds to the classes chosen so far only a class that shares a flag bit with the sum of their flags, as the depth-first search of [connected_cluster.md](../../codes/distance/connected_cluster.md#33-the-depth-first-search) does for the codewords of a sparse code.
+It adds to the classes chosen so far only a class that shares a flag bit with the sum of their flags, as the depth-first search of [connected_cluster.md](../../codes/distance/connected_cluster.md#sec-depth-first-search) does for the codewords of a sparse code.
 In its terms, the classes are the variables, and the flag bits are the checks.
 
 For a set `A` of classes, let `σ(A)` be the sum of their flags, and `f(c)` the flags of a class `c`.

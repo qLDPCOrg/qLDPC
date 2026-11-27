@@ -281,7 +281,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   Code that threads run also calls no numba-parallel code, such as some functions of galois, since that can abort the process (see `run_work_items` in `_threads.py`).
 - While each test of this package runs, the fixture `check_code_on_threads` of `conftest.py` fails it if its threads read the tuning through `get_tuning()` or call numba-parallel code from Python.
   Review checks such calls on paths that tests do not run on threads.
-  `_thread_rules_test.py` checks that each entry point compiled with `nogil=True` is named in Section 5 of the guide of its method, `brouwer_zimmermann_code.md` or `connected_cluster.md`.
+  `_thread_rules_test.py` checks that the docstring of each entry point compiled with `nogil=True` cites the correctness requirements of the guide of its method, `brouwer_zimmermann_code.md` or `connected_cluster.md`.
   `test_nothing_asks_numba_for_parallel_code` of `src/qldpc/_compiled_code_rules_test.py` checks that no function of qLDPC is compiled with numba's `parallel` option.
   `test_always_compiled_functions_use_nothing_from_outside_qldpc` of the same file checks that the functions marked `@always_compiled` use no names imported from packages other than qLDPC, NumPy, and numba, such as functions of galois.
   Four tests on threads run with every array of their search read-only, through `check_shared_arrays_on_threads` or `shared_arrays_read_only` of `conftest.py`.

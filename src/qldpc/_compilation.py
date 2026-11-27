@@ -74,8 +74,9 @@ A subpackage other than the distance and certification packages may compile entr
 
 - It has a guide that states the requirements on threads of its entry points and names the tests
   that check them.
-- It has a test that checks that the guide names each entry point that
-  ``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds in the subpackage.
+- It has a test that checks that the docstring of each entry point that
+  ``get_entry_points_without_the_lock`` of ``qldpc/conftest.py`` finds in the subpackage cites the
+  section of the guide that states those requirements, by its label.
   ``qldpc/codes/distance/_thread_rules_test.py`` has such a test.
 - If it starts threads, it starts them through ``run_work_items`` of
   ``qldpc/codes/distance/_threads.py`` or the helpers there.  The subpackage's ``conftest.py`` then

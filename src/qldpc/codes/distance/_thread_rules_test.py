@@ -2,13 +2,14 @@
 
 """Check the rules on code that threads run, which tests of results can miss.
 
-Section 5 of ``brouwer_zimmermann_code.md`` and ``connected_cluster.md``, and the docstring of
-``qldpc/_compilation.py``, state the rules.  An entry point compiled with ``nogil=True`` runs on
-several threads at once, without Python's global interpreter lock, and so does every compiled
-function that it calls.  A race between these threads would rarely change a result that tests
-compare.  So a test here finds each such entry point of this package in the code, and checks that
-Section 5 of its method's guide names it.  ``test_nothing_asks_numba_for_parallel_code`` of
-``qldpc/_compiled_code_rules_test.py`` keeps qLDPC's own compiled code from being numba-parallel.
+The correctness requirements of ``brouwer_zimmermann_code.md`` and ``connected_cluster.md``, and
+the docstring of ``qldpc/_compilation.py``, state the rules.  An entry point compiled with
+``nogil=True`` runs on several threads at once, without Python's global interpreter lock, and so
+does every compiled function that it calls.  A race between these threads would rarely change a
+result that tests compare.  So a test here finds each such entry point of this package in the code,
+and checks that its docstring cites the requirements of its method's guide.
+``test_nothing_asks_numba_for_parallel_code`` of ``qldpc/_compiled_code_rules_test.py`` keeps
+qLDPC's own compiled code from being numba-parallel.
 
 While every test of this package runs, its fixture ``check_code_on_threads`` of ``conftest.py``
 checks that the Python code that threads run calls no numba-parallel code and reads the tuning only
@@ -19,6 +20,7 @@ that fixture, and ``test_read_only_arrays_are_restored_or_reported`` checks how
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import threading
 import warnings
@@ -35,26 +37,25 @@ from . import _threads, _tuning
 from . import conftest as distance_conftest
 
 
-def test_entry_points_without_the_lock_are_named_in_section_5_of_their_guides() -> None:
-    """Section 5 of the guide of each entry point's method names it.
+def test_entry_points_without_the_lock_cite_the_requirements_of_their_guides() -> None:
+    """The docstring of each entry point cites the correctness requirements of its method's guide.
 
     The entry points are those of this package, whose guides state the rules on threads.  An entry
-    point in ``_brouwer_zimmermann/`` or ``_connected_cluster/`` is named in its method's guide, and
-    any other in either guide.
+    point in ``_brouwer_zimmermann/`` or ``_connected_cluster/`` cites its method's guide, and any
+    other either guide.
     """
-    guides = {
-        method: _get_section_5(Path(__file__).with_name(guide))
-        for method, guide in (
-            ("brouwer_zimmermann", "brouwer_zimmermann_code.md"),
-            ("connected_cluster", "connected_cluster.md"),
-        )
+    citations = {
+        "brouwer_zimmermann": "brouwer_zimmermann_code.md#sec-requirements",
+        "connected_cluster": "connected_cluster.md#sec-requirements",
     }
     entry_points = conftest.get_entry_points_without_the_lock(Path(__file__).parent)
     assert entry_points
     for module, name in entry_points:
-        methods = [method for method in guides if f"._{method}." in module] or list(guides)
-        assert any(f"`{name}`" in guides[method] for method in methods), (
-            f"Section 5 of no guide of {methods} names {module}.{name}"
+        function = getattr(importlib.import_module(module), name)
+        docstring = inspect.getdoc(getattr(function, "py_func", function)) or ""
+        methods = [method for method in citations if f"._{method}." in module] or list(citations)
+        assert any(citations[method] in docstring for method in methods), (
+            f"{module}.{name} cites the requirements of no guide of {methods}"
         )
 
 
@@ -133,13 +134,3 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
     slotted = type("Slotted", (), {"__slots__": (), "__module__": "qldpc"})()
     with pytest.raises(TypeError, match=r"roots\[0\] has no __dict__"):
         distance_conftest.shared_arrays_read_only(slotted).__enter__()
-
-
-####################################################################################################
-# helpers
-
-
-def _get_section_5(guide: Path) -> str:
-    """The text of Section 5 of a guide."""
-    text = guide.read_text(encoding="utf-8")
-    return text.split("\n## 5.", 1)[1].split("\n## ", 1)[0]

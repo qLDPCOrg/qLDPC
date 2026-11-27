@@ -158,7 +158,8 @@ def scan_set_items(
 
     The scan runs without Python's global interpreter lock, so that threads can scan the ranges of
     a layer at once, each with its own ``support`` and ``prefixes``.  The other arguments and the
-    results are those of ``scan_set``.
+    results are those of ``scan_set``.  The scan keeps the rules on threads of
+    ``brouwer_zimmermann_code.md#sec-requirements``.
     """
     return _scan_set_chunk(
         generators,

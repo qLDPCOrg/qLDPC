@@ -60,8 +60,8 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
 2. Otherwise, a search of binary words that excludes no nonzero word, as for a classical code, takes the BZ method, and so does every search of a function that takes generators, since it has no checks.
    A connected-cluster search can be much slower than BZ on classical codes whose checks are only moderately sparse.
 3. Every other search, as of a quantum code or of the faults of a circuit, runs `search_by_cost` in `_auto.py`.
-   It advances a connected-cluster search for a witness, a nontrivial word, through `ConnectedClusterSearch`, one weight limit at a time, as [Section 3.6 of connected_cluster.md](connected_cluster.md#36-from-a-search-to-the-distance) describes.
-   It counts work in BZ candidate/set evaluations ([Section 2.5 of brouwer_zimmermann.md](brouwer_zimmermann.md#25-the-stopping-certificate)), a state being `connected_cluster_state_evaluations` of them.
+   It advances a connected-cluster search for a witness, a nontrivial word, through `ConnectedClusterSearch`, one weight limit at a time, as [Section 3.6 of connected_cluster.md](connected_cluster.md#sec-search-to-distance) describes.
+   It counts work in BZ candidate/set evaluations ([Section 2.5 of brouwer_zimmermann.md](brouwer_zimmermann.md#sec-stopping-certificate)), a state being `connected_cluster_state_evaluations` of them.
    The expected work of a limit is the work that the search has spent plus the predicted work of that limit.
    - In its free phase, the search runs on until the expected work of its next limit exceeds `auto_free_work`, and its result is the answer if it finishes first.
      Below that, fixed costs that the estimates leave out, such as setup, dominate the costs that a switch would compare.
@@ -72,7 +72,7 @@ The rule aims to avoid a method that is very slow on a search, not to find the f
      Otherwise, its shared upper bound `U`, the weight of a nontrivial word that it has found or the caller's upper bound if that is less, caps the connected-cluster search, which then stops once its lower bounds reach `U`.
      The search of a sector can hold a lighter witness from its setup, which joins `U` only after the probe advances that search.
    - Before each limit whose expected work exceeds `auto_free_work`, starting with the limit that ended the free phase, `_should_switch` may switch to a BZ search with the full tuning and the upper bound `U`.
-     The level of a limit is the weight that it certifies, one weight divisor above the limit ("Weight divisor" in [Section 3.6 of connected_cluster.md](connected_cluster.md#36-from-a-search-to-the-distance)).
+     The level of a limit is the weight that it certifies, one weight divisor above the limit ("Weight divisor" in [Section 3.6 of connected_cluster.md](connected_cluster.md#sec-search-to-distance)).
      The search switches if its spent and projected work to certify the level of its next limit exceeds the estimated work of BZ.
      Otherwise, it switches if its spent and projected work to reach `U` exceeds that of BZ, but only while the search of its next limit grows faster per unit of weight than BZ's would at the level of that limit.
      The projection to `U` extrapolates that growth over every limit below `U`, so it calls for a switch only while the growth test agrees.
