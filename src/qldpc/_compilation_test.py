@@ -494,8 +494,11 @@ def test_the_environment_variable_disables_compilation(monkeypatch: pytest.Monke
     assert run_python(code, env={"QLDPC_DISABLE_COMPILATION": "1"}).strip() == "function"
 
 
-def test_editing_a_callee_in_another_subpackage_recompiles_its_caller(tmp_path: Path) -> None:
-    """Numba alone would serve the outdated caller, since it checks only the caller's own file."""
+def test_a_later_process_loads_compiled_code_until_a_callee_changes(tmp_path: Path) -> None:
+    """A later process loads a compiled caller, and compiles it again after its callee changes.
+
+    Numba's own cache would serve the outdated caller, since it checks only the caller's own file.
+    """
     package = tmp_path / "package"
     (package / "other").mkdir(parents=True)
     (package / "__init__.py").write_text("")
@@ -507,13 +510,15 @@ from qldpc import _compilation
 _compilation._PACKAGE_DIRECTORY = pathlib.Path({str(package)!r})
 sys.path.insert(0, {str(tmp_path)!r})
 from package import caller
-print(caller.add_to(1))
+value = caller.add_to(1)
+stats = caller.add_to.stats
+print(value, sum(stats.cache_hits.values()), sum(stats.cache_misses.values()))
 """
     results = []
-    for increment in (1, 10):
+    for increment in (1, 1, 10):
         (package / "other" / "callee.py").write_text(_CALLEE.format(increment=increment))
-        results.append(int(run_python(code, env={"NUMBA_CACHE_DIR": str(tmp_path / "cache")})))
-    assert results == [2, 11]
+        results.append(run_python(code, env={"NUMBA_CACHE_DIR": str(tmp_path / "cache")}).split())
+    assert results == [["2", "0", "1"], ["2", "1", "0"], ["11", "0", "1"]]
 
 
 def test_compiled_module_tests_are_those_of_modules_with_compiled_functions(
