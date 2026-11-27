@@ -54,16 +54,19 @@ Where documentation belongs
 * Keep each page focused on one topic or task, and small enough to read whole; split a page that outgrows that.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * Write each statement next to what it describes, and point references from the specific to the general, so that a change stays local.
-  A docstring, comment, or guide explains its object without relying on, or listing, the code or documents that extend or use it, except to name one as an example; catalogs, such as the library map and the guides to workarounds, may list them.
-  When a rule or check ties code to a document, the code points to the document, not the reverse.
-  A list that must be complete is generated from the code, as AutoAPI lists the public symbols; a check may still require a table of public behavior that the code cannot derive, such as which methods solve which problems, to cover each public item.
-  Refer to qLDPC's code and documents by name or label, never by line or section number.
-* Outside ``src/qldpc/experimental/``, code and documents cite a section of a guide by its label, a name ``sec-…`` set by an anchor ``<a name="sec-…"></a>`` on the line above the section's heading, as in ``brouwer_zimmermann.md#sec-completion-tables``.
-  A change that cites an unlabeled section labels it.
-  Rendered text, such as a public docstring, links to the section with the label as fragment.
-* Outside ``src/qldpc/experimental/``, only the guides that explain how a package's code works, such as those of ``codes/distance/`` and ``circuits/certification/``, give correctness arguments for that code, such as why a bound holds.
-  Each function, class, or module that relies on a section of such a guide, or that the section explains, cites the section once, in its docstring or in a comment on the code concerned, and may state in a clause what the section proves.
-  These guides name code no more finely than its modules, its public API as the :doc:`code standard <code>` defines it, and its settings, such as environment variables and the fields of ``SearchTuning`` in ``codes/distance/``.
+  A docstring, comment, or guide explains its object without relying on the code or documents that extend or use it.
+  It names none of them except as an example; the library map and the guides to workarounds may list them.
+  A rule or check that ties code to a document requires the code to point to the document, not the reverse.
+  A hand-written map of code, such as the library map or a README's map of modules, is selective, and no check requires it to be complete.
+  A list that must be complete, such as a reference of public items or settings, is generated where a standard tool can generate it, as AutoAPI lists the public symbols; otherwise a check requires it to cover each item.
+* Refer to qLDPC's code and documents by name or label, never by line or section number.
+  Code and documents cite a section of a Markdown guide by its label, as in ``brouwer_zimmermann.md#sec-completion-tables``.
+  The label is set by an anchor ``<a name="sec-…"></a>`` on the line above the section's heading, and a change that cites an unlabeled section labels it.
+  Rendered text, such as a public docstring, links to the label through the ``:guide:`` role; ``.rst`` documents keep their Sphinx labels, cited with ``:ref:``.
+* Where a guide explains how a package's code works, as those of ``codes/distance/`` and ``circuits/certification/`` do, that guide, not the code, gives the correctness arguments for that code, such as why a bound holds.
+  Each function, class, or module that relies on a section of such a guide, or that the section explains, cites the section once, or at each of its steps that relies on it.
+  A citation sits in the docstring or in a comment on the step, and may state in a clause what the section proves.
+  Such a guide names the package's code no more finely than its modules, its public API as the :doc:`code standard <code>` defines it, and its settings, such as environment variables and the fields of ``SearchTuning`` in ``codes/distance/``.
   To find the code that such a guide explains, search for the guide's labels.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
   Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
@@ -71,7 +74,6 @@ Where documentation belongs
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
 * After changing a notebook example, refresh its saved outputs by executing the entire canonical notebook in an offline, editable installation.
-* Keep README and the library map selective.
 * When a public limitation changes, update the relevant function or class docstring and every README or guide that repeats it in the same pull request.
 
 .. _writing-notebooks:
