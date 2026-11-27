@@ -2,12 +2,12 @@
 
 This guide lists the code in qLDPC that exists only because of a bug of [numba](https://github.com/numba/numba), with one section for each bug, and says how to remove the code once numba is fixed.
 
-Each site carries a marker that cites its section by the label above the section's heading, so `git grep "TEMPORARY until"` lists every site, apart from passages of docstrings that describe a workaround, which the section's steps name.
+Each site carries a marker that cites its section by its label, the `sec-…` name of the anchor above the section's heading, so `git grep "TEMPORARY until"` lists every site, apart from passages of docstrings that describe a workaround, which the section's steps name.
 A function or class with a docstring that the migration deletes has the marker right after its docstring's summary line.
 Anything else that the migration deletes has the marker as a comment above it:
 
 ```python
-# TEMPORARY until <trigger>: see numba_workarounds.md#sec-<label>.
+# TEMPORARY until <trigger>: see numba_workarounds.md#<label>.
 ```
 
 A trigger holds once qLDPC's `pyproject.toml` requires a numba release that does what it says.

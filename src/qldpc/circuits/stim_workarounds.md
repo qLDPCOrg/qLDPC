@@ -3,12 +3,12 @@
 This guide lists the code in qLDPC that exists only because a path of [Stim](https://github.com/quantumlib/Stim) is slow, with one section for each path, and says how to remove the code once Stim is fast.
 Algorithmic choices, ordinary uses of Stim's API, and caches that would stay useful do not belong here.
 
-Each site carries a marker that cites its section by the label above the section's heading, so `git grep "TEMPORARY until"` lists every site.
+Each site carries a marker that cites its section by its label, the `sec-…` name of the anchor above the section's heading, so `git grep "TEMPORARY until"` lists every site.
 A function that the migration deletes has the marker right after its docstring's summary line.
 Anything else that the migration deletes or changes has the marker as a comment above it:
 
 ```python
-# TEMPORARY until <trigger>: see circuits/stim_workarounds.md#sec-<label>.
+# TEMPORARY until <trigger>: see circuits/stim_workarounds.md#<label>.
 ```
 
 A trigger `stim>=X` holds once qLDPC's `pyproject.toml` requires Stim `X` or later; any other trigger is a behavior of Stim that its section's script checks.
