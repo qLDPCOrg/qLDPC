@@ -61,7 +61,7 @@ Where documentation belongs
   Apart from such checks, a rule or check that ties code to a document requires the code to point to the document, not the reverse.
 * Refer to qLDPC's code and documents by name or label, never by line or section number.
   Guides that explain a package's code are Markdown files in its directory; user documentation and the standards are reStructuredText under ``docs/source/``.
-  A Markdown guide labels a section with an anchor ``<a name="sec-…"></a>``, alone on the line above the section's heading, and code and documents cite the section by that label, as in ``brouwer_zimmermann.md#sec-completion-tables``.
+  A Markdown document, such as a guide or a README, labels a section with an anchor ``<a name="sec-…"></a>``, alone on the line above the section's heading, and code and documents cite the section by that label, as in ``brouwer_zimmermann.md#sec-completion-tables``.
   A change that cites an unlabeled section adds a label.
   In reStructuredText, such as a public docstring, a citation links through the ``:guide:`` role and the guide's path under ``src/qldpc/``, as in ``:guide:`codes/distance/brouwer_zimmermann.md#sec-completion-tables```; in Markdown, it is a relative link or a GitHub URL.
   Sections of ``.rst`` documents keep their Sphinx labels, cited with ``:ref:``.
