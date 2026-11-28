@@ -68,7 +68,8 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     signature = inspect.signature(search_supports)
 
     def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
-        num_checks.append(len(signature.bind(*args, **kwargs).arguments["check_starts"]) - 1)
+        check_tables = signature.bind(*args, **kwargs).arguments["check_tables"]
+        num_checks.append(len(check_tables.check_starts) - 1)
         return search_supports(*args, **kwargs)
 
     monkeypatch.setattr(search, "_search_supports", record)
@@ -174,7 +175,8 @@ def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
     signature = inspect.signature(search_supports)
 
     def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
-        num_cuts_per_query.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
+        cuts = signature.bind(*args, **kwargs).arguments["cuts"]
+        num_cuts_per_query.append(len(cuts.cut_capacities))
         return search_supports(*args, **kwargs)
 
     monkeypatch.setattr(search, "_search_supports", record)

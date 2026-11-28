@@ -37,18 +37,22 @@ from .._code_matrices import swap_pauli_halves
 from .._cosets import get_unit_syndrome_words, tabulate_singles, xor_selected, xor_selected_rows
 from .._tuning import MAX_VALUE
 from ..min_weight_bounds import MinWeightBound
-from .search import SupportSearch, _CutTables, _get_fixed_words, _search_supports
+from .search import (
+    SupportSearch,
+    _CheckTables,
+    _CutTables,
+    _get_fixed_words,
+    _search_supports,
+    _WorkItems,
+)
 from .sparse_checks import get_sparser_rows
 
 # The tables of the compiled batch queries: the packed columns of the map of syndromes to the
-# sparser checks, then the tables of their search that ``_search_supports`` reads, in its order,
-# with those of the checks and of the cuts each a tuple.  They are a plain tuple, whose type Numba
-# infers faster than that of a record at each call.
+# sparser checks, then the tables of their search that ``_search_supports`` reads, in its order.
+# They are a plain tuple, whose type Numba infers faster than that of a record at each call.
 _BatchTables = tuple[
     npt.NDArray[np.uint64],
-    tuple[
-        npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.uint64], npt.NDArray[np.uint64]
-    ],
+    _CheckTables,
     npt.NDArray[np.int64],
     npt.NDArray[np.int64],
     tuple[int, ...],
@@ -289,7 +293,7 @@ class ConnectedClusterCosetSearch:
         assert search._query_cuts is not None
         return (
             self._packed_map_columns,
-            search._check_tables[:],
+            search._check_tables,
             search._ranks,
             search._inverse_overlaps,
             _get_fixed_words(search._check_tables.symbol_masks.shape[1]),
@@ -383,7 +387,8 @@ def _get_min_weight(
         first_limit``, when it is ``first_limit``, which must then be at most ``max_weight``.
     """
     map_columns, check_tables, ranks, inverse_overlaps, fixed_words, restrict, cuts = tables
-    check_starts, check_symbols, symbol_masks, test_columns = check_tables
+    check_starts, check_symbols = check_tables.check_starts, check_tables.check_symbols
+    symbol_masks = check_tables.symbol_masks
 
     # Map the syndrome to the sparser checks.  The map is invertible, so only the zero syndrome maps
     # to zero.
@@ -409,36 +414,25 @@ def _get_min_weight(
             return 1, 0
 
     # Every other word weighs at least two, so search no limit below two.
-    roots = np.full(1, -1, dtype=np.int64)
-    paths = np.empty((1, 0), dtype=np.int64)
     no_path = np.empty(0, dtype=np.int64)
+    items = _WorkItems(
+        np.full(1, -1, dtype=np.int64), np.empty((1, 0), dtype=np.int64), no_path, no_path
+    )
     num_states = 0
     for limit in range(max(2, first_limit), max_weight + 1):
-        # Name each table, since star-unpacking the tuples here makes queries a few percent slower.
         support, item_states, _, _, _ = _search_supports(
-            check_starts,
-            check_symbols,
-            symbol_masks,
-            test_columns,
-            roots,
-            paths,
+            check_tables,
+            items,
             0,
             ranks,
             inverse_overlaps,
             min(limit, len(ranks)),
-            no_path,
-            no_path,
             MAX_VALUE,
             mapped,
             fixed_words,
             True,
             restrict,
-            cuts[0],
-            cuts[1],
-            cuts[2],
-            cuts[3],
-            cuts[4],
-            cuts[5],
+            cuts,
         )
         num_states += item_states[0]
         if len(support):

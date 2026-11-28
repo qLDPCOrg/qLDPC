@@ -567,7 +567,8 @@ def test_cosets_of_classical_codes_are_cut_by_their_generators(
     signature = inspect.signature(search_supports)
 
     def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
-        num_cuts_per_search.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
+        cuts = signature.bind(*args, **kwargs).arguments["cuts"]
+        num_cuts_per_search.append(len(cuts.cut_capacities))
         return search_supports(*args, **kwargs)
 
     monkeypatch.setattr(cs, "_search_supports", record)
@@ -1702,6 +1703,17 @@ def get_read_only(array: npt.NDArray[Any]) -> npt.NDArray[Any]:
     return view
 
 
+def get_read_only_argument(argument: Any) -> Any:
+    """An argument of ``_search_supports`` with read-only views of its arrays, also in records."""
+    if isinstance(argument, np.ndarray):
+        return get_read_only(argument)
+    if hasattr(argument, "_asdict"):
+        return argument._replace(
+            **{name: get_read_only(value) for name, value in argument._asdict().items()}
+        )
+    return argument
+
+
 @dataclasses.dataclass(frozen=True)
 class ThreadedCase:
     """A problem for searches on threads, and the limits and switches with which they run.
@@ -1782,11 +1794,11 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
 
     # The roots and paths of the work items, which _search_on_threads makes for the threads, and the
     # paths and ends of chunks are not reached from the search.  So a call on threads, whose tables
-    # are read-only, gets read-only views of every array, so that numba compiles one version for
-    # every such call, and rejects a write to any of its arrays.
+    # are read-only, gets read-only views of every array, also of those in its records, so that
+    # numba compiles one version for every such call, and rejects a write to any of its arrays.
     def search_read_only(*args: Any) -> Any:
-        if not get_kernel_arguments(args)["symbol_masks"].flags.writeable:
-            args = tuple(get_read_only(arg) if isinstance(arg, np.ndarray) else arg for arg in args)
+        if not get_kernel_arguments(args)["check_tables"].symbol_masks.flags.writeable:
+            args = tuple(map(get_read_only_argument, args))
         return search_supports(*args)
 
     monkeypatch.setattr(cs, "_search_supports", search_read_only)
@@ -1850,7 +1862,7 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
     ``connected_cluster.md#sec-requirements``.
     """
     events: list[str] = []
-    tabulations: list[tuple[npt.NDArray[np.int64], tuple[npt.NDArray[np.int64], ...]]] = []
+    tabulations: list[tuple[npt.NDArray[np.int64], cs._CutTables]] = []
     get_overlap_cuts = cs._get_overlap_cuts
     search_supports = cs._search_supports
     run_work_items = _threads.run_work_items
@@ -1863,9 +1875,8 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
 
     def check_cuts(*args: Any) -> Any:
         ranks, tables = tabulations[-1]
-        # Argument 7 is the ranks, and the last six are the tables of the cuts.
-        assert args[7] is ranks
-        assert all(passed is table for passed, table in zip(args[-6:], tables, strict=True))
+        arguments = get_kernel_arguments(args)
+        assert arguments["ranks"] is ranks and arguments["cuts"] is tables
         return search_supports(*args)
 
     def record_threads(*args: Any, **kwargs: Any) -> None:
@@ -1942,7 +1953,7 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
     def record_chunks(*args: Any) -> tuple[npt.NDArray[np.int64], ...]:
         result = search_supports(*args)
         arguments = get_kernel_arguments(args)
-        if len(arguments["roots"]) and not arguments["frontier_depth"]:
+        if len(arguments["items"].roots) and not arguments["frontier_depth"]:
             chunks.append((arguments["max_states"], bool(len(result[3]))))
         return result
 
@@ -2042,7 +2053,7 @@ def test_an_error_in_a_thread_propagates(monkeypatch: pytest.MonkeyPatch) -> Non
 
     def fail_items(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], ...]:
         arguments = signature.bind(*args, **kwargs).arguments
-        if arguments["frontier_depth"] == 0 and len(arguments["roots"]):
+        if arguments["frontier_depth"] == 0 and len(arguments["items"].roots):
             raise RuntimeError("failed item")
         return search_supports(*args, **kwargs)
 
@@ -2106,7 +2117,7 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
         run_work_items(num_items, num_threads, gated_start, **kwargs)
 
     def gated_search(*args: Any, **kwargs: Any) -> Any:
-        roots = signature.bind(*args, **kwargs).arguments["roots"]
+        roots = signature.bind(*args, **kwargs).arguments["items"].roots
         if not later_first and len(roots) and roots[0] != 0:
             later_started.set()
             assert first_ran.wait(timeout=THREAD_TIMEOUT)
@@ -2171,7 +2182,7 @@ def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_l
 
     def gated_search(*args: Any) -> Any:
         arguments = get_kernel_arguments(args)
-        roots, frontier_depth = arguments["roots"], arguments["frontier_depth"]
+        roots, frontier_depth = arguments["items"].roots, arguments["frontier_depth"]
         if frontier_depth == 0 and len(roots):
             if roots[0] == 0 and ends_by == "error":
                 raise RuntimeError("failed item 0")
@@ -2248,7 +2259,7 @@ def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
 
     def interrupt(*args: Any) -> Any:
         on_main = threading.current_thread() is threading.main_thread()
-        searches_items = len(get_kernel_arguments(args)["roots"]) > 0
+        searches_items = len(get_kernel_arguments(args)["items"].roots) > 0
         if searches_items:
             if on_main:
                 main_started.set()
@@ -2306,21 +2317,18 @@ def run_search_supports(
     if fixed_words is None:
         fixed_words = cs._get_fixed_words(len(start_syndrome))
     return cs._search_supports(
-        *search._check_tables,
-        roots,
-        np.empty((len(roots), 0), dtype=np.int64),
+        search._check_tables,
+        cs._WorkItems(roots, np.empty((len(roots), 0), dtype=np.int64), resume, ends),
         0,
         search._ranks,
         search._inverse_overlaps,
         max_weight,
-        resume,
-        ends,
         max_states,
         start_syndrome,
         fixed_words,
         memoize,
         restrict_viable_symbols,
-        *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
+        cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
     )
 
 
