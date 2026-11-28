@@ -1,19 +1,46 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The step of the scans of search bases from one support of a layer to the next.
+"""Packed search bases, and the step of their scans from one support of a layer to the next.
 
-Splitting a layer into work items for threads relies on the lexicographic order of the steps ("Keep
-the scans of a layer splittable across threads" of ``brouwer_zimmermann_code.md#sec-requirements``).
-``advance_support`` also runs within nogil calls of threaded searches, so it must keep the rules for
-nogil code in the docstring of ``qldpc/_compilation.py``.
+``PackedBasis`` holds a search basis as compiled scans read it.  Splitting a layer into work items
+for threads relies on the lexicographic order of the steps ("Keep the scans of a layer splittable
+across threads" of ``brouwer_zimmermann_code.md#sec-requirements``).  ``advance_support`` also runs
+within nogil calls of threaded searches, so it must keep the rules for nogil code in the docstring
+of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations
+
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 
 from qldpc._compilation import always_compiled
+
+
+class PackedBasis(NamedTuple):
+    """A search basis, packed as compiled scans read it.
+
+    A word of the basis is an offset plus a sum of rows of the basis.  The record holds no offset:
+    ``advance_support`` keeps it in row 0 of ``prefixes``.  In a search with deleted pivots, the
+    packed rows omit the pivot columns, and a word weighs its packed tail plus one for each of its
+    rows below ``rank``, the rows that have pivots
+    (``brouwer_zimmermann.md#sec-packed-enumeration``).
+
+    Attributes:
+        rows: The packed rows, with shape ``(num_rows, num_words)``.
+        labels: The packed quotient labels of the rows, with shape ``(num_rows, num_label_words)``.
+            A word is eligible if the XOR of the labels of its rows is nonzero, or if the labels
+            have no words (``brouwer_zimmermann.md#sec-quotient-labels``).
+        rank: The number of leading rows that have pivots.
+        width: The number of packed words of the rows that a scan reads.
+    """
+
+    rows: npt.NDArray[np.uint64]
+    labels: npt.NDArray[np.uint64]
+    rank: int
+    width: int
 
 
 @always_compiled(inline=True)

@@ -10,7 +10,8 @@ of the scan, such as the best weight ``U`` of a distance search.
 ``brouwer_zimmermann.md#sec-completion-tables`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
 derive the bound, and the limit of each kind of scan.  ``select_completion_tables`` chooses the
 layers whose tables pay and builds them, ``get_table_bytes_within`` sizes tables within a limit on
-memory, and ``CompletionTables.build`` builds the tables of given search bases.
+memory, and ``CompletionTables.build`` builds the tables of a given search basis as a
+``CompletionTables``, a record that compiled code can take as one argument.
 
 Threads read shared tables at once (``brouwer_zimmermann.md#sec-completion-lookups`` and
 ``brouwer_zimmermann_code.md#sec-requirements``).  ``get_completion_bound`` and its helper
@@ -22,7 +23,7 @@ from __future__ import annotations
 
 import math
 import sys
-from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -41,8 +42,7 @@ _FIRST_BYTE_SHIFT, _BYTE_SHIFT_STEP = (0, 8) if sys.byteorder == "little" else (
 # completion tables
 
 
-@dataclass(frozen=True)
-class CompletionTables:
+class CompletionTables(NamedTuple):
     """Bounds on the completions by two more rows of the supports of every layer of one basis.
 
     The tables belong to the packed tails of one systematic basis, with its rows in the order in
@@ -52,6 +52,8 @@ class CompletionTables:
     of row ``offsets[b] + x`` of ``tables`` is the least weight of ``x + P_i + P_j`` on block ``b``
     over the pairs ``s <= i < j``, where ``x`` is the value of a tail on the block.
     ``brouwer_zimmermann.md#sec-completion-lookups`` says why the rows ``s`` are innermost.
+    ``tables`` holds exactly the bytes of these tables, and may be a slice of a larger array, such
+    as the ``out`` that ``build`` fills.
     """
 
     tables: npt.NDArray[np.uint8]

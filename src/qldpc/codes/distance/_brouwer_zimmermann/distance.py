@@ -69,6 +69,7 @@ from .._information_sets import (
     basis_families,
     certificates,
     completion_bounds,
+    support_stepping,
 )
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
 from . import affine_instance, affine_search
@@ -427,6 +428,7 @@ class _SectorSearch:
             and math.comb(self.dimension, weight) > self.num_threads * self.batch_size
         ):
             return self._scan_set_on_threads(index, weight, tables)
+        basis = self._get_packed_basis(index)
         support = np.zeros(weight, dtype=np.int64)
         prefixes = np.zeros((weight + 1, instance.generators.shape[2]), dtype=np.uint64)
 
@@ -434,19 +436,14 @@ class _SectorSearch:
         depth = 0
         while depth >= 0:
             self.best, depth, _, _, _ = affine_search.scan_set(
-                instance.generators[index],
-                instance.labels[index],
-                instance.ranks[index],
-                instance.widths[index],
+                basis,
                 support,
                 prefixes,
                 depth,
                 self.best,
                 self._scan_cutoff,
                 self.batch_size,
-                tables.tables,
-                tables.offsets,
-                tables.block_bits,
+                tables,
             )
             if self.best <= self.cutoff:
                 return False
@@ -465,15 +462,8 @@ class _SectorSearch:
         (``brouwer_zimmermann_code.md#sec-cross-file-behavior``, "Threads").  Returns False if the
         scan stopped at the cutoff.
         """
-        instance = self.instance
-        generators = instance.generators[index]
-        set_arguments = (
-            generators,
-            instance.labels[index],
-            instance.ranks[index],
-            instance.widths[index],
-        )
-        table_arguments = (tables.tables, tables.offsets, tables.block_bits)
+        basis = self._get_packed_basis(index)
+        generators = basis.rows
         items = _WorkItems(self.dimension, weight, self.num_threads)
         lock = threading.Lock()
         # Each thread holds the global interpreter lock between its chunks, so chunks that grow with
@@ -494,14 +484,14 @@ class _SectorSearch:
 
                 while depth >= 0 and not stop.is_set():
                     best, depth, _, _, _ = affine_search.scan_set_items(
-                        *set_arguments,
+                        basis,
                         support,
                         prefixes,
                         depth,
                         self.best,
                         self._scan_cutoff,
                         chunk_size,
-                        *table_arguments,
+                        tables,
                         last_item,
                     )
                     if best < self.best:
@@ -515,14 +505,14 @@ class _SectorSearch:
         # Compile the scan before the threads call it, so that the threads do not all wait behind
         # numba's compiler lock while one compiles it.  A scan from depth -1 returns at once.
         affine_search.scan_set_items(
-            *set_arguments,
+            basis,
             np.zeros(weight, dtype=np.int64),
             np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64),
             -1,
             self.best,
             self._scan_cutoff,
             chunk_size,
-            *table_arguments,
+            tables,
             items.get_item(0),
         )
 
@@ -534,6 +524,16 @@ class _SectorSearch:
             cumulative_weights=items.cumulative_weights,
         )
         return self.best > self.cutoff
+
+    def _get_packed_basis(self, index: int) -> support_stepping.PackedBasis:
+        """The set ``index``, with its rows, labels, rank, and width, as the scans read it."""
+        instance = self.instance
+        return support_stepping.PackedBasis(
+            instance.generators[index],
+            instance.labels[index],
+            instance.ranks[index],
+            instance.widths[index],
+        )
 
     def _select_completion_tables(
         self, index: int, weight: int

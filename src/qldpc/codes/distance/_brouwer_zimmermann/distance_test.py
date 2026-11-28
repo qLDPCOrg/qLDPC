@@ -1341,13 +1341,15 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
-        rows, width, tables, block_bits = args[0], args[3], args[10], args[12]
+        basis, tables = args[0], args[7]
         if scanned_index:
-            later_scans["with tables" if len(tables) else "without tables"] += 1
-        if len(tables):
+            later_scans["with tables" if len(tables.tables) else "without tables"] += 1
+        if len(tables.tables):
             returns_with_tables += returned_to_first_set
-            own = completion_bounds.CompletionTables.build(rows[:, :width], block_bits)
-            assert np.array_equal(tables, own.tables)
+            own = completion_bounds.CompletionTables.build(
+                basis.rows[:, : basis.width], tables.block_bits
+            )
+            assert np.array_equal(tables.tables, own.tables)
         return scan_set(*args)
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", mixing_select)
@@ -1443,7 +1445,7 @@ def test_searches_hold_the_tables_of_one_set_at_a_time(
     """A search frees the tables of one set before it builds the tables of another."""
     tune(**FORCED_TABLES)
     build = completion_bounds.CompletionTables.build
-    built: list[weakref.ref[completion_bounds.CompletionTables]] = []
+    built: list[weakref.ref[npt.NDArray[np.uint8]]] = []
 
     def checking_build(
         rows: npt.NDArray[np.uint64], block_bits: int
@@ -1451,7 +1453,7 @@ def test_searches_hold_the_tables_of_one_set_at_a_time(
         gc.collect()
         assert all(ref() is None for ref in built)
         tables = build(rows, block_bits)
-        built.append(weakref.ref(tables))
+        built.append(weakref.ref(tables.tables))
         return tables
 
     monkeypatch.setattr(completion_bounds.CompletionTables, "build", staticmethod(checking_build))
@@ -1528,8 +1530,8 @@ def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set_items(*args)
         counts = (int(result[2]), int(result[3]), int(result[4]))
-        lowered = bool(result[0] < args[7])
-        scans.append(ItemScan(threading.get_ident(), len(args[10]), counts, lowered))
+        lowered = bool(result[0] < args[4])
+        scans.append(ItemScan(threading.get_ident(), len(args[7].tables), counts, lowered))
         return result
 
     monkeypatch.setattr(affine_search, "scan_set_items", recording_scan)
@@ -1765,7 +1767,7 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set(*args)
         if result[0] <= cutoff and not witness_items:
-            witness_items.append(tuple(args[4][: items.length].tolist()))
+            witness_items.append(tuple(args[1][: items.length].tolist()))
         return result
 
     with monkeypatch.context() as patch, use_tuning(num_threads=1):
@@ -1895,7 +1897,7 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
             failed.set()
             raise ValueError("failed")
         # The scan from depth -1 before the threads start returns at once.
-        if args[6] >= 0:
+        if args[3] >= 0:
             scanning.set()
             assert failed.wait(timeout=THREAD_TIMEOUT)
         return scan_set_items(*args)
