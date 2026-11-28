@@ -176,11 +176,16 @@ FORCED_TABLES: dict[str, Any] = {
 }
 
 
-@pytest.mark.parametrize("chunk_size, seed", [(1, 0), (3, 1), (1 << 16, 2)])
+@pytest.mark.parametrize(
+    "chunk_size, seed, block_bits", [(1, 0, 16), (3, 1, 16), (1 << 16, 2, 16), (3, 1, 2)]
+)
 def test_counts_with_completion_tables_match_enumeration(
-    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int, seed: int
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int, seed: int, block_bits: int
 ) -> None:
-    """Steps that skip completions still count every word, also when they stop at every lookup."""
+    """Steps that skip completions still count every word, also when they stop at every lookup.
+
+    Blocks of two bits split the tails into tables of several blocks.
+    """
     selected: list[completion_bounds.CompletionTables] = []
     select = completion_bounds.select_completion_tables
 
@@ -191,10 +196,18 @@ def test_counts_with_completion_tables_match_enumeration(
         return tables
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", record)
-    tune(overlapping_minimum_work=0, scan_chunk_size=chunk_size, **FORCED_TABLES)
+    tune(
+        overlapping_minimum_work=0,
+        scan_chunk_size=chunk_size,
+        completion_bound_block_bits=block_bits,
+        **FORCED_TABLES,
+    )
     code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
     _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert selected
+    if block_bits == 2:
+        # ``offsets`` has an entry for each block, plus one.
+        assert any(len(tables.offsets) > 2 for tables in selected)
 
 
 @pytest.mark.parametrize("max_sets", [4, 16])
@@ -338,7 +351,7 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
     arguments = (step_rows, 1, 2, np.zeros((1, 0, 1), dtype=np.uint64), 0, support)
     rank_rows = np.zeros((0, 1), dtype=np.uint64)
     options = (rank_rows, False, 0, histogram)
-    table_arguments = (1 << 10, tables.tables, tables.offsets, tables.block_bits)
+    table_arguments = (1 << 10, tables)
 
     # Every word of two rows weighs at most six, so it is lighter than ten and nontrivial.
     depth, lighter = count_chunk(*arguments, prefixes, 0, 10, *options, True, *table_arguments)
