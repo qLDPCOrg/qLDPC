@@ -87,7 +87,7 @@ class CompletionTables:
 
 
 class CompletionTableView(NamedTuple):
-    """The tables, block offsets, and block width of completion tables, as one argument.
+    """The byte tables, block offsets, and block width of completion tables, as one record.
 
     ``NO_TABLE_VIEW`` is the view of tables that bound nothing.
     """

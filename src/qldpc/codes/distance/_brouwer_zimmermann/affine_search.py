@@ -184,9 +184,8 @@ def _scan_set_chunk(
     """Scan one chunk for ``scan_set`` or ``scan_set_items``, whose arguments it takes.
 
     ``ends_after_item``, which both pass as a constant, is True for ``scan_set_items``, and
-    ``_scan`` reads ``last_item`` only then.  This function runs ``_scan`` with one of two sets of
-    flags: one for a full set, whose every row has a pivot, so that its scan needs no rank, and one
-    for any other set.
+    ``_scan`` reads ``last_item`` only then.  This function runs ``_scan`` with ``ranked`` False for
+    a full set, whose every row has a pivot, and True for any other set.
     """
     # The scan weighs no X parts and records nothing, so placeholders fill those arguments.  The
     # skip bound is the best weight at the start, which the best weight never exceeds, so the scan

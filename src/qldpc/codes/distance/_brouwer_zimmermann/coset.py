@@ -749,10 +749,10 @@ def _search_from_syndrome_word(
         number of supports skipped, which they cannot count by wrapping compiled calls.
     """
     generators, pivots = tables.generators, tables.pivots
+    num_sets, num_rows, _ = generators.shape
 
     # Make room for the offset of each set, or, by tails, for its tail, which the search computes
     # from the word of the syndrome in ``best`` as it reaches the set (see ``_prepare_offsets``).
-    num_sets, num_rows, _ = generators.shape
     offsets, width, ranks = _get_offset_buffer(tables, tails)
     num_ready = 0
 
@@ -920,9 +920,8 @@ def _search_coset_for_min_weight(
     upper_bound = min(best_weight, max_weight + 1)
     stop_layer, stop_num_completed = get_first_step_reaching(bounds, upper_bound)
 
-    # Visit each layer one set at a time, up to the stopping step, with the arrays of ``workspace``,
-    # which include ``best``, as work space.  The loop ends by the last layer, whose bounds
-    # ``certificates.NO_WORD_BOUND`` exceed ``U``, since
+    # Visit each layer one set at a time, up to the stopping step.  The loop ends by the last layer,
+    # whose bounds ``certificates.NO_WORD_BOUND`` exceed ``U``, since
     # ``BrouwerZimmermannCosetSearch.get_min_weights`` keeps ``max_weight`` at most ``n``.
     weighed, skipped = 0, 0
     workspace = _get_scan_workspace(num_rows, width, best)
@@ -1084,11 +1083,11 @@ def _scan_step(
     """Weigh the words of a set in a layer, with the scan of ``affine_search`` that fits the route.
 
     ``offsets``, ``width``, and ``ranks`` are those of ``_get_offset_buffer``, with the offset of
-    the set computed by ``_prepare_offsets``, and ``workspace`` is that of ``_get_scan_workspace``,
-    whose first ``layer`` entries of ``support`` the scan takes.  The other arguments are those of
-    the scans and of ``_search_coset``.  In a layer above zero, a scan of whole words writes the
-    lightest word that it finds into ``workspace.representative``, and a scan by tails its support
-    into ``workspace.best_support``.
+    the set computed by ``_prepare_offsets``, and ``workspace`` is that of ``_get_scan_workspace``.
+    The scan takes the first ``layer`` entries of ``workspace.support`` as its support.  The other
+    arguments are those of the scans and of ``_search_coset``.  In a layer above zero, a scan of
+    whole words writes the lightest word that it finds into ``workspace.representative``, and a
+    scan by tails its support into ``workspace.best_support``.
 
     Returns:
         In the units of the scans, the weight of the offset in layer zero, and in a later layer the
