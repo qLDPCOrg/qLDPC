@@ -719,8 +719,6 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
     for search, num_syndrome_bits, syndromes, minima, must_skip in cases:
         skipped = 0
         for max_weight in range(2, int(max(minima))):
-            # The fields of the tails are a plain tuple, as the searches pass them, so that numba
-            # compiles the searches for the type of argument that they use.
             tables, tails = search._get_route(max_weight)
             for syndrome, minimum in zip(syndromes, minima, strict=True):
                 if minimum <= max_weight:
