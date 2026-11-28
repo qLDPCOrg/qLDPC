@@ -78,8 +78,8 @@ class CosetTails(NamedTuple):
             ``brouwer_zimmermann.md#sec-completion-cosets``).
         layout: A row for each set: the start of its tables in ``completion_tables``, their number
             of blocks ``b``, zero for a set without tables, and their ``b + 1`` block offsets,
-            padded with zeros.  One array holds every set, since each argument of a compiled call
-            adds to the time of every query.
+            padded with zeros.  One array holds every set, since each array that a compiled call
+            takes, alone or in a record, adds to the time of every query.
         block_bits: The number of columns of the blocks of the tables.
     """
 
@@ -265,7 +265,8 @@ def _get_planning(bound_tables: Sequence[npt.NDArray[np.int64]]) -> PlanningBuff
     and the number of completed sets of the stopping step that ``get_stopping_step`` returned last,
     initially the first step ``(0, 1)``.  ``get_stopping_step`` reads and writes it, and
     ``coset._get_own_planning`` resets it in each copy for a worker.  One array holds the bounds and
-    the cached steps, since each argument of a compiled call adds to the time of every query.
+    the cached steps, since each array that a compiled call takes, alone or in a record, adds to
+    the time of every query.
     """
     planning = np.zeros(
         (len(bound_tables), len(bound_tables[0]) + 1, bound_tables[0].shape[1]), dtype=np.int64

@@ -164,7 +164,7 @@ class BrouwerZimmermannCosetSearch:
 
         # Search the coset with the route of the maximum weight, keeping the lightest word that the
         # search weighs in ``best``.
-        tables, tails = self._get_route(max_weight)
+        tables, tails = self._routes.get_route(max_weight)
         best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
         packed_syndrome = int_to_words(syndrome, get_num_words(self._num_syndrome_bits))
         lower_bound, _ = _search_coset(packed_syndrome, max_weight, best, tables, tails, self.scale)
@@ -195,7 +195,7 @@ class BrouwerZimmermannCosetSearch:
             the lightest word that the search of that syndrome weighed; or the number of syndromes
             and None if there is none.
         """
-        tables, tails = self._get_route(max_weight)
+        tables, tails = self._routes.get_route(max_weight)
         index, lower_bound, best = _find_first_on_threads(
             np.ascontiguousarray(syndromes),
             max_weight,
@@ -234,7 +234,7 @@ class BrouwerZimmermannCosetSearch:
             that is larger (see ``_search_coset_for_min_weight``).
         """
         max_weight = min(max_weight, self._num_qubits)
-        tables, tails = self._get_route(max_weight)
+        tables, tails = self._routes.get_route(max_weight)
         return _find_min_weights_on_threads(
             np.ascontiguousarray(syndromes),
             max_weight,
@@ -253,10 +253,6 @@ class BrouwerZimmermannCosetSearch:
         ``CosetSearchTables``), and the other embeddings add nothing.
         """
         return words_to_int(embedded_word) & ((1 << self._num_word_bits) - 1)
-
-    def _get_route(self, max_weight: int) -> tuple[CosetSearchTables, CosetTails | None]:
-        """The tables of the route of a maximum weight, and its record of tails, if any."""
-        return self._routes.get_route(max_weight)
 
     @property
     def _num_word_bits(self) -> int:
@@ -923,8 +919,8 @@ def _search_coset_for_min_weight(
     upper_bound = min(best_weight, max_weight + 1)
     stop_layer, stop_num_completed = get_first_step_reaching(bounds, upper_bound)
 
-    # Visit each layer one set at a time, up to the stopping step, with the workspace of the scans,
-    # which includes ``best``, as work space.  The loop ends by the last layer, whose bounds
+    # Visit each layer one set at a time, up to the stopping step, with ``best`` and the arrays of
+    # ``workspace`` as work space.  The loop ends by the last layer, whose bounds
     # ``certificates.NO_WORD_BOUND`` exceed ``U``, since
     # ``BrouwerZimmermannCosetSearch.get_min_weights`` keeps ``max_weight`` at most ``n``.
     weighed, skipped = 0, 0

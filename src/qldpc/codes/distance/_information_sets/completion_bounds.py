@@ -10,8 +10,9 @@ of the scan, such as the best weight ``U`` of a distance search.
 ``brouwer_zimmermann.md#sec-completion-tables`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
 derive the bound, and the limit of each kind of scan.  ``select_completion_tables`` chooses the
 layers whose tables pay and builds them, ``get_table_bytes_within`` sizes tables within a limit on
-memory, and ``CompletionTables.build`` builds the tables of given search bases.  Compiled scans take
-tables as a ``CompletionTableView``.
+memory, and ``CompletionTables.build`` builds the tables of given search bases.
+``CompletionTables.view`` gives their fields as one record, which compiled code can take as one
+argument.
 
 Threads read shared tables at once (``brouwer_zimmermann.md#sec-completion-lookups`` and
 ``brouwer_zimmermann_code.md#sec-requirements``).  ``get_completion_bound`` and its helper
@@ -86,9 +87,9 @@ class CompletionTables:
 
 
 class CompletionTableView(NamedTuple):
-    """The fields of a ``CompletionTables``, as a record that compiled code takes.
+    """The fields of a ``CompletionTables``, as one argument of compiled code.
 
-    Compiled scans take tables in this form, and ``NO_TABLE_VIEW`` when they have none.
+    ``NO_TABLE_VIEW`` is the view of tables that bound nothing.
     """
 
     tables: npt.NDArray[np.uint8]

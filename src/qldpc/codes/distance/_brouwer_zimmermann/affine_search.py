@@ -184,8 +184,8 @@ def _scan_set_chunk(
     """Scan one chunk for ``scan_set`` or ``scan_set_items``, whose arguments it takes.
 
     ``ends_after_item``, which both pass as a constant, is True for ``scan_set_items``, and
-    ``_scan`` reads ``last_item`` only then.  The scan of a set of full rank, whose every row has a
-    pivot, and the scan of any other set are the two modes of ``_scan`` that this function runs.
+    ``_scan`` reads ``last_item`` only then.  This function runs ``_scan`` with one of two sets of
+    flags: one for a full set, whose every row has a pivot, and one for any other set.
     """
     # The scan weighs no X parts and records nothing, so placeholders fill those arguments.  The
     # skip bound is the best weight at the start, which the best weight never exceeds, so the scan
@@ -457,7 +457,8 @@ class ScanWorkspace(NamedTuple):
     """The arrays that a scan writes: its position, and its records of the lightest word.
 
     Attributes:
-        support: The row indices of the current support.
+        support: The row indices of the current support, one for each row of the supports of the
+            layer.
         prefixes: Row ``level`` holds the offset plus the rows ``support[:level]``, as
             ``support_stepping.advance_support`` describes.
         representative: The lightest word found, which only scans that record words write.
@@ -495,8 +496,9 @@ def _scan(
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of one search basis, starting from ``workspace.support``.
 
-    The arguments are those of the entry points of this module.  The flags, which callers pass as
-    constants, choose what the scan does:
+    ``PackedBasis``, ``ScanWorkspace``, and ``CompletionTableView`` describe ``basis``,
+    ``workspace``, and ``tables``, and the entry points of this module describe the other arguments.
+    The flags, which callers pass as constants, choose what the scan does:
 
     - ``pair_steps``: with ``deleted_pivots``, step through the first of the last two rows of each
       support separately.  The prefix of a support is its first ``len(support) - 2`` rows.  The
@@ -565,7 +567,7 @@ def _scan(
             prefix = prefixes[pair_depth]
             if len(table_bytes):
                 lookups += 1
-                least_pivot_ones = _get_completion_pivot_ones(support, num_rows, rank, ranked)
+                least_pivot_ones = _get_least_completion_pivot_ones(support, num_rows, rank, ranked)
                 limit = min(skip_bound, best) - least_pivot_ones
                 bound = get_completion_bound(
                     table_bytes, table_offsets, block_bits, first, prefix, limit
@@ -635,7 +637,7 @@ def _scan(
 
 
 @always_compiled(inline=True)
-def _get_completion_pivot_ones(
+def _get_least_completion_pivot_ones(
     support: npt.NDArray[np.int64], num_rows: int, rank: int, ranked: bool
 ) -> int:
     """The least number of pivot ones of a completion of the prefix of a support.
@@ -677,10 +679,11 @@ def _weigh(
 ) -> np.int64:
     """Weigh the word ``prefixes[depth] ^ rows[row]``, in its first ``width`` packed words.
 
-    The weight is ``pivot_ones`` plus the Hamming weight of the word.  With ``css_weight``, it is
-    instead the larger of the Hamming weights of the X part of the word, the bits that ``x_mask``
-    selects, plus ``pivot_ones``, and of its Z part, the other bits.  The sum stops once it reaches
-    ``best``, so the result is the weight or a lower value of at least ``best``.
+    The weight is ``pivot_ones`` plus the Hamming weight of the word.  With ``css_weight``, let the
+    X part of the word be the bits that ``x_mask`` selects, and its Z part the other bits; the
+    weight is then the larger of ``pivot_ones`` plus the Hamming weight of the X part, and the
+    Hamming weight of the Z part.  The sums stop once one reaches ``best``, so the result is either
+    the weight or a value from ``best`` up to the weight.
     """
     candidate = pivot_ones
     z_ones = np.int64(0)
