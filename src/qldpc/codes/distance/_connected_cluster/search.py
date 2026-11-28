@@ -116,7 +116,7 @@ class _CutTables(NamedTuple):
     cut_blocked_symbols: npt.NDArray[np.int64]
 
 
-class _WorkItems(NamedTuple):
+class _ClusterWorkItems(NamedTuple):
     """The work items of a search, and the path from which the first of them goes on.
 
     Item ``i`` is the subtree of a state at depth ``P = paths.shape[1]``, which holds ``P``
@@ -649,7 +649,7 @@ class SupportSearch:
             """Search the work items of this limit, as ``_search_supports`` does."""
             return _search_supports(
                 self._check_tables,
-                _WorkItems(roots, paths, resume, ends),
+                _ClusterWorkItems(roots, paths, resume, ends),
                 frontier_depth,
                 self._ranks,
                 self._inverse_overlaps,
@@ -748,7 +748,7 @@ class SupportSearch:
             packed_syndrome = pack_bits(np.concatenate([bits, sums])[None])[0]
         support, item_states, _, _, _ = _search_supports(
             self._check_tables,
-            _WorkItems(
+            _ClusterWorkItems(
                 np.array([-1], dtype=np.int64), np.empty((1, 0), dtype=np.int64), _NO_PATH, _NO_PATH
             ),
             0,
@@ -1117,7 +1117,7 @@ def _search_on_threads(
 @always_compiled(nogil=True)
 def _search_supports(
     check_tables: _CheckTables,
-    items: _WorkItems,
+    items: _ClusterWorkItems,
     frontier_depth: int,
     ranks: npt.NDArray[np.int64],
     inverse_overlaps: npt.NDArray[np.int64],

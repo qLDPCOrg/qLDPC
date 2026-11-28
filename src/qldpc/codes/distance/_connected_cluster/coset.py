@@ -40,10 +40,10 @@ from ..min_weight_bounds import MinWeightBound
 from .search import (
     SupportSearch,
     _CheckTables,
+    _ClusterWorkItems,
     _CutTables,
     _get_fixed_words,
     _search_supports,
-    _WorkItems,
 )
 from .sparse_checks import get_sparser_rows
 
@@ -415,7 +415,7 @@ def _get_min_weight(
 
     # Every other word weighs at least two, so search no limit below two.
     no_path = np.empty(0, dtype=np.int64)
-    items = _WorkItems(
+    items = _ClusterWorkItems(
         np.full(1, -1, dtype=np.int64), np.empty((1, 0), dtype=np.int64), no_path, no_path
     )
     num_states = 0

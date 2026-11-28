@@ -2318,7 +2318,7 @@ def run_search_supports(
         fixed_words = cs._get_fixed_words(len(start_syndrome))
     return cs._search_supports(
         search._check_tables,
-        cs._WorkItems(roots, np.empty((len(roots), 0), dtype=np.int64), resume, ends),
+        cs._ClusterWorkItems(roots, np.empty((len(roots), 0), dtype=np.int64), resume, ends),
         0,
         search._ranks,
         search._inverse_overlaps,
