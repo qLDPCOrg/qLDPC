@@ -429,7 +429,6 @@ class _SectorSearch:
         ):
             return self._scan_set_on_threads(index, weight, tables)
         basis = self._get_packed_basis(index)
-        table_view = tables.view
         support = np.zeros(weight, dtype=np.int64)
         prefixes = np.zeros((weight + 1, instance.generators.shape[2]), dtype=np.uint64)
 
@@ -444,7 +443,7 @@ class _SectorSearch:
                 self.best,
                 self._scan_cutoff,
                 self.batch_size,
-                table_view,
+                tables,
             )
             if self.best <= self.cutoff:
                 return False
@@ -465,7 +464,6 @@ class _SectorSearch:
         """
         basis = self._get_packed_basis(index)
         generators = basis.rows
-        table_view = tables.view
         items = _WorkItems(self.dimension, weight, self.num_threads)
         lock = threading.Lock()
         # Each thread holds the global interpreter lock between its chunks, so chunks that grow with
@@ -493,7 +491,7 @@ class _SectorSearch:
                         self.best,
                         self._scan_cutoff,
                         chunk_size,
-                        table_view,
+                        tables,
                         last_item,
                     )
                     if best < self.best:
@@ -514,7 +512,7 @@ class _SectorSearch:
             self.best,
             self._scan_cutoff,
             chunk_size,
-            table_view,
+            tables,
             items.get_item(0),
         )
 

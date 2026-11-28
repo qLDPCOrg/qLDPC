@@ -1445,7 +1445,7 @@ def test_searches_hold_the_tables_of_one_set_at_a_time(
     """A search frees the tables of one set before it builds the tables of another."""
     tune(**FORCED_TABLES)
     build = completion_bounds.CompletionTables.build
-    built: list[weakref.ref[completion_bounds.CompletionTables]] = []
+    built: list[weakref.ref[npt.NDArray[np.uint8]]] = []
 
     def checking_build(
         rows: npt.NDArray[np.uint64], block_bits: int
@@ -1453,7 +1453,7 @@ def test_searches_hold_the_tables_of_one_set_at_a_time(
         gc.collect()
         assert all(ref() is None for ref in built)
         tables = build(rows, block_bits)
-        built.append(weakref.ref(tables))
+        built.append(weakref.ref(tables.tables))
         return tables
 
     monkeypatch.setattr(completion_bounds.CompletionTables, "build", staticmethod(checking_build))

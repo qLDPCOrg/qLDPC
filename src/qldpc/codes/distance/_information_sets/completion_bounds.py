@@ -10,9 +10,8 @@ of the scan, such as the best weight ``U`` of a distance search.
 ``brouwer_zimmermann.md#sec-completion-tables`` and ``brouwer_zimmermann.md#sec-coset-min-weights``
 derive the bound, and the limit of each kind of scan.  ``select_completion_tables`` chooses the
 layers whose tables pay and builds them, ``get_table_bytes_within`` sizes tables within a limit on
-memory, and ``CompletionTables.build`` builds the tables of given search bases.
-``CompletionTables.view`` gives their fields as one record, which compiled code can take as one
-argument.
+memory, and ``CompletionTables.build`` builds the tables of given search bases, as a record that
+compiled code can take as one argument.
 
 Threads read shared tables at once (``brouwer_zimmermann.md#sec-completion-lookups`` and
 ``brouwer_zimmermann_code.md#sec-requirements``).  ``get_completion_bound`` and its helper
@@ -24,7 +23,6 @@ from __future__ import annotations
 
 import math
 import sys
-from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
@@ -44,8 +42,7 @@ _FIRST_BYTE_SHIFT, _BYTE_SHIFT_STEP = (0, 8) if sys.byteorder == "little" else (
 # completion tables
 
 
-@dataclass(frozen=True)
-class CompletionTables:
+class CompletionTables(NamedTuple):
     """Bounds on the completions by two more rows of the supports of every layer of one basis.
 
     The tables belong to the packed tails of one systematic basis, with its rows in the order in
@@ -55,6 +52,7 @@ class CompletionTables:
     of row ``offsets[b] + x`` of ``tables`` is the least weight of ``x + P_i + P_j`` on block ``b``
     over the pairs ``s <= i < j``, where ``x`` is the value of a tail on the block.
     ``brouwer_zimmermann.md#sec-completion-lookups`` says why the rows ``s`` are innermost.
+    ``tables`` may be a slice of a larger array, such as the ``out`` of ``build``.
     """
 
     tables: npt.NDArray[np.uint8]
@@ -80,26 +78,9 @@ class CompletionTables:
         _fill_tables(rows, block_bits, offsets, tables)
         return CompletionTables(tables, offsets, block_bits)
 
-    @property
-    def view(self) -> CompletionTableView:
-        """The fields of these tables as one argument of compiled code."""
-        return CompletionTableView(self.tables, self.offsets, self.block_bits)
 
-
-class CompletionTableView(NamedTuple):
-    """The byte tables, block offsets, and block width of completion tables, as one record.
-
-    ``NO_TABLE_VIEW`` is the view of tables that bound nothing.
-    """
-
-    tables: npt.NDArray[np.uint8]
-    offsets: npt.NDArray[np.int64]
-    block_bits: int
-
-
-# Tables that bound nothing, for a scan that skips nothing, and their view.
+# Tables that bound nothing, for a scan that skips nothing.
 NO_TABLES = CompletionTables(np.zeros(0, dtype=np.uint8), np.zeros(1, dtype=np.int64), 0)
-NO_TABLE_VIEW = NO_TABLES.view
 
 
 def get_table_bytes_within(rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int) -> int:

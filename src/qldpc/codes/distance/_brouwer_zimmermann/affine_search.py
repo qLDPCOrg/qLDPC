@@ -36,8 +36,8 @@ from qldpc._binary import popcount_word
 from qldpc._compilation import always_compiled
 
 from .._information_sets.completion_bounds import (
-    NO_TABLE_VIEW,
-    CompletionTableView,
+    NO_TABLES,
+    CompletionTables,
     get_completion_bound,
 )
 from .._information_sets.support_stepping import PackedBasis, advance_support
@@ -55,7 +55,7 @@ def scan_set(
     best: int,
     cutoff: int,
     batch_size: int,
-    tables: CompletionTableView,
+    tables: CompletionTables,
 ) -> tuple[int, int, int, int, int]:
     """Scan one chunk of a layer of one set, skipping completions that tables prove too heavy.
 
@@ -75,7 +75,7 @@ def scan_set(
         best: The best weight; only strictly lighter eligible words replace it.
         cutoff: The chunk returns once ``best <= cutoff``.
         batch_size: The most supports weighed plus bounds looked up in one chunk.
-        tables: The completion tables of the rows, or ``completion_bounds.NO_TABLE_VIEW``, which
+        tables: The completion tables of the rows, or ``completion_bounds.NO_TABLES``, which
             skips nothing.
 
     Returns:
@@ -130,7 +130,7 @@ def scan_set_items(
     best: int,
     cutoff: int,
     batch_size: int,
-    tables: CompletionTableView,
+    tables: CompletionTables,
     last_item: npt.NDArray[np.int64],
 ) -> tuple[int, int, int, int, int]:
     """Scan one chunk of a range of work items of a layer of one set, as ``scan_set`` scans it.
@@ -177,7 +177,7 @@ def _scan_set_chunk(
     best: int,
     cutoff: int,
     batch_size: int,
-    tables: CompletionTableView,
+    tables: CompletionTables,
     last_item: npt.NDArray[np.int64],
     ends_after_item: bool,
 ) -> tuple[int, int, int, int, int]:
@@ -270,7 +270,7 @@ def scan_coset_layer(
     best, _, weighed, _, _ = _scan(
         PackedBasis(rows, rows, 0, width),
         ScanWorkspace(support, prefixes, representative, support),
-        NO_TABLE_VIEW,
+        NO_TABLES,
         representative,
         support,
         0,
@@ -315,7 +315,7 @@ def scan_coset_layer_by_css_weight(
     best, _, weighed, _, _ = _scan(
         PackedBasis(rows, rows, 0, width),
         ScanWorkspace(support, prefixes, representative, support),
-        NO_TABLE_VIEW,
+        NO_TABLES,
         x_mask,
         support,
         0,
@@ -369,7 +369,7 @@ def scan_coset_layer_by_tails(
     best, _, weighed, _, _ = _scan(
         PackedBasis(tails, tails, rank, width),
         ScanWorkspace(support, prefixes, prefixes[0], best_support),
-        NO_TABLE_VIEW,
+        NO_TABLES,
         prefixes[0],
         support,
         0,
@@ -401,7 +401,7 @@ def scan_coset_layer_by_tails_with_tables(
     best: int,
     cutoff: int,
     skip_bound: int,
-    tables: CompletionTableView,
+    tables: CompletionTables,
     best_support: npt.NDArray[np.int64],
 ) -> tuple[int, int, int]:
     """Scan a layer of one search basis of a coset by tails, skipping completions by tables.
@@ -409,7 +409,7 @@ def scan_coset_layer_by_tails_with_tables(
     The scan weighs words as ``scan_coset_layer_by_tails`` does, in a layer of
     ``2 <= len(support) <= num_rows`` rows, and ``scan_coset_layer_by_tails`` describes the shared
     arguments.  ``tables`` are the completion tables of the tails of the rows, or
-    ``completion_bounds.NO_TABLE_VIEW``, which skips nothing.  The scan skips completions by the
+    ``completion_bounds.NO_TABLES``, which skips nothing.  The scan skips completions by the
     tables as ``pair_steps`` of ``_scan`` describes
     (``brouwer_zimmermann.md#sec-completion-cosets``).  A coset query passes as ``skip_bound`` the
     least Hamming weight that proves a word of its coset heavier than the query's maximum weight
@@ -475,7 +475,7 @@ class ScanWorkspace(NamedTuple):
 def _scan(
     basis: PackedBasis,
     workspace: ScanWorkspace,
-    tables: CompletionTableView,
+    tables: CompletionTables,
     x_mask: npt.NDArray[np.uint64],
     last_item: npt.NDArray[np.int64],
     depth: int,
@@ -495,7 +495,7 @@ def _scan(
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of one search basis, starting from ``workspace.support``.
 
-    ``PackedBasis``, ``ScanWorkspace``, and ``CompletionTableView`` describe ``basis``,
+    ``PackedBasis``, ``ScanWorkspace``, and ``CompletionTables`` describe ``basis``,
     ``workspace``, and ``tables``, and the entry points of this module describe the other arguments.
     The flags, which callers pass as constants, choose what the scan does:
 

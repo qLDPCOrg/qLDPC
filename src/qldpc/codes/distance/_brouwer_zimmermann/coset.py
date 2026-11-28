@@ -56,7 +56,7 @@ from .._cosets import (
     xor_selected_rows,
 )
 from .._information_sets import certificates
-from .._information_sets.completion_bounds import CompletionTableView
+from .._information_sets.completion_bounds import CompletionTables
 from .._tuning import SearchTuning
 from ..min_weight_bounds import MinWeightBound
 from . import affine_instance, affine_search, coset_routes
@@ -1142,9 +1142,7 @@ def _scan_step(
             incumbent,
             cutoff,
             skip_bound,
-            CompletionTableView(
-                tails.completion_tables[start:end], block_offsets, tails.block_bits
-            ),
+            CompletionTables(tails.completion_tables[start:end], block_offsets, tails.block_bits),
             workspace.best_support,
         )
     found, count = affine_search.scan_coset_layer_by_tails(
