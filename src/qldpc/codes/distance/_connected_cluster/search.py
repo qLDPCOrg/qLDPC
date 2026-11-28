@@ -61,8 +61,8 @@ _MAX_SCALE = 2**40
 _BLOCKED = 2**40
 
 # The tables of overlap cuts pack an index ``i`` and a load ``l``, which is 1 or 2, into the entry
-# ``_LOAD_BASE * i + l`` (see _CutTables), so that each table is one array, which keeps the arrays
-# of the cuts fewer.
+# ``_LOAD_BASE * i + l`` (see _CutTables), so that each list of entries is one array rather than
+# separate arrays of indices and loads.
 _LOAD_BASE = 4
 
 # Numba compiles a version of _search_supports for each number of 64-bit words of a syndrome up to
@@ -93,7 +93,8 @@ class _CheckTables(NamedTuple):
 class _CutTables(NamedTuple):
     """The tables of the overlap cuts of known words (``connected_cluster.md#sec-pruning``).
 
-    They list each pair of a cut and a symbol that adds a load to it twice, by symbol and by cut.
+    The first four tables list each pair of a cut and a symbol that adds a load to it, once by
+    symbol and once by cut.
 
     Attributes:
         cut_symbol_starts: Where the entries of each symbol start in ``cut_symbol_entries``.
@@ -127,7 +128,7 @@ class _WorkItems(NamedTuple):
             (``connected_cluster.md#sec-syndromes``).
         paths: The path of each item, as a row of ``P`` branches.
         resume: The path from which the first item goes on, or an empty array.
-        ends: The end of each state of ``resume``, or an empty array.
+        ends: For each state of ``resume``, the branch before which it leaves, or an empty array.
     """
 
     roots: npt.NDArray[np.int64]
@@ -149,8 +150,9 @@ class _BranchWorkspace(NamedTuple):
         symbol_repairs: An entry for each symbol, for its repair, which a state that restricts its
             subtree writes and reads.
         memos: The memos of overlaps, two rows with no columns if states do not memoize, or with
-            a column for each symbol.  For each symbol, row 0 holds the stamp of the state that
-            last computed its overlap, and row 1 that overlap.  Repairs have no memos.
+            a column for each symbol.  For each symbol, row 0 holds the stamp of the call of
+            ``_get_branches`` that last computed its overlap, and row 1 that overlap.  Repairs have
+            no memos.
     """
 
     check_weights: npt.NDArray[np.int64]
@@ -1141,8 +1143,8 @@ def _search_supports(
     higher rank.
 
     The search runs the work items of ``items`` in turn, as threads do
-    (``connected_cluster.md#sec-threads``).  Each item is the subtree of a state at the depth ``P``
-    of the paths of ``items``.  The search replays the path of the item, in which each earlier
+    (``connected_cluster.md#sec-threads``).  Each item is the subtree of a state at depth
+    ``P = items.paths.shape[1]``.  The search replays the path of the item, in which each earlier
     sibling only stays tried, and stops the item when it goes back above depth ``P``.  It counts
     only the states at depth ``P`` or more.  With ``P = 0``, the items are whole roots, as in a
     search of one thread.  A ``frontier_depth`` of ``P + 1`` enters no state at that depth, and
@@ -1153,18 +1155,19 @@ def _search_supports(
     the next state that does not replay a path, just before that state takes its next branch.  It
     then returns its stack as a path, ``resume``: the branch that each state on it takes, and, for
     its last state, the next branch.  It also returns, for each state of that path, its end in
-    ``ends``: the branch before which the state leaves.  Given these, and the items from the one at
-    which it stopped, the search replays ``resume`` instead of the path of its first item, counts no
-    state that the replay enters, and goes on exactly where it stopped, so that a search in several
-    calls visits and counts the states of a search in one call.  A caller may split a call that
-    resumes only the item at which the search stopped into two calls of that item, at a branch ``b``
-    above ``resume[d]`` and below ``ends[d]``.  The first call takes the ends ``resume[:d] + 1``
-    followed by ``b`` and the old ends below depth ``d``, so that it leaves the states above depth
-    ``d`` after their branches on the path.  The second takes the path ``resume[:d]`` followed by
-    ``b``, and the old ``ends[: d + 1]``, so that it searches what comes after the first call in DFS
-    order.  The witness of the call that was split is that of the first call if it has one, and
-    otherwise that of the second, and the call counts the states of the first, and also those of the
-    second if the first has no witness.
+    ``ends``: the branch before which the state leaves.  Given these as ``items.resume`` and
+    ``items.ends``, and the items from the one at which it stopped, the search replays ``resume``
+    instead of the path of its first item, counts no state that the replay enters, and goes on
+    exactly where it stopped, so that a search in several calls visits and counts the states of a
+    search in one call.  A caller may split a call that resumes only the item at which the search
+    stopped into two calls of that item, at a branch ``b`` above ``resume[d]`` and below
+    ``ends[d]``.  The first call takes the ends ``resume[:d] + 1`` followed by ``b`` and the old
+    ends below depth ``d``, so that it leaves the states above depth ``d`` after their branches on
+    the path.  The second takes the path ``resume[:d]`` followed by ``b``, and the old ``ends[: d +
+    1]``, so that it searches what comes after the first call in DFS order.  The witness of the call
+    that was split is that of the first call if it has one, and otherwise that of the second, and
+    the call counts the states of the first, and also those of the second if the first has no
+    witness.
 
     Leaving a state undoes what the state changed in the levels of the symbols and in the loads of
     the overlap cuts, so that a replay of a path rebuilds them.  The search runs without the global
@@ -1187,7 +1190,7 @@ def _search_supports(
             version for each length of ``fixed_words`` (see ``_MAX_FIXED_WORDS``).
         memoize: Whether a state that does not take the overlaps of all symbols in one pass
             memoizes the overlap of each symbol, so that it computes it at most once.  Repairs are
-            never memoized (see ``_get_branches``).
+            never memoized (see ``_BranchWorkspace``).
         restrict_viable_symbols: As for ``_get_branches``.
         cuts: The tables of the overlap cuts.
 
@@ -1490,9 +1493,9 @@ def _search_supports(
 
 # Unlike the small helpers, _get_branches is long and has two call sites, but inlining it makes each
 # state up to about a tenth cheaper, for the cost of compiling its code at both sites.  It takes the
-# arrays of the check tables, which _search_supports reads once, rather than their record: read at
-# each state, the fields of that record, an argument of the search, would count references to
-# their arrays, while those of the workspace, which the search builds, do not.
+# arrays of the check tables rather than their record.  At each state, reading the fields of a
+# record that is an argument of the search would count references to its arrays.  Reading those of
+# the workspace, which the search builds, counts none.
 @always_compiled(inline=True)
 def _get_branches(
     check_starts: npt.NDArray[np.int64],

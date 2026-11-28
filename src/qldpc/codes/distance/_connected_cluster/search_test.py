@@ -1704,12 +1704,12 @@ def get_read_only(array: npt.NDArray[Any]) -> npt.NDArray[Any]:
 
 
 def get_read_only_argument(argument: Any) -> Any:
-    """An argument of ``_search_supports`` with read-only views of its arrays, also in records."""
+    """An argument of ``_search_supports``, with its arrays and those of a record read-only."""
     if isinstance(argument, np.ndarray):
         return get_read_only(argument)
     if hasattr(argument, "_asdict"):
         return argument._replace(
-            **{name: get_read_only(value) for name, value in argument._asdict().items()}
+            **{name: get_read_only_argument(value) for name, value in argument._asdict().items()}
         )
     return argument
 
