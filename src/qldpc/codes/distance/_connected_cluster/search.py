@@ -61,8 +61,8 @@ _MAX_SCALE = 2**40
 _BLOCKED = 2**40
 
 # The tables of overlap cuts pack an index ``i`` and a load ``l``, which is 1 or 2, into the entry
-# ``_LOAD_BASE * i + l`` (see _get_overlap_cuts), so that each table is one array, which keeps the
-# arguments of the compiled search fewer.
+# ``_LOAD_BASE * i + l`` (see _CutTables), so that each list of entries is one array rather than
+# separate arrays of indices and loads.
 _LOAD_BASE = 4
 
 # Numba compiles a version of _search_supports for each number of 64-bit words of a syndrome up to
@@ -74,9 +74,14 @@ _MAX_FIXED_WORDS = 8
 
 
 class _CheckTables(NamedTuple):
-    """The tables of the checks and tests of a search, the first arguments of ``_search_supports``.
+    """The tables of the checks and tests of a search, by symbol and by check.
 
-    The docstring of ``_search_supports`` describes them.
+    Attributes:
+        check_starts: Where the symbols of each check start in ``check_symbols``: check ``c`` is
+            flipped by the symbols ``check_symbols[check_starts[c] : check_starts[c + 1]]``.
+        check_symbols: The symbols that flip each check, check by check.
+        symbol_masks: Row ``s`` packs the checks that symbol ``s`` flips.
+        test_columns: Row ``s`` packs the tests that the word of symbol ``s`` fails.
     """
 
     check_starts: npt.NDArray[np.int64]
@@ -85,15 +90,76 @@ class _CheckTables(NamedTuple):
     test_columns: npt.NDArray[np.uint64]
 
 
-# The tables of the overlap cuts of a search, as ``_get_overlap_cuts`` returns them.
-_CutTables = tuple[
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-]
+class _CutTables(NamedTuple):
+    """The tables of the overlap cuts of known words (``connected_cluster.md#sec-pruning``).
+
+    The first four tables list each pair of a cut and a symbol that adds a load to it, once by
+    symbol and once by cut.
+
+    Attributes:
+        cut_symbol_starts: Where the entries of each symbol start in ``cut_symbol_entries``.
+        cut_symbol_entries: For each symbol in turn, ``_LOAD_BASE c + l`` for each overlap cut
+            ``c`` to which the symbol adds the load ``l``.
+        cut_starts: Where the entries of each cut start in ``cut_entries``.
+        cut_entries: For each cut in turn, ``_LOAD_BASE s + l`` for each symbol ``s`` that adds the
+            load ``l`` to the cut.
+        cut_capacities: The capacity of each cut.
+        cut_blocked_symbols: The symbols whose load alone exceeds the capacity of a cut, once for
+            each such cut.
+    """
+
+    cut_symbol_starts: npt.NDArray[np.int64]
+    cut_symbol_entries: npt.NDArray[np.int64]
+    cut_starts: npt.NDArray[np.int64]
+    cut_entries: npt.NDArray[np.int64]
+    cut_capacities: npt.NDArray[np.int64]
+    cut_blocked_symbols: npt.NDArray[np.int64]
+
+
+class _ClusterWorkItems(NamedTuple):
+    """The work items of a search, and the path from which the first of them goes on.
+
+    Item ``i`` is the subtree of a state at depth ``P = paths.shape[1]``, which holds ``P``
+    symbols: from root ``roots[i]``, state ``d < P`` of its path takes its branch ``paths[i, d]``,
+    counting from zero (``connected_cluster.md#sec-threads``).
+
+    Attributes:
+        roots: The root of each item.  A root of -1 starts a syndrome query
+            (``connected_cluster.md#sec-syndromes``).
+        paths: The path of each item, as a row of ``P`` branches.
+        resume: The path from which the first item goes on, or an empty array.
+        ends: For each state of ``resume``, the branch before which it leaves, or an empty array.
+    """
+
+    roots: npt.NDArray[np.int64]
+    paths: npt.NDArray[np.int64]
+    resume: npt.NDArray[np.int64]
+    ends: npt.NDArray[np.int64]
+
+
+class _BranchWorkspace(NamedTuple):
+    """The scratch arrays with which a state weighs its unsatisfied checks and orders its branches.
+
+    A state writes these arrays before it reads them, apart from the stamps of ``memos``.
+
+    Attributes:
+        check_weights: An entry for each check, for the weights of the unsatisfied checks.
+        branch_repairs: Room for the repairs of the branches of a state.
+        symbol_overlaps: An entry for each symbol, for its overlap, which a state that takes all
+            overlaps in one pass writes and reads.
+        symbol_repairs: An entry for each symbol, for its repair, which a state that restricts its
+            subtree writes and reads.
+        memos: The memos of overlaps, two rows with no columns if states do not memoize, or with
+            a column for each symbol.  For each symbol, row 0 holds the stamp of the call of
+            ``_get_branches`` that last computed its overlap, and row 1 that overlap.  Repairs have
+            no memos.
+    """
+
+    check_weights: npt.NDArray[np.int64]
+    branch_repairs: npt.NDArray[np.int64]
+    symbol_overlaps: npt.NDArray[np.int64]
+    symbol_repairs: npt.NDArray[np.int64]
+    memos: npt.NDArray[np.int64]
 
 
 ####################################################################################################
@@ -582,22 +648,19 @@ class SupportSearch:
         ]:
             """Search the work items of this limit, as ``_search_supports`` does."""
             return _search_supports(
-                *self._check_tables,
-                roots,
-                paths,
+                self._check_tables,
+                _ClusterWorkItems(roots, paths, resume, ends),
                 frontier_depth,
                 self._ranks,
                 self._inverse_overlaps,
                 limit,
-                resume,
-                ends,
                 max_states,
                 # The searches from roots ignore the starting syndrome, and do not memoize.
                 np.zeros(self._check_tables.symbol_masks.shape[1], dtype=np.uint64),
                 _get_fixed_words(self._check_tables.symbol_masks.shape[1]),
                 False,
                 self._restrict_viable_symbols,
-                *cuts,
+                cuts,
             )
 
         predicted_states = self._predict_states(max_weight)
@@ -684,21 +747,20 @@ class SupportSearch:
             sums = bits[self._summed_pairs[:, 0]] ^ bits[self._summed_pairs[:, 1]]
             packed_syndrome = pack_bits(np.concatenate([bits, sums])[None])[0]
         support, item_states, _, _, _ = _search_supports(
-            *self._check_tables,
-            np.array([-1], dtype=np.int64),
-            np.empty((1, 0), dtype=np.int64),
+            self._check_tables,
+            _ClusterWorkItems(
+                np.array([-1], dtype=np.int64), np.empty((1, 0), dtype=np.int64), _NO_PATH, _NO_PATH
+            ),
             0,
             self._ranks,
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
-            _NO_PATH,
-            _NO_PATH,
             MAX_VALUE,
             packed_syndrome,
             _get_fixed_words(len(packed_syndrome)),
             True,
             self._restrict_viable_symbols,
-            *self._query_cuts,
+            self._query_cuts,
         )
         return (np.sort(support) if len(support) else None), int(item_states[0])
 
@@ -817,8 +879,7 @@ def _get_overlap_cuts(
     variable, which no lightest witness or solution holds.
 
     Returns:
-        The six tables that ``_search_supports`` takes as its arguments from ``cut_symbol_starts``
-        on, in that order, as its docstring describes them.
+        The tables of the cuts.
     """
     # Find the support of each distinct word, and the value of the word on each variable, and keep
     # the words of weight at least two.
@@ -857,13 +918,13 @@ def _get_overlap_cuts(
     by_symbol = np.argsort(symbols, kind="stable")
     symbol_starts = np.searchsorted(symbols[by_symbol], np.arange(num_values * num_variables + 1))
     cut_starts = np.searchsorted(cuts, np.arange(len(weights) + 1))
-    return (
-        symbol_starts.astype(np.int64),
-        (_LOAD_BASE * cuts[by_symbol] + loads[by_symbol]).astype(np.int64),
-        cut_starts.astype(np.int64),
-        (_LOAD_BASE * symbols + loads).astype(np.int64),
-        capacities,
-        symbols[loads > capacities[cuts]].astype(np.int64),
+    return _CutTables(
+        cut_symbol_starts=symbol_starts.astype(np.int64),
+        cut_symbol_entries=(_LOAD_BASE * cuts[by_symbol] + loads[by_symbol]).astype(np.int64),
+        cut_starts=cut_starts.astype(np.int64),
+        cut_entries=(_LOAD_BASE * symbols + loads).astype(np.int64),
+        cut_capacities=capacities,
+        cut_blocked_symbols=symbols[loads > capacities[cuts]].astype(np.int64),
     )
 
 
@@ -1055,29 +1116,18 @@ def _search_on_threads(
 
 @always_compiled(nogil=True)
 def _search_supports(
-    check_starts: npt.NDArray[np.int64],
-    check_symbols: npt.NDArray[np.int64],
-    symbol_masks: npt.NDArray[np.uint64],
-    test_columns: npt.NDArray[np.uint64],
-    roots: npt.NDArray[np.int64],
-    paths: npt.NDArray[np.int64],
+    check_tables: _CheckTables,
+    items: _ClusterWorkItems,
     frontier_depth: int,
     ranks: npt.NDArray[np.int64],
     inverse_overlaps: npt.NDArray[np.int64],
     max_weight: int,
-    resume: npt.NDArray[np.int64],
-    ends: npt.NDArray[np.int64],
     max_states: int,
     start_syndrome: npt.NDArray[np.uint64],
     fixed_words: tuple[int, ...],
     memoize: bool,
     restrict_viable_symbols: bool,
-    cut_symbol_starts: npt.NDArray[np.int64],
-    cut_symbol_entries: npt.NDArray[np.int64],
-    cut_starts: npt.NDArray[np.int64],
-    cut_entries: npt.NDArray[np.int64],
-    cut_capacities: npt.NDArray[np.int64],
-    cut_blocked_symbols: npt.NDArray[np.int64],
+    cuts: _CutTables,
 ) -> tuple[
     npt.NDArray[np.int64],
     npt.NDArray[np.int64],
@@ -1092,32 +1142,32 @@ def _search_supports(
     of ``SupportSearch`` on ``len(ranks)`` variables.  The search from a root uses only variables of
     higher rank.
 
-    The search runs work items in turn, as threads do (``connected_cluster.md#sec-threads``).  Item
-    ``i`` is the subtree of a state at depth ``P = paths.shape[1]``, which holds ``P`` symbols: from
-    root ``roots[i]``, state ``d < P`` of its path takes its branch ``paths[i, d]``, counting from
-    zero.  The search replays the path, in which each earlier sibling only stays tried, and stops
-    the item when it goes back above depth ``P``.  It counts only the states at depth ``P`` or more.
-    With ``P = 0``, the items are whole roots, as in a search of one thread.  A ``frontier_depth``
-    of ``P + 1`` enters no state at that depth, and lists each such state that it would enter
-    instead, in DFS order, by the index of its item and its branch at each depth below it.  A path
-    must lead to a state that the search enters.
+    The search runs the work items of ``items`` in turn, as threads do
+    (``connected_cluster.md#sec-threads``).  Each item is the subtree of a state at depth
+    ``P = items.paths.shape[1]``.  The search replays the path of the item, in which each earlier
+    sibling only stays tried, and stops the item when it goes back above depth ``P``.  It counts
+    only the states at depth ``P`` or more.  With ``P = 0``, the items are whole roots, as in a
+    search of one thread.  A ``frontier_depth`` of ``P + 1`` enters no state at that depth, and
+    lists each such state that it would enter instead, in DFS order, by the index of its item and
+    its branch at each depth below it.  A path must lead to a state that the search enters.
 
     The search stops early once it has counted ``max_states`` states, which must be at least one, at
     the next state that does not replay a path, just before that state takes its next branch.  It
     then returns its stack as a path, ``resume``: the branch that each state on it takes, and, for
     its last state, the next branch.  It also returns, for each state of that path, its end in
-    ``ends``: the branch before which the state leaves.  Given these, and the items from the one at
-    which it stopped, the search replays ``resume`` instead of the path of its first item, counts no
-    state that the replay enters, and goes on exactly where it stopped, so that a search in several
-    calls visits and counts the states of a search in one call.  A caller may split a call that
-    resumes only the item at which the search stopped into two calls of that item, at a branch ``b``
-    above ``resume[d]`` and below ``ends[d]``.  The first call takes the ends ``resume[:d] + 1``
-    followed by ``b`` and the old ends below depth ``d``, so that it leaves the states above depth
-    ``d`` after their branches on the path.  The second takes the path ``resume[:d]`` followed by
-    ``b``, and the old ``ends[: d + 1]``, so that it searches what comes after the first call in DFS
-    order.  The witness of the call that was split is that of the first call if it has one, and
-    otherwise that of the second, and the call counts the states of the first, and also those of the
-    second if the first has no witness.
+    ``ends``: the branch before which the state leaves.  Given these as ``items.resume`` and
+    ``items.ends``, and the items from the one at which it stopped, the search replays ``resume``
+    instead of the path of its first item, counts no state that the replay enters, and goes on
+    exactly where it stopped, so that a search in several calls visits and counts the states of a
+    search in one call.  A caller may split a call that resumes only the item at which the search
+    stopped into two calls of that item, at a branch ``b`` above ``resume[d]`` and below
+    ``ends[d]``.  The first call takes the ends ``resume[:d] + 1`` followed by ``b`` and the old
+    ends below depth ``d``, so that it leaves the states above depth ``d`` after their branches on
+    the path.  The second takes the path ``resume[:d]`` followed by ``b``, and the old ``ends[: d +
+    1]``, so that it searches what comes after the first call in DFS order.  The witness of the call
+    that was split is that of the first call if it has one, and otherwise that of the second, and
+    the call counts the states of the first, and also those of the second if the first has no
+    witness.
 
     Leaving a state undoes what the state changed in the levels of the symbols and in the loads of
     the overlap cuts, so that a replay of a path rebuilds them.  The search runs without the global
@@ -1125,40 +1175,24 @@ def _search_supports(
     ``connected_cluster.md#sec-requirements``.
 
     Args:
-        check_starts: Where the symbols of each check start in ``check_symbols``: check ``c`` is
-            flipped by the symbols ``check_symbols[check_starts[c] : check_starts[c + 1]]``.
-        check_symbols: The symbols that flip each check, check by check.
-        symbol_masks: Row ``s`` packs the checks that symbol ``s`` flips.
-        test_columns: Row ``s`` packs the tests that the word of symbol ``s`` fails.
-        roots: The root of each item.  A root of -1 starts a syndrome query
-            (``connected_cluster.md#sec-syndromes``).
-        paths: The path of each item, as a row of ``P`` branches.
+        check_tables: The tables of the checks and tests.
+        items: The work items, and the path from which the first goes on.
         frontier_depth: ``P + 1`` to list the states at that depth, or zero to list nothing.
         ranks: The rank of each variable.
         inverse_overlaps: Entry ``k`` is ``1 / k`` in units of ``1 / scale``, rounded down, so
             entry 1 is the scale.
         max_weight: The weight limit.
-        resume: The path from which the first item goes on, or an empty array.
-        ends: The end of each state of ``resume``, or an empty array.
         max_states: The count of states at which the search stops early (see above).
         start_syndrome: The nonempty syndrome from which a root of -1 starts, packed as a row of
-            ``symbol_masks``.  The other roots ignore it.
-        fixed_words: Empty, or an entry for each 64-bit word of a row of ``symbol_masks``, as
-            ``_get_fixed_words`` makes it.  Numba compiles a version for each length of
-            ``fixed_words`` (see ``_MAX_FIXED_WORDS``).
+            ``check_tables.symbol_masks``.  The other roots ignore it.
+        fixed_words: Empty, or an entry for each 64-bit word of a row of
+            ``check_tables.symbol_masks``, as ``_get_fixed_words`` makes it.  Numba compiles a
+            version for each length of ``fixed_words`` (see ``_MAX_FIXED_WORDS``).
         memoize: Whether a state that does not take the overlaps of all symbols in one pass
             memoizes the overlap of each symbol, so that it computes it at most once.  Repairs are
-            never memoized (see ``_get_branches``).
+            never memoized (see ``_BranchWorkspace``).
         restrict_viable_symbols: As for ``_get_branches``.
-        cut_symbol_starts: Where the entries of each symbol start in ``cut_symbol_entries``.
-        cut_symbol_entries: For each symbol in turn, ``_LOAD_BASE c + l`` for each overlap cut
-            ``c`` to which the symbol adds the load ``l``.
-        cut_starts: Where the entries of each cut start in ``cut_entries``.
-        cut_entries: For each cut in turn, ``_LOAD_BASE s + l`` for each symbol ``s`` that adds the
-            load ``l`` to the cut.
-        cut_capacities: The capacity of each cut.
-        cut_blocked_symbols: The symbols whose load alone exceeds the capacity of a cut, once for
-            each such cut.
+        cuts: The tables of the overlap cuts.
 
     Returns:
         The symbols of a witness, or of a vector with the syndrome, of weight at most
@@ -1171,8 +1205,17 @@ def _search_supports(
 
     Raises:
         ValueError: If ``fixed_words`` is not empty and its length is not the number of words of a
-            row of ``symbol_masks``.
+            row of ``check_tables.symbol_masks``.
     """
+    # Read the fields of the records once.  Reading them in the loops would count references to
+    # their arrays at each read, and threads that share the arrays would contend for the counts.
+    check_starts, check_symbols = check_tables.check_starts, check_tables.check_symbols
+    symbol_masks, test_columns = check_tables.symbol_masks, check_tables.test_columns
+    roots, paths, resume, ends = items.roots, items.paths, items.resume, items.ends
+    cut_symbol_starts, cut_symbol_entries = cuts.cut_symbol_starts, cuts.cut_symbol_entries
+    cut_starts, cut_entries = cuts.cut_starts, cuts.cut_entries
+    cut_capacities, cut_blocked_symbols = cuts.cut_capacities, cuts.cut_blocked_symbols
+
     # Size the stack, and the branches of a state, which include the values of a root.
     num_symbols = len(symbol_masks)
     num_variables = len(ranks)
@@ -1219,13 +1262,15 @@ def _search_supports(
     allowance_starts = np.zeros(max_weight + 2, dtype=np.int64)
     allowances = np.empty(num_symbols + 1, dtype=np.int64)
 
-    # Scratch space for _get_branches, whose docstring describes ``memos``.  Each call gets its own
-    # stamp, the number of calls so far, including itself, so the zeros of ``memos`` match none.
-    check_weights = np.zeros(len(check_starts) - 1, dtype=np.int64)
-    branch_repairs = np.empty(max_branches, dtype=np.int64)
-    symbol_overlaps = np.zeros(num_symbols, dtype=np.int64)
-    symbol_repairs = np.zeros(num_symbols, dtype=np.int64)
-    memos = np.zeros((2, num_symbols if memoize else 0), dtype=np.int64)
+    # Scratch space for _get_branches.  Each call gets its own stamp, the number of calls so far,
+    # including itself, so the zeros of ``workspace.memos`` match none.
+    workspace = _BranchWorkspace(
+        check_weights=np.zeros(len(check_starts) - 1, dtype=np.int64),
+        branch_repairs=np.empty(max_branches, dtype=np.int64),
+        symbol_overlaps=np.zeros(num_symbols, dtype=np.int64),
+        symbol_repairs=np.zeros(num_symbols, dtype=np.int64),
+        memos=np.zeros((2, num_symbols if memoize else 0), dtype=np.int64),
+    )
     stamp = 0
 
     # The path of the current item, and the branch before which the state at each depth leaves; the
@@ -1275,11 +1320,7 @@ def _search_supports(
                 0,
                 max_weight,
                 inverse_overlaps,
-                check_weights,
-                branch_repairs,
-                symbol_overlaps,
-                symbol_repairs,
-                memos,
+                workspace,
                 stamp,
                 restrict_viable_symbols,
             )
@@ -1429,11 +1470,7 @@ def _search_supports(
                 depth,
                 max_weight - depth,
                 inverse_overlaps,
-                check_weights,
-                branch_repairs,
-                symbol_overlaps,
-                symbol_repairs,
-                memos,
+                workspace,
                 stamp,
                 restrict_viable_symbols,
             )
@@ -1455,7 +1492,10 @@ def _search_supports(
 
 
 # Unlike the small helpers, _get_branches is long and has two call sites, but inlining it makes each
-# state up to about a tenth cheaper, for the cost of compiling its code at both sites.
+# state up to about a tenth cheaper, for the cost of compiling its code at both sites.  It takes the
+# arrays of the check tables rather than their record.  At each state, reading the fields of a
+# record that is an argument of the search would count references to its arrays.  Reading those of
+# the workspace, which the search builds, counts none.
 @always_compiled(inline=True)
 def _get_branches(
     check_starts: npt.NDArray[np.int64],
@@ -1472,11 +1512,7 @@ def _get_branches(
     depth: int,
     slack: int,
     inverse_overlaps: npt.NDArray[np.int64],
-    check_weights: npt.NDArray[np.int64],
-    branch_repairs: npt.NDArray[np.int64],
-    symbol_overlaps: npt.NDArray[np.int64],
-    symbol_repairs: npt.NDArray[np.int64],
-    memos: npt.NDArray[np.int64],
+    workspace: _BranchWorkspace,
     stamp: int,
     restrict_viable_symbols: bool,
 ) -> int:
@@ -1502,9 +1538,9 @@ def _get_branches(
     compute their own.
 
     Args:
-        check_starts: As for ``_search_supports``.
-        check_symbols: As for ``_search_supports``.
-        symbol_masks: As for ``_search_supports``.
+        check_starts: As in ``_CheckTables``.
+        check_symbols: As in ``_CheckTables``.
+        symbol_masks: As in ``_CheckTables``.
         levels: The level of each symbol (see the comment on levels in ``_search_supports``).
         available_level: The level of an available symbol.
         syndromes: The syndrome of the state at each depth, as a row of ``num_words`` 64-bit words.
@@ -1518,21 +1554,17 @@ def _get_branches(
         slack: The number of variables that the support can still take.
         inverse_overlaps: As for ``_search_supports``.  The weights of the unsatisfied checks are
             in units of ``1 / inverse_overlaps[1]``.
-        check_weights: Scratch space for the weights of the checks.
-        branch_repairs: Scratch space for the repairs of the branches.
-        symbol_overlaps: Scratch space for the overlap of each symbol, which a state that takes
-            all overlaps in one pass writes and reads.
-        symbol_repairs: Scratch space for the repair of each symbol, which a state that restricts
-            its subtree writes and reads.
-        memos: The memos of overlaps, an array of two rows: with no columns, to turn memoization
-            off, or with a column for each symbol.  For each symbol, row 0 holds the stamp of the
-            call that last computed its overlap, and row 1 that overlap.  Repairs have no memos.
+        workspace: The scratch arrays of the state.  Its memos have no columns to turn
+            memoizing off.
         stamp: The stamp of this call, which no other call uses.
         restrict_viable_symbols: Whether a state may allow only viable symbols in its subtree.
 
     Returns:
         The number of branches, which is zero if the state is pruned.
     """
+    check_weights, branch_repairs = workspace.check_weights, workspace.branch_repairs
+    symbol_overlaps, symbol_repairs = workspace.symbol_overlaps, workspace.symbol_repairs
+    memos = workspace.memos
     scale = inverse_overlaps[1]
     num_symbols = len(symbol_overlaps)
     memoize = memos.shape[1] > 0
