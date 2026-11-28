@@ -205,7 +205,9 @@ def test_counts_with_completion_tables_match_enumeration(
     code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
     _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert selected
-    assert block_bits > 2 or any(len(tables.offsets) > 2 for tables in selected)
+    if block_bits == 2:
+        # ``offsets`` has an entry for each block, plus one.
+        assert any(len(tables.offsets) > 2 for tables in selected)
 
 
 @pytest.mark.parametrize("max_sets", [4, 16])

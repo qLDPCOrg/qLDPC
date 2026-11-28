@@ -37,23 +37,23 @@ _PackedMatrix = npt.NDArray[np.uint64]
 # stopping step, or at a word that is lighter than the target and nontrivial.
 _SCAN_FINISHED, _SCAN_UNFINISHED, _SCAN_FOUND_LIGHTER_WORD = 0, 1, 2
 
-# The indices of the layer, the set, and the depth in the position of a ``_Cursor``.
-_CURSOR_LAYER, _CURSOR_SET, _CURSOR_DEPTH = 0, 1, 2
+# The indices in ``_Cursor.position``.
+_POSITION_LAYER, _POSITION_SET, _POSITION_DEPTH = 0, 1, 2
 
 
 class _Cursor(NamedTuple):
     """Where a scan resumes: its step and depth, its support, and the prefix XORs of the support.
 
     Attributes:
-        position: The layer, the set, and the depth, at the indices ``_CURSOR_LAYER``,
-            ``_CURSOR_SET``, and ``_CURSOR_DEPTH``.  The step is a pair of a layer and a set (see
-            ``_Steps``).  The depth is that of ``advance_support`` in the step's support, or -1
+        position: The layer, the set, and the depth, at the indices ``_POSITION_LAYER``,
+            ``_POSITION_SET``, and ``_POSITION_DEPTH``.  The step is a pair of a layer and a set
+            (see ``_Steps``).  The depth is that of ``advance_support`` in the step's support, or -1
             once the step has visited every support.
-        support: The step's support in its first ``layer`` entries, with an entry for each row of
-            the basis.
-        prefixes: Row ``level`` holds the XOR of the rows ``support[:level]`` of the step's set, as
-            ``advance_support`` describes, from a zero offset, in the machine words that the step
-            reads from it.  Its rows are as wide as the widest rows of a step.
+        support: The step's support, in its first entries, one for each row of the layer.  It has
+            an entry for each row of the basis.
+        prefixes: Row ``level`` holds the XOR of the rows ``support[:level]`` of the step's set,
+            starting from zero (see ``advance_support``).  Only the machine words that the step
+            reads from a row are current.  The rows are as wide as the widest rows of any step.
     """
 
     position: npt.NDArray[np.int64]
@@ -127,16 +127,15 @@ def count_words(
     # chosen in Python, so a call that starts a step that may use tables ends with that step, and
     # any other call ends before the next such step.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
-    position = np.zeros(3, dtype=np.int64)
-    position[_CURSOR_LAYER] = 1
     cursor = _Cursor(
-        position,
+        np.zeros(3, dtype=np.int64),
         np.zeros(len(basis), dtype=np.int64),
         np.zeros((len(basis), step_tables.max_row_width), dtype=np.uint64),
     )
+    cursor.position[_POSITION_LAYER] = 1
     status = _SCAN_UNFINISHED
     while status == _SCAN_UNFINISHED:
-        step = int(cursor.position[_CURSOR_LAYER]), int(cursor.position[_CURSOR_SET])
+        step = int(cursor.position[_POSITION_LAYER]), int(cursor.position[_POSITION_SET])
         if step_tables.may_use_tables(*step):
             tables, step_rows = step_tables.select(*step)
             stop = steps.get_next(*step)
@@ -457,16 +456,19 @@ def _scan_coefficient_layers(
 
     Compiled code cannot be interrupted, so the scan resumes across calls from ``cursor``.  Every
     call passes the same ``cursor`` and ``histogram``, and every call of a step the same tables.
-    The first call passes a cursor at layer one, set zero, and depth zero, and zero prefixes.
+    The first call passes a cursor at layer one, set zero, and depth zero, with a zero support and
+    zero prefixes.
     Returns how the call ended, as a ``_SCAN_*`` code.
     """
+    # Read the fields of the records once, since Numba counts references to their arrays at each
+    # read.
     position, support, prefixes = cursor.position, cursor.support, cursor.prefixes
     with_tables = len(tables.tables) > 0
     while True:
         # Visit the chunks of the step at the cursor.
-        layer = position[_CURSOR_LAYER]
-        set_index = position[_CURSOR_SET]
-        while position[_CURSOR_DEPTH] >= 0:
+        layer = position[_POSITION_LAYER]
+        set_index = position[_POSITION_SET]
+        while position[_POSITION_DEPTH] >= 0:
             if max_chunks == 0:
                 return _SCAN_UNFINISHED
             max_chunks -= 1
@@ -479,7 +481,7 @@ def _scan_coefficient_layers(
                     set_index,
                     support[:layer],
                     prefixes,
-                    position[_CURSOR_DEPTH],
+                    position[_POSITION_DEPTH],
                     target,
                     rank_rows,
                     complement,
@@ -497,7 +499,7 @@ def _scan_coefficient_layers(
                     set_index,
                     support[:layer],
                     prefixes,
-                    position[_CURSOR_DEPTH],
+                    position[_POSITION_DEPTH],
                     target,
                     rank_rows,
                     complement,
@@ -506,7 +508,7 @@ def _scan_coefficient_layers(
                     reject_lighter,
                     chunk_size,
                 )
-            position[_CURSOR_DEPTH] = depth
+            position[_POSITION_DEPTH] = depth
             if lighter:
                 return _SCAN_FOUND_LIGHTER_WORD
 
@@ -516,8 +518,8 @@ def _scan_coefficient_layers(
         )
         if layer == 0:
             return _SCAN_FINISHED
-        position[_CURSOR_LAYER], position[_CURSOR_SET] = layer, set_index
-        position[_CURSOR_DEPTH] = 0
+        position[_POSITION_LAYER], position[_POSITION_SET] = layer, set_index
+        position[_POSITION_DEPTH] = 0
         support[:] = 0
         if layer == stop_layer and set_index == stop_set:
             return _SCAN_UNFINISHED
@@ -651,6 +653,7 @@ def _count_chunk_skipping(
     ``len(support) - 1`` while the scan visits last rows, and smaller while it chooses the rows
     before them.
     """
+    # Read the fields of the record once, since Numba counts references to its arrays at each read.
     table_bytes, offsets, block_bits = tables.tables, tables.offsets, tables.block_bits
     num_rows, total_width = step_rows.shape
     layer = len(support)
