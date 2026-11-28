@@ -1341,15 +1341,15 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
-        basis, view = args[0], args[7]
+        basis, tables = args[0], args[7]
         if scanned_index:
-            later_scans["with tables" if len(view.tables) else "without tables"] += 1
-        if len(view.tables):
+            later_scans["with tables" if len(tables.tables) else "without tables"] += 1
+        if len(tables.tables):
             returns_with_tables += returned_to_first_set
             own = completion_bounds.CompletionTables.build(
-                basis.rows[:, : basis.width], view.block_bits
+                basis.rows[:, : basis.width], tables.block_bits
             )
-            assert np.array_equal(view.tables, own.tables)
+            assert np.array_equal(tables.tables, own.tables)
         return scan_set(*args)
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", mixing_select)
