@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -36,9 +37,28 @@ _PackedMatrix = npt.NDArray[np.uint64]
 # stopping step, or at a word that is lighter than the target and nontrivial.
 _SCAN_FINISHED, _SCAN_UNFINISHED, _SCAN_FOUND_LIGHTER_WORD = 0, 1, 2
 
-# The positions in the cursor of a scan, which marks where a later call resumes it: the layer, the
-# set, and the depth within the current support of that layer.
+# The indices of the layer, the set, and the depth in the position of a ``_Cursor``.
 _CURSOR_LAYER, _CURSOR_SET, _CURSOR_DEPTH = 0, 1, 2
+
+
+class _Cursor(NamedTuple):
+    """Where a scan resumes: its step and depth, its support, and the prefix XORs of the support.
+
+    Attributes:
+        position: The layer, the set, and the depth, at the indices ``_CURSOR_LAYER``,
+            ``_CURSOR_SET``, and ``_CURSOR_DEPTH``.  The step is a pair of a layer and a set (see
+            ``_Steps``).  The depth is that of ``advance_support`` in the step's support, or -1
+            once the step has visited every support.
+        support: The step's support in its first ``layer`` entries, with an entry for each row of
+            the basis.
+        prefixes: Row ``level`` holds the XOR of the rows ``support[:level]`` of the step's set, as
+            ``advance_support`` describes, from a zero offset, in the machine words that the step
+            reads from it.  Its rows are as wide as the widest rows of a step.
+    """
+
+    position: npt.NDArray[np.int64]
+    support: npt.NDArray[np.int64]
+    prefixes: npt.NDArray[np.uint64]
 
 
 ####################################################################################################
@@ -107,13 +127,16 @@ def count_words(
     # chosen in Python, so a call that starts a step that may use tables ends with that step, and
     # any other call ends before the next such step.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
-    cursor = np.zeros(3, dtype=np.int64)
-    cursor[_CURSOR_LAYER] = 1
-    support = np.zeros(len(basis), dtype=np.int64)
-    prefixes = np.zeros((len(basis), step_tables.max_row_width), dtype=np.uint64)
+    position = np.zeros(3, dtype=np.int64)
+    position[_CURSOR_LAYER] = 1
+    cursor = _Cursor(
+        position,
+        np.zeros(len(basis), dtype=np.int64),
+        np.zeros((len(basis), step_tables.max_row_width), dtype=np.uint64),
+    )
     status = _SCAN_UNFINISHED
     while status == _SCAN_UNFINISHED:
-        step = int(cursor[_CURSOR_LAYER]), int(cursor[_CURSOR_SET])
+        step = int(cursor.position[_CURSOR_LAYER]), int(cursor.position[_CURSOR_SET])
         if step_tables.may_use_tables(*step):
             tables, step_rows = step_tables.select(*step)
             stop = steps.get_next(*step)
@@ -132,17 +155,13 @@ def count_words(
             max_exponent,
             reject_lighter,
             cursor,
-            support,
-            prefixes,
             histogram,
             tuning.scan_chunk_size,
             tuning.scan_chunks_per_call,
             stop[0],
             stop[1],
             step_rows,
-            tables.tables,
-            tables.offsets,
-            tables.block_bits,
+            tables,
         )
     return None if status == _SCAN_FOUND_LIGHTER_WORD else histogram
 
@@ -419,43 +438,39 @@ def _scan_coefficient_layers(
     complement: bool,
     max_exponent: int,
     reject_lighter: bool,
-    cursor: npt.NDArray[np.int64],
-    support: npt.NDArray[np.int64],
-    prefixes: npt.NDArray[np.uint64],
+    cursor: _Cursor,
     histogram: npt.NDArray[np.int64],
     chunk_size: int,
     max_chunks: int,
     stop_layer: int,
     stop_set: int,
     step_rows: _PackedMatrix,
-    tables: npt.NDArray[np.uint8],
-    offsets: npt.NDArray[np.int64],
-    block_bits: int,
+    tables: completion_bounds.CompletionTables,
 ) -> int:
     """Visit the supports of the steps from ``cursor`` on, for at most ``max_chunks`` chunks.
 
     The steps run in the order of ``_Steps``, and the call stops before ``(stop_layer, stop_set)``.
-    ``tables``, ``offsets``, and ``block_bits`` are the fields of the ``CompletionTables`` of a
-    step, or of ``NO_TABLES``.  A call with tables covers one step, whose rows, labels, and tails
-    ``step_rows`` holds; a call without ignores ``step_rows``.  The loop is a function of its own
-    so that it can be compiled, which saves a call from Python for every chunk.
+    ``tables`` are the ``CompletionTables`` of a step, or ``NO_TABLES``.  A call with tables covers
+    one step, whose rows, labels, and tails ``step_rows`` holds; a call without ignores
+    ``step_rows``.  The loop is a function of its own so that it can be compiled, which saves a call
+    from Python for every chunk.
 
-    Compiled code cannot be interrupted, so the scan resumes across calls.  ``cursor`` holds the
-    layer, the set, and the depth at which to resume, ``support[:layer]`` the current support, and
-    ``prefixes`` its prefix XORs.  Every call passes the same ``cursor``, ``support``, ``prefixes``,
-    and ``histogram``, and every call of a step the same tables.  The first call passes a cursor at
-    layer one, set zero, and depth zero, and zero prefixes.  Returns how the call ended, as a
-    ``_SCAN_*`` code.
+    Compiled code cannot be interrupted, so the scan resumes across calls from ``cursor``.  Every
+    call passes the same ``cursor`` and ``histogram``, and every call of a step the same tables.
+    The first call passes a cursor at layer one, set zero, and depth zero, and zero prefixes.
+    Returns how the call ended, as a ``_SCAN_*`` code.
     """
+    position, support, prefixes = cursor.position, cursor.support, cursor.prefixes
+    with_tables = len(tables.tables) > 0
     while True:
         # Visit the chunks of the step at the cursor.
-        layer = cursor[_CURSOR_LAYER]
-        set_index = cursor[_CURSOR_SET]
-        while cursor[_CURSOR_DEPTH] >= 0:
+        layer = position[_CURSOR_LAYER]
+        set_index = position[_CURSOR_SET]
+        while position[_CURSOR_DEPTH] >= 0:
             if max_chunks == 0:
                 return _SCAN_UNFINISHED
             max_chunks -= 1
-            if len(tables):
+            if with_tables:
                 depth, lighter = _count_chunk_skipping(
                     step_rows,
                     width,
@@ -464,7 +479,7 @@ def _scan_coefficient_layers(
                     set_index,
                     support[:layer],
                     prefixes,
-                    cursor[_CURSOR_DEPTH],
+                    position[_CURSOR_DEPTH],
                     target,
                     rank_rows,
                     complement,
@@ -473,8 +488,6 @@ def _scan_coefficient_layers(
                     reject_lighter,
                     chunk_size,
                     tables,
-                    offsets,
-                    block_bits,
                 )
             else:
                 depth, lighter = _count_chunk(
@@ -484,7 +497,7 @@ def _scan_coefficient_layers(
                     set_index,
                     support[:layer],
                     prefixes,
-                    cursor[_CURSOR_DEPTH],
+                    position[_CURSOR_DEPTH],
                     target,
                     rank_rows,
                     complement,
@@ -493,7 +506,7 @@ def _scan_coefficient_layers(
                     reject_lighter,
                     chunk_size,
                 )
-            cursor[_CURSOR_DEPTH] = depth
+            position[_CURSOR_DEPTH] = depth
             if lighter:
                 return _SCAN_FOUND_LIGHTER_WORD
 
@@ -503,7 +516,8 @@ def _scan_coefficient_layers(
         )
         if layer == 0:
             return _SCAN_FINISHED
-        cursor[_CURSOR_LAYER], cursor[_CURSOR_SET], cursor[_CURSOR_DEPTH] = layer, set_index, 0
+        position[_CURSOR_LAYER], position[_CURSOR_SET] = layer, set_index
+        position[_CURSOR_DEPTH] = 0
         support[:] = 0
         if layer == stop_layer and set_index == stop_set:
             return _SCAN_UNFINISHED
@@ -623,22 +637,21 @@ def _count_chunk_skipping(
     histogram: npt.NDArray[np.int64],
     reject_lighter: bool,
     chunk_size: int,
-    tables: npt.NDArray[np.uint8],
-    offsets: npt.NDArray[np.int64],
-    block_bits: int,
+    tables: completion_bounds.CompletionTables,
 ) -> tuple[int, bool]:
     """Visit a chunk of a layer of at least two rows of one set, skipping hopeless completions.
 
     The set's block is an information set.  The arguments are those of ``_count_chunk``, except for
-    ``step_rows``, ``label_end``, and the tables.  Each row of ``step_rows`` holds ``label_end``
+    ``step_rows``, ``label_end``, and ``tables``.  Each row of ``step_rows`` holds ``label_end``
     machine words of its word and label, then its tail, the row without its pivot columns.
-    ``tables``, ``offsets``, and ``block_bits`` index the tails.  Completions that the tables prove
-    heavier than ``target`` are skipped (``brouwer_zimmermann.md#sec-completion-contracts``).  So
-    words of weight ``target`` and lighter are visited as ``_count_chunk`` visits them.  A chunk
-    ends once its weighed supports and looked-up bounds reach ``chunk_size`` together.  ``depth`` is
+    ``tables`` are the completion tables of the tails.  Completions that the tables prove heavier
+    than ``target`` are skipped (``brouwer_zimmermann.md#sec-completion-contracts``).  So words of
+    weight ``target`` and lighter are visited as ``_count_chunk`` visits them.  A chunk ends once
+    its weighed supports and looked-up bounds reach ``chunk_size`` together.  ``depth`` is
     ``len(support) - 1`` while the scan visits last rows, and smaller while it chooses the rows
     before them.
     """
+    table_bytes, offsets, block_bits = tables.tables, tables.offsets, tables.block_bits
     num_rows, total_width = step_rows.shape
     layer = len(support)
     word = np.empty(width, dtype=np.uint64)
@@ -663,7 +676,7 @@ def _count_chunk_skipping(
             visited += 1
             prefix = prefixes[pair_depth]
             bound = get_completion_bound(
-                tables, offsets, block_bits, first, prefix[label_end:], limit
+                table_bytes, offsets, block_bits, first, prefix[label_end:], limit
             )
             if bound >= limit:
                 support[pair_depth] = num_rows

@@ -338,7 +338,7 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
     arguments = (step_rows, 1, 2, np.zeros((1, 0, 1), dtype=np.uint64), 0, support)
     rank_rows = np.zeros((0, 1), dtype=np.uint64)
     options = (rank_rows, False, 0, histogram)
-    table_arguments = (1 << 10, tables.tables, tables.offsets, tables.block_bits)
+    table_arguments = (1 << 10, tables)
 
     # Every word of two rows weighs at most six, so it is lighter than ten and nontrivial.
     depth, lighter = count_chunk(*arguments, prefixes, 0, 10, *options, True, *table_arguments)
