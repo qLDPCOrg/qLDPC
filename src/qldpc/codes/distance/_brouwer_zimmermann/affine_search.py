@@ -549,9 +549,8 @@ def _scan(
             if depth < 0:
                 return best, depth, evaluated, lookups, skipped
             # End the range once the fixed rows of the support pass ``last_item``, in
-            # lexicographic order.  The test stays here rather than in an inlined helper, whose
-            # arguments Numba counted references to at each head, which made scans on threads about
-            # a fifth slower.
+            # lexicographic order.  The test stays here because, in an inlined helper, Numba would
+            # count more references to the arrays, which threads that share them contend for.
             if ends_after_item:
                 for selected in range(len(last_item)):
                     if support[selected] != last_item[selected]:
