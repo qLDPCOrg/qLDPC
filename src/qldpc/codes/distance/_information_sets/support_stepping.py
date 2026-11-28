@@ -22,9 +22,9 @@ from qldpc._compilation import always_compiled
 class PackedBasis(NamedTuple):
     """A search basis, packed as compiled scans read it.
 
-    A word of the basis is an offset plus a sum of its rows.  In a search with deleted pivots, the
-    packed rows omit the pivot columns, and a word weighs its packed tail plus one for each of its
-    rows below ``rank``, the rows that have pivots
+    A word of the basis is an offset, which a scan keeps in row 0 of its prefixes, plus a sum of its
+    rows.  In a search with deleted pivots, the packed rows omit the pivot columns, and a word
+    weighs its packed tail plus one for each of its rows below ``rank``, the rows that have pivots
     (``brouwer_zimmermann.md#sec-packed-enumeration``).
 
     Attributes:

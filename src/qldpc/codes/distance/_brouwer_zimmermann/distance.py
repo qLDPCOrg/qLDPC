@@ -429,6 +429,7 @@ class _SectorSearch:
         ):
             return self._scan_set_on_threads(index, weight, tables)
         basis = self._get_packed_basis(index)
+        table_view = tables.view
         support = np.zeros(weight, dtype=np.int64)
         prefixes = np.zeros((weight + 1, instance.generators.shape[2]), dtype=np.uint64)
 
@@ -443,7 +444,7 @@ class _SectorSearch:
                 self.best,
                 self._scan_cutoff,
                 self.batch_size,
-                tables.view,
+                table_view,
             )
             if self.best <= self.cutoff:
                 return False

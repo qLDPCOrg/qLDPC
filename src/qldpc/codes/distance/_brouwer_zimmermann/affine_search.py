@@ -185,12 +185,12 @@ def _scan_set_chunk(
 
     ``ends_after_item``, which both pass as a constant, is True for ``scan_set_items``, and
     ``_scan`` reads ``last_item`` only then.  This function runs ``_scan`` with one of two sets of
-    flags: one for a full set, whose every row has a pivot, and one for any other set.
+    flags: one for a full set, whose every row has a pivot, so that its scan needs no rank, and one
+    for any other set.
     """
     # The scan weighs no X parts and records nothing, so placeholders fill those arguments.  The
     # skip bound is the best weight at the start, which the best weight never exceeds, so the scan
-    # skips only completions that cannot lower the best weight.  Every row of a full set has a
-    # pivot, so its scan needs no rank.
+    # skips only completions that cannot lower the best weight.
     workspace = ScanWorkspace(support, prefixes, prefixes[0], support)
     if basis.rank == basis.rows.shape[0]:
         return _scan(
@@ -269,7 +269,7 @@ def scan_coset_layer(
     # Placeholders fill the arguments that ``_scan`` neither reads nor writes under the flags of
     # this call.
     best, _, weighed, _, _ = _scan(
-        PackedBasis(rows, rows, width, width),
+        PackedBasis(rows, rows, 0, width),
         ScanWorkspace(support, prefixes, representative, support),
         NO_TABLE_VIEW,
         representative,
@@ -314,7 +314,7 @@ def scan_coset_layer_by_css_weight(
     # Placeholders fill the arguments that ``_scan`` neither reads nor writes under the flags of
     # this call.
     best, _, weighed, _, _ = _scan(
-        PackedBasis(rows, rows, width, width),
+        PackedBasis(rows, rows, 0, width),
         ScanWorkspace(support, prefixes, representative, support),
         NO_TABLE_VIEW,
         x_mask,
@@ -457,8 +457,8 @@ class ScanWorkspace(NamedTuple):
     """The arrays that a scan writes: its position, and its records of the lightest word.
 
     Attributes:
-        support: The row indices of the current support, one for each row of the supports of the
-            layer.
+        support: The row indices of the current support.  A scan covers the layer of
+            ``len(support)`` rows.
         prefixes: Row ``level`` holds the offset plus the rows ``support[:level]``, as
             ``support_stepping.advance_support`` describes.
         representative: The lightest word found, which only scans that record words write.
@@ -526,9 +526,10 @@ def _scan(
     """
     # Read the fields of the records once.  Reading them in the loops would count references to
     # their arrays at each read, and threads that share the arrays would contend for the counts.
-    rows, labels, rank, width = basis
-    support, prefixes, representative, best_support = workspace
-    table_bytes, table_offsets, block_bits = tables
+    rows, labels, rank, width = basis.rows, basis.labels, basis.rank, basis.width
+    support, prefixes = workspace.support, workspace.prefixes
+    representative, best_support = workspace.representative, workspace.best_support
+    table_bytes, table_offsets, block_bits = tables.tables, tables.offsets, tables.block_bits
     num_rows = rows.shape[0]
     weight = len(support)
     # With pair steps, the scan steps through heads, the first ``weight - 1`` rows of each support,
@@ -550,7 +551,7 @@ def _scan(
                 return best, depth, evaluated, lookups, skipped
             # End the range once the fixed rows of the support pass ``last_item``, in
             # lexicographic order.  The test stays here because, in an inlined helper, Numba would
-            # count more references to the arrays, which threads that share them contend for.
+            # count references at each head.
             if ends_after_item:
                 for selected in range(len(last_item)):
                     if support[selected] != last_item[selected]:

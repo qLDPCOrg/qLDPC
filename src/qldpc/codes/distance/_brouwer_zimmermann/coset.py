@@ -669,12 +669,12 @@ def _search_coset(
 ) -> tuple[int, int]:
     """Search the coset of a syndrome for a word of weight at most ``max_weight``.
 
-    Machine word ``j`` of ``packed_syndrome`` holds bits ``64 j`` and up of the syndrome.
-    ``tables`` are the tables of the search, and a query may update the cached stopping steps of
-    ``tables.planning``.  A word weighs its CSS weight if ``scale`` is zero, and otherwise the
-    Hamming weight of its embedded word divided by ``scale``: two for the physical weight of a Pauli
-    error, and one for an X or Z part.  ``tails`` is None, or the record of tails of a route by
-    tails (``brouwer_zimmermann_code.md#sec-heuristics``); with tails, ``scale`` is one or two.
+    Machine word ``j`` of ``packed_syndrome`` holds bits ``64 j`` and up of the syndrome.  A query
+    may update the cached stopping steps of ``tables.planning``.  A word weighs its CSS weight if
+    ``scale`` is zero, and otherwise the Hamming weight of its embedded word divided by ``scale``:
+    two for the physical weight of a Pauli error, and one for an X or Z part.  ``tails`` is None, or
+    the record of tails of a route by tails (``brouwer_zimmermann_code.md#sec-heuristics``); with
+    tails, ``scale`` is one or two.
 
     The search starts from the word of the syndrome, and visits layer zero of the sets that it uses,
     then layer one, and so on, up to its stopping step, until it finds a word within ``max_weight``
@@ -748,9 +748,10 @@ def _search_from_syndrome_word(
         the query for ``split_work``, and the number of supports skipped.  Only tests read the
         number of supports skipped, which they cannot count by wrapping compiled calls.
     """
+    generators, pivots = tables.generators, tables.pivots
+
     # Make room for the offset of each set, or, by tails, for its tail, which the search computes
     # from the word of the syndrome in ``best`` as it reaches the set (see ``_prepare_offsets``).
-    generators, pivots = tables.generators, tables.pivots
     num_sets, num_rows, _ = generators.shape
     offsets, width, ranks = _get_offset_buffer(tables, tails)
     num_ready = 0
@@ -919,8 +920,8 @@ def _search_coset_for_min_weight(
     upper_bound = min(best_weight, max_weight + 1)
     stop_layer, stop_num_completed = get_first_step_reaching(bounds, upper_bound)
 
-    # Visit each layer one set at a time, up to the stopping step, with ``best`` and the arrays of
-    # ``workspace`` as work space.  The loop ends by the last layer, whose bounds
+    # Visit each layer one set at a time, up to the stopping step, with the arrays of ``workspace``,
+    # which include ``best``, as work space.  The loop ends by the last layer, whose bounds
     # ``certificates.NO_WORD_BOUND`` exceed ``U``, since
     # ``BrouwerZimmermannCosetSearch.get_min_weights`` keeps ``max_weight`` at most ``n``.
     weighed, skipped = 0, 0
@@ -1016,7 +1017,8 @@ def _get_scan_workspace(
     """Allocate the workspace of the scans of a query, for sets of ``num_rows`` rows.
 
     The prefixes have ``width`` packed words, as ``_get_offset_buffer`` gives, and the lightest word
-    of a scan of whole words goes into ``best``.
+    of a scan of whole words goes into ``best``.  ``support`` and ``best_support`` have ``num_rows``
+    entries, room for a support in any layer.
     """
     return affine_search.ScanWorkspace(
         np.empty(num_rows, dtype=np.int64),
@@ -1082,10 +1084,11 @@ def _scan_step(
     """Weigh the words of a set in a layer, with the scan of ``affine_search`` that fits the route.
 
     ``offsets``, ``width``, and ``ranks`` are those of ``_get_offset_buffer``, with the offset of
-    the set computed by ``_prepare_offsets``, and ``workspace`` is that of ``_get_scan_workspace``.
-    The other arguments are those of the scans and of ``_search_coset``.  In a layer above zero, a
-    scan of whole words writes the lightest word that it finds into ``workspace.representative``,
-    and a scan by tails its support into ``workspace.best_support``.
+    the set computed by ``_prepare_offsets``, and ``workspace`` is that of ``_get_scan_workspace``,
+    whose first ``layer`` entries of ``support`` the scan takes.  The other arguments are those of
+    the scans and of ``_search_coset``.  In a layer above zero, a scan of whole words writes the
+    lightest word that it finds into ``workspace.representative``, and a scan by tails its support
+    into ``workspace.best_support``.
 
     Returns:
         In the units of the scans, the weight of the offset in layer zero, and in a later layer the

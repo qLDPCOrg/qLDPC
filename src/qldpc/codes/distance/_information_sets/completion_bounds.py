@@ -87,7 +87,7 @@ class CompletionTables:
 
 
 class CompletionTableView(NamedTuple):
-    """The fields of a ``CompletionTables``, as one argument of compiled code.
+    """The tables, block offsets, and block width of completion tables, as one argument.
 
     ``NO_TABLE_VIEW`` is the view of tables that bound nothing.
     """
